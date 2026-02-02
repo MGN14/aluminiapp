@@ -1,288 +1,303 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-import { Button } from '@/components/ui/button';
+import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import PDFUploader from '@/components/PDFUploader';
-import TransactionTable from '@/components/TransactionTable';
-import { FileSpreadsheet, LogOut, Download, FileText, Loader2 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import * as XLSX from 'xlsx';
+import { 
+  TrendingUp, 
+  TrendingDown, 
+  Wallet, 
+  Flame, 
+  Receipt,
+  Loader2,
+  ArrowUpRight,
+  ArrowDownRight
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
 
-interface Transaction {
-  id: string;
-  date: string;
-  description: string;
-  debit: number | null;
-  credit: number | null;
-  balance: number | null;
-  category: string | null;
+interface Metrics {
+  totalIngresos: number;
+  totalEgresos: number;
+  saldo: number;
+  burnRate: number;
+  ivaEstimado: number;
+  transactionCount: number;
 }
 
-interface Statement {
-  id: string;
-  file_name: string;
-  uploaded_at: string;
-  processed: boolean;
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 export default function Dashboard() {
-  const { user, signOut } = useAuth();
-  const { toast } = useToast();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [statements, setStatements] = useState<Statement[]>([]);
-  const [selectedStatement, setSelectedStatement] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<Metrics>({
+    totalIngresos: 0,
+    totalEgresos: 0,
+    saldo: 0,
+    burnRate: 0,
+    ivaEstimado: 0,
+    transactionCount: 0,
+  });
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
-    fetchStatements();
+    fetchMetrics();
   }, []);
 
-  useEffect(() => {
-    if (selectedStatement) {
-      fetchTransactions(selectedStatement);
-    }
-  }, [selectedStatement]);
-
-  const fetchStatements = async () => {
+  const fetchMetrics = async () => {
     try {
       const { data, error } = await supabase
-        .from('bank_statements')
-        .select('*')
-        .order('uploaded_at', { ascending: false });
+        .from('transactions')
+        .select('amount, vat_amount, affects_dian, date');
 
       if (error) throw error;
-      setStatements(data || []);
-      
-      if (data && data.length > 0) {
-        setSelectedStatement(data[0].id);
+
+      if (!data || data.length === 0) {
+        setLoading(false);
+        return;
       }
+
+      // Calculate metrics
+      const totalIngresos = data
+        .filter(tx => (tx.amount ?? 0) > 0)
+        .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
+
+      const totalEgresos = Math.abs(
+        data
+          .filter(tx => (tx.amount ?? 0) < 0)
+          .reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
+      );
+
+      const saldo = totalIngresos - totalEgresos;
+
+      // Calculate burn rate (average monthly expenses)
+      // Group expenses by month and average
+      const now = new Date();
+      const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      const recentExpenses = data.filter(tx => {
+        const txDate = new Date(tx.date);
+        return (tx.amount ?? 0) < 0 && txDate >= threeMonthsAgo;
+      });
+      
+      const burnRate = recentExpenses.length > 0 
+        ? Math.abs(recentExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / 3
+        : totalEgresos;
+
+      // IVA estimado (suma de vat_amount donde affects_dian = true)
+      const ivaEstimado = data
+        .filter(tx => tx.affects_dian)
+        .reduce((sum, tx) => sum + (tx.vat_amount ?? 0), 0);
+
+      setMetrics({
+        totalIngresos,
+        totalEgresos,
+        saldo,
+        burnRate,
+        ivaEstimado,
+        transactionCount: data.length,
+      });
     } catch (error) {
-      console.error('Error fetching statements:', error);
+      console.error('Error fetching metrics:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchTransactions = async (statementId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('statement_id', statementId)
-        .order('date', { ascending: false });
-
-      if (error) throw error;
-      setTransactions(data || []);
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-    }
-  };
-
-  const handleUploadComplete = async (statementId: string) => {
-    setProcessing(true);
-    toast({
-      title: 'Procesando extracto',
-      description: 'Estamos extrayendo las transacciones del PDF...',
-    });
-
-    // Simulate processing (in real app, this would call an edge function)
-    // For MVP, we'll add sample transactions to demonstrate the flow
-    try {
-      const sampleTransactions = [
-        { date: '2024-01-15', description: 'TRANSFERENCIA RECIBIDA CLIENTE ABC', debit: null, credit: 5500000, balance: 12500000 },
-        { date: '2024-01-14', description: 'PAGO PROVEEDOR XYZ SAS', debit: 2300000, credit: null, balance: 7000000 },
-        { date: '2024-01-12', description: 'NOMINA ENERO 2024', debit: 4500000, credit: null, balance: 9300000 },
-        { date: '2024-01-10', description: 'PAGO SERVICIOS PUBLICOS', debit: 850000, credit: null, balance: 13800000 },
-        { date: '2024-01-08', description: 'TRANSFERENCIA RECIBIDA VENTA #1234', debit: null, credit: 3200000, balance: 14650000 },
-        { date: '2024-01-05', description: 'PAGO ARRIENDO LOCAL COMERCIAL', debit: 2800000, credit: null, balance: 11450000 },
-        { date: '2024-01-03', description: 'COMISION BANCARIA', debit: 45000, credit: null, balance: 14250000 },
-        { date: '2024-01-02', description: 'TRANSFERENCIA RECIBIDA FACTURA #567', debit: null, credit: 8900000, balance: 14295000 },
-      ];
-
-      for (const tx of sampleTransactions) {
-        await supabase.from('transactions').insert({
-          user_id: user!.id,
-          statement_id: statementId,
-          ...tx,
-        });
-      }
-
-      await supabase
-        .from('bank_statements')
-        .update({ processed: true })
-        .eq('id', statementId);
-
-      setSelectedStatement(statementId);
-      await fetchStatements();
-      await fetchTransactions(statementId);
-
-      toast({
-        title: '¡Extracto procesado!',
-        description: 'Las transacciones están listas para revisar.',
-      });
-    } catch (error) {
-      console.error('Processing error:', error);
-      toast({
-        title: 'Error al procesar',
-        description: 'Hubo un problema procesando el extracto.',
-        variant: 'destructive',
-      });
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleExport = () => {
-    if (transactions.length === 0) {
-      toast({
-        title: 'Sin datos',
-        description: 'No hay transacciones para exportar.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    const exportData = transactions.map(tx => ({
-      Fecha: tx.date,
-      Descripción: tx.description,
-      Débito: tx.debit || '',
-      Crédito: tx.credit || '',
-      Saldo: tx.balance || '',
-      Categoría: tx.category || '',
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Transacciones');
-    
-    const fileName = `transacciones_${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-
-    toast({
-      title: 'Exportación exitosa',
-      description: `Archivo ${fileName} descargado.`,
-    });
-  };
-
-  const handleSignOut = async () => {
-    await signOut();
-  };
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg gradient-brand flex items-center justify-center">
-              <FileSpreadsheet className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold text-foreground">AluminIA</span>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground hidden sm:block">
-              {user?.email}
-            </span>
-            <Button variant="ghost" size="sm" onClick={handleSignOut}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Salir
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        <div className="max-w-6xl mx-auto space-y-8">
-          {/* Upload Section */}
-          <section className="animate-fade-in">
-            <h1 className="text-2xl font-bold text-foreground mb-2">
-              Bienvenido a AluminIA
-            </h1>
-            <p className="text-muted-foreground mb-6">
-              Sube tu extracto bancario de Bancolombia para extraer y organizar tus transacciones.
+    <AppLayout>
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+            <p className="text-muted-foreground">
+              Resumen financiero de tus movimientos
             </p>
-            <PDFUploader onUploadComplete={handleUploadComplete} />
-          </section>
+          </div>
+          <Link to="/statement-upload">
+            <Button>
+              Subir Extracto
+            </Button>
+          </Link>
+        </div>
 
-          {/* Statements List */}
-          {statements.length > 0 && (
-            <section className="animate-slide-up">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-foreground">
-                  Extractos cargados
-                </h2>
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-2">
-                {statements.map((statement) => (
-                  <button
-                    key={statement.id}
-                    onClick={() => setSelectedStatement(statement.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all whitespace-nowrap ${
-                      selectedStatement === statement.id
-                        ? 'border-accent bg-accent/10 text-accent'
-                        : 'border-border bg-card hover:border-accent/50'
-                    }`}
-                  >
-                    <FileText className="h-4 w-4" />
-                    <span className="text-sm font-medium">{statement.file_name}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Transactions Section */}
-          {selectedStatement && (
-            <section className="animate-slide-up">
+        {metrics.transactionCount === 0 ? (
+          <Card className="animate-fade-in">
+            <CardContent className="py-12 text-center">
+              <Wallet className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-foreground mb-2">
+                No hay datos aún
+              </h3>
+              <p className="text-muted-foreground mb-6">
+                Sube tu primer extracto bancario para ver tus métricas financieras.
+              </p>
+              <Link to="/statement-upload">
+                <Button>Subir Extracto</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Main Metrics Grid */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 animate-fade-in">
+              {/* Total Ingresos */}
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-4">
-                  <CardTitle className="text-lg">Transacciones</CardTitle>
-                  <Button 
-                    onClick={handleExport} 
-                    disabled={transactions.length === 0}
-                    size="sm"
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Exportar Excel
-                  </Button>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Total Ingresos
+                  </CardTitle>
+                  <div className="p-2 rounded-lg bg-success/10">
+                    <TrendingUp className="h-4 w-4 text-success" />
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  {processing ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-accent" />
-                      <span className="ml-3 text-muted-foreground">Procesando extracto...</span>
-                    </div>
-                  ) : (
-                    <TransactionTable 
-                      transactions={transactions} 
-                      onTransactionUpdate={() => fetchTransactions(selectedStatement)}
-                    />
-                  )}
+                  <div className="text-2xl font-bold text-success">
+                    {formatCurrency(metrics.totalIngresos)}
+                  </div>
+                  <div className="flex items-center text-xs text-muted-foreground mt-1">
+                    <ArrowUpRight className="h-3 w-3 mr-1 text-success" />
+                    Entradas de dinero
+                  </div>
                 </CardContent>
               </Card>
-            </section>
-          )}
 
-          {/* Empty State */}
-          {!loading && statements.length === 0 && (
-            <Card className="animate-fade-in">
-              <CardContent className="py-12 text-center">
-                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-foreground mb-2">
-                  No tienes extractos aún
-                </h3>
-                <p className="text-muted-foreground">
-                  Sube tu primer extracto de Bancolombia para comenzar a organizar tus finanzas.
-                </p>
+              {/* Total Egresos */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Total Egresos
+                  </CardTitle>
+                  <div className="p-2 rounded-lg bg-destructive/10">
+                    <TrendingDown className="h-4 w-4 text-destructive" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-destructive">
+                    {formatCurrency(metrics.totalEgresos)}
+                  </div>
+                  <div className="flex items-center text-xs text-muted-foreground mt-1">
+                    <ArrowDownRight className="h-3 w-3 mr-1 text-destructive" />
+                    Salidas de dinero
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Saldo */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Saldo Neto
+                  </CardTitle>
+                  <div className="p-2 rounded-lg bg-accent/10">
+                    <Wallet className="h-4 w-4 text-accent" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${metrics.saldo >= 0 ? 'text-success' : 'text-destructive'}`}>
+                    {formatCurrency(metrics.saldo)}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Ingresos - Egresos
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Burn Rate */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Burn Rate Mensual
+                  </CardTitle>
+                  <div className="p-2 rounded-lg bg-destructive/10">
+                    <Flame className="h-4 w-4 text-destructive" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-foreground">
+                    {formatCurrency(metrics.burnRate)}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Promedio de gastos mensuales
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* IVA Estimado */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    IVA Estimado por Pagar
+                  </CardTitle>
+                  <div className="p-2 rounded-lg bg-accent/10">
+                    <Receipt className="h-4 w-4 text-accent" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-foreground">
+                    {formatCurrency(metrics.ivaEstimado)}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Suma IVA donde afecta DIAN
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Transaction Count */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Transacciones
+                  </CardTitle>
+                  <div className="p-2 rounded-lg bg-muted">
+                    <Receipt className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-foreground">
+                    {metrics.transactionCount}
+                  </div>
+                  <Link to="/transactions" className="text-xs text-accent hover:underline mt-1 inline-block">
+                    Ver todas →
+                  </Link>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Quick Actions */}
+            <Card className="animate-slide-up">
+              <CardHeader>
+                <CardTitle className="text-lg">Acciones Rápidas</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-3">
+                  <Link to="/statement-upload">
+                    <Button variant="outline">Subir Extracto</Button>
+                  </Link>
+                  <Link to="/transactions">
+                    <Button variant="outline">Ver Transacciones</Button>
+                  </Link>
+                  <Link to="/export">
+                    <Button variant="outline">Exportar Excel</Button>
+                  </Link>
+                </div>
               </CardContent>
             </Card>
-          )}
-        </div>
-      </main>
-    </div>
+          </>
+        )}
+      </div>
+    </AppLayout>
   );
 }
