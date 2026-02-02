@@ -16,8 +16,12 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "react": path.resolve(__dirname, "./node_modules/react"),
-      "react-dom": path.resolve(__dirname, "./node_modules/react-dom"),
     },
+    // Prevent loading multiple copies of React (common cause of "Invalid hook call")
+    dedupe: ["react", "react-dom"],
+  },
+  optimizeDeps: {
+    // Help Vite prebundle React consistently across dependencies
+    include: ["react", "react-dom", "react/jsx-runtime", "react-dom/client"],
   },
 }));
