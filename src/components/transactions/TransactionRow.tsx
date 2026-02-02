@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Transaction, Category, Responsible } from '@/types/transaction';
 import { TableCell, TableRow } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
+
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
@@ -132,7 +132,11 @@ export default function TransactionRow({
       <TableCell className="text-center w-[45px]">
         <Checkbox
           checked={transaction.has_iva}
-          onCheckedChange={(checked) => handleUpdate({ has_iva: checked as boolean })}
+          onCheckedChange={(checked) => {
+            const hasIva = checked as boolean;
+            const ivaAmount = hasIva ? Math.abs(transaction.amount ?? 0) * 0.10 : 0;
+            handleUpdate({ has_iva: hasIva, iva_amount: ivaAmount });
+          }}
         />
       </TableCell>
       
@@ -143,21 +147,18 @@ export default function TransactionRow({
       <TableCell className="text-center w-[45px]">
         <Checkbox
           checked={transaction.has_retefuente}
-          onCheckedChange={(checked) => handleUpdate({ has_retefuente: checked as boolean })}
+          onCheckedChange={(checked) => {
+            const hasRete = checked as boolean;
+            const amount = transaction.amount ?? 0;
+            // Retefuente solo aplica a egresos (monto negativo)
+            const reteAmount = hasRete && amount < 0 ? Math.abs(amount) * 0.025 : 0;
+            handleUpdate({ has_retefuente: hasRete, retefuente_amount: reteAmount });
+          }}
         />
       </TableCell>
       
       <TableCell className="text-right text-xs w-[80px] text-muted-foreground">
         {transaction.retefuente_amount > 0 ? formatCurrency(transaction.retefuente_amount) : '-'}
-      </TableCell>
-      
-      <TableCell className="w-[120px]">
-        <Input
-          value={transaction.notes || ''}
-          onChange={(e) => handleUpdate({ notes: e.target.value })}
-          placeholder="Notas"
-          className="h-7 text-xs border-transparent hover:border-border focus:border-border"
-        />
       </TableCell>
     </TableRow>
   );

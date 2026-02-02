@@ -203,7 +203,6 @@ export default function Transactions() {
                         <TableHead className="text-right w-[80px]">$ IVA</TableHead>
                         <TableHead className="text-center w-[45px]">Rete</TableHead>
                         <TableHead className="text-right w-[80px]">$ Rete</TableHead>
-                        <TableHead className="w-[120px]">Notas</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
