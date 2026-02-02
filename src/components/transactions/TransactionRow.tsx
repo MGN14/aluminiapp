@@ -134,7 +134,7 @@ export default function TransactionRow({
           checked={transaction.has_iva}
           onCheckedChange={(checked) => {
             const hasIva = checked as boolean;
-            const ivaAmount = hasIva ? Math.abs(transaction.amount ?? 0) * 0.10 : 0;
+            const ivaAmount = hasIva ? Math.abs(transaction.amount ?? 0) * 0.19 : 0;
             handleUpdate({ has_iva: hasIva, iva_amount: ivaAmount });
           }}
         />
