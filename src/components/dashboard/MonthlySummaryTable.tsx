@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ExternalLink, FileText } from 'lucide-react';
 import { getCuatrimestreForPeriod, getMonthPeriod, MONTH_NAMES } from '@/types/transaction';
-
 interface TransactionData {
   id: string;
   date: string;
@@ -20,23 +19,24 @@ interface TransactionData {
   iva_amount: number;
   retefuente_amount: number;
 }
-
 interface MonthlySummaryTableProps {
   transactions: TransactionData[];
   selectedMonth: number;
   selectedYear: number;
 }
-
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',
     currency: 'COP',
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 0
   }).format(value);
 }
-
-export function MonthlySummaryTable({ transactions, selectedMonth, selectedYear }: MonthlySummaryTableProps) {
+export function MonthlySummaryTable({
+  transactions,
+  selectedMonth,
+  selectedYear
+}: MonthlySummaryTableProps) {
   const monthPeriod = useMemo(() => getMonthPeriod(selectedMonth, selectedYear), [selectedMonth, selectedYear]);
   const cuatrimestre = useMemo(() => getCuatrimestreForPeriod(selectedMonth, selectedYear), [selectedMonth, selectedYear]);
 
@@ -58,30 +58,18 @@ export function MonthlySummaryTable({ transactions, selectedMonth, selectedYear 
 
   // Calculate metrics
   const metrics = useMemo(() => {
-    const totalIngresos = monthTransactions
-      .filter(tx => (tx.amount ?? 0) > 0)
-      .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-
-    const totalEgresos = Math.abs(
-      monthTransactions
-        .filter(tx => (tx.amount ?? 0) < 0)
-        .reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
-    );
-
+    const totalIngresos = monthTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
+    const totalEgresos = Math.abs(monthTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0));
     const netoMes = totalIngresos - totalEgresos;
 
     // IVA acumulado del cuatrimestre
-    const ivaAcumulado = cuatrimestreTransactions
-      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
+    const ivaAcumulado = cuatrimestreTransactions.reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
 
     // Retefuente del mes
-    const retefuenteMes = monthTransactions
-      .reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
+    const retefuenteMes = monthTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
 
     // Pendientes por conciliar
-    const pendientesConciliar = monthTransactions
-      .filter(tx => !tx.responsible_id).length;
-
+    const pendientesConciliar = monthTransactions.filter(tx => !tx.responsible_id).length;
     return {
       totalIngresos,
       totalEgresos,
@@ -89,12 +77,10 @@ export function MonthlySummaryTable({ transactions, selectedMonth, selectedYear 
       ivaAcumulado,
       retefuenteMes,
       pendientesConciliar,
-      totalTransacciones: monthTransactions.length,
+      totalTransacciones: monthTransactions.length
     };
   }, [monthTransactions, cuatrimestreTransactions]);
-
-  return (
-    <div className="space-y-6">
+  return <div className="space-y-6">
       {/* Summary Card */}
       <Card>
         <CardHeader>
@@ -119,12 +105,12 @@ export function MonthlySummaryTable({ transactions, selectedMonth, selectedYear 
                 {formatCurrency(metrics.netoMes)}
               </p>
             </div>
-            <div className="text-center p-4 bg-accent/10 rounded-lg">
-              <p className="text-sm text-muted-foreground">IVA ({cuatrimestre.label})</p>
+            <div className="text-center p-4 rounded-lg bg-warning">
+              <p className="text-sm text-primary-foreground">IVA ({cuatrimestre.label})</p>
               <p className="text-xl font-bold text-accent">{formatCurrency(metrics.ivaAcumulado)}</p>
             </div>
-            <div className="text-center p-4 bg-accent/10 rounded-lg">
-              <p className="text-sm text-muted-foreground">Retefuente (2.5%)</p>
+            <div className="text-center p-4 rounded-lg bg-card-foreground">
+              <p className="text-sm text-primary-foreground">Retefuente (2.5%)</p>
               <p className="text-xl font-bold text-accent">{formatCurrency(metrics.retefuenteMes)}</p>
             </div>
             <div className="text-center p-4 bg-muted rounded-lg">
@@ -148,12 +134,9 @@ export function MonthlySummaryTable({ transactions, selectedMonth, selectedYear 
           </Link>
         </CardHeader>
         <CardContent>
-          {monthTransactions.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+          {monthTransactions.length === 0 ? <div className="text-center py-8 text-muted-foreground">
               No hay transacciones para este mes
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
+            </div> : <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -165,13 +148,13 @@ export function MonthlySummaryTable({ transactions, selectedMonth, selectedYear 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {monthTransactions
-                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                    .slice(0, 20) // Show first 20
-                    .map(tx => (
-                      <TableRow key={tx.id}>
+                  {monthTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 20) // Show first 20
+              .map(tx => <TableRow key={tx.id}>
                         <TableCell className="font-mono text-sm">
-                          {new Date(tx.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                          {new Date(tx.date).toLocaleDateString('es-CO', {
+                    day: '2-digit',
+                    month: 'short'
+                  })}
                         </TableCell>
                         <TableCell className="max-w-[400px]">
                           <span className="block truncate" title={tx.description}>
@@ -182,41 +165,28 @@ export function MonthlySummaryTable({ transactions, selectedMonth, selectedYear 
                           {formatCurrency(tx.amount ?? 0)}
                         </TableCell>
                         <TableCell>
-                          {tx.category ? (
-                            <Badge variant="secondary" className="text-xs">
+                          {tx.category ? <Badge variant="secondary" className="text-xs">
                               {tx.category}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
+                            </Badge> : <span className="text-muted-foreground text-xs">—</span>}
                         </TableCell>
                         <TableCell className="text-center">
-                          {tx.responsible_id ? (
-                            <Badge variant="default" className="bg-success text-success-foreground">
+                          {tx.responsible_id ? <Badge variant="default" className="bg-success text-success-foreground">
                               Conciliado
-                            </Badge>
-                          ) : (
-                            <Badge variant="destructive">
+                            </Badge> : <Badge variant="destructive">
                               Pendiente
-                            </Badge>
-                          )}
+                            </Badge>}
                         </TableCell>
-                      </TableRow>
-                    ))}
+                      </TableRow>)}
                 </TableBody>
               </Table>
-              {monthTransactions.length > 20 && (
-                <div className="text-center py-4 text-muted-foreground text-sm">
+              {monthTransactions.length > 20 && <div className="text-center py-4 text-muted-foreground text-sm">
                   Mostrando 20 de {monthTransactions.length} transacciones.{' '}
                   <Link to="/transactions" className="text-accent hover:underline">
                     Ver todas →
                   </Link>
-                </div>
-              )}
-            </div>
-          )}
+                </div>}
+            </div>}
         </CardContent>
       </Card>
-    </div>
-  );
+    </div>;
 }
