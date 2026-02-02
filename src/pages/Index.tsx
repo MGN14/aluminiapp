@@ -1,10 +1,8 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { FileSpreadsheet, Upload, TableProperties, Download, ArrowRight, Shield, Zap, CheckCircle } from 'lucide-react';
-
 export default function Index() {
-  return (
-    <div className="min-h-screen bg-background">
+  return <div className="min-h-screen bg-background">
       {/* Navigation */}
       <nav className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -42,7 +40,7 @@ export default function Index() {
             
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 text-balance">
               Convierte tus extractos de{' '}
-              <span className="text-accent">Bancolombia</span>{' '}
+              <span className="text-success">Bancolombia</span>{' '}
               en datos organizados
             </h1>
             
@@ -96,7 +94,9 @@ export default function Index() {
             </div>
 
             {/* Step 2 */}
-            <div className="bg-card rounded-xl p-8 border border-border shadow-sm hover:shadow-md transition-shadow animate-slide-up" style={{ animationDelay: '0.1s' }}>
+            <div className="bg-card rounded-xl p-8 border border-border shadow-sm hover:shadow-md transition-shadow animate-slide-up" style={{
+            animationDelay: '0.1s'
+          }}>
               <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center mb-6">
                 <TableProperties className="w-7 h-7 text-accent" />
               </div>
@@ -110,7 +110,9 @@ export default function Index() {
             </div>
 
             {/* Step 3 */}
-            <div className="bg-card rounded-xl p-8 border border-border shadow-sm hover:shadow-md transition-shadow animate-slide-up" style={{ animationDelay: '0.2s' }}>
+            <div className="bg-card rounded-xl p-8 border border-border shadow-sm hover:shadow-md transition-shadow animate-slide-up" style={{
+            animationDelay: '0.2s'
+          }}>
               <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center mb-6">
                 <Download className="w-7 h-7 text-accent" />
               </div>
@@ -167,9 +169,9 @@ export default function Index() {
                 </div>
               </div>
 
-              <div className="bg-muted/50 rounded-2xl p-8 border border-border animate-slide-up">
+              <div className="bg-muted/50 rounded-2xl p-8 border border-border animate-slide-up text-warning-foreground">
                 <div className="flex items-center gap-3 mb-6">
-                  <Zap className="w-8 h-8 text-accent" />
+                  <Zap className="w-8 h-8 text-foreground" />
                   <div>
                     <div className="text-2xl font-bold text-foreground">MVP</div>
                     <div className="text-sm text-muted-foreground">Primera versión</div>
@@ -223,6 +225,5 @@ export default function Index() {
           </div>
         </div>
       </footer>
-    </div>
-  );
+    </div>;
 }
