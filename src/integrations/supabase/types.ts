@@ -159,6 +159,7 @@ export type Database = {
           iva_rate: number
           iva_type: string | null
           notes: string | null
+          operational_type: string | null
           owner: string | null
           raw_line: string | null
           responsible_id: string | null
@@ -187,6 +188,7 @@ export type Database = {
           iva_rate?: number
           iva_type?: string | null
           notes?: string | null
+          operational_type?: string | null
           owner?: string | null
           raw_line?: string | null
           responsible_id?: string | null
@@ -215,6 +217,7 @@ export type Database = {
           iva_rate?: number
           iva_type?: string | null
           notes?: string | null
+          operational_type?: string | null
           owner?: string | null
           raw_line?: string | null
           responsible_id?: string | null

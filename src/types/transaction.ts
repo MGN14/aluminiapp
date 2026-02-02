@@ -1,5 +1,6 @@
 export type TransactionType = 'compra' | 'venta';
 export type IvaType = 'credito' | 'debito' | null;
+export type OperationalType = 'ingreso' | 'costo' | 'gasto_operativo' | 'impuesto' | 'transferencia' | 'ajuste' | 'otros';
 
 export interface Transaction {
   id: string;
@@ -15,6 +16,7 @@ export interface Transaction {
   owner: string | null;
   responsible_id: string | null;
   transaction_type: TransactionType;
+  operational_type: OperationalType | null;
   has_iva: boolean;
   iva_rate: number;
   iva_amount: number;
