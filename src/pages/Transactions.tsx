@@ -195,14 +195,16 @@ export default function Transactions() {
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead className="w-[80px]">Fecha</TableHead>
-                        <TableHead className="min-w-[250px]">Descripción</TableHead>
-                        <TableHead className="text-right w-[110px]">Monto</TableHead>
-                        <TableHead className="w-[130px]">Categoría</TableHead>
-                        <TableHead className="w-[130px]">Responsable</TableHead>
-                        <TableHead className="text-center w-[45px]">IVA</TableHead>
-                        <TableHead className="text-right w-[80px]">$ IVA</TableHead>
-                        <TableHead className="text-center w-[45px]">Rete</TableHead>
-                        <TableHead className="text-right w-[80px]">$ Rete</TableHead>
+                        <TableHead className="min-w-[200px]">Descripción</TableHead>
+                        <TableHead className="text-right w-[100px]">Monto</TableHead>
+                        <TableHead className="w-[90px]">Tipo</TableHead>
+                        <TableHead className="w-[120px]">Categoría</TableHead>
+                        <TableHead className="w-[120px]">Responsable</TableHead>
+                        <TableHead className="text-center w-[40px]">IVA</TableHead>
+                        <TableHead className="text-center w-[55px]">Tipo</TableHead>
+                        <TableHead className="text-right w-[75px]">$ IVA</TableHead>
+                        <TableHead className="text-center w-[40px]">Rete</TableHead>
+                        <TableHead className="text-right w-[75px]">$ Rete</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

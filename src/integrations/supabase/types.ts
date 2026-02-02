@@ -157,6 +157,7 @@ export type Database = {
           id: string
           iva_amount: number
           iva_rate: number
+          iva_type: string | null
           notes: string | null
           owner: string | null
           raw_line: string | null
@@ -165,6 +166,7 @@ export type Database = {
           retefuente_rate: number
           statement_id: string
           sucursal: string | null
+          transaction_type: string | null
           user_id: string
         }
         Insert: {
@@ -183,6 +185,7 @@ export type Database = {
           id?: string
           iva_amount?: number
           iva_rate?: number
+          iva_type?: string | null
           notes?: string | null
           owner?: string | null
           raw_line?: string | null
@@ -191,6 +194,7 @@ export type Database = {
           retefuente_rate?: number
           statement_id: string
           sucursal?: string | null
+          transaction_type?: string | null
           user_id: string
         }
         Update: {
@@ -209,6 +213,7 @@ export type Database = {
           id?: string
           iva_amount?: number
           iva_rate?: number
+          iva_type?: string | null
           notes?: string | null
           owner?: string | null
           raw_line?: string | null
@@ -217,6 +222,7 @@ export type Database = {
           retefuente_rate?: number
           statement_id?: string
           sucursal?: string | null
+          transaction_type?: string | null
           user_id?: string
         }
         Relationships: [

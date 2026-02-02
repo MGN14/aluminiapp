@@ -17,9 +17,11 @@ interface TransactionData {
   balance: number | null;
   category: string | null;
   responsible_id: string | null;
+  transaction_type: 'compra' | 'venta';
   has_iva: boolean;
   has_retefuente: boolean;
   iva_amount: number;
+  iva_type: 'credito' | 'debito' | null;
   retefuente_amount: number;
 }
 interface Metrics {
@@ -27,7 +29,9 @@ interface Metrics {
   totalIngresos: number;
   totalEgresos: number;
   burnRate: number;
-  ivaPorPagar: number;
+  ivaDebito: number;
+  ivaCredito: number;
+  ivaNeto: number;
   retefuentePorPagar: number;
   pendingReconcile: number;
   transactionCount: number;
@@ -100,11 +104,11 @@ export default function Dashboard() {
       const {
         data,
         error
-      } = await supabase.from('transactions').select('id, date, description, amount, balance, category, responsible_id, has_iva, has_retefuente, iva_amount, retefuente_amount').order('date', {
+      } = await supabase.from('transactions').select('id, date, description, amount, balance, category, responsible_id, transaction_type, has_iva, has_retefuente, iva_amount, iva_type, retefuente_amount').order('date', {
         ascending: true
       });
       if (error) throw error;
-      setTransactions(data || []);
+      setTransactions((data as TransactionData[]) || []);
     } catch (error) {
       console.error('Error fetching transactions:', error);
     } finally {
@@ -126,7 +130,9 @@ export default function Dashboard() {
         totalIngresos: 0,
         totalEgresos: 0,
         burnRate: 0,
-        ivaPorPagar: 0,
+        ivaDebito: 0,
+        ivaCredito: 0,
+        ivaNeto: 0,
         retefuentePorPagar: 0,
         pendingReconcile: 0,
         transactionCount: 0,
@@ -163,14 +169,23 @@ export default function Dashboard() {
     })).size || 1;
     const burnRate = Math.abs(cuatrimestreExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / monthsWithData;
 
-    // IVA por pagar (cuatrimestral) - using server-calculated iva_amount
-    const ivaPorPagar = cuatrimestreTransactions.reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
+    // IVA Débito (ventas) y Crédito (compras) - cuatrimestral
+    const ivaDebito = cuatrimestreTransactions
+      .filter(tx => tx.iva_type === 'debito')
+      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
+    
+    const ivaCredito = cuatrimestreTransactions
+      .filter(tx => tx.iva_type === 'credito')
+      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
 
     // Detect DIAN payments and subtract from IVA
     const dianPayments = cuatrimestreTransactions.filter(tx => isDIANPayment(tx.description));
     const totalDianPayments = Math.abs(dianPayments.reduce((sum, tx) => sum + (tx.amount ?? 0), 0));
 
-    // Retefuente por pagar (mensual) - using server-calculated retefuente_amount
+    // IVA Neto = Débito - Crédito - Pagos DIAN
+    const ivaNeto = ivaDebito - ivaCredito - totalDianPayments;
+
+    // Retefuente por pagar (mensual) - only from compras
     const retefuentePorPagar = monthTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
 
     // Pending reconciliation = transactions without responsible (for selected month)
@@ -180,7 +195,9 @@ export default function Dashboard() {
       totalIngresos,
       totalEgresos,
       burnRate,
-      ivaPorPagar: Math.max(0, ivaPorPagar - totalDianPayments),
+      ivaDebito,
+      ivaCredito,
+      ivaNeto,
       retefuentePorPagar,
       pendingReconcile,
       transactionCount: monthTransactions.length,
@@ -249,28 +266,41 @@ export default function Dashboard() {
     })).sort((a, b) => b.value - a.value);
   }, [transactions, monthPeriod]);
 
-  // Chart data: IVA accumulation over time (cuatrimestre)
+  // Chart data: IVA débito vs crédito accumulation over time (cuatrimestre)
   const ivaAccumulationData = useMemo(() => {
-    let accumulated = 0;
+    let accumulatedDebito = 0;
+    let accumulatedCredito = 0;
     const data: {
       date: string;
-      iva: number;
+      debito: number;
+      credito: number;
+      neto: number;
     }[] = [];
+    
     transactions.filter(tx => {
       const txDate = new Date(tx.date);
       return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
     }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(tx => {
-      accumulated += tx.iva_amount ?? 0;
-      if (isDIANPayment(tx.description)) {
-        accumulated -= Math.abs(tx.amount ?? 0);
+      if (tx.iva_type === 'debito') {
+        accumulatedDebito += tx.iva_amount ?? 0;
+      } else if (tx.iva_type === 'credito') {
+        accumulatedCredito += tx.iva_amount ?? 0;
       }
+      
+      // Subtract DIAN payments from neto
+      if (isDIANPayment(tx.description)) {
+        accumulatedDebito -= Math.abs(tx.amount ?? 0);
+      }
+      
       const dateLabel = new Date(tx.date).toLocaleDateString('es-CO', {
         day: '2-digit',
         month: 'short'
       });
       data.push({
         date: dateLabel,
-        iva: Math.max(0, accumulated)
+        debito: accumulatedDebito,
+        credito: accumulatedCredito,
+        neto: accumulatedDebito - accumulatedCredito
       });
     });
     return data;
@@ -379,7 +409,7 @@ export default function Dashboard() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-red-500">
+                  <div className="text-2xl font-bold text-destructive">
                     {formatCurrency(metrics.totalEgresos)}
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
@@ -411,20 +441,62 @@ export default function Dashboard() {
             </div>
 
             {/* Tax Metrics */}
-            <div className="grid gap-4 md:grid-cols-3 animate-fade-in">
-              {/* IVA por Pagar */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 animate-fade-in">
+              {/* IVA Débito (Ventas) */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    IVA por Pagar (Cuatrimestre)
+                    IVA Débito (Ventas)
                   </CardTitle>
-                  <div className="p-2 rounded-lg bg-accent/10">
-                    <Receipt className="h-4 w-4 text-accent" />
+                  <div className="p-2 rounded-lg bg-warning/10">
+                    <Receipt className="h-4 w-4 text-warning" />
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-warning">
-                    {formatCurrency(metrics.ivaPorPagar)}
+                  <div className="text-xl font-bold text-warning">
+                    {formatCurrency(metrics.ivaDebito)}
+                  </div>
+                  <div className="flex items-center text-xs text-muted-foreground mt-1">
+                    <Calendar className="h-3 w-3 mr-1" />
+                    {metrics.cuatrimestreLabel}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* IVA Crédito (Compras) */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    IVA Crédito (Compras)
+                  </CardTitle>
+                  <div className="p-2 rounded-lg bg-success/10">
+                    <Receipt className="h-4 w-4 text-success" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xl font-bold text-success">
+                    {formatCurrency(metrics.ivaCredito)}
+                  </div>
+                  <div className="flex items-center text-xs text-muted-foreground mt-1">
+                    <Calendar className="h-3 w-3 mr-1" />
+                    {metrics.cuatrimestreLabel}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* IVA Neto (Por Pagar / A Favor) */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    {metrics.ivaNeto >= 0 ? 'IVA por Pagar' : 'Saldo a Favor'}
+                  </CardTitle>
+                  <div className={`p-2 rounded-lg ${metrics.ivaNeto >= 0 ? 'bg-destructive/10' : 'bg-success/10'}`}>
+                    <Receipt className={`h-4 w-4 ${metrics.ivaNeto >= 0 ? 'text-destructive' : 'text-success'}`} />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-xl font-bold ${metrics.ivaNeto >= 0 ? 'text-destructive' : 'text-success'}`}>
+                    {formatCurrency(Math.abs(metrics.ivaNeto))}
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <Calendar className="h-3 w-3 mr-1" />
@@ -437,19 +509,19 @@ export default function Dashboard() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Retefuente por Pagar (Mes)
+                    Retefuente por Pagar
                   </CardTitle>
                   <div className="p-2 rounded-lg bg-accent/10">
                     <Receipt className="h-4 w-4 text-accent" />
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-warning">
+                  <div className="text-xl font-bold text-foreground">
                     {formatCurrency(metrics.retefuentePorPagar)}
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <Calendar className="h-3 w-3 mr-1" />
-                    {metrics.monthLabel} (2.5%)
+                    {metrics.monthLabel} (2.5% compras)
                   </div>
                 </CardContent>
               </Card>
@@ -458,14 +530,14 @@ export default function Dashboard() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Pendientes por Conciliar
+                    Pendientes Conciliar
                   </CardTitle>
                   <div className={`p-2 rounded-lg ${metrics.pendingReconcile > 0 ? 'bg-destructive/10' : 'bg-success/10'}`}>
                     <AlertCircle className={`h-4 w-4 ${metrics.pendingReconcile > 0 ? 'text-destructive' : 'text-success'}`} />
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-warning">
+                  <div className={`text-xl font-bold ${metrics.pendingReconcile > 0 ? 'text-destructive' : 'text-success'}`}>
                     {metrics.pendingReconcile}
                   </div>
                   <Link to="/transactions" className="text-xs hover:underline mt-1 inline-block text-primary">
@@ -543,7 +615,7 @@ export default function Dashboard() {
             {/* IVA Accumulation Chart */}
             <Card className="animate-slide-up">
               <CardHeader>
-                <CardTitle className="text-lg">Acumulación de IVA ({metrics.cuatrimestreLabel})</CardTitle>
+                <CardTitle className="text-lg">IVA Débito vs Crédito ({metrics.cuatrimestreLabel})</CardTitle>
               </CardHeader>
               <CardContent>
                 {ivaAccumulationData.length > 0 ? <ResponsiveContainer width="100%" height={200}>
@@ -560,7 +632,10 @@ export default function Dashboard() {
                   border: '1px solid hsl(var(--border))',
                   borderRadius: '8px'
                 }} />
-                      <Line type="monotone" dataKey="iva" name="IVA Acumulado" stroke="hsl(var(--accent))" strokeWidth={2} fill="hsl(var(--accent))" fillOpacity={0.1} />
+                      <Legend />
+                      <Line type="monotone" dataKey="debito" name="IVA Débito" stroke="hsl(var(--warning))" strokeWidth={2} />
+                      <Line type="monotone" dataKey="credito" name="IVA Crédito" stroke="hsl(var(--success))" strokeWidth={2} />
+                      <Line type="monotone" dataKey="neto" name="IVA Neto" stroke="hsl(var(--destructive))" strokeWidth={2} strokeDasharray="5 5" />
                     </LineChart>
                   </ResponsiveContainer> : <div className="h-[200px] flex items-center justify-center text-muted-foreground">
                     Sin datos de IVA en el cuatrimestre

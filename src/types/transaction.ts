@@ -1,3 +1,6 @@
+export type TransactionType = 'compra' | 'venta';
+export type IvaType = 'credito' | 'debito' | null;
+
 export interface Transaction {
   id: string;
   statement_id: string;
@@ -11,9 +14,11 @@ export interface Transaction {
   category_id: string | null;
   owner: string | null;
   responsible_id: string | null;
+  transaction_type: TransactionType;
   has_iva: boolean;
   iva_rate: number;
   iva_amount: number;
+  iva_type: IvaType;
   has_retefuente: boolean;
   retefuente_rate: number;
   retefuente_amount: number;
