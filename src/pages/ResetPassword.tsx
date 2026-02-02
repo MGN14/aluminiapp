@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,9 +7,11 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, FileSpreadsheet, Lock, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -20,43 +22,114 @@ export default function ResetPassword() {
   const [tokenError, setTokenError] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [userEmail, setUserEmail] = useState('');
+  const [sessionReady, setSessionReady] = useState(false);
+  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    // Listen for auth state changes - Supabase handles the token from URL automatically
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        // User clicked the reset link and is now in recovery mode
+    const initializeSession = async () => {
+      try {
+        // Check for error in URL hash first (e.g., expired token)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const errorDescription = hashParams.get('error_description');
+        if (errorDescription) {
+          setTokenError(true);
+          setError(decodeURIComponent(errorDescription));
+          setInitializing(false);
+          return;
+        }
+
+        // Option 1: Check for 'code' in query string (PKCE flow)
+        const code = searchParams.get('code');
+        const type = searchParams.get('type');
+        
+        if (code) {
+          if (type !== 'recovery') {
+            setTokenError(true);
+            setError('Link inválido o expirado');
+            setInitializing(false);
+            return;
+          }
+          
+          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) {
+            console.error('Exchange code error:', exchangeError);
+            setTokenError(true);
+            setError(exchangeError.message.includes('expired') 
+              ? 'El enlace ha expirado. Solicita uno nuevo.' 
+              : 'Link inválido o expirado');
+            setInitializing(false);
+            return;
+          }
+          
+          if (data.session?.user?.email) {
+            setUserEmail(data.session.user.email);
+            setSessionReady(true);
+          }
+          setInitializing(false);
+          return;
+        }
+
+        // Option 2: Check for access_token and refresh_token in hash (implicit flow)
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const hashType = hashParams.get('type');
+
+        if (accessToken && refreshToken) {
+          if (hashType !== 'recovery') {
+            setTokenError(true);
+            setError('Link inválido o expirado');
+            setInitializing(false);
+            return;
+          }
+
+          const { data, error: setSessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+
+          if (setSessionError) {
+            console.error('Set session error:', setSessionError);
+            setTokenError(true);
+            setError(setSessionError.message.includes('expired') 
+              ? 'El enlace ha expirado. Solicita uno nuevo.' 
+              : 'Link inválido o expirado');
+            setInitializing(false);
+            return;
+          }
+
+          if (data.session?.user?.email) {
+            setUserEmail(data.session.user.email);
+            setSessionReady(true);
+          }
+          // Clear the hash from URL for cleaner display
+          window.history.replaceState(null, '', window.location.pathname);
+          setInitializing(false);
+          return;
+        }
+
+        // Option 3: Check if there's already an active recovery session
+        const { data: { session } } = await supabase.auth.getSession();
         if (session?.user?.email) {
           setUserEmail(session.user.email);
+          setSessionReady(true);
+          setInitializing(false);
+          return;
         }
-      } else if (event === 'SIGNED_IN' && session) {
-        // After successful password update, user is signed in
-        if (session.user?.email) {
-          setUserEmail(session.user.email);
-        }
-      }
-    });
 
-    // Check current session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error('Session error:', error);
+        // No valid token found
         setTokenError(true);
-      } else if (session?.user?.email) {
-        setUserEmail(session.user.email);
+        setError('Link inválido o expirado. Por favor solicita un nuevo enlace.');
+        setInitializing(false);
+      } catch (err) {
+        console.error('Session initialization error:', err);
+        setTokenError(true);
+        setError('Error al procesar el enlace de recuperación');
+        setInitializing(false);
       }
-    });
+    };
 
-    // Check for error in URL hash (e.g., expired token)
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const errorDescription = hashParams.get('error_description');
-    if (errorDescription) {
-      setTokenError(true);
-      setError(decodeURIComponent(errorDescription));
-    }
-
-    return () => subscription.unsubscribe();
-  }, []);
+    initializeSession();
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,19 +153,23 @@ export default function ResetPassword() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error: updateError } = await supabase.auth.updateUser({ password });
 
     setLoading(false);
 
-    if (error) {
-      if (error.message.includes('expired') || error.message.includes('invalid')) {
+    if (updateError) {
+      if (updateError.message.includes('expired') || updateError.message.includes('invalid') || updateError.message.includes('session')) {
         setTokenError(true);
-        setError('El enlace ha expirado o es inválido');
+        setError('La sesión ha expirado. Solicita un nuevo enlace.');
       } else {
-        setError(error.message);
+        setError(updateError.message);
       }
     } else {
       setSuccess(true);
+      toast({
+        title: "Contraseña actualizada",
+        description: "Tu contraseña ha sido cambiada exitosamente",
+      });
       // Sign out and redirect to login after 2 seconds
       setTimeout(async () => {
         await supabase.auth.signOut();
@@ -108,17 +185,33 @@ export default function ResetPassword() {
     }
 
     setResendLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
+    const { error: resendError } = await supabase.auth.resetPasswordForEmail(userEmail, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
     setResendLoading(false);
 
-    if (error) {
-      setError(error.message);
+    if (resendError) {
+      setError(resendError.message);
     } else {
+      toast({
+        title: "Enlace enviado",
+        description: "Revisa tu correo para el nuevo enlace de recuperación",
+      });
       navigate('/forgot-password');
     }
   };
+
+  // Show loading state while initializing
+  if (initializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Verificando enlace...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
