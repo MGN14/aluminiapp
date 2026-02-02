@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
-import { Transaction, CATEGORIES, calculateIVA, calculateRetefuente, getCurrentCuatrimestre, getCurrentMonth } from '@/types/transaction';
+import { Transaction, Category, Responsible, getCurrentCuatrimestre, getCurrentMonth } from '@/types/transaction';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,11 +24,15 @@ export default function Export() {
   const { toast } = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [statements, setStatements] = useState<Statement[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [responsibles, setResponsibles] = useState<Responsible[]>([]);
   const [selectedStatement, setSelectedStatement] = useState<string>('all');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchStatements();
+    fetchCategories();
+    fetchResponsibles();
   }, []);
 
   useEffect(() => {
@@ -43,6 +47,16 @@ export default function Export() {
     setStatements(data || []);
   };
 
+  const fetchCategories = async () => {
+    const { data } = await supabase.from('categories').select('*').order('sort_order');
+    setCategories((data as Category[]) || []);
+  };
+
+  const fetchResponsibles = async () => {
+    const { data } = await supabase.from('responsibles').select('*').order('name');
+    setResponsibles((data as Responsible[]) || []);
+  };
+
   const fetchTransactions = async () => {
     let query = supabase
       .from('transactions')
@@ -54,54 +68,53 @@ export default function Export() {
     }
 
     const { data } = await query;
-    setTransactions((data || []).map(tx => ({
-      ...tx,
-      reconciled: tx.reconciled ?? false,
-      applies_iva: tx.applies_iva ?? false,
-      applies_retefuente: tx.applies_retefuente ?? false,
-    })));
+    setTransactions((data as Transaction[]) || []);
   };
 
-  const getCategoryLabel = (value: string | null) => {
-    if (!value) return '';
-    const cat = CATEGORIES.find(c => c.value === value);
-    return cat?.label || value;
+  const getCategoryName = (tx: Transaction) => {
+    if (tx.category_id) {
+      const cat = categories.find(c => c.id === tx.category_id);
+      return cat?.name || '';
+    }
+    return tx.category || '';
   };
 
-  // Calculate tax summaries
+  const getResponsibleName = (tx: Transaction) => {
+    if (tx.responsible_id) {
+      const resp = responsibles.find(r => r.id === tx.responsible_id);
+      return resp?.name || '';
+    }
+    return tx.owner || '';
+  };
+
+  // Calculate tax summaries using server-calculated values
   const taxSummary = useMemo(() => {
     const cuatrimestre = getCurrentCuatrimestre();
     const currentMonth = getCurrentMonth();
 
-    // IVA calculations
-    const ivaTransactions = transactions.filter(tx => tx.applies_iva && (tx.amount ?? 0) > 0);
-    const totalIVA = ivaTransactions.reduce((sum, tx) => sum + calculateIVA(tx.amount ?? 0), 0);
-
-    // Cuatrimestre IVA
+    // Cuatrimestre IVA - sum iva_amount for transactions in period
     const cuatrimestreIVA = transactions
       .filter(tx => {
         const txDate = new Date(tx.date);
-        return tx.applies_iva && 
-               (tx.amount ?? 0) > 0 &&
-               txDate >= cuatrimestre.start && 
-               txDate <= cuatrimestre.end;
+        return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
       })
-      .reduce((sum, tx) => sum + calculateIVA(tx.amount ?? 0), 0);
+      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
 
-    // Retefuente calculations
-    const retefuenteTransactions = transactions.filter(tx => tx.applies_retefuente);
-    const totalRetefuente = retefuenteTransactions.reduce((sum, tx) => sum + calculateRetefuente(tx.amount ?? 0), 0);
+    // Total IVA
+    const totalIVA = transactions.reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
+    const ivaCount = transactions.filter(tx => tx.has_iva).length;
 
-    // Monthly retefuente
+    // Monthly retefuente - sum retefuente_amount for transactions in period
     const monthlyRetefuente = transactions
       .filter(tx => {
         const txDate = new Date(tx.date);
-        return tx.applies_retefuente && 
-               (tx.amount ?? 0) < 0 &&
-               txDate >= currentMonth.start && 
-               txDate <= currentMonth.end;
+        return txDate >= currentMonth.start && txDate <= currentMonth.end;
       })
-      .reduce((sum, tx) => sum + calculateRetefuente(tx.amount ?? 0), 0);
+      .reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
+
+    // Total retefuente
+    const totalRetefuente = transactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
+    const retefuenteCount = transactions.filter(tx => tx.has_retefuente).length;
 
     return {
       totalIVA,
@@ -110,8 +123,8 @@ export default function Export() {
       totalRetefuente,
       monthlyRetefuente,
       monthLabel: currentMonth.label,
-      ivaCount: ivaTransactions.length,
-      retefuenteCount: retefuenteTransactions.length,
+      ivaCount,
+      retefuenteCount,
     };
   }, [transactions]);
 
@@ -128,36 +141,33 @@ export default function Export() {
       }
 
       // Sheet 1: Transactions
-      const transactionData = transactions.map(tx => {
-        const ivaAmount = tx.applies_iva && (tx.amount ?? 0) > 0 ? calculateIVA(tx.amount ?? 0) : 0;
-        const retefuenteAmount = tx.applies_retefuente ? calculateRetefuente(tx.amount ?? 0) : 0;
-
-        return {
-          'Fecha': tx.date,
-          'Descripción': tx.description,
-          'Sucursal': tx.sucursal || '',
-          'Dcto': tx.dcto || '',
-          'Monto': tx.amount,
-          'Débito': tx.debit || '',
-          'Crédito': tx.credit || '',
-          'Saldo': tx.balance || '',
-          'Categoría': getCategoryLabel(tx.category),
-          'Responsable': tx.owner || '',
-          'Conciliado': tx.reconciled ? 'Sí' : 'No',
-          'Aplica IVA': tx.applies_iva ? 'Sí' : 'No',
-          'IVA Calculado': ivaAmount > 0 ? ivaAmount : '',
-          'Aplica Retefuente': tx.applies_retefuente ? 'Sí' : 'No',
-          'Retefuente Calculada (2.5%)': retefuenteAmount > 0 ? retefuenteAmount : '',
-          'Notas': tx.notes || '',
-        };
-      });
+      const transactionData = transactions.map(tx => ({
+        'Fecha': tx.date,
+        'Descripción': tx.description,
+        'Sucursal': tx.sucursal || '',
+        'Dcto': tx.dcto || '',
+        'Monto': tx.amount,
+        'Débito': tx.debit || '',
+        'Crédito': tx.credit || '',
+        'Saldo': tx.balance || '',
+        'Categoría': getCategoryName(tx),
+        'Responsable': getResponsibleName(tx),
+        'Pendiente': tx.responsible_id ? 'No' : 'Sí',
+        'Aplica IVA': tx.has_iva ? 'Sí' : 'No',
+        'IVA Calculado': tx.iva_amount > 0 ? tx.iva_amount : '',
+        'Tasa IVA': tx.has_iva ? `${(tx.iva_rate * 100).toFixed(0)}%` : '',
+        'Aplica Retefuente': tx.has_retefuente ? 'Sí' : 'No',
+        'Retefuente Calculada': tx.retefuente_amount > 0 ? tx.retefuente_amount : '',
+        'Tasa Retefuente': tx.has_retefuente ? `${(tx.retefuente_rate * 100).toFixed(1)}%` : '',
+        'Notas': tx.notes || '',
+      }));
 
       const wsTransactions = XLSX.utils.json_to_sheet(transactionData);
       
       // Set column widths
       wsTransactions['!cols'] = [
         { wch: 12 },  // Fecha
-        { wch: 45 },  // Descripción
+        { wch: 50 },  // Descripción (más ancha)
         { wch: 12 },  // Sucursal
         { wch: 12 },  // Dcto
         { wch: 15 },  // Monto
@@ -166,11 +176,13 @@ export default function Export() {
         { wch: 15 },  // Saldo
         { wch: 18 },  // Categoría
         { wch: 15 },  // Responsable
-        { wch: 10 },  // Conciliado
+        { wch: 10 },  // Pendiente
         { wch: 12 },  // Aplica IVA
         { wch: 15 },  // IVA Calculado
+        { wch: 10 },  // Tasa IVA
         { wch: 15 },  // Aplica Retefuente
         { wch: 18 },  // Retefuente Calculada
+        { wch: 12 },  // Tasa Retefuente
         { wch: 25 },  // Notas
       ];
 
@@ -195,14 +207,16 @@ export default function Export() {
       // Sheet 3: Income Summary
       const totalIncome = transactions.filter(tx => (tx.amount ?? 0) > 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
       const totalExpenses = Math.abs(transactions.filter(tx => (tx.amount ?? 0) < 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0));
+      const reconciled = transactions.filter(tx => tx.responsible_id).length;
+      const pending = transactions.filter(tx => !tx.responsible_id).length;
       
       const summaryData = [
         { 'Métrica': 'Total Ingresos', 'Valor': totalIncome },
         { 'Métrica': 'Total Egresos', 'Valor': totalExpenses },
         { 'Métrica': 'Saldo Neto', 'Valor': totalIncome - totalExpenses },
         { 'Métrica': 'Transacciones Totales', 'Valor': transactions.length },
-        { 'Métrica': 'Transacciones Conciliadas', 'Valor': transactions.filter(tx => tx.reconciled).length },
-        { 'Métrica': 'Pendientes por Conciliar', 'Valor': transactions.filter(tx => !tx.reconciled).length },
+        { 'Métrica': 'Transacciones Conciliadas', 'Valor': reconciled },
+        { 'Métrica': 'Pendientes por Conciliar', 'Valor': pending },
       ];
 
       const wsSummary = XLSX.utils.json_to_sheet(summaryData);
@@ -318,11 +332,11 @@ export default function Export() {
                 con los siguientes datos:
               </p>
               <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside space-y-1">
-                <li>Fecha, descripción, sucursal, documento</li>
+                <li>Fecha, descripción completa, sucursal, documento</li>
                 <li>Monto, débito, crédito, saldo</li>
                 <li>Categoría y responsable</li>
-                <li>Estado de conciliación</li>
-                <li>Cálculos de IVA y Retefuente</li>
+                <li>Estado pendiente (sin responsable = pendiente)</li>
+                <li>Cálculos de IVA y Retefuente con tasas</li>
                 <li>Notas del usuario</li>
               </ul>
             </div>

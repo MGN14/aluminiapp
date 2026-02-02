@@ -17,11 +17,8 @@ import {
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { 
-  calculateIVA, 
-  calculateRetefuente, 
   getCurrentCuatrimestre,
   getCurrentMonth,
-  isIVATransaction,
   isDIANPayment
 } from '@/types/transaction';
 import {
@@ -44,9 +41,11 @@ interface TransactionData {
   amount: number | null;
   balance: number | null;
   category: string | null;
-  reconciled: boolean;
-  applies_iva: boolean;
-  applies_retefuente: boolean;
+  responsible_id: string | null;
+  has_iva: boolean;
+  has_retefuente: boolean;
+  iva_amount: number;
+  retefuente_amount: number;
 }
 
 interface Metrics {
@@ -93,7 +92,7 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('id, date, description, amount, balance, category, reconciled, applies_iva, applies_retefuente')
+        .select('id, date, description, amount, balance, category, responsible_id, has_iva, has_retefuente, iva_amount, retefuente_amount')
         .order('date', { ascending: true });
 
       if (error) throw error;
@@ -154,19 +153,13 @@ export default function Dashboard() {
       ? Math.abs(recentExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / 3
       : totalEgresos;
 
-    // IVA por pagar (cuatrimestral)
-    // Sum IVA from transactions where applies_iva = true within current cuatrimestre
-    const ivaTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return tx.applies_iva && 
-             txDate >= cuatrimestre.start && 
-             txDate <= cuatrimestre.end &&
-             (tx.amount ?? 0) > 0; // Only positive amounts (income) generate IVA payable
-    });
-    
-    const ivaPorPagar = ivaTransactions.reduce((sum, tx) => {
-      return sum + calculateIVA(tx.amount ?? 0);
-    }, 0);
+    // IVA por pagar (cuatrimestral) - using server-calculated iva_amount
+    const ivaPorPagar = transactions
+      .filter(tx => {
+        const txDate = new Date(tx.date);
+        return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
+      })
+      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
 
     // Detect DIAN payments and subtract from IVA
     const dianPayments = transactions.filter(tx => {
@@ -180,21 +173,16 @@ export default function Dashboard() {
       dianPayments.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
     );
 
-    // Retefuente por pagar (mensual)
-    const retefuenteTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return tx.applies_retefuente && 
-             txDate >= currentMonth.start && 
-             txDate <= currentMonth.end &&
-             (tx.amount ?? 0) < 0; // Only purchases (negative amounts)
-    });
-    
-    const retefuentePorPagar = retefuenteTransactions.reduce((sum, tx) => {
-      return sum + calculateRetefuente(tx.amount ?? 0);
-    }, 0);
+    // Retefuente por pagar (mensual) - using server-calculated retefuente_amount
+    const retefuentePorPagar = transactions
+      .filter(tx => {
+        const txDate = new Date(tx.date);
+        return txDate >= currentMonth.start && txDate <= currentMonth.end;
+      })
+      .reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
 
-    // Pending reconciliation count
-    const pendingReconcile = transactions.filter(tx => !tx.reconciled).length;
+    // Pending reconciliation = transactions without responsible
+    const pendingReconcile = transactions.filter(tx => !tx.responsible_id).length;
 
     return {
       saldoActual,
@@ -277,9 +265,8 @@ export default function Dashboard() {
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .forEach(tx => {
-        if (tx.applies_iva && (tx.amount ?? 0) > 0) {
-          accumulated += calculateIVA(tx.amount ?? 0);
-        }
+        accumulated += tx.iva_amount ?? 0;
+        
         if (isDIANPayment(tx.description)) {
           accumulated -= Math.abs(tx.amount ?? 0);
         }

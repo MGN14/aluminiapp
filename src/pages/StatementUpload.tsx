@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
 import PDFUploader from '@/components/PDFUploader';
+import DeleteStatementButton from '@/components/statements/DeleteStatementButton';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { FileText, Check, Clock, AlertCircle, Info } from 'lucide-react';
@@ -15,6 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 interface Statement {
   id: string;
   file_name: string;
+  file_path: string;
   uploaded_at: string;
   processed: boolean;
   processing_error: string | null;
@@ -155,7 +157,7 @@ export default function StatementUpload() {
                           </p>
                         </div>
                       </div>
-                      <div>
+                      <div className="flex items-center gap-2">
                         {statement.processing_error ? (
                           <Badge variant="destructive" className="flex items-center gap-1">
                             <AlertCircle className="h-3 w-3" />
@@ -172,6 +174,12 @@ export default function StatementUpload() {
                             Pendiente
                           </Badge>
                         )}
+                        <DeleteStatementButton
+                          statementId={statement.id}
+                          fileName={statement.file_name}
+                          filePath={statement.file_path}
+                          onDeleted={fetchStatements}
+                        />
                       </div>
                     </div>
                   ))}

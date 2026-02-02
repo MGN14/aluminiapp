@@ -8,17 +8,41 @@ export interface Transaction {
   credit: number | null;
   balance: number | null;
   category: string | null;
+  category_id: string | null;
   owner: string | null;
-  reconciled: boolean;
-  applies_iva: boolean;
-  applies_retefuente: boolean;
+  responsible_id: string | null;
+  has_iva: boolean;
+  iva_rate: number;
+  iva_amount: number;
+  has_retefuente: boolean;
+  retefuente_rate: number;
+  retefuente_amount: number;
   notes: string | null;
   sucursal: string | null;
   dcto: string | null;
+  raw_line: string | null;
   created_at: string;
   user_id: string;
 }
 
+export interface Responsible {
+  id: string;
+  user_id: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface Category {
+  id: string;
+  user_id: string;
+  name: string;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+// Legacy categories for backward compatibility
 export const CATEGORIES = [
   { value: 'ventas', label: 'Ventas' },
   { value: 'nomina', label: 'Nómina' },
@@ -35,35 +59,6 @@ export type CategoryValue = typeof CATEGORIES[number]['value'];
 // Colombian tax constants
 export const IVA_RATE = 0.19; // 19%
 export const RETEFUENTE_RATE = 0.025; // 2.5%
-
-// Helper to calculate IVA from transaction amount
-export function calculateIVA(amount: number): number {
-  // IVA is included in the amount, we need to extract it
-  // Amount = base + (base * 0.19) = base * 1.19
-  // So base = Amount / 1.19 and IVA = Amount - base
-  const base = amount / (1 + IVA_RATE);
-  return amount - base;
-}
-
-// Helper to calculate retefuente
-export function calculateRetefuente(amount: number): number {
-  return Math.abs(amount) * RETEFUENTE_RATE;
-}
-
-// Helper to detect IVA transactions by description
-export function isIVATransaction(description: string): boolean {
-  const ivaPatterns = [
-    /COBRO IVA/i,
-    /IVA PAGOS/i,
-    /PAGO.*IVA/i,
-  ];
-  return ivaPatterns.some(pattern => pattern.test(description));
-}
-
-// Helper to detect DIAN payments
-export function isDIANPayment(description: string): boolean {
-  return /PAGO PSE IMPUESTO DIAN/i.test(description);
-}
 
 // Get current cuatrimestre (quadrimester) period
 export function getCurrentCuatrimestre(): { start: Date; end: Date; label: string } {
@@ -106,4 +101,9 @@ export function getCurrentMonth(): { start: Date; end: Date; label: string } {
   const label = `${monthNames[month]} ${year}`;
   
   return { start, end, label };
+}
+
+// Helper to detect DIAN payments
+export function isDIANPayment(description: string): boolean {
+  return /PAGO PSE IMPUESTO DIAN/i.test(description);
 }
