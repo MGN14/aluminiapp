@@ -78,11 +78,11 @@ export default function Index() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto bg-sidebar-primary text-primary-foreground">
             {/* Step 1 */}
             <div className="bg-card rounded-xl p-8 border border-border shadow-sm hover:shadow-md transition-shadow animate-slide-up">
               <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center mb-6">
-                <Upload className="w-7 h-7 text-accent" />
+                <Upload className="w-7 h-7 text-accent border-0" />
               </div>
               <div className="text-sm font-medium text-accent mb-2">Paso 1</div>
               <h3 className="text-xl font-semibold text-foreground mb-3">
