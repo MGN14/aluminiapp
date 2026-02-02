@@ -465,10 +465,10 @@ export default function Dashboard() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="">
+                  <div className="text-warning">
                     {metrics.pendingReconcile}
                   </div>
-                  <Link to="/transactions" className="text-xs text-accent hover:underline mt-1 inline-block">
+                  <Link to="/transactions" className="text-xs hover:underline mt-1 inline-block text-primary">
                     Ver transacciones →
                   </Link>
                 </CardContent>
