@@ -18,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { FileText, Loader2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { FileText, Loader2, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface Statement {
@@ -64,13 +65,11 @@ export default function Transactions() {
       const { data, error } = await query;
       if (error) throw error;
       
-      // Map the database response to our Transaction type
       const mappedTransactions: Transaction[] = (data || []).map(tx => ({
         ...tx,
         reconciled: tx.reconciled ?? false,
-        has_vat: tx.has_vat ?? false,
-        vat_percentage: tx.vat_percentage ?? 19,
-        affects_dian: tx.affects_dian ?? false,
+        applies_iva: tx.applies_iva ?? false,
+        applies_retefuente: tx.applies_retefuente ?? false,
       }));
       
       setTransactions(mappedTransactions);
@@ -83,17 +82,12 @@ export default function Transactions() {
 
   const handleUpdateTransaction = async (id: string, updates: Partial<Transaction>) => {
     try {
-      // Remove computed fields that shouldn't be sent to the database
-      const { vat_amount, ...updateData } = updates as any;
-      
       const { error } = await supabase
         .from('transactions')
-        .update(updateData)
+        .update(updates)
         .eq('id', id);
 
       if (error) throw error;
-
-      // Refresh to get computed vat_amount
       await fetchTransactions();
     } catch (error) {
       console.error('Error updating transaction:', error);
@@ -105,10 +99,13 @@ export default function Transactions() {
     }
   };
 
+  // Calculate pending reconciliation count
+  const pendingCount = transactions.filter(tx => !tx.reconciled).length;
+
   return (
     <AppLayout>
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Transacciones</h1>
             <p className="text-muted-foreground">
@@ -116,21 +113,30 @@ export default function Transactions() {
             </p>
           </div>
           
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Extracto:</span>
-            <Select value={selectedStatement} onValueChange={setSelectedStatement}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Todos los extractos" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los extractos</SelectItem>
-                {statements.map((stmt) => (
-                  <SelectItem key={stmt.id} value={stmt.id}>
-                    {stmt.file_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex items-center gap-4">
+            {pendingCount > 0 && (
+              <Badge variant="outline" className="flex items-center gap-1 text-destructive border-destructive">
+                <AlertCircle className="h-3 w-3" />
+                {pendingCount} sin conciliar
+              </Badge>
+            )}
+            
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Extracto:</span>
+              <Select value={selectedStatement} onValueChange={setSelectedStatement}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Todos los extractos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los extractos</SelectItem>
+                  {statements.map((stmt) => (
+                    <SelectItem key={stmt.id} value={stmt.id}>
+                      {stmt.file_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
@@ -164,10 +170,8 @@ export default function Transactions() {
                       <TableHead className="w-[120px]">Responsable</TableHead>
                       <TableHead className="text-center w-[60px]">Conc.</TableHead>
                       <TableHead className="text-center w-[50px]">IVA</TableHead>
-                      <TableHead className="text-right w-[80px]">% IVA</TableHead>
-                      <TableHead className="text-right w-[100px]">$ IVA</TableHead>
-                      <TableHead className="w-[100px]">Retención</TableHead>
-                      <TableHead className="text-center w-[60px]">DIAN</TableHead>
+                      <TableHead className="text-center w-[50px]">Rete</TableHead>
+                      <TableHead className="w-[150px]">Notas</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

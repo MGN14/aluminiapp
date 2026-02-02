@@ -96,33 +96,24 @@ export default function TransactionRow({ transaction, onUpdate }: TransactionRow
       
       <TableCell className="text-center w-[50px]">
         <Checkbox
-          checked={transaction.has_vat}
-          onCheckedChange={(checked) => handleUpdate({ has_vat: checked as boolean })}
+          checked={transaction.applies_iva}
+          onCheckedChange={(checked) => handleUpdate({ applies_iva: checked as boolean })}
         />
       </TableCell>
       
-      <TableCell className="text-right text-sm w-[80px]">
-        {transaction.has_vat ? `${transaction.vat_percentage}%` : '-'}
-      </TableCell>
-      
-      <TableCell className="text-right text-sm w-[100px]">
-        {transaction.has_vat ? formatCurrency(transaction.vat_amount) : '-'}
-      </TableCell>
-      
-      <TableCell className="w-[100px]">
-        <Input
-          type="number"
-          value={transaction.withholding || ''}
-          onChange={(e) => handleUpdate({ withholding: e.target.value ? Number(e.target.value) : null })}
-          placeholder="0"
-          className="h-8 text-xs border-transparent hover:border-border focus:border-border text-right"
-        />
-      </TableCell>
-      
-      <TableCell className="text-center w-[60px]">
+      <TableCell className="text-center w-[50px]">
         <Checkbox
-          checked={transaction.affects_dian}
-          onCheckedChange={(checked) => handleUpdate({ affects_dian: checked as boolean })}
+          checked={transaction.applies_retefuente}
+          onCheckedChange={(checked) => handleUpdate({ applies_retefuente: checked as boolean })}
+        />
+      </TableCell>
+      
+      <TableCell className="w-[150px]">
+        <Input
+          value={transaction.notes || ''}
+          onChange={(e) => handleUpdate({ notes: e.target.value })}
+          placeholder="Notas"
+          className="h-8 text-xs border-transparent hover:border-border focus:border-border"
         />
       </TableCell>
     </TableRow>
