@@ -20,9 +20,13 @@ export type Database = {
           file_name: string
           file_path: string
           id: string
+          period_end: string | null
+          period_start: string | null
           processed: boolean
           processing_error: string | null
+          statement_month: number | null
           statement_period: string | null
+          statement_year: number | null
           uploaded_at: string
           user_id: string
         }
@@ -31,9 +35,13 @@ export type Database = {
           file_name: string
           file_path: string
           id?: string
+          period_end?: string | null
+          period_start?: string | null
           processed?: boolean
           processing_error?: string | null
+          statement_month?: number | null
           statement_period?: string | null
+          statement_year?: number | null
           uploaded_at?: string
           user_id: string
         }
@@ -42,9 +50,13 @@ export type Database = {
           file_name?: string
           file_path?: string
           id?: string
+          period_end?: string | null
+          period_start?: string | null
           processed?: boolean
           processing_error?: string | null
+          statement_month?: number | null
           statement_period?: string | null
+          statement_year?: number | null
           uploaded_at?: string
           user_id?: string
         }
@@ -236,7 +248,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      fix_transaction_dates_for_statement: {
+        Args: { p_statement_id: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

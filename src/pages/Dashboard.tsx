@@ -17,10 +17,13 @@ import {
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { 
-  getCurrentCuatrimestre,
-  getCurrentMonth,
-  isDIANPayment
+  getCuatrimestreForPeriod,
+  getMonthPeriod,
+  isDIANPayment,
+  MONTH_NAMES
 } from '@/types/transaction';
+import { PeriodSelector } from '@/components/dashboard/PeriodSelector';
+import { MonthlySummaryTable } from '@/components/dashboard/MonthlySummaryTable';
 import {
   LineChart,
   Line,
@@ -83,10 +86,53 @@ function formatCurrencyShort(value: number) {
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Period selection state - default to current month/year, will be updated from data
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [periodInitialized, setPeriodInitialized] = useState(false);
 
   useEffect(() => {
     fetchTransactions();
+    initializePeriodFromData();
   }, []);
+
+  const initializePeriodFromData = async () => {
+    try {
+      // First try to get period from most recent statement
+      const { data: statement } = await supabase
+        .from('bank_statements')
+        .select('statement_month, statement_year')
+        .order('uploaded_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (statement?.statement_month && statement?.statement_year) {
+        setSelectedMonth(statement.statement_month);
+        setSelectedYear(statement.statement_year);
+        setPeriodInitialized(true);
+        return;
+      }
+
+      // Fallback to most recent transaction date
+      const { data: transaction } = await supabase
+        .from('transactions')
+        .select('date')
+        .order('date', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (transaction?.date) {
+        const date = new Date(transaction.date);
+        setSelectedMonth(date.getMonth() + 1);
+        setSelectedYear(date.getFullYear());
+      }
+      setPeriodInitialized(true);
+    } catch (error) {
+      console.error('Error initializing period:', error);
+      setPeriodInitialized(true);
+    }
+  };
 
   const fetchTransactions = async () => {
     try {
@@ -104,6 +150,15 @@ export default function Dashboard() {
     }
   };
 
+  const handlePeriodChange = (month: number, year: number) => {
+    setSelectedMonth(month);
+    setSelectedYear(year);
+  };
+
+  // Calculate periods based on selection
+  const cuatrimestre = useMemo(() => getCuatrimestreForPeriod(selectedMonth, selectedYear), [selectedMonth, selectedYear]);
+  const monthPeriod = useMemo(() => getMonthPeriod(selectedMonth, selectedYear), [selectedMonth, selectedYear]);
+
   const metrics = useMemo((): Metrics => {
     if (transactions.length === 0) {
       return {
@@ -115,74 +170,69 @@ export default function Dashboard() {
         retefuentePorPagar: 0,
         pendingReconcile: 0,
         transactionCount: 0,
-        cuatrimestreLabel: '',
-        monthLabel: '',
+        cuatrimestreLabel: cuatrimestre.label,
+        monthLabel: monthPeriod.label,
       };
     }
 
-    const cuatrimestre = getCurrentCuatrimestre();
-    const currentMonth = getCurrentMonth();
+    // Filter transactions for the selected month
+    const monthTransactions = transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= monthPeriod.start && txDate <= monthPeriod.end;
+    });
 
-    // Get the last balance from the most recent transaction
-    const sortedByDate = [...transactions].sort((a, b) => 
+    // Filter transactions for the cuatrimestre (for IVA)
+    const cuatrimestreTransactions = transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
+    });
+
+    // Get the last balance from the most recent transaction in the selected month
+    const sortedByDate = [...monthTransactions].sort((a, b) => 
       new Date(b.date).getTime() - new Date(a.date).getTime()
     );
     const saldoActual = sortedByDate[0]?.balance ?? 0;
 
-    // Total income and expenses
-    const totalIngresos = transactions
+    // Total income and expenses for selected month
+    const totalIngresos = monthTransactions
       .filter(tx => (tx.amount ?? 0) > 0)
       .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
 
     const totalEgresos = Math.abs(
-      transactions
+      monthTransactions
         .filter(tx => (tx.amount ?? 0) < 0)
         .reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
     );
 
-    // Burn rate (average monthly expenses over last 3 months)
-    const threeMonthsAgo = new Date();
-    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    // Burn rate (average monthly expenses based on available data in cuatrimestre)
+    const cuatrimestreExpenses = cuatrimestreTransactions.filter(tx => (tx.amount ?? 0) < 0);
+    const monthsWithData = new Set(
+      cuatrimestreExpenses.map(tx => {
+        const d = new Date(tx.date);
+        return `${d.getFullYear()}-${d.getMonth()}`;
+      })
+    ).size || 1;
     
-    const recentExpenses = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return (tx.amount ?? 0) < 0 && txDate >= threeMonthsAgo;
-    });
-    
-    const burnRate = recentExpenses.length > 0 
-      ? Math.abs(recentExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / 3
-      : totalEgresos;
+    const burnRate = Math.abs(
+      cuatrimestreExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
+    ) / monthsWithData;
 
     // IVA por pagar (cuatrimestral) - using server-calculated iva_amount
-    const ivaPorPagar = transactions
-      .filter(tx => {
-        const txDate = new Date(tx.date);
-        return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
-      })
+    const ivaPorPagar = cuatrimestreTransactions
       .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
 
     // Detect DIAN payments and subtract from IVA
-    const dianPayments = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return isDIANPayment(tx.description) && 
-             txDate >= cuatrimestre.start && 
-             txDate <= cuatrimestre.end;
-    });
-    
+    const dianPayments = cuatrimestreTransactions.filter(tx => isDIANPayment(tx.description));
     const totalDianPayments = Math.abs(
       dianPayments.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
     );
 
     // Retefuente por pagar (mensual) - using server-calculated retefuente_amount
-    const retefuentePorPagar = transactions
-      .filter(tx => {
-        const txDate = new Date(tx.date);
-        return txDate >= currentMonth.start && txDate <= currentMonth.end;
-      })
+    const retefuentePorPagar = monthTransactions
       .reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
 
-    // Pending reconciliation = transactions without responsible
-    const pendingReconcile = transactions.filter(tx => !tx.responsible_id).length;
+    // Pending reconciliation = transactions without responsible (for selected month)
+    const pendingReconcile = monthTransactions.filter(tx => !tx.responsible_id).length;
 
     return {
       saldoActual,
@@ -192,13 +242,13 @@ export default function Dashboard() {
       ivaPorPagar: Math.max(0, ivaPorPagar - totalDianPayments),
       retefuentePorPagar,
       pendingReconcile,
-      transactionCount: transactions.length,
+      transactionCount: monthTransactions.length,
       cuatrimestreLabel: cuatrimestre.label,
-      monthLabel: currentMonth.label,
+      monthLabel: monthPeriod.label,
     };
-  }, [transactions]);
+  }, [transactions, cuatrimestre, monthPeriod]);
 
-  // Chart data: Income vs Expenses by month
+  // Chart data: Income vs Expenses by month (all data)
   const incomeVsExpenseData = useMemo(() => {
     const monthlyData: Record<string, { month: string; ingresos: number; egresos: number }> = {};
     
@@ -219,14 +269,21 @@ export default function Dashboard() {
       }
     });
     
-    return Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month));
+    return Object.entries(monthlyData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, data]) => data);
   }, [transactions]);
 
-  // Chart data: Expenses by category
+  // Chart data: Expenses by category (selected month)
   const expensesByCategoryData = useMemo(() => {
     const categoryData: Record<string, number> = {};
     
-    transactions.forEach(tx => {
+    const monthTransactions = transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= monthPeriod.start && txDate <= monthPeriod.end;
+    });
+    
+    monthTransactions.forEach(tx => {
       if ((tx.amount ?? 0) < 0 && tx.category) {
         const cat = tx.category;
         categoryData[cat] = (categoryData[cat] || 0) + Math.abs(tx.amount ?? 0);
@@ -250,11 +307,10 @@ export default function Dashboard() {
         value,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [transactions]);
+  }, [transactions, monthPeriod]);
 
-  // Chart data: IVA accumulation over time
+  // Chart data: IVA accumulation over time (cuatrimestre)
   const ivaAccumulationData = useMemo(() => {
-    const cuatrimestre = getCurrentCuatrimestre();
     let accumulated = 0;
     const data: { date: string; iva: number }[] = [];
     
@@ -283,9 +339,9 @@ export default function Dashboard() {
       });
     
     return data;
-  }, [transactions]);
+  }, [transactions, cuatrimestre]);
 
-  if (loading) {
+  if (loading || !periodInitialized) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center py-24">
@@ -298,19 +354,27 @@ export default function Dashboard() {
   return (
     <AppLayout>
       <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
+        {/* Header with Period Selector */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
             <p className="text-muted-foreground">
-              Resumen financiero calculado desde tus transacciones
+              Resumen financiero para {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
             </p>
           </div>
-          <Link to="/statement-upload">
-            <Button>Subir Extracto</Button>
-          </Link>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <PeriodSelector
+              selectedMonth={selectedMonth}
+              selectedYear={selectedYear}
+              onPeriodChange={handlePeriodChange}
+            />
+            <Link to="/statement-upload">
+              <Button>Subir Extracto</Button>
+            </Link>
+          </div>
         </div>
 
-        {metrics.transactionCount === 0 ? (
+        {metrics.transactionCount === 0 && transactions.length === 0 ? (
           <Card className="animate-fade-in">
             <CardContent className="py-12 text-center">
               <Wallet className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -325,6 +389,19 @@ export default function Dashboard() {
               </Link>
             </CardContent>
           </Card>
+        ) : metrics.transactionCount === 0 ? (
+          <Card className="animate-fade-in">
+            <CardContent className="py-12 text-center">
+              <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-foreground mb-2">
+                Sin transacciones en este periodo
+              </h3>
+              <p className="text-muted-foreground mb-6">
+                No hay transacciones para {MONTH_NAMES[selectedMonth - 1]} {selectedYear}. 
+                Selecciona otro periodo o sube un extracto.
+              </p>
+            </CardContent>
+          </Card>
         ) : (
           <>
             {/* Main Metrics Grid */}
@@ -333,7 +410,7 @@ export default function Dashboard() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Saldo Actual
+                    Saldo Final del Mes
                   </CardTitle>
                   <div className="p-2 rounded-lg bg-accent/10">
                     <Wallet className="h-4 w-4 text-accent" />
@@ -344,7 +421,7 @@ export default function Dashboard() {
                     {formatCurrency(metrics.saldoActual)}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    Último saldo registrado
+                    {metrics.monthLabel}
                   </div>
                 </CardContent>
               </Card>
@@ -353,7 +430,7 @@ export default function Dashboard() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Total Ingresos
+                    Ingresos del Mes
                   </CardTitle>
                   <div className="p-2 rounded-lg bg-success/10">
                     <TrendingUp className="h-4 w-4 text-success" />
@@ -365,7 +442,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <ArrowUpRight className="h-3 w-3 mr-1 text-success" />
-                    Entradas de dinero
+                    {metrics.monthLabel}
                   </div>
                 </CardContent>
               </Card>
@@ -374,7 +451,7 @@ export default function Dashboard() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Total Egresos
+                    Egresos del Mes
                   </CardTitle>
                   <div className="p-2 rounded-lg bg-destructive/10">
                     <TrendingDown className="h-4 w-4 text-destructive" />
@@ -386,7 +463,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <ArrowDownRight className="h-3 w-3 mr-1 text-destructive" />
-                    Salidas de dinero
+                    {metrics.monthLabel}
                   </div>
                 </CardContent>
               </Card>
@@ -406,7 +483,7 @@ export default function Dashboard() {
                     {formatCurrency(metrics.burnRate)}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    Promedio mensual (3 meses)
+                    Promedio mensual ({metrics.cuatrimestreLabel})
                   </div>
                 </CardContent>
               </Card>
@@ -491,30 +568,37 @@ export default function Dashboard() {
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                         <XAxis dataKey="month" tick={{ fontSize: 12 }} className="text-muted-foreground" />
                         <YAxis tickFormatter={formatCurrencyShort} tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                        <Tooltip 
+                        <Tooltip
                           formatter={(value: number) => formatCurrency(value)}
-                          contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                          labelFormatter={(label) => `Periodo: ${label}`}
+                          contentStyle={{ 
+                            backgroundColor: 'hsl(var(--card))', 
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '8px'
+                          }}
                         />
                         <Legend />
                         <Line 
                           type="monotone" 
                           dataKey="ingresos" 
+                          name="Ingresos"
                           stroke="hsl(var(--success))" 
                           strokeWidth={2}
-                          name="Ingresos"
+                          dot={{ fill: 'hsl(var(--success))' }}
                         />
                         <Line 
                           type="monotone" 
                           dataKey="egresos" 
+                          name="Egresos"
                           stroke="hsl(var(--destructive))" 
                           strokeWidth={2}
-                          name="Egresos"
+                          dot={{ fill: 'hsl(var(--destructive))' }}
                         />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
                     <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                      No hay datos suficientes
+                      Sin datos para graficar
                     </div>
                   )}
                 </CardContent>
@@ -523,84 +607,86 @@ export default function Dashboard() {
               {/* Expenses by Category */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Gastos por Categoría</CardTitle>
+                  <CardTitle className="text-lg">Egresos por Categoría ({metrics.monthLabel})</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {expensesByCategoryData.length > 0 ? (
                     <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={expensesByCategoryData} layout="horizontal">
+                      <BarChart data={expensesByCategoryData} layout="vertical">
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="category" tick={{ fontSize: 10 }} className="text-muted-foreground" />
-                        <YAxis tickFormatter={formatCurrencyShort} tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                        <Tooltip 
+                        <XAxis type="number" tickFormatter={formatCurrencyShort} tick={{ fontSize: 12 }} />
+                        <YAxis type="category" dataKey="category" tick={{ fontSize: 12 }} width={80} />
+                        <Tooltip
                           formatter={(value: number) => formatCurrency(value)}
-                          contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                          contentStyle={{ 
+                            backgroundColor: 'hsl(var(--card))', 
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '8px'
+                          }}
                         />
-                        <Bar dataKey="value" fill="hsl(var(--accent))" name="Monto" />
+                        <Bar 
+                          dataKey="value" 
+                          fill="hsl(var(--accent))" 
+                          radius={[0, 4, 4, 0]}
+                          name="Monto"
+                        />
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
                     <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                      No hay gastos categorizados
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* IVA Accumulation */}
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-lg">Acumulación de IVA - {metrics.cuatrimestreLabel}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {ivaAccumulationData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <LineChart data={ivaAccumulationData}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="date" tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                        <YAxis tickFormatter={formatCurrencyShort} tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                        <Tooltip 
-                          formatter={(value: number) => formatCurrency(value)}
-                          contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
-                        />
-                        <Line 
-                          type="stepAfter" 
-                          dataKey="iva" 
-                          stroke="hsl(var(--accent))" 
-                          strokeWidth={2}
-                          name="IVA Acumulado"
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-[200px] flex items-center justify-center text-muted-foreground">
-                      No hay transacciones con IVA en este cuatrimestre
+                      Sin egresos categorizados
                     </div>
                   )}
                 </CardContent>
               </Card>
             </div>
 
-            {/* Quick Actions */}
+            {/* IVA Accumulation Chart */}
             <Card className="animate-slide-up">
               <CardHeader>
-                <CardTitle className="text-lg">Acciones Rápidas</CardTitle>
+                <CardTitle className="text-lg">Acumulación de IVA ({metrics.cuatrimestreLabel})</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-wrap gap-3">
-                  <Link to="/statement-upload">
-                    <Button variant="outline">Subir Extracto</Button>
-                  </Link>
-                  <Link to="/transactions">
-                    <Button variant="outline">Ver Transacciones</Button>
-                  </Link>
-                  <Link to="/export">
-                    <Button variant="outline">Exportar Excel</Button>
-                  </Link>
-                </div>
+                {ivaAccumulationData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={ivaAccumulationData}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                      <YAxis tickFormatter={formatCurrencyShort} tick={{ fontSize: 12 }} />
+                      <Tooltip
+                        formatter={(value: number) => formatCurrency(value)}
+                        labelFormatter={(label) => `Fecha: ${label}`}
+                        contentStyle={{ 
+                          backgroundColor: 'hsl(var(--card))', 
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px'
+                        }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="iva" 
+                        name="IVA Acumulado"
+                        stroke="hsl(var(--accent))" 
+                        strokeWidth={2}
+                        fill="hsl(var(--accent))"
+                        fillOpacity={0.1}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+                    Sin datos de IVA en el cuatrimestre
+                  </div>
+                )}
               </CardContent>
             </Card>
+
+            {/* Monthly Summary Table */}
+            <MonthlySummaryTable
+              transactions={transactions}
+              selectedMonth={selectedMonth}
+              selectedYear={selectedYear}
+            />
           </>
         )}
       </div>

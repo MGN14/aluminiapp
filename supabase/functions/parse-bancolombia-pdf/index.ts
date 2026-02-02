@@ -24,6 +24,80 @@ interface ParsedStatement {
     total_cargos: number | null;
     saldo_actual: number | null;
   };
+  period: {
+    month: number | null;
+    year: number | null;
+    period_text: string | null;
+  };
+}
+
+// Parse Spanish month name to number (1-12)
+function parseSpanishMonth(monthStr: string): number | null {
+  const monthMap: Record<string, number> = {
+    'ene': 1, 'enero': 1,
+    'feb': 2, 'febrero': 2,
+    'mar': 3, 'marzo': 3,
+    'abr': 4, 'abril': 4,
+    'may': 5, 'mayo': 5,
+    'jun': 6, 'junio': 6,
+    'jul': 7, 'julio': 7,
+    'ago': 8, 'agosto': 8,
+    'sep': 9, 'sept': 9, 'septiembre': 9,
+    'oct': 10, 'octubre': 10,
+    'nov': 11, 'noviembre': 11,
+    'dic': 12, 'diciembre': 12,
+  };
+  
+  return monthMap[monthStr.toLowerCase().trim()] || null;
+}
+
+// Fix transaction date to use the correct year from statement period
+function fixTransactionDate(dateStr: string, statementMonth: number | null, statementYear: number | null): string {
+  // If we have a full date with year, use it
+  const fullDateMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (fullDateMatch) {
+    const [, year, month, day] = fullDateMatch;
+    // If AI returned a future date (2026) but statement is 2025, fix it
+    if (statementYear && parseInt(year) > statementYear) {
+      return `${statementYear}-${month}-${day}`;
+    }
+    return dateStr;
+  }
+  
+  // If we don't have statement period info, return as-is
+  if (!statementMonth || !statementYear) {
+    return dateStr;
+  }
+  
+  // Try to parse DD/MMM format (e.g., "15/Dic")
+  const shortDateMatch = dateStr.match(/^(\d{1,2})\/(\w+)$/i);
+  if (shortDateMatch) {
+    const [, day, monthStr] = shortDateMatch;
+    const month = parseSpanishMonth(monthStr);
+    if (month) {
+      // Determine correct year - if transaction month is different from statement month
+      // and would result in a future date, adjust accordingly
+      let year = statementYear;
+      
+      // Handle year boundary (e.g., statement is Dec 2025, transaction is Jan)
+      if (month > statementMonth && month - statementMonth > 6) {
+        year = statementYear - 1;
+      } else if (month < statementMonth && statementMonth - month > 6) {
+        year = statementYear + 1;
+      }
+      
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  
+  // Fallback: try to extract day and use statement month/year
+  const dayMatch = dateStr.match(/^(\d{1,2})/);
+  if (dayMatch && statementMonth && statementYear) {
+    const day = parseInt(dayMatch[1]);
+    return `${statementYear}-${String(statementMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  
+  return dateStr;
 }
 
 serve(async (req) => {
@@ -75,14 +149,21 @@ Tu tarea es extraer TODAS las transacciones del extracto bancario PDF.
 
 FORMATO DEL EXTRACTO BANCOLOMBIA:
 - La tabla de movimientos tiene columnas: FECHA, DESCRIPCIÓN, SUCURSAL, DCTO, DÉBITOS, CRÉDITOS, SALDO
-- Las fechas están en formato DD/MMM (ej: 02/Ene, 15/Feb)
+- Las fechas están en formato DD/MMM (ej: 02/Ene, 15/Feb) o DD/MMM/YYYY
 - Los valores negativos son DÉBITOS (gastos)
 - Los valores positivos son CRÉDITOS (ingresos)
 - El saldo se actualiza después de cada transacción
 
+EXTRACCIÓN DEL PERIODO (MUY IMPORTANTE):
+1. Busca el encabezado del extracto que indica el periodo, ej: "DICIEMBRE 2025" o "Extracto del 01/Dic/2025 al 31/Dic/2025"
+2. Extrae el MES y AÑO del extracto
+3. Este periodo es CRÍTICO para asignar el año correcto a las transacciones
+
 REGLAS DE EXTRACCIÓN:
 1. Extrae CADA transacción individual de la tabla de movimientos
-2. Convierte las fechas al formato YYYY-MM-DD (asume el año actual 2026 si no está especificado)
+2. Para las fechas:
+   - Si el PDF muestra solo DD/MMM (ej: 15/Dic), usa el año del periodo del extracto
+   - Convierte al formato YYYY-MM-DD
 3. Para el monto (amount): negativo para débitos, positivo para créditos
 4. Incluye sucursal y dcto si están presentes
 5. También extrae el resumen: saldo anterior, total abonos, total cargos, saldo actual
@@ -92,13 +173,13 @@ RESPONDE ÚNICAMENTE con un JSON válido con esta estructura exacta:
 {
   "transactions": [
     {
-      "date": "2026-01-15",
+      "date": "2025-12-15",
       "description": "TRANSFERENCIA RECIBIDA CLIENTE ABC",
       "sucursal": "BOGOTA CENTRO",
       "dcto": "001234",
       "amount": 5500000,
       "balance": 25500000,
-      "raw_line": "15/Ene TRANSFERENCIA RECIBIDA CLIENTE ABC BOGOTA CENTRO 001234 5.500.000 25.500.000"
+      "raw_line": "15/Dic TRANSFERENCIA RECIBIDA CLIENTE ABC BOGOTA CENTRO 001234 5.500.000 25.500.000"
     }
   ],
   "summary": {
@@ -106,10 +187,16 @@ RESPONDE ÚNICAMENTE con un JSON válido con esta estructura exacta:
     "total_abonos": 17600000,
     "total_cargos": 12180000,
     "saldo_actual": 25420000
+  },
+  "period": {
+    "month": 12,
+    "year": 2025,
+    "period_text": "Diciembre 2025"
   }
 }
 
-NO incluyas explicaciones, solo el JSON.`;
+NO incluyas explicaciones, solo el JSON.
+IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año actual.`;
 
     console.log("Calling Lovable AI for PDF extraction...");
     
@@ -128,7 +215,7 @@ NO incluyas explicaciones, solo el JSON.`;
             content: [
               {
                 type: "text",
-                text: "Extrae todas las transacciones de este extracto bancario de Bancolombia:"
+                text: "Extrae todas las transacciones de este extracto bancario de Bancolombia. IMPORTANTE: Identifica el periodo (mes y año) del extracto y usa ese año para todas las fechas de las transacciones."
               },
               {
                 type: "image_url",
@@ -193,6 +280,11 @@ NO incluyas explicaciones, solo el JSON.`;
       throw new Error("Invalid response structure: missing transactions array");
     }
 
+    // Extract period info
+    const statementMonth = parsed.period?.month || null;
+    const statementYear = parsed.period?.year || null;
+
+    console.log(`Extracted period: ${statementMonth}/${statementYear}`);
     console.log(`Extracted ${parsed.transactions.length} transactions`);
 
     // Get user_id from statement
@@ -206,26 +298,50 @@ NO incluyas explicaciones, solo el JSON.`;
       throw new Error("Statement not found");
     }
 
+    // Update statement with period info
+    const periodStart = statementMonth && statementYear 
+      ? `${statementYear}-${String(statementMonth).padStart(2, '0')}-01`
+      : null;
+    
+    const periodEnd = statementMonth && statementYear
+      ? new Date(statementYear, statementMonth, 0).toISOString().split('T')[0]
+      : null;
+
+    await supabase
+      .from("bank_statements")
+      .update({ 
+        statement_month: statementMonth,
+        statement_year: statementYear,
+        period_start: periodStart,
+        period_end: periodEnd,
+      })
+      .eq("id", statement_id);
+
     // Insert transactions into database
     // The database trigger will calculate iva_amount and retefuente_amount
-    const transactionsToInsert = parsed.transactions.map((tx) => ({
-      user_id: statement.user_id,
-      statement_id: statement_id,
-      date: tx.date,
-      description: tx.description,
-      amount: tx.amount,
-      debit: tx.amount < 0 ? Math.abs(tx.amount) : null,
-      credit: tx.amount > 0 ? tx.amount : null,
-      balance: tx.balance,
-      sucursal: tx.sucursal || null,
-      dcto: tx.dcto || null,
-      raw_line: tx.raw_line || null,
-      category: inferCategory(tx.description),
-      has_iva: shouldApplyIVA(tx.description, tx.amount),
-      has_retefuente: shouldApplyRetefuente(tx.description, tx.amount),
-      iva_rate: 0.19,
-      retefuente_rate: 0.025,
-    }));
+    const transactionsToInsert = parsed.transactions.map((tx) => {
+      // Fix the date using statement period
+      const fixedDate = fixTransactionDate(tx.date, statementMonth, statementYear);
+      
+      return {
+        user_id: statement.user_id,
+        statement_id: statement_id,
+        date: fixedDate,
+        description: tx.description,
+        amount: tx.amount,
+        debit: tx.amount < 0 ? Math.abs(tx.amount) : null,
+        credit: tx.amount > 0 ? tx.amount : null,
+        balance: tx.balance,
+        sucursal: tx.sucursal || null,
+        dcto: tx.dcto || null,
+        raw_line: tx.raw_line || null,
+        category: inferCategory(tx.description),
+        has_iva: shouldApplyIVA(tx.description, tx.amount),
+        has_retefuente: shouldApplyRetefuente(tx.description, tx.amount),
+        iva_rate: 0.19,
+        retefuente_rate: 0.025,
+      };
+    });
 
     const { error: insertError } = await supabase
       .from("transactions")
@@ -249,6 +365,10 @@ NO incluyas explicaciones, solo el JSON.`;
         success: true,
         transactions_count: parsed.transactions.length,
         summary: parsed.summary,
+        period: {
+          month: statementMonth,
+          year: statementYear,
+        },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
