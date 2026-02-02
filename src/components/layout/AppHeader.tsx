@@ -3,20 +3,26 @@ import { Button } from '@/components/ui/button';
 import { FileSpreadsheet, LogOut } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-
-const navItems = [
-  { path: '/dashboard', label: 'Dashboard' },
-  { path: '/statement-upload', label: 'Subir Extracto' },
-  { path: '/transactions', label: 'Transacciones' },
-  { path: '/export', label: 'Exportar' },
-];
-
+const navItems = [{
+  path: '/dashboard',
+  label: 'Dashboard'
+}, {
+  path: '/statement-upload',
+  label: 'Subir Extracto'
+}, {
+  path: '/transactions',
+  label: 'Transacciones'
+}, {
+  path: '/export',
+  label: 'Exportar'
+}];
 export default function AppHeader() {
-  const { user, signOut } = useAuth();
+  const {
+    user,
+    signOut
+  } = useAuth();
   const location = useLocation();
-
-  return (
-    <header className="border-b border-border bg-card">
+  return <header className="border-b border-border bg-card">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <div className="flex items-center gap-6">
           <Link to="/dashboard" className="flex items-center gap-2">
@@ -27,20 +33,9 @@ export default function AppHeader() {
           </Link>
           
           <nav className="hidden md:flex items-center gap-1">
-            {navItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={cn(
-                  "px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                  location.pathname === item.path
-                    ? "bg-accent/10 text-accent"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                )}
-              >
+            {navItems.map(item => <Link key={item.path} to={item.path} className={cn("px-3 py-2 text-sm font-medium rounded-md transition-colors text-success", location.pathname === item.path ? "bg-accent/10 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted")}>
                 {item.label}
-              </Link>
-            ))}
+              </Link>)}
           </nav>
         </div>
         
@@ -54,6 +49,5 @@ export default function AppHeader() {
           </Button>
         </div>
       </div>
-    </header>
-  );
+    </header>;
 }
