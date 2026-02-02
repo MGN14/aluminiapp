@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Transaction, Category, Responsible, TransactionType } from '@/types/transaction';
+import { Transaction, Category, Responsible, TransactionType, OperationalType } from '@/types/transaction';
 import { TableCell, TableRow } from '@/components/ui/table';
-
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
@@ -18,8 +17,10 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Eye, ShoppingCart, TrendingUp } from 'lucide-react';
+import { Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useViewMode } from '@/contexts/ViewModeContext';
+import { OPERATIONAL_TYPES, getDefaultOperationalType } from '@/lib/operationalTypes';
 
 interface TransactionRowProps {
   transaction: Transaction;
@@ -47,6 +48,7 @@ export default function TransactionRow({
   onViewDetail 
 }: TransactionRowProps) {
   const [isUpdating, setIsUpdating] = useState(false);
+  const { isAdvancedMode } = useViewMode();
 
   const handleUpdate = async (updates: Partial<Transaction>) => {
     setIsUpdating(true);
@@ -58,8 +60,11 @@ export default function TransactionRow({
   };
 
   const handleTransactionTypeChange = (type: TransactionType) => {
-    // When changing type, also update IVA and Retefuente flags based on new logic
-    const updates: Partial<Transaction> = { transaction_type: type };
+    const updates: Partial<Transaction> = { 
+      transaction_type: type,
+      // Set default operational type based on transaction type
+      operational_type: getDefaultOperationalType(type) as OperationalType,
+    };
     
     // If retefuente is enabled and changing to venta, disable it (retefuente only for compras)
     if (type === 'venta' && transaction.has_retefuente) {
@@ -69,15 +74,16 @@ export default function TransactionRow({
     handleUpdate(updates);
   };
 
+  const handleOperationalTypeChange = (opType: OperationalType) => {
+    handleUpdate({ operational_type: opType });
+  };
+
   const handleIvaChange = (checked: boolean) => {
-    // The trigger will calculate iva_amount and iva_type automatically
     handleUpdate({ has_iva: checked });
   };
 
   const handleRetefuenteChange = (checked: boolean) => {
-    // Retefuente only applies to compras - the trigger handles the calculation
     if (transaction.transaction_type === 'venta' && checked) {
-      // Don't allow enabling retefuente for ventas
       return;
     }
     handleUpdate({ has_retefuente: checked });
@@ -86,6 +92,9 @@ export default function TransactionRow({
   const amountColor = (transaction.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive';
   const isReconciled = !!transaction.responsible_id;
   const isVenta = transaction.transaction_type === 'venta';
+
+  const operationalTypeLabel = OPERATIONAL_TYPES.find(t => t.value === transaction.operational_type)?.label || 'Otros';
+  const operationalTypeColor = OPERATIONAL_TYPES.find(t => t.value === transaction.operational_type)?.color || 'text-muted-foreground';
 
   return (
     <TableRow className={`hover:bg-muted/30 ${isUpdating ? 'opacity-50' : ''} ${!isReconciled ? 'bg-destructive/5' : ''}`}>
@@ -120,28 +129,21 @@ export default function TransactionRow({
         {formatCurrency(transaction.amount)}
       </TableCell>
       
-      {/* Transaction Type Selector */}
-      <TableCell className="w-[90px]">
+      {/* Operational Type Selector (replaces Compra/Venta in simple mode) */}
+      <TableCell className="w-[130px]">
         <Select
-          value={transaction.transaction_type || 'compra'}
-          onValueChange={(value) => handleTransactionTypeChange(value as TransactionType)}
+          value={transaction.operational_type || 'otros'}
+          onValueChange={(value) => handleOperationalTypeChange(value as OperationalType)}
         >
-          <SelectTrigger className={`h-7 text-xs ${isVenta ? 'border-success/50' : 'border-destructive/50'}`}>
+          <SelectTrigger className="h-7 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="compra">
-              <div className="flex items-center gap-1">
-                <ShoppingCart className="h-3 w-3" />
-                <span>Compra</span>
-              </div>
-            </SelectItem>
-            <SelectItem value="venta">
-              <div className="flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                <span>Venta</span>
-              </div>
-            </SelectItem>
+            {OPERATIONAL_TYPES.map((opType) => (
+              <SelectItem key={opType.value} value={opType.value}>
+                <span className={opType.color}>{opType.label}</span>
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </TableCell>
@@ -191,21 +193,23 @@ export default function TransactionRow({
         />
       </TableCell>
       
-      {/* IVA Type Badge */}
-      <TableCell className="text-center w-[55px]">
-        {transaction.has_iva && transaction.iva_type && (
-          <Badge 
-            variant="outline" 
-            className={`text-[10px] px-1 ${
-              transaction.iva_type === 'debito' 
-                ? 'border-warning text-warning' 
-                : 'border-success text-success'
-            }`}
-          >
-            {transaction.iva_type === 'debito' ? 'Déb' : 'Cré'}
-          </Badge>
-        )}
-      </TableCell>
+      {/* IVA Type Badge - Only visible in Advanced Mode */}
+      {isAdvancedMode && (
+        <TableCell className="text-center w-[55px]">
+          {transaction.has_iva && transaction.iva_type && (
+            <Badge 
+              variant="outline" 
+              className={`text-[10px] px-1 ${
+                transaction.iva_type === 'debito' 
+                  ? 'border-warning text-warning' 
+                  : 'border-success text-success'
+              }`}
+            >
+              {transaction.iva_type === 'debito' ? 'Déb' : 'Cré'}
+            </Badge>
+          )}
+        </TableCell>
+      )}
       
       {/* IVA Amount */}
       <TableCell className="text-right text-xs w-[75px] text-muted-foreground">

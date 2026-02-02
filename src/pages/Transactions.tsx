@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { FileText, Loader2, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useViewMode } from '@/contexts/ViewModeContext';
 
 interface Statement {
   id: string;
@@ -33,6 +34,7 @@ interface Statement {
 
 export default function Transactions() {
   const { toast } = useToast();
+  const { isAdvancedMode } = useViewMode();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
@@ -197,11 +199,13 @@ export default function Transactions() {
                         <TableHead className="w-[80px]">Fecha</TableHead>
                         <TableHead className="min-w-[200px]">Descripción</TableHead>
                         <TableHead className="text-right w-[100px]">Monto</TableHead>
-                        <TableHead className="w-[90px]">Tipo</TableHead>
+                        <TableHead className="w-[130px]">Tipo</TableHead>
                         <TableHead className="w-[120px]">Categoría</TableHead>
                         <TableHead className="w-[120px]">Responsable</TableHead>
                         <TableHead className="text-center w-[40px]">IVA</TableHead>
-                        <TableHead className="text-center w-[55px]">Tipo</TableHead>
+                        {isAdvancedMode && (
+                          <TableHead className="text-center w-[55px]">Déb/Cré</TableHead>
+                        )}
                         <TableHead className="text-right w-[75px]">$ IVA</TableHead>
                         <TableHead className="text-center w-[40px]">Rete</TableHead>
                         <TableHead className="text-right w-[75px]">$ Rete</TableHead>

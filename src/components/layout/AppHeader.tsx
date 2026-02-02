@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { FileSpreadsheet, LogOut } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { ViewModeToggle } from './ViewModeToggle';
+
 const navItems = [{
   path: '/dashboard',
   label: 'Dashboard'
@@ -40,6 +42,7 @@ export default function AppHeader() {
         </div>
         
         <div className="flex items-center gap-4">
+          <ViewModeToggle />
           <span className="text-sm text-muted-foreground hidden sm:block">
             {user?.email}
           </span>
