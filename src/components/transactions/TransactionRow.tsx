@@ -112,14 +112,14 @@ export default function TransactionRow({
       
       <TableCell className="w-[130px]">
         <Select
-          value={transaction.responsible_id || ''}
-          onValueChange={(value) => handleUpdate({ responsible_id: value || null })}
+          value={transaction.responsible_id || '__none__'}
+          onValueChange={(value) => handleUpdate({ responsible_id: value === '__none__' ? null : value })}
         >
           <SelectTrigger className={`h-7 text-xs ${!transaction.responsible_id ? 'border-destructive/50' : ''}`}>
             <SelectValue placeholder="Sin asignar" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Sin asignar</SelectItem>
+            <SelectItem value="__none__">Sin asignar</SelectItem>
             {responsibles.filter(r => r.active).map((resp) => (
               <SelectItem key={resp.id} value={resp.id}>
                 {resp.name}
