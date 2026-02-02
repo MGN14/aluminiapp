@@ -14,9 +14,11 @@ interface TransactionData {
   balance: number | null;
   category: string | null;
   responsible_id: string | null;
+  transaction_type: 'compra' | 'venta';
   has_iva: boolean;
   has_retefuente: boolean;
   iva_amount: number;
+  iva_type: 'credito' | 'debito' | null;
   retefuente_amount: number;
 }
 interface MonthlySummaryTableProps {
@@ -62,10 +64,18 @@ export function MonthlySummaryTable({
     const totalEgresos = Math.abs(monthTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0));
     const netoMes = totalIngresos - totalEgresos;
 
-    // IVA acumulado del cuatrimestre
-    const ivaAcumulado = cuatrimestreTransactions.reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
+    // IVA débito y crédito del cuatrimestre
+    const ivaDebito = cuatrimestreTransactions
+      .filter(tx => tx.iva_type === 'debito')
+      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
+    
+    const ivaCredito = cuatrimestreTransactions
+      .filter(tx => tx.iva_type === 'credito')
+      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
+    
+    const ivaNeto = ivaDebito - ivaCredito;
 
-    // Retefuente del mes
+    // Retefuente del mes (solo compras)
     const retefuenteMes = monthTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
 
     // Pendientes por conciliar
@@ -74,7 +84,9 @@ export function MonthlySummaryTable({
       totalIngresos,
       totalEgresos,
       netoMes,
-      ivaAcumulado,
+      ivaDebito,
+      ivaCredito,
+      ivaNeto,
       retefuenteMes,
       pendientesConciliar,
       totalTransacciones: monthTransactions.length
@@ -90,32 +102,42 @@ export function MonthlySummaryTable({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <div className="grid gap-4 md:grid-cols-4 lg:grid-cols-8">
             <div className="text-center p-4 bg-success/10 rounded-lg">
               <p className="text-sm text-muted-foreground">Ingresos</p>
-              <p className="text-xl font-bold text-success">{formatCurrency(metrics.totalIngresos)}</p>
+              <p className="text-lg font-bold text-success">{formatCurrency(metrics.totalIngresos)}</p>
             </div>
             <div className="text-center p-4 bg-destructive/10 rounded-lg">
               <p className="text-sm text-muted-foreground">Egresos</p>
-              <p className="text-xl font-bold text-destructive">{formatCurrency(metrics.totalEgresos)}</p>
+              <p className="text-lg font-bold text-destructive">{formatCurrency(metrics.totalEgresos)}</p>
             </div>
             <div className={`text-center p-4 rounded-lg ${metrics.netoMes >= 0 ? 'bg-success/10' : 'bg-destructive/10'}`}>
               <p className="text-sm text-muted-foreground">Neto</p>
-              <p className={`text-xl font-bold ${metrics.netoMes >= 0 ? 'text-success' : 'text-destructive'}`}>
+              <p className={`text-lg font-bold ${metrics.netoMes >= 0 ? 'text-success' : 'text-destructive'}`}>
                 {formatCurrency(metrics.netoMes)}
               </p>
             </div>
-            <div className="text-center p-4 rounded-lg bg-warning">
-              <p className="text-sm text-primary-foreground">IVA ({cuatrimestre.label})</p>
-              <p className="text-xl font-bold text-accent">{formatCurrency(metrics.ivaAcumulado)}</p>
+            <div className="text-center p-4 rounded-lg bg-warning/10">
+              <p className="text-sm text-muted-foreground">IVA Débito</p>
+              <p className="text-lg font-bold text-warning">{formatCurrency(metrics.ivaDebito)}</p>
             </div>
-            <div className="text-center p-4 rounded-lg bg-card-foreground">
-              <p className="text-sm text-primary-foreground">Retefuente (2.5%)</p>
-              <p className="text-xl font-bold text-accent">{formatCurrency(metrics.retefuenteMes)}</p>
+            <div className="text-center p-4 rounded-lg bg-success/10">
+              <p className="text-sm text-muted-foreground">IVA Crédito</p>
+              <p className="text-lg font-bold text-success">{formatCurrency(metrics.ivaCredito)}</p>
+            </div>
+            <div className={`text-center p-4 rounded-lg ${metrics.ivaNeto >= 0 ? 'bg-destructive/10' : 'bg-success/10'}`}>
+              <p className="text-sm text-muted-foreground">{metrics.ivaNeto >= 0 ? 'IVA Pagar' : 'Saldo Favor'}</p>
+              <p className={`text-lg font-bold ${metrics.ivaNeto >= 0 ? 'text-destructive' : 'text-success'}`}>
+                {formatCurrency(Math.abs(metrics.ivaNeto))}
+              </p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-accent/10">
+              <p className="text-sm text-muted-foreground">Retefuente</p>
+              <p className="text-lg font-bold text-foreground">{formatCurrency(metrics.retefuenteMes)}</p>
             </div>
             <div className="text-center p-4 bg-muted rounded-lg">
               <p className="text-sm text-muted-foreground">Pendientes</p>
-              <p className={`text-xl font-bold ${metrics.pendientesConciliar > 0 ? 'text-destructive' : 'text-success'}`}>
+              <p className={`text-lg font-bold ${metrics.pendientesConciliar > 0 ? 'text-destructive' : 'text-success'}`}>
                 {metrics.pendientesConciliar}
               </p>
             </div>
