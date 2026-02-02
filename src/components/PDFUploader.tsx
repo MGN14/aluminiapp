@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Upload, FileText, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface PDFUploaderProps {
-  onUploadComplete: (statementId: string) => void;
+  onUploadComplete: (statementId: string, filePath: string) => void;
 }
 
 export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
@@ -54,7 +54,7 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
       if (dbError) throw dbError;
 
       setUploadStatus('success');
-      onUploadComplete(statement.id);
+      onUploadComplete(statement.id, filePath);
     } catch (error: any) {
       console.error('Upload error:', error);
       setErrorMessage(error.message || 'Error al subir el archivo');

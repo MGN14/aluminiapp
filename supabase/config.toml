@@ -1,1 +1,4 @@
 project_id = "kttofcsxdrevdqzmrgqg"
+
+[functions.parse-bancolombia-pdf]
+verify_jwt = false
