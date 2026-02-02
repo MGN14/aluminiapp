@@ -50,6 +50,33 @@ export type Database = {
         }
         Relationships: []
       }
+      categories: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           company_name: string | null
@@ -77,68 +104,124 @@ export type Database = {
         }
         Relationships: []
       }
+      responsibles: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number | null
-          applies_iva: boolean
-          applies_retefuente: boolean
           balance: number | null
           category: string | null
+          category_id: string | null
           created_at: string
           credit: number | null
           date: string
           dcto: string | null
           debit: number | null
           description: string
+          has_iva: boolean
+          has_retefuente: boolean
           id: string
+          iva_amount: number
+          iva_rate: number
           notes: string | null
           owner: string | null
-          reconciled: boolean
+          raw_line: string | null
+          responsible_id: string | null
+          retefuente_amount: number
+          retefuente_rate: number
           statement_id: string
           sucursal: string | null
           user_id: string
         }
         Insert: {
           amount?: number | null
-          applies_iva?: boolean
-          applies_retefuente?: boolean
           balance?: number | null
           category?: string | null
+          category_id?: string | null
           created_at?: string
           credit?: number | null
           date: string
           dcto?: string | null
           debit?: number | null
           description: string
+          has_iva?: boolean
+          has_retefuente?: boolean
           id?: string
+          iva_amount?: number
+          iva_rate?: number
           notes?: string | null
           owner?: string | null
-          reconciled?: boolean
+          raw_line?: string | null
+          responsible_id?: string | null
+          retefuente_amount?: number
+          retefuente_rate?: number
           statement_id: string
           sucursal?: string | null
           user_id: string
         }
         Update: {
           amount?: number | null
-          applies_iva?: boolean
-          applies_retefuente?: boolean
           balance?: number | null
           category?: string | null
+          category_id?: string | null
           created_at?: string
           credit?: number | null
           date?: string
           dcto?: string | null
           debit?: number | null
           description?: string
+          has_iva?: boolean
+          has_retefuente?: boolean
           id?: string
+          iva_amount?: number
+          iva_rate?: number
           notes?: string | null
           owner?: string | null
-          reconciled?: boolean
+          raw_line?: string | null
+          responsible_id?: string | null
+          retefuente_amount?: number
+          retefuente_rate?: number
           statement_id?: string
           sucursal?: string | null
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "transactions_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_responsible_id_fkey"
+            columns: ["responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "transactions_statement_id_fkey"
             columns: ["statement_id"]

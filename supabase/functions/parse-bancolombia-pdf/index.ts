@@ -13,6 +13,7 @@ interface Transaction {
   dcto: string | null;
   amount: number;
   balance: number;
+  raw_line?: string;
 }
 
 interface ParsedStatement {
@@ -81,21 +82,23 @@ FORMATO DEL EXTRACTO BANCOLOMBIA:
 
 REGLAS DE EXTRACCIÓN:
 1. Extrae CADA transacción individual de la tabla de movimientos
-2. Convierte las fechas al formato YYYY-MM-DD (asume el año actual si no está especificado)
+2. Convierte las fechas al formato YYYY-MM-DD (asume el año actual 2026 si no está especificado)
 3. Para el monto (amount): negativo para débitos, positivo para créditos
 4. Incluye sucursal y dcto si están presentes
 5. También extrae el resumen: saldo anterior, total abonos, total cargos, saldo actual
+6. Incluye raw_line con la línea original del PDF para cada transacción
 
 RESPONDE ÚNICAMENTE con un JSON válido con esta estructura exacta:
 {
   "transactions": [
     {
-      "date": "2024-01-15",
+      "date": "2026-01-15",
       "description": "TRANSFERENCIA RECIBIDA CLIENTE ABC",
       "sucursal": "BOGOTA CENTRO",
       "dcto": "001234",
       "amount": 5500000,
-      "balance": 25500000
+      "balance": 25500000,
+      "raw_line": "15/Ene TRANSFERENCIA RECIBIDA CLIENTE ABC BOGOTA CENTRO 001234 5.500.000 25.500.000"
     }
   ],
   "summary": {
@@ -204,6 +207,7 @@ NO incluyas explicaciones, solo el JSON.`;
     }
 
     // Insert transactions into database
+    // The database trigger will calculate iva_amount and retefuente_amount
     const transactionsToInsert = parsed.transactions.map((tx) => ({
       user_id: statement.user_id,
       statement_id: statement_id,
@@ -215,10 +219,12 @@ NO incluyas explicaciones, solo el JSON.`;
       balance: tx.balance,
       sucursal: tx.sucursal || null,
       dcto: tx.dcto || null,
+      raw_line: tx.raw_line || null,
       category: inferCategory(tx.description),
-      applies_iva: shouldApplyIVA(tx.description, tx.amount),
-      applies_retefuente: shouldApplyRetefuente(tx.description, tx.amount),
-      reconciled: false,
+      has_iva: shouldApplyIVA(tx.description, tx.amount),
+      has_retefuente: shouldApplyRetefuente(tx.description, tx.amount),
+      iva_rate: 0.19,
+      retefuente_rate: 0.025,
     }));
 
     const { error: insertError } = await supabase
@@ -287,15 +293,17 @@ function inferCategory(description: string): string | null {
 }
 
 function shouldApplyIVA(description: string, amount: number): boolean {
-  // IVA applies to income from sales (positive amounts with sales-related descriptions)
-  if (amount <= 0) return false;
+  // IVA applies to expenses (negative amounts) from purchases
+  if (amount >= 0) return false;
   
   const desc = description.toUpperCase();
-  // Don't apply IVA to transfers between own accounts or IVA payments themselves
-  if (/COBRO IVA|IVA PAGOS/.test(desc)) return false;
+  // Don't apply IVA to transfers between own accounts or tax payments
+  if (/COBRO IVA|IVA PAGOS|PAGO PSE IMPUESTO/.test(desc)) return false;
+  if (/TRANSFERENCIA|NOMINA|SALARIO/.test(desc)) return false;
   
-  // Apply IVA to sales income
-  if (/TRANSFERENCIA RECIBIDA|FACTURA|VENTA|CLIENTE/.test(desc)) return true;
+  // Apply IVA to purchases from suppliers
+  if (/PAGO PROVEEDOR|COMPRA|MATERIALES|INSUMOS|MERCANCIA/.test(desc)) return true;
+  if (/SERVICIOS|EPM|ENERGIA|AGUA|GAS|INTERNET/.test(desc)) return true;
   
   return false;
 }

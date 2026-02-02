@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Transaction, CATEGORIES } from '@/types/transaction';
+import { Transaction, Category, Responsible } from '@/types/transaction';
 import { TableCell, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -10,12 +10,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { Eye } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface TransactionRowProps {
   transaction: Transaction;
+  categories: Category[];
+  responsibles: Responsible[];
   onUpdate: (id: string, updates: Partial<Transaction>) => Promise<void>;
+  onViewDetail: (transaction: Transaction) => void;
 }
 
 function formatCurrency(value: number | null) {
@@ -28,7 +38,13 @@ function formatCurrency(value: number | null) {
   }).format(value);
 }
 
-export default function TransactionRow({ transaction, onUpdate }: TransactionRowProps) {
+export default function TransactionRow({ 
+  transaction, 
+  categories, 
+  responsibles, 
+  onUpdate,
+  onViewDetail 
+}: TransactionRowProps) {
   const [isUpdating, setIsUpdating] = useState(false);
 
   const handleUpdate = async (updates: Partial<Transaction>) => {
@@ -41,79 +57,106 @@ export default function TransactionRow({ transaction, onUpdate }: TransactionRow
   };
 
   const amountColor = (transaction.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive';
+  const isReconciled = !!transaction.responsible_id;
 
   return (
-    <TableRow className={`hover:bg-muted/30 ${isUpdating ? 'opacity-50' : ''}`}>
-      <TableCell className="font-medium text-sm w-[90px]">
+    <TableRow className={`hover:bg-muted/30 ${isUpdating ? 'opacity-50' : ''} ${!isReconciled ? 'bg-destructive/5' : ''}`}>
+      <TableCell className="font-medium text-sm w-[80px]">
         {format(new Date(transaction.date), 'dd MMM', { locale: es })}
       </TableCell>
       
-      <TableCell className="max-w-[200px]">
-        <Input
-          value={transaction.description}
-          onChange={(e) => handleUpdate({ description: e.target.value })}
-          className="h-8 text-sm border-transparent hover:border-border focus:border-border"
-        />
+      <TableCell className="min-w-[250px] max-w-[400px]">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-2">
+              <span className="text-sm truncate flex-1 cursor-help">
+                {transaction.description}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 shrink-0"
+                onClick={() => onViewDetail(transaction)}
+              >
+                <Eye className="h-3 w-3" />
+              </Button>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[400px]">
+            <p className="text-sm">{transaction.description}</p>
+          </TooltipContent>
+        </Tooltip>
       </TableCell>
       
-      <TableCell className={`text-right font-medium text-sm w-[120px] ${amountColor}`}>
+      <TableCell className={`text-right font-medium text-sm w-[110px] ${amountColor}`}>
         {formatCurrency(transaction.amount)}
       </TableCell>
       
-      <TableCell className="w-[140px]">
+      <TableCell className="w-[130px]">
         <Select
-          value={transaction.category || ''}
-          onValueChange={(value) => handleUpdate({ category: value })}
+          value={transaction.category_id || transaction.category || ''}
+          onValueChange={(value) => handleUpdate({ category_id: value, category: null })}
         >
-          <SelectTrigger className="h-8 text-xs">
+          <SelectTrigger className="h-7 text-xs">
             <SelectValue placeholder="Categoría" />
           </SelectTrigger>
           <SelectContent>
-            {CATEGORIES.map((cat) => (
-              <SelectItem key={cat.value} value={cat.value}>
-                {cat.label}
+            {categories.filter(c => c.active).map((cat) => (
+              <SelectItem key={cat.id} value={cat.id}>
+                {cat.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </TableCell>
       
+      <TableCell className="w-[130px]">
+        <Select
+          value={transaction.responsible_id || ''}
+          onValueChange={(value) => handleUpdate({ responsible_id: value || null })}
+        >
+          <SelectTrigger className={`h-7 text-xs ${!transaction.responsible_id ? 'border-destructive/50' : ''}`}>
+            <SelectValue placeholder="Sin asignar" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">Sin asignar</SelectItem>
+            {responsibles.filter(r => r.active).map((resp) => (
+              <SelectItem key={resp.id} value={resp.id}>
+                {resp.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+      
+      <TableCell className="text-center w-[45px]">
+        <Checkbox
+          checked={transaction.has_iva}
+          onCheckedChange={(checked) => handleUpdate({ has_iva: checked as boolean })}
+        />
+      </TableCell>
+      
+      <TableCell className="text-right text-xs w-[80px] text-muted-foreground">
+        {transaction.iva_amount > 0 ? formatCurrency(transaction.iva_amount) : '-'}
+      </TableCell>
+      
+      <TableCell className="text-center w-[45px]">
+        <Checkbox
+          checked={transaction.has_retefuente}
+          onCheckedChange={(checked) => handleUpdate({ has_retefuente: checked as boolean })}
+        />
+      </TableCell>
+      
+      <TableCell className="text-right text-xs w-[80px] text-muted-foreground">
+        {transaction.retefuente_amount > 0 ? formatCurrency(transaction.retefuente_amount) : '-'}
+      </TableCell>
+      
       <TableCell className="w-[120px]">
-        <Input
-          value={transaction.owner || ''}
-          onChange={(e) => handleUpdate({ owner: e.target.value })}
-          placeholder="Responsable"
-          className="h-8 text-xs border-transparent hover:border-border focus:border-border"
-        />
-      </TableCell>
-      
-      <TableCell className="text-center w-[60px]">
-        <Checkbox
-          checked={transaction.reconciled}
-          onCheckedChange={(checked) => handleUpdate({ reconciled: checked as boolean })}
-        />
-      </TableCell>
-      
-      <TableCell className="text-center w-[50px]">
-        <Checkbox
-          checked={transaction.applies_iva}
-          onCheckedChange={(checked) => handleUpdate({ applies_iva: checked as boolean })}
-        />
-      </TableCell>
-      
-      <TableCell className="text-center w-[50px]">
-        <Checkbox
-          checked={transaction.applies_retefuente}
-          onCheckedChange={(checked) => handleUpdate({ applies_retefuente: checked as boolean })}
-        />
-      </TableCell>
-      
-      <TableCell className="w-[150px]">
         <Input
           value={transaction.notes || ''}
           onChange={(e) => handleUpdate({ notes: e.target.value })}
           placeholder="Notas"
-          className="h-8 text-xs border-transparent hover:border-border focus:border-border"
+          className="h-7 text-xs border-transparent hover:border-border focus:border-border"
         />
       </TableCell>
     </TableRow>
