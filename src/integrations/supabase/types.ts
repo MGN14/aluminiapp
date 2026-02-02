@@ -79,64 +79,64 @@ export type Database = {
       }
       transactions: {
         Row: {
-          affects_dian: boolean
           amount: number | null
+          applies_iva: boolean
+          applies_retefuente: boolean
           balance: number | null
           category: string | null
           created_at: string
           credit: number | null
           date: string
+          dcto: string | null
           debit: number | null
           description: string
-          has_vat: boolean
           id: string
+          notes: string | null
           owner: string | null
           reconciled: boolean
           statement_id: string
+          sucursal: string | null
           user_id: string
-          vat_amount: number | null
-          vat_percentage: number
-          withholding: number | null
         }
         Insert: {
-          affects_dian?: boolean
           amount?: number | null
+          applies_iva?: boolean
+          applies_retefuente?: boolean
           balance?: number | null
           category?: string | null
           created_at?: string
           credit?: number | null
           date: string
+          dcto?: string | null
           debit?: number | null
           description: string
-          has_vat?: boolean
           id?: string
+          notes?: string | null
           owner?: string | null
           reconciled?: boolean
           statement_id: string
+          sucursal?: string | null
           user_id: string
-          vat_amount?: number | null
-          vat_percentage?: number
-          withholding?: number | null
         }
         Update: {
-          affects_dian?: boolean
           amount?: number | null
+          applies_iva?: boolean
+          applies_retefuente?: boolean
           balance?: number | null
           category?: string | null
           created_at?: string
           credit?: number | null
           date?: string
+          dcto?: string | null
           debit?: number | null
           description?: string
-          has_vat?: boolean
           id?: string
+          notes?: string | null
           owner?: string | null
           reconciled?: boolean
           statement_id?: string
+          sucursal?: string | null
           user_id?: string
-          vat_amount?: number | null
-          vat_percentage?: number
-          withholding?: number | null
         }
         Relationships: [
           {
