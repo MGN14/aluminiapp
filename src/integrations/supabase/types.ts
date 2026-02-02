@@ -79,6 +79,8 @@ export type Database = {
       }
       transactions: {
         Row: {
+          affects_dian: boolean
+          amount: number | null
           balance: number | null
           category: string | null
           created_at: string
@@ -86,11 +88,19 @@ export type Database = {
           date: string
           debit: number | null
           description: string
+          has_vat: boolean
           id: string
+          owner: string | null
+          reconciled: boolean
           statement_id: string
           user_id: string
+          vat_amount: number | null
+          vat_percentage: number
+          withholding: number | null
         }
         Insert: {
+          affects_dian?: boolean
+          amount?: number | null
           balance?: number | null
           category?: string | null
           created_at?: string
@@ -98,11 +108,19 @@ export type Database = {
           date: string
           debit?: number | null
           description: string
+          has_vat?: boolean
           id?: string
+          owner?: string | null
+          reconciled?: boolean
           statement_id: string
           user_id: string
+          vat_amount?: number | null
+          vat_percentage?: number
+          withholding?: number | null
         }
         Update: {
+          affects_dian?: boolean
+          amount?: number | null
           balance?: number | null
           category?: string | null
           created_at?: string
@@ -110,9 +128,15 @@ export type Database = {
           date?: string
           debit?: number | null
           description?: string
+          has_vat?: boolean
           id?: string
+          owner?: string | null
+          reconciled?: boolean
           statement_id?: string
           user_id?: string
+          vat_amount?: number | null
+          vat_percentage?: number
+          withholding?: number | null
         }
         Relationships: [
           {
