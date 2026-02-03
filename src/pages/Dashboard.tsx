@@ -13,6 +13,7 @@ import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChar
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
+import PlanStatusCard from '@/components/subscription/PlanStatusCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -463,6 +464,9 @@ export default function Dashboard() {
             </AlertDescription>
           </Alert>
         )}
+
+        {/* Plan Status Card */}
+        <PlanStatusCard />
 
         {/* Onboarding Guide for new users */}
         <OnboardingGuide hasTransactions={transactions.length > 0} />
