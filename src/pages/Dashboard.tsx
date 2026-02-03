@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES } from '@/types/transaction';
@@ -13,7 +14,9 @@ import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCatego
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import { Skeleton } from '@/components/ui/skeleton';
-
+import { useToast } from '@/hooks/use-toast';
+import { useSubscription } from '@/hooks/useSubscription';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface TransactionData {
   id: string;
@@ -69,7 +72,10 @@ function formatCurrencyShort(value: number) {
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [loading, setLoading] = useState(true);
-  
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { toast } = useToast();
+  const { checkSubscription, plan } = useSubscription();
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
   // Unified period selection state
   const now = new Date();
@@ -80,6 +86,28 @@ export default function Dashboard() {
     year: now.getFullYear(),
   });
   const [periodInitialized, setPeriodInitialized] = useState(false);
+
+  // Handle checkout success
+  useEffect(() => {
+    const checkoutStatus = searchParams.get('checkout');
+    const planUpgraded = searchParams.get('plan');
+    
+    if (checkoutStatus === 'success' && planUpgraded) {
+      setShowSuccessMessage(true);
+      checkSubscription(); // Refresh subscription status
+      
+      toast({
+        title: '¡Suscripción activada!',
+        description: `Tu plan ${planUpgraded === 'empresarial' ? 'Empresarial' : 'Básico'} está activo.`,
+      });
+      
+      // Clean URL
+      setSearchParams({});
+      
+      // Hide success message after 10 seconds
+      setTimeout(() => setShowSuccessMessage(false), 10000);
+    }
+  }, [searchParams, setSearchParams, checkSubscription, toast]);
 
   useEffect(() => {
     fetchTransactions();
@@ -424,6 +452,17 @@ export default function Dashboard() {
             </Link>
           </div>
         </div>
+
+        {/* Subscription Success Message */}
+        {showSuccessMessage && (
+          <Alert className="border-success bg-success/10 animate-fade-in">
+            <CheckCircle className="h-4 w-4 text-success" />
+            <AlertTitle className="text-success">¡Suscripción activada!</AlertTitle>
+            <AlertDescription>
+              Tu plan está activo. Ahora puedes subir hasta {plan === 'empresarial' ? 'PDFs ilimitados' : '10 PDFs por mes'}.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Onboarding Guide for new users */}
         <OnboardingGuide hasTransactions={transactions.length > 0} />

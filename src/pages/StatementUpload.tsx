@@ -83,6 +83,11 @@ export default function StatementUpload() {
         if (response.status === 402) {
           throw new Error('Se requiere agregar créditos para continuar procesando.');
         }
+        if (response.status === 403 && errorData.limit_exceeded) {
+          // Redirect to pricing for plan upgrade
+          navigate('/pricing');
+          throw new Error(errorData.message || 'Límite de PDFs alcanzado. Actualiza tu plan para continuar.');
+        }
         
         throw new Error(errorData.error || 'Error al procesar el PDF');
       }

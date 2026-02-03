@@ -1,10 +1,22 @@
 import { useAuth } from '@/hooks/useAuth';
+import { useSubscription } from '@/hooks/useSubscription';
 import { Button } from '@/components/ui/button';
-import { FileSpreadsheet, LogOut } from 'lucide-react';
+import { FileSpreadsheet, LogOut, Settings } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { ViewModeToggle } from './ViewModeToggle';
 import MobileNav from './MobileNav';
+import PlanBadge from '@/components/subscription/PlanBadge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 
 const navItems = [{
   path: '/dashboard',
@@ -22,7 +34,23 @@ const navItems = [{
 
 export default function AppHeader() {
   const { user, signOut } = useAuth();
+  const { plan, subscribed, openCustomerPortal } = useSubscription();
   const location = useLocation();
+  const [loadingPortal, setLoadingPortal] = useState(false);
+
+  const handleManageSubscription = async () => {
+    setLoadingPortal(true);
+    try {
+      const url = await openCustomerPortal();
+      if (url) {
+        window.open(url, '_blank');
+      }
+    } catch (error) {
+      console.error('Error opening portal:', error);
+    } finally {
+      setLoadingPortal(false);
+    }
+  };
   
   return <header className="border-b border-border bg-card">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -46,12 +74,46 @@ export default function AppHeader() {
         
         <div className="flex items-center gap-2 sm:gap-4">
           <ViewModeToggle />
-          <span className="text-sm text-muted-foreground hidden lg:block">
-            {user?.email}
-          </span>
-          <Button variant="ghost" size="sm" onClick={signOut} className="hidden md:flex">
-            <LogOut className="h-4 w-4 mr-2" />
-            Salir
+          
+          <PlanBadge plan={plan} />
+          
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="hidden md:flex gap-2">
+                <span className="text-sm text-muted-foreground max-w-[150px] truncate">
+                  {user?.email}
+                </span>
+                <Settings className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Mi cuenta</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link to="/pricing">Ver planes</Link>
+              </DropdownMenuItem>
+              {subscribed && (
+                <DropdownMenuItem onClick={handleManageSubscription} disabled={loadingPortal}>
+                  {loadingPortal ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Cargando...
+                    </>
+                  ) : (
+                    'Gestionar suscripción'
+                  )}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={signOut} className="text-destructive">
+                <LogOut className="h-4 w-4 mr-2" />
+                Cerrar sesión
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          <Button variant="ghost" size="sm" onClick={signOut} className="md:hidden">
+            <LogOut className="h-4 w-4" />
           </Button>
         </div>
       </div>
