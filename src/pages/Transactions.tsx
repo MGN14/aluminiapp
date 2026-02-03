@@ -23,7 +23,6 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { FileText, Loader2, AlertCircle } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useViewMode } from '@/contexts/ViewModeContext';
 
@@ -33,7 +32,6 @@ interface Statement {
 }
 
 export default function Transactions() {
-  const { toast } = useToast();
   const { isAdvancedMode } = useViewMode();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -100,24 +98,8 @@ export default function Transactions() {
     }
   };
 
-  const handleUpdateTransaction = async (id: string, updates: Partial<Transaction>) => {
-    try {
-      const { error } = await supabase
-        .from('transactions')
-        .update(updates)
-        .eq('id', id);
-
-      if (error) throw error;
-      await fetchTransactions();
-    } catch (error) {
-      console.error('Error updating transaction:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo actualizar la transacción.',
-        variant: 'destructive',
-      });
-    }
-  };
+  // Note: Updates are now handled per-row via useTransactionEdit hook
+  // No global refresh needed - each row manages its own state
 
   // Calculate pending reconciliation count (transactions without responsible)
   const pendingCount = transactions.filter(tx => !tx.responsible_id).length;
@@ -209,6 +191,7 @@ export default function Transactions() {
                         <TableHead className="text-right w-[75px]">$ IVA</TableHead>
                         <TableHead className="text-center w-[40px]">Rete</TableHead>
                         <TableHead className="text-right w-[75px]">$ Rete</TableHead>
+                        <TableHead className="w-[80px]">Estado</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -218,7 +201,6 @@ export default function Transactions() {
                           transaction={transaction}
                           categories={categories}
                           responsibles={responsibles}
-                          onUpdate={handleUpdateTransaction}
                           onViewDetail={setSelectedTransaction}
                         />
                       ))}
