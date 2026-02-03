@@ -1,67 +1,132 @@
-import { Link } from 'react-router-dom';
-import { FileSpreadsheet, Check, ArrowRight, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { FileSpreadsheet, Check, ArrowRight, Sparkles, Shield, CreditCard, Lock, Loader2, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import Footer from '@/components/layout/Footer';
+import { useAuth } from '@/hooks/useAuth';
+import { useSubscription } from '@/hooks/useSubscription';
+import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const plans = [
   {
-    name: 'Gratis',
+    id: 'demo',
+    name: 'Demo',
     price: '$0',
-    period: 'siempre',
-    description: 'Ideal para probar AluminIA',
+    priceValue: 0,
+    period: 'gratis',
+    description: 'Prueba AluminIA con un extracto real',
     features: [
-      '5 PDFs por mes',
+      '1 PDF único (para siempre)',
       '1 cuenta bancaria',
+      'Parseo de extractos con IA',
+      'Conciliación manual',
+      'Cálculo de IVA y retenciones',
       'Dashboard básico',
+      'Exportación a Excel',
+    ],
+    cta: 'Probar con un extracto',
+    ctaAction: 'signup',
+    highlighted: false,
+    note: 'Este plan es solo para probar AluminIA con un extracto real',
+  },
+  {
+    id: 'basico',
+    name: 'Básico',
+    price: '$399.000',
+    priceValue: 399000,
+    period: 'COP/mes',
+    description: 'Para negocios en crecimiento',
+    features: [
+      'Hasta 10 PDFs por mes',
+      '1 cuenta bancaria',
+      '6 meses de historial',
+      'Dashboard completo',
+      'IVA y retenciones automáticas',
       'Exportación a Excel',
       'Soporte por email',
     ],
-    cta: 'Comenzar gratis',
-    ctaLink: '/signup',
-    highlighted: false,
-    available: true,
-  },
-  {
-    name: 'Básico',
-    price: '$49.900',
-    period: '/mes',
-    description: 'Para negocios en crecimiento',
-    features: [
-      '50 PDFs por mes',
-      '2 cuentas bancarias',
-      'IVA y retenciones automáticas',
-      'Alertas básicas',
-      'Dashboard completo',
-      'Soporte prioritario',
-    ],
-    cta: 'Próximamente',
-    ctaLink: null,
+    cta: 'Suscribirme al plan Básico',
+    ctaAction: 'checkout-basico',
     highlighted: true,
-    available: false,
+    note: null,
   },
   {
-    name: 'Pro',
-    price: '$149.900',
-    period: '/mes',
+    id: 'empresarial',
+    name: 'Empresarial',
+    price: '$699.000',
+    priceValue: 699000,
+    period: 'COP/mes',
     description: 'Para PyMEs establecidas',
     features: [
       'PDFs ilimitados',
-      'Hasta 5 cuentas bancarias',
+      'Hasta 3 cuentas bancarias',
+      'Historial ilimitado',
       'Reportes avanzados',
-      'Múltiples usuarios',
-      'API de integración',
-      'Soporte prioritario 24/7',
+      'Soporte prioritario',
+      'Acceso temprano a módulo de inventario',
     ],
-    cta: 'Próximamente',
-    ctaLink: null,
+    cta: 'Contactar / Suscribirme',
+    ctaAction: 'checkout-empresarial',
     highlighted: false,
-    available: false,
+    note: null,
   },
 ];
 
 export default function Pricing() {
+  const { user } = useAuth();
+  const { plan: currentPlan, createCheckout } = useSubscription();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+
+  const checkoutCancelled = searchParams.get('checkout') === 'cancelled';
+
+  const handlePlanAction = async (action: string) => {
+    if (action === 'signup') {
+      navigate(user ? '/upload' : '/signup');
+      return;
+    }
+
+    if (action.startsWith('checkout-')) {
+      const planId = action.replace('checkout-', '') as 'basico' | 'empresarial';
+      
+      if (!user) {
+        toast({
+          title: 'Inicia sesión primero',
+          description: 'Debes tener una cuenta para suscribirte a un plan.',
+        });
+        navigate('/signup');
+        return;
+      }
+
+      setLoadingPlan(planId);
+      try {
+        const url = await createCheckout(planId);
+        if (url) {
+          window.open(url, '_blank');
+        } else {
+          toast({
+            title: 'Error',
+            description: 'No pudimos crear la sesión de pago. Intenta de nuevo.',
+            variant: 'destructive',
+          });
+        }
+      } catch (error) {
+        toast({
+          title: 'Error',
+          description: 'Hubo un problema al procesar tu solicitud.',
+          variant: 'destructive',
+        });
+      } finally {
+        setLoadingPlan(null);
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -74,12 +139,20 @@ export default function Pricing() {
             <span className="text-xl font-bold text-foreground">AluminIA</span>
           </Link>
           <div className="flex items-center gap-3">
-            <Link to="/login">
-              <Button variant="ghost" size="sm">Iniciar Sesión</Button>
-            </Link>
-            <Link to="/signup">
-              <Button size="sm">Crear Cuenta</Button>
-            </Link>
+            {user ? (
+              <Link to="/dashboard">
+                <Button size="sm">Ir al Dashboard</Button>
+              </Link>
+            ) : (
+              <>
+                <Link to="/login">
+                  <Button variant="ghost" size="sm">Iniciar Sesión</Button>
+                </Link>
+                <Link to="/signup">
+                  <Button size="sm">Crear Cuenta</Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -95,83 +168,127 @@ export default function Pricing() {
             Elige el plan perfecto para tu negocio
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Comienza gratis y escala cuando estés listo. Sin sorpresas, sin costos ocultos.
+            Prueba gratis con un extracto real. Escala cuando estés listo. Sin sorpresas, sin costos ocultos.
           </p>
         </div>
       </section>
 
+      {checkoutCancelled && (
+        <div className="container mx-auto px-4 mb-6">
+          <Alert className="max-w-3xl mx-auto">
+            <AlertDescription>
+              El proceso de pago fue cancelado. Puedes intentar de nuevo cuando quieras.
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
       {/* Pricing Cards */}
-      <section className="pb-20">
+      <section className="pb-12">
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {plans.map((plan) => (
-              <Card 
-                key={plan.name}
-                className={`relative flex flex-col ${
-                  plan.highlighted 
-                    ? 'border-accent shadow-lg shadow-accent/10 scale-105' 
-                    : 'border-border'
-                }`}
-              >
-                {plan.highlighted && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <Badge className="bg-accent text-accent-foreground">
-                      Recomendado
-                    </Badge>
-                  </div>
-                )}
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-xl">{plan.name}</CardTitle>
-                  <CardDescription>{plan.description}</CardDescription>
-                  <div className="pt-4">
-                    <span className="text-4xl font-bold text-foreground">{plan.price}</span>
-                    <span className="text-muted-foreground ml-1">{plan.period}</span>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex-1 flex flex-col">
-                  <ul className="space-y-3 flex-1">
-                    {plan.features.map((feature, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <Check className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
-                        <span className="text-sm text-muted-foreground">{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-6">
-                    {plan.available ? (
-                      <Link to={plan.ctaLink!}>
-                        <Button className="w-full" size="lg">
-                          {plan.cta}
-                          <ArrowRight className="w-4 h-4 ml-2" />
-                        </Button>
-                      </Link>
-                    ) : (
+            {plans.map((plan) => {
+              const isCurrentPlan = user && currentPlan === plan.id;
+              const isLoading = loadingPlan === plan.id;
+
+              return (
+                <Card 
+                  key={plan.id}
+                  className={`relative flex flex-col ${
+                    plan.highlighted 
+                      ? 'border-primary shadow-lg shadow-primary/10 scale-105' 
+                      : 'border-border'
+                  } ${isCurrentPlan ? 'ring-2 ring-success' : ''}`}
+                >
+                  {plan.highlighted && (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                      <Badge className="bg-primary text-primary-foreground">
+                        Recomendado
+                      </Badge>
+                    </div>
+                  )}
+                  {isCurrentPlan && (
+                    <div className="absolute -top-3 right-4">
+                      <Badge className="bg-success text-success-foreground">
+                        Tu plan actual
+                      </Badge>
+                    </div>
+                  )}
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-xl">{plan.name}</CardTitle>
+                    <CardDescription>{plan.description}</CardDescription>
+                    <div className="pt-4">
+                      <span className="text-4xl font-bold text-foreground">{plan.price}</span>
+                      <span className="text-muted-foreground ml-1">{plan.period}</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="flex-1 flex flex-col">
+                    <ul className="space-y-3 flex-1">
+                      {plan.features.map((feature, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <Check className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
+                          <span className="text-sm text-muted-foreground">{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {plan.note && (
+                      <p className="text-xs text-muted-foreground mt-4 italic">
+                        💡 {plan.note}
+                      </p>
+                    )}
+                    <div className="mt-6">
                       <Button 
                         className="w-full" 
-                        size="lg" 
-                        variant="outline" 
-                        disabled
+                        size="lg"
+                        variant={plan.highlighted ? 'default' : 'outline'}
+                        disabled={isCurrentPlan || isLoading}
+                        onClick={() => handlePlanAction(plan.ctaAction)}
                       >
-                        {plan.cta}
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Cargando...
+                          </>
+                        ) : isCurrentPlan ? (
+                          'Plan actual'
+                        ) : (
+                          <>
+                            {plan.cta}
+                            <ArrowRight className="w-4 h-4 ml-2" />
+                          </>
+                        )}
                       </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
+        </div>
+      </section>
 
-          {/* Note */}
-          <div className="text-center mt-10">
-            <p className="text-sm text-muted-foreground">
-              💡 Los planes pagos se activarán próximamente. Por ahora, disfruta del plan gratuito sin límite de tiempo.
-            </p>
+      {/* Trust Badges */}
+      <section className="py-8 bg-muted/30">
+        <div className="container mx-auto px-4">
+          <div className="flex flex-wrap justify-center gap-8 md:gap-16">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Shield className="h-5 w-5" />
+              <span className="text-sm">Pagos seguros</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <CreditCard className="h-5 w-5" />
+              <span className="text-sm">Cancelas cuando quieras</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Lock className="h-5 w-5" />
+              <span className="text-sm">Datos protegidos con encriptación</span>
+            </div>
           </div>
         </div>
       </section>
 
       {/* FAQ Section */}
-      <section className="py-16 bg-muted/30 border-t border-border">
+      <section className="py-16 border-t border-border">
         <div className="container mx-auto px-4 max-w-3xl">
           <h2 className="text-2xl font-bold text-foreground mb-8 text-center">
             Preguntas frecuentes
@@ -182,7 +299,7 @@ export default function Pricing() {
                 ¿Puedo cambiar de plan en cualquier momento?
               </h3>
               <p className="text-muted-foreground text-sm">
-                Sí, cuando los planes pagos estén disponibles podrás actualizar o reducir tu plan en cualquier momento.
+                Sí, puedes actualizar o reducir tu plan en cualquier momento desde tu dashboard. Los cambios se aplican inmediatamente.
               </p>
             </div>
             <div>
@@ -210,7 +327,33 @@ export default function Pricing() {
                 no lo reemplaza. Siempre consulta a un profesional para obligaciones tributarias oficiales.
               </p>
             </div>
+            <div>
+              <h3 className="font-semibold text-foreground mb-2">
+                ¿Cómo funciona la facturación?
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                Los pagos se procesan mensualmente de forma automática. Recibirás una factura electrónica por cada pago.
+              </p>
+            </div>
           </div>
+        </div>
+      </section>
+
+      {/* Contact CTA */}
+      <section className="py-12 bg-muted/30 border-t border-border">
+        <div className="container mx-auto px-4 text-center">
+          <h3 className="text-xl font-semibold text-foreground mb-2">
+            ¿Necesitas un plan personalizado?
+          </h3>
+          <p className="text-muted-foreground mb-4">
+            Contáctanos para discutir soluciones empresariales a medida.
+          </p>
+          <Link to="/contact">
+            <Button variant="outline" size="lg">
+              <MessageCircle className="w-4 h-4 mr-2" />
+              Contactar ventas
+            </Button>
+          </Link>
         </div>
       </section>
 

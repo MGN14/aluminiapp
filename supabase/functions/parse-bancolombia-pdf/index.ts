@@ -123,6 +123,39 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Get user_id from statement first to check limits
+    const { data: statement, error: statementError } = await supabase
+      .from("bank_statements")
+      .select("user_id")
+      .eq("id", statement_id)
+      .single();
+
+    if (statementError || !statement) {
+      throw new Error("Statement not found");
+    }
+
+    // Check if user can upload (verify limits at backend level)
+    const { data: limitCheck, error: limitError } = await supabase
+      .rpc("check_pdf_upload_limit", { p_user_id: statement.user_id });
+    
+    if (limitError) {
+      console.error("Limit check error:", limitError);
+    }
+    
+    const parsedCheck = typeof limitCheck === 'string' ? JSON.parse(limitCheck) : limitCheck;
+    if (parsedCheck && !parsedCheck.can_upload) {
+      // Return limit exceeded error
+      return new Response(
+        JSON.stringify({ 
+          error: "Límite de PDFs alcanzado", 
+          message: parsedCheck.message,
+          limit_exceeded: true,
+          plan: parsedCheck.plan
+        }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Download PDF from storage
     console.log("Downloading PDF from storage:", file_path);
     const { data: fileData, error: downloadError } = await supabase.storage
@@ -287,16 +320,7 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
     console.log(`Extracted period: ${statementMonth}/${statementYear}`);
     console.log(`Extracted ${parsed.transactions.length} transactions`);
 
-    // Get user_id from statement
-    const { data: statement, error: statementError } = await supabase
-      .from("bank_statements")
-      .select("user_id")
-      .eq("id", statement_id)
-      .single();
-
-    if (statementError || !statement) {
-      throw new Error("Statement not found");
-    }
+    // Use the user_id from the statement we already fetched at the beginning
 
     // Update statement with period info
     const periodStart = statementMonth && statementYear 
