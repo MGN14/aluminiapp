@@ -8,7 +8,8 @@ import { ExternalLink, PartyPopper, Clock } from 'lucide-react';
 import { SearchableSelect } from '@/components/transactions/SearchableSelect';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Category } from '@/types/transaction';
+import { useToast } from '@/hooks/use-toast';
+import { Category, Responsible } from '@/types/transaction';
 
 interface PendingTransaction {
   id: string;
@@ -23,9 +24,11 @@ interface PendingTransaction {
 interface PendingTransactionsTableProps {
   transactions: PendingTransaction[];
   categories: Category[];
+  responsibles: Responsible[];
   periodLabel: string;
   onTransactionUpdated: () => void;
   onCategoryAdded?: () => void;
+  onResponsibleAdded?: () => void;
 }
 
 function formatCurrency(value: number) {
@@ -40,21 +43,27 @@ function formatCurrency(value: number) {
 export function PendingTransactionsTable({
   transactions,
   categories,
+  responsibles,
   periodLabel,
   onTransactionUpdated,
   onCategoryAdded,
+  onResponsibleAdded,
 }: PendingTransactionsTableProps) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  // Track removed transaction IDs for optimistic removal
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
   // Filter only pending transactions (no responsible assigned)
+  // Also exclude optimistically removed transactions
   const pendingTransactions = useMemo(() => {
     return transactions
-      .filter(tx => !tx.responsible_id)
+      .filter(tx => !tx.responsible_id && !removedIds.has(tx.id))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // ASC by date (oldest first)
-  }, [transactions]);
+  }, [transactions, removedIds]);
 
-  // Handle category change with optimistic update
+  // Handle category change (does NOT mark as reconciled)
   const handleCategoryChange = async (transactionId: string, categoryId: string | null) => {
     setUpdatingId(transactionId);
     
@@ -70,6 +79,48 @@ export function PendingTransactionsTable({
       onTransactionUpdated();
     } catch (error) {
       console.error('Error updating category:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo actualizar la categoría',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  // Handle responsible change (marks as reconciled when set)
+  const handleResponsibleChange = async (transactionId: string, responsibleId: string | null) => {
+    if (!responsibleId) return; // Only process when setting a responsible
+    
+    setUpdatingId(transactionId);
+    
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .update({ responsible_id: responsibleId })
+        .eq('id', transactionId);
+
+      if (error) throw error;
+      
+      // Optimistic removal - remove from local view immediately
+      setRemovedIds(prev => new Set([...prev, transactionId]));
+      
+      // Show success toast
+      toast({
+        title: 'Conciliado ✅',
+        description: 'Transacción asignada correctamente',
+      });
+      
+      // Trigger refetch to update metrics
+      onTransactionUpdated();
+    } catch (error) {
+      console.error('Error updating responsible:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo asignar el responsable',
+        variant: 'destructive',
+      });
     } finally {
       setUpdatingId(null);
     }
@@ -94,12 +145,39 @@ export function PendingTransactionsTable({
     return data.id;
   };
 
+  // Handle adding new responsible
+  const handleAddResponsible = async (name: string): Promise<string | null> => {
+    if (!user) return null;
+    
+    const { data, error } = await supabase
+      .from('responsibles')
+      .insert({ user_id: user.id, name })
+      .select('id')
+      .single();
+    
+    if (error) {
+      console.error('Error adding responsible:', error);
+      return null;
+    }
+    
+    onResponsibleAdded?.();
+    return data.id;
+  };
+
   // Prepare category options for the dropdown
   const categoryOptions = useMemo(() => 
     categories
       .filter(c => c.active)
       .map(c => ({ value: c.id, label: c.name })),
     [categories]
+  );
+
+  // Prepare responsible options for the dropdown
+  const responsibleOptions = useMemo(() => 
+    responsibles
+      .filter(r => r.active)
+      .map(r => ({ value: r.id, label: r.name })),
+    [responsibles]
   );
 
   const pendingCount = pendingTransactions.length;
@@ -134,9 +212,10 @@ export function PendingTransactionsTable({
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-24">Fecha</TableHead>
-                  <TableHead className="min-w-[300px]">Descripción</TableHead>
+                  <TableHead className="min-w-[250px]">Descripción</TableHead>
                   <TableHead className="text-right w-32">Monto</TableHead>
                   <TableHead className="w-40">Categoría</TableHead>
+                  <TableHead className="w-40">Responsable</TableHead>
                   <TableHead className="text-center w-24">Estado</TableHead>
                 </TableRow>
               </TableHeader>
@@ -149,7 +228,7 @@ export function PendingTransactionsTable({
                         month: 'short'
                       })}
                     </TableCell>
-                    <TableCell className="max-w-[400px]">
+                    <TableCell className="max-w-[300px]">
                       <span className="block truncate" title={tx.description}>
                         {tx.description}
                       </span>
@@ -168,6 +247,20 @@ export function PendingTransactionsTable({
                         onAdd={handleAddCategory}
                         triggerClassName="w-full h-7 text-xs"
                         disabled={updatingId === tx.id}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <SearchableSelect
+                        options={responsibleOptions}
+                        value={tx.responsible_id}
+                        onChange={(value) => handleResponsibleChange(tx.id, value)}
+                        placeholder="Sin asignar"
+                        emptyLabel="Sin asignar"
+                        addLabel="+ Agregar responsable"
+                        onAdd={handleAddResponsible}
+                        triggerClassName="w-full h-7 text-xs"
+                        disabled={updatingId === tx.id}
+                        allowEmpty={false}
                       />
                     </TableCell>
                     <TableCell className="text-center">

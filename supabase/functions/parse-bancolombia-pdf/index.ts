@@ -341,11 +341,58 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       })
       .eq("id", statement_id);
 
+    // Get or create the "Impuestos" category and "DIAN" responsible for auto-categorization
+    let impuestosCategoryId: string | null = null;
+    let dianResponsibleId: string | null = null;
+    
+    // Check if user has "Impuestos" category
+    const { data: existingCategory } = await supabase
+      .from("categories")
+      .select("id")
+      .eq("user_id", statement.user_id)
+      .ilike("name", "impuestos")
+      .maybeSingle();
+    
+    if (existingCategory) {
+      impuestosCategoryId = existingCategory.id;
+    } else {
+      // Create "Impuestos" category
+      const { data: newCategory } = await supabase
+        .from("categories")
+        .insert({ user_id: statement.user_id, name: "Impuestos", sort_order: 999 })
+        .select("id")
+        .single();
+      impuestosCategoryId = newCategory?.id || null;
+    }
+    
+    // Check if user has "DIAN" responsible
+    const { data: existingResponsible } = await supabase
+      .from("responsibles")
+      .select("id")
+      .eq("user_id", statement.user_id)
+      .ilike("name", "dian")
+      .maybeSingle();
+    
+    if (existingResponsible) {
+      dianResponsibleId = existingResponsible.id;
+    } else {
+      // Create "DIAN" responsible
+      const { data: newResponsible } = await supabase
+        .from("responsibles")
+        .insert({ user_id: statement.user_id, name: "DIAN" })
+        .select("id")
+        .single();
+      dianResponsibleId = newResponsible?.id || null;
+    }
+
     // Insert transactions into database
     // The database trigger will calculate iva_amount and retefuente_amount
     const transactionsToInsert = parsed.transactions.map((tx) => {
       // Fix the date using statement period
       const fixedDate = fixTransactionDate(tx.date, statementMonth, statementYear);
+      
+      // Check if this is a GMF/4x1000 transaction for auto-categorization
+      const isGMF = isGMFTransaction(tx.description);
       
       return {
         user_id: statement.user_id,
@@ -359,7 +406,9 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         sucursal: tx.sucursal || null,
         dcto: tx.dcto || null,
         raw_line: tx.raw_line || null,
-        category: inferCategory(tx.description),
+        category: isGMF ? "impuestos" : inferCategory(tx.description),
+        category_id: isGMF ? impuestosCategoryId : null,
+        responsible_id: isGMF ? dianResponsibleId : null, // Auto-reconcile GMF transactions
         has_iva: shouldApplyIVA(tx.description, tx.amount),
         has_retefuente: shouldApplyRetefuente(tx.description, tx.amount),
         iva_rate: 0.19,
@@ -420,9 +469,24 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
   }
 });
 
+// Helper to detect GMF/4x1000 transactions
+function isGMFTransaction(description: string): boolean {
+  const desc = description.toLowerCase();
+  return (
+    desc.includes('4x1000') ||
+    desc.includes('gmf') ||
+    desc.includes('impto gobierno 4x1000') ||
+    desc.includes('gravamen movimientos financieros') ||
+    desc.includes('impuesto gmf')
+  );
+}
+
 // Helper functions to auto-categorize and detect tax applicability
 function inferCategory(description: string): string | null {
   const desc = description.toUpperCase();
+  
+  // GMF is handled separately with auto-categorization
+  if (isGMFTransaction(description)) return "impuestos";
   
   if (/COBRO IVA|IVA PAGOS|PAGO.*IVA/.test(desc)) return "impuestos";
   if (/PAGO PSE IMPUESTO DIAN|RETEFUENTE/.test(desc)) return "impuestos";
@@ -444,6 +508,8 @@ function shouldApplyIVA(description: string, amount: number): boolean {
   // Don't apply IVA to transfers between own accounts or tax payments
   if (/COBRO IVA|IVA PAGOS|PAGO PSE IMPUESTO/.test(desc)) return false;
   if (/TRANSFERENCIA|NOMINA|SALARIO/.test(desc)) return false;
+  // Don't apply IVA to GMF
+  if (isGMFTransaction(description)) return false;
   
   // Apply IVA to purchases from suppliers
   if (/PAGO PROVEEDOR|COMPRA|MATERIALES|INSUMOS|MERCANCIA/.test(desc)) return true;
@@ -455,6 +521,9 @@ function shouldApplyIVA(description: string, amount: number): boolean {
 function shouldApplyRetefuente(description: string, amount: number): boolean {
   // Retefuente applies to purchases of goods (negative amounts)
   if (amount >= 0) return false;
+  
+  // Don't apply retefuente to GMF
+  if (isGMFTransaction(description)) return false;
   
   const desc = description.toUpperCase();
   // Apply retefuente to purchases from suppliers
