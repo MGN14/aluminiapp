@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,6 +38,18 @@ export default function Signup() {
       setLoading(false);
     }
   };
+  const handleResendEmail = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email,
+    });
+    setLoading(false);
+    if (!error) {
+      // Could show a toast here
+    }
+  };
+
   if (success) {
     return <div className="min-h-screen flex items-center justify-center bg-background px-4">
         <div className="w-full max-w-md animate-fade-in">
@@ -53,15 +66,45 @@ export default function Signup() {
                 <CheckCircle className="w-8 h-8 text-success" />
               </div>
               <h2 className="text-xl font-semibold mb-2">¡Revisa tu correo!</h2>
-              <p className="text-muted-foreground mb-6">
+              <p className="text-muted-foreground mb-4">
                 Te enviamos un enlace de confirmación a <strong>{email}</strong>. 
                 Haz clic en el enlace para activar tu cuenta.
               </p>
-              <Link to="/login">
-                <Button variant="outline" className="w-full">
-                  Volver al inicio de sesión
+              
+              {/* Troubleshooting tips */}
+              <div className="bg-muted/50 rounded-lg p-4 mb-6 text-left">
+                <p className="text-sm text-muted-foreground mb-2">
+                  <strong>¿No ves el correo?</strong>
+                </p>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  <li>• Revisa tu carpeta de spam o promociones</li>
+                  <li>• Verifica que el correo esté bien escrito</li>
+                  <li>• Espera unos minutos y vuelve a intentar</li>
+                </ul>
+              </div>
+
+              <div className="space-y-3">
+                <Button 
+                  variant="outline" 
+                  className="w-full" 
+                  onClick={handleResendEmail}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Reenviando...
+                    </>
+                  ) : (
+                    'Reenviar correo de verificación'
+                  )}
                 </Button>
-              </Link>
+                <Link to="/login">
+                  <Button variant="ghost" className="w-full">
+                    Volver al inicio de sesión
+                  </Button>
+                </Link>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -119,6 +162,18 @@ export default function Signup() {
             </p>
           </CardContent>
         </Card>
+
+        {/* Terms */}
+        <p className="text-center text-xs text-muted-foreground mt-6">
+          Al crear una cuenta aceptas nuestros{' '}
+          <Link to="/terms" className="text-primary hover:underline">
+            Términos
+          </Link>{' '}
+          y{' '}
+          <Link to="/privacy" className="text-primary hover:underline">
+            Política de Privacidad
+          </Link>
+        </p>
       </div>
     </div>;
 }

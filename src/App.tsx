@@ -15,6 +15,10 @@ import Dashboard from "./pages/Dashboard";
 import StatementUpload from "./pages/StatementUpload";
 import Transactions from "./pages/Transactions";
 import Export from "./pages/Export";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import Pricing from "./pages/Pricing";
+import Contact from "./pages/Contact";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +37,10 @@ const App = () => (
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/pricing" element={<Pricing />} />
+            <Route path="/contact" element={<Contact />} />
             <Route 
               path="/dashboard" 
               element={

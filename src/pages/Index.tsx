@@ -1,8 +1,11 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { FileSpreadsheet, Upload, TableProperties, Download, ArrowRight, Shield, Zap, CheckCircle } from 'lucide-react';
+import MobileNav from '@/components/layout/MobileNav';
+import Footer from '@/components/layout/Footer';
+
 export default function Index() {
-  return <div className="min-h-screen bg-background">
+  return <div className="min-h-screen bg-background flex flex-col">
       {/* Navigation */}
       <nav className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -13,7 +16,14 @@ export default function Index() {
             <span className="text-xl font-bold text-foreground">AluminIA</span>
           </div>
           
-          <div className="flex items-center gap-3">
+          {/* Desktop nav */}
+          <div className="hidden md:flex items-center gap-4">
+            <Link to="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Precios
+            </Link>
+            <Link to="/contact" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Contacto
+            </Link>
             <Link to="/login">
               <Button variant="ghost" size="sm">
                 Iniciar Sesión
@@ -25,6 +35,9 @@ export default function Index() {
               </Button>
             </Link>
           </div>
+
+          {/* Mobile nav */}
+          <MobileNav isAuthenticated={false} />
         </div>
       </nav>
 
@@ -209,21 +222,6 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-border bg-muted/30 py-8">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded gradient-brand flex items-center justify-center">
-                <FileSpreadsheet className="w-4 h-4 text-primary-foreground" />
-              </div>
-              <span className="font-semibold text-foreground">AluminIA</span>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              © {new Date().getFullYear()} AluminIA. Hecho en Colombia 🇨🇴
-            </p>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>;
 }
