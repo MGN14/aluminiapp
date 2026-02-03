@@ -13,14 +13,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useViewMode } from '@/contexts/ViewModeContext';
 import { useTransactionEdit } from '@/hooks/useTransactionEdit';
-import SaveStatusIndicator from './SaveStatusIndicator';
 import { SearchableSelect } from './SearchableSelect';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -52,7 +49,6 @@ export default function TransactionRow({
   onCategoryAdded,
   onResponsibleAdded,
 }: TransactionRowProps) {
-  const { isAdvancedMode } = useViewMode();
   const { user } = useAuth();
   
   const { status, errorMessage, updateField, localTransaction } = useTransactionEdit(transaction, {
@@ -141,13 +137,13 @@ export default function TransactionRow({
   const typeConfig = SIMPLE_TYPES.find(t => t.value === localTransaction.type);
 
   return (
-    <TableRow className={`hover:bg-muted/30 transition-colors ${isSaving ? 'bg-muted/20' : ''} ${!isReconciled ? 'bg-destructive/5' : ''}`}>
+    <TableRow className={`hover:bg-muted/30 transition-colors ${!isReconciled ? 'bg-warning/5' : ''}`}>
       <TableCell className="font-medium text-sm w-[80px]">
         {format(new Date(localTransaction.date), 'dd MMM', { locale: es })}
       </TableCell>
       
       {/* Wider description column */}
-      <TableCell className="min-w-[280px] max-w-[400px]">
+      <TableCell className="min-w-[300px] max-w-[450px]">
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-2">
@@ -170,7 +166,7 @@ export default function TransactionRow({
         </Tooltip>
       </TableCell>
       
-      <TableCell className={`text-right font-medium text-sm w-[100px] ${amountColor}`}>
+      <TableCell className={`text-right font-bold text-sm w-[110px] ${amountColor}`}>
         {formatCurrency(localTransaction.amount)}
       </TableCell>
       
@@ -194,7 +190,7 @@ export default function TransactionRow({
       </TableCell>
       
       {/* Category with searchable dropdown */}
-      <TableCell className="w-[130px]">
+      <TableCell className="w-[140px]">
         <SearchableSelect
           options={categoryOptions}
           value={localTransaction.category_id}
@@ -208,21 +204,21 @@ export default function TransactionRow({
       </TableCell>
       
       {/* Responsible with searchable dropdown - shows reconciliation status */}
-      <TableCell className="w-[130px]">
+      <TableCell className="w-[140px]">
         <SearchableSelect
           options={responsibleOptions}
           value={localTransaction.responsible_id}
           onChange={(value) => updateField({ responsible_id: value })}
-          placeholder="Sin asignar"
-          emptyLabel="Sin asignar"
+          placeholder="Pendiente"
+          emptyLabel="Pendiente"
           addLabel="+ Agregar responsable"
           onAdd={handleAddResponsible}
-          triggerClassName={`w-full ${!localTransaction.responsible_id ? 'border-destructive/50' : ''}`}
+          triggerClassName={`w-full ${!localTransaction.responsible_id ? 'border-warning/50 text-warning' : ''}`}
         />
       </TableCell>
       
       {/* IVA Checkbox - disabled for transfers */}
-      <TableCell className="text-center w-[40px]">
+      <TableCell className="text-center w-[45px]">
         <Tooltip>
           <TooltipTrigger asChild>
             <span>
@@ -242,33 +238,15 @@ export default function TransactionRow({
         </Tooltip>
       </TableCell>
       
-      {/* IVA Type Badge - Only visible in Advanced Mode */}
-      {isAdvancedMode && (
-        <TableCell className="text-center w-[55px]">
-          {localTransaction.has_iva && localTransaction.iva_type && (
-            <Badge 
-              variant="outline" 
-              className={`text-[10px] px-1 ${
-                localTransaction.iva_type === 'debito' 
-                  ? 'border-warning text-warning' 
-                  : 'border-success text-success'
-              }`}
-            >
-              {localTransaction.iva_type === 'debito' ? 'Déb' : 'Cré'}
-            </Badge>
-          )}
-        </TableCell>
-      )}
-      
-      {/* IVA Amount - shows immediately after checking */}
-      <TableCell className="text-right text-xs w-[75px] text-muted-foreground">
+      {/* IVA Amount */}
+      <TableCell className="text-right text-sm w-[90px] text-muted-foreground">
         {localTransaction.has_iva && localTransaction.iva_amount > 0 
           ? formatCurrency(localTransaction.iva_amount) 
           : '-'}
       </TableCell>
       
       {/* Retefuente Checkbox - only for expenses */}
-      <TableCell className="text-center w-[40px]">
+      <TableCell className="text-center w-[45px]">
         <Tooltip>
           <TooltipTrigger asChild>
             <span>
@@ -288,16 +266,11 @@ export default function TransactionRow({
         </Tooltip>
       </TableCell>
       
-      {/* Retefuente Amount - shows immediately after checking */}
-      <TableCell className="text-right text-xs w-[75px] text-muted-foreground">
+      {/* Retefuente Amount */}
+      <TableCell className="text-right text-sm w-[90px] text-muted-foreground">
         {localTransaction.has_retefuente && localTransaction.retefuente_amount > 0 
           ? formatCurrency(localTransaction.retefuente_amount) 
           : '-'}
-      </TableCell>
-
-      {/* Save Status Indicator */}
-      <TableCell className="w-[80px]">
-        <SaveStatusIndicator status={status} errorMessage={errorMessage} />
       </TableCell>
     </TableRow>
   );

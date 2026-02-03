@@ -140,19 +140,15 @@ export default function Export() {
         return;
       }
 
-      // Sheet 1: Transactions
+      // Sheet 1: Transactions (simplified - no debit/credit columns)
       const transactionData = transactions.map(tx => ({
         'Fecha': tx.date,
         'Descripción': tx.description,
-        'Sucursal': tx.sucursal || '',
-        'Dcto': tx.dcto || '',
         'Monto': tx.amount,
-        'Débito': tx.debit || '',
-        'Crédito': tx.credit || '',
-        'Saldo': tx.balance || '',
+        'Tipo': tx.type === 'ingreso' ? 'Ingreso' : tx.type === 'egreso' ? 'Egreso' : 'Transferencia',
         'Categoría': getCategoryName(tx),
         'Responsable': getResponsibleName(tx),
-        'Pendiente': tx.responsible_id ? 'No' : 'Sí',
+        'Conciliado': tx.responsible_id ? 'Sí' : 'No',
         'Aplica IVA': tx.has_iva ? 'Sí' : 'No',
         'IVA Calculado': tx.iva_amount > 0 ? tx.iva_amount : '',
         'Tasa IVA': tx.has_iva ? `${(tx.iva_rate * 100).toFixed(0)}%` : '',
@@ -164,25 +160,21 @@ export default function Export() {
 
       const wsTransactions = XLSX.utils.json_to_sheet(transactionData);
       
-      // Set column widths
+      // Set column widths (simplified)
       wsTransactions['!cols'] = [
         { wch: 12 },  // Fecha
-        { wch: 50 },  // Descripción (más ancha)
-        { wch: 12 },  // Sucursal
-        { wch: 12 },  // Dcto
+        { wch: 50 },  // Descripción
         { wch: 15 },  // Monto
-        { wch: 15 },  // Débito
-        { wch: 15 },  // Crédito
-        { wch: 15 },  // Saldo
+        { wch: 12 },  // Tipo
         { wch: 18 },  // Categoría
         { wch: 15 },  // Responsable
-        { wch: 10 },  // Pendiente
-        { wch: 12 },  // Aplica IVA
+        { wch: 10 },  // Conciliado
+        { wch: 10 },  // Aplica IVA
         { wch: 15 },  // IVA Calculado
         { wch: 10 },  // Tasa IVA
-        { wch: 15 },  // Aplica Retefuente
-        { wch: 18 },  // Retefuente Calculada
-        { wch: 12 },  // Tasa Retefuente
+        { wch: 12 },  // Aplica Retefuente
+        { wch: 15 },  // Retefuente Calculada
+        { wch: 10 },  // Tasa Retefuente
         { wch: 25 },  // Notas
       ];
 
