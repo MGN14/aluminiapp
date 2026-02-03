@@ -6,11 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category } from '@/types/transaction';
+import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
 import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/components/dashboard/UnifiedPeriodFilter';
 import { PendingTransactionsTable } from '@/components/dashboard/PendingTransactionsTable';
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
+import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
@@ -75,6 +76,7 @@ function formatCurrencyShort(value: number) {
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [responsibles, setResponsibles] = useState<Responsible[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
@@ -116,6 +118,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchTransactions();
     fetchCategories();
+    fetchResponsibles();
     initializePeriodFromData();
   }, []);
 
@@ -208,6 +211,20 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchResponsibles = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('responsibles')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setResponsibles((data as Responsible[]) || []);
+    } catch (error) {
+      console.error('Error fetching responsibles:', error);
+    }
+  }, []);
+
   // Get date range based on period selection
   const periodRange = useMemo(() => getPeriodDateRange(periodSelection), [periodSelection]);
   
@@ -231,6 +248,26 @@ export default function Dashboard() {
       return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
     });
   }, [transactions, cuatrimestre]);
+
+  // Calculate GMF/4x1000 accumulated for the year
+  const gmfMetrics = useMemo(() => {
+    const yearStart = new Date(periodSelection.year, 0, 1);
+    const yearEnd = new Date(periodSelection.year, 11, 31, 23, 59, 59);
+    
+    const gmfTransactions = transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= yearStart && txDate <= yearEnd && isGMFTransaction(tx.description);
+    });
+    
+    // Sum absolute values (GMF is always a cost, shown as positive)
+    const total = gmfTransactions.reduce((sum, tx) => sum + Math.abs(tx.amount ?? 0), 0);
+    
+    return {
+      total,
+      transactionCount: gmfTransactions.length,
+      year: periodSelection.year,
+    };
+  }, [transactions, periodSelection.year]);
 
   const metrics = useMemo((): Metrics => {
     if (transactions.length === 0) {
@@ -609,7 +646,7 @@ export default function Dashboard() {
             </div>
 
             {/* Tax Metrics */}
-            <div className="grid gap-4 md:grid-cols-3 animate-fade-in">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
 
               {/* IVA Neto (Por Pagar / A Favor) - Always visible with disclaimer */}
               <Card>
@@ -677,6 +714,13 @@ export default function Dashboard() {
                   </Link>
                 </CardContent>
               </Card>
+
+              {/* 4x1000 (GMF) Accumulated */}
+              <GMFAccumulatedCard 
+                total={gmfMetrics.total}
+                year={gmfMetrics.year}
+                transactionCount={gmfMetrics.transactionCount}
+              />
             </div>
 
             {/* Charts - Redesigned */}
@@ -706,9 +750,11 @@ export default function Dashboard() {
                 responsible_id: tx.responsible_id,
               }))}
               categories={categories}
+              responsibles={responsibles}
               periodLabel={periodRange.label}
               onTransactionUpdated={fetchTransactions}
               onCategoryAdded={fetchCategories}
+              onResponsibleAdded={fetchResponsibles}
             />
           </>
         )}
