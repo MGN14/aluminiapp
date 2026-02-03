@@ -24,7 +24,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { FileText, Loader2, AlertCircle, Users } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useViewMode } from '@/contexts/ViewModeContext';
 import { Link } from 'react-router-dom';
 
 interface Statement {
@@ -34,7 +33,6 @@ interface Statement {
 }
 
 export default function Transactions() {
-  const { isAdvancedMode } = useViewMode();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
@@ -199,19 +197,15 @@ export default function Transactions() {
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead className="w-[80px]">Fecha</TableHead>
-                        <TableHead className="min-w-[280px]">Descripción</TableHead>
-                        <TableHead className="text-right w-[100px]">Monto</TableHead>
+                        <TableHead className="min-w-[300px]">Descripción</TableHead>
+                        <TableHead className="text-right w-[110px]">Monto</TableHead>
                         <TableHead className="w-[110px]">Tipo</TableHead>
-                        <TableHead className="w-[130px]">Categoría</TableHead>
-                        <TableHead className="w-[130px]">Responsable</TableHead>
-                        <TableHead className="text-center w-[40px]">IVA</TableHead>
-                        {isAdvancedMode && (
-                          <TableHead className="text-center w-[55px]">Déb/Cré</TableHead>
-                        )}
-                        <TableHead className="text-right w-[75px]">$ IVA</TableHead>
-                        <TableHead className="text-center w-[40px]">Rete</TableHead>
-                        <TableHead className="text-right w-[75px]">$ Rete</TableHead>
-                        <TableHead className="w-[80px]">Estado</TableHead>
+                        <TableHead className="w-[140px]">Categoría</TableHead>
+                        <TableHead className="w-[140px]">Responsable</TableHead>
+                        <TableHead className="text-center w-[45px]">IVA</TableHead>
+                        <TableHead className="text-right w-[90px]">$ IVA</TableHead>
+                        <TableHead className="text-center w-[45px]">Rete</TableHead>
+                        <TableHead className="text-right w-[90px]">$ Rete</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
