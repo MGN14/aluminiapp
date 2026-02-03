@@ -42,7 +42,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [state, setState] = useState<SubscriptionState>(defaultState);
 
   const checkSubscription = useCallback(async () => {
-    if (!session?.access_token) {
+    if (!user) {
       setState(prev => ({ ...prev, loading: false }));
       return;
     }
@@ -50,9 +50,18 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     try {
       setState(prev => ({ ...prev, loading: true, error: null }));
       
+      // Get fresh session to avoid expired token issues
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      
+      if (!accessToken) {
+        setState(prev => ({ ...prev, loading: false }));
+        return;
+      }
+      
       const { data, error } = await supabase.functions.invoke('check-subscription', {
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 
@@ -76,7 +85,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         error: err instanceof Error ? err.message : 'Error checking subscription',
       }));
     }
-  }, [session?.access_token]);
+  }, [user]);
 
   const checkUploadLimit = useCallback(async (): Promise<{ canUpload: boolean; message: string }> => {
     if (!user) {
@@ -104,12 +113,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [user]);
 
   const createCheckout = useCallback(async (plan: 'basico' | 'empresarial'): Promise<string | null> => {
-    if (!session?.access_token) return null;
+    if (!user) return null;
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) return null;
+
       const { data, error } = await supabase.functions.invoke('create-checkout', {
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: { plan },
       });
@@ -120,15 +133,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       console.error('Error creating checkout:', err);
       return null;
     }
-  }, [session?.access_token]);
+  }, [user]);
 
   const openCustomerPortal = useCallback(async (): Promise<string | null> => {
-    if (!session?.access_token) return null;
+    if (!user) return null;
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) return null;
+
       const { data, error } = await supabase.functions.invoke('customer-portal', {
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 
@@ -138,7 +155,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       console.error('Error opening customer portal:', err);
       return null;
     }
-  }, [session?.access_token]);
+  }, [user]);
 
   const getPlanLimits = useCallback(() => {
     switch (state.plan) {
