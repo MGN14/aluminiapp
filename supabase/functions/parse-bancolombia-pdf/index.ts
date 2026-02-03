@@ -341,22 +341,23 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       })
       .eq("id", statement_id);
 
-    // Get or create the "Impuestos" category and "DIAN" responsible for auto-categorization
+    // Get or create categories and responsibles for auto-categorization
     let impuestosCategoryId: string | null = null;
+    let otrosCategoryId: string | null = null;
     let dianResponsibleId: string | null = null;
+    let bancoResponsibleId: string | null = null;
     
     // Check if user has "Impuestos" category
-    const { data: existingCategory } = await supabase
+    const { data: existingImpuestos } = await supabase
       .from("categories")
       .select("id")
       .eq("user_id", statement.user_id)
       .ilike("name", "impuestos")
       .maybeSingle();
     
-    if (existingCategory) {
-      impuestosCategoryId = existingCategory.id;
+    if (existingImpuestos) {
+      impuestosCategoryId = existingImpuestos.id;
     } else {
-      // Create "Impuestos" category
       const { data: newCategory } = await supabase
         .from("categories")
         .insert({ user_id: statement.user_id, name: "Impuestos", sort_order: 999 })
@@ -365,24 +366,61 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       impuestosCategoryId = newCategory?.id || null;
     }
     
+    // Check if user has "Otros" category
+    const { data: existingOtros } = await supabase
+      .from("categories")
+      .select("id")
+      .eq("user_id", statement.user_id)
+      .ilike("name", "otros")
+      .maybeSingle();
+    
+    if (existingOtros) {
+      otrosCategoryId = existingOtros.id;
+    } else {
+      const { data: newCategory } = await supabase
+        .from("categories")
+        .insert({ user_id: statement.user_id, name: "Otros", sort_order: 998 })
+        .select("id")
+        .single();
+      otrosCategoryId = newCategory?.id || null;
+    }
+    
     // Check if user has "DIAN" responsible
-    const { data: existingResponsible } = await supabase
+    const { data: existingDian } = await supabase
       .from("responsibles")
       .select("id")
       .eq("user_id", statement.user_id)
       .ilike("name", "dian")
       .maybeSingle();
     
-    if (existingResponsible) {
-      dianResponsibleId = existingResponsible.id;
+    if (existingDian) {
+      dianResponsibleId = existingDian.id;
     } else {
-      // Create "DIAN" responsible
       const { data: newResponsible } = await supabase
         .from("responsibles")
         .insert({ user_id: statement.user_id, name: "DIAN" })
         .select("id")
         .single();
       dianResponsibleId = newResponsible?.id || null;
+    }
+    
+    // Check if user has "Banco" responsible
+    const { data: existingBanco } = await supabase
+      .from("responsibles")
+      .select("id")
+      .eq("user_id", statement.user_id)
+      .ilike("name", "banco")
+      .maybeSingle();
+    
+    if (existingBanco) {
+      bancoResponsibleId = existingBanco.id;
+    } else {
+      const { data: newResponsible } = await supabase
+        .from("responsibles")
+        .insert({ user_id: statement.user_id, name: "Banco" })
+        .select("id")
+        .single();
+      bancoResponsibleId = newResponsible?.id || null;
     }
 
     // Insert transactions into database
@@ -391,8 +429,27 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       // Fix the date using statement period
       const fixedDate = fixTransactionDate(tx.date, statementMonth, statementYear);
       
-      // Check if this is a GMF/4x1000 transaction for auto-categorization
+      // Check auto-categorization rules
       const isGMF = isGMFTransaction(tx.description);
+      const isInterest = isInterestTransaction(tx.description);
+      
+      // Determine category and responsible based on rules
+      let categoryText: string | null = inferCategory(tx.description);
+      let categoryId: string | null = null;
+      let responsibleId: string | null = null;
+      let transactionType: string | null = null;
+      
+      if (isGMF) {
+        categoryText = "impuestos";
+        categoryId = impuestosCategoryId;
+        responsibleId = dianResponsibleId;
+        transactionType = "egreso";
+      } else if (isInterest) {
+        categoryText = "otros";
+        categoryId = otrosCategoryId;
+        responsibleId = bancoResponsibleId;
+        transactionType = "ingreso";
+      }
       
       return {
         user_id: statement.user_id,
@@ -406,9 +463,10 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         sucursal: tx.sucursal || null,
         dcto: tx.dcto || null,
         raw_line: tx.raw_line || null,
-        category: isGMF ? "impuestos" : inferCategory(tx.description),
-        category_id: isGMF ? impuestosCategoryId : null,
-        responsible_id: isGMF ? dianResponsibleId : null, // Auto-reconcile GMF transactions
+        category: categoryText,
+        category_id: categoryId,
+        responsible_id: responsibleId,
+        type: transactionType || (tx.amount >= 0 ? "ingreso" : "egreso"),
         has_iva: shouldApplyIVA(tx.description, tx.amount),
         has_retefuente: shouldApplyRetefuente(tx.description, tx.amount),
         iva_rate: 0.19,
@@ -478,6 +536,17 @@ function isGMFTransaction(description: string): boolean {
     desc.includes('impto gobierno 4x1000') ||
     desc.includes('gravamen movimientos financieros') ||
     desc.includes('impuesto gmf')
+  );
+}
+
+// Helper to detect interest deposit transactions
+function isInterestTransaction(description: string): boolean {
+  const desc = description.toLowerCase();
+  return (
+    desc.includes('abono intereses') ||
+    desc.includes('intereses ahorros') ||
+    desc.includes('intereses cuenta') ||
+    desc.includes('intereses cta')
   );
 }
 
