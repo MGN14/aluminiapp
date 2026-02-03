@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ExternalLink, FileText, Info } from 'lucide-react';
 import { getCuatrimestreForPeriod, getMonthPeriod, MONTH_NAMES } from '@/types/transaction';
-import { useViewMode } from '@/contexts/ViewModeContext';
+
 interface TransactionData {
   id: string;
   date: string;
@@ -40,7 +40,7 @@ export function MonthlySummaryTable({
   selectedMonth,
   selectedYear
 }: MonthlySummaryTableProps) {
-  const { isAdvancedMode } = useViewMode();
+  
   const monthPeriod = useMemo(() => getMonthPeriod(selectedMonth, selectedYear), [selectedMonth, selectedYear]);
   const cuatrimestre = useMemo(() => getCuatrimestreForPeriod(selectedMonth, selectedYear), [selectedMonth, selectedYear]);
 
@@ -105,7 +105,7 @@ export function MonthlySummaryTable({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className={`grid gap-4 ${isAdvancedMode ? 'md:grid-cols-4 lg:grid-cols-8' : 'md:grid-cols-3 lg:grid-cols-6'}`}>
+          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
             <div className="text-center p-4 bg-success/10 rounded-lg">
               <p className="text-sm text-muted-foreground">Ingresos</p>
               <p className="text-lg font-bold text-success">{formatCurrency(metrics.totalIngresos)}</p>
@@ -120,32 +120,16 @@ export function MonthlySummaryTable({
                 {formatCurrency(metrics.netoMes)}
               </p>
             </div>
-            {/* IVA Débito - Only in Advanced Mode */}
-            {isAdvancedMode && (
-              <div className="text-center p-4 rounded-lg bg-warning/10">
-                <p className="text-sm text-muted-foreground">IVA Débito</p>
-                <p className="text-lg font-bold text-warning">{formatCurrency(metrics.ivaDebito)}</p>
-              </div>
-            )}
-            {/* IVA Crédito - Only in Advanced Mode */}
-            {isAdvancedMode && (
-              <div className="text-center p-4 rounded-lg bg-success/10">
-                <p className="text-sm text-muted-foreground">IVA Crédito</p>
-                <p className="text-lg font-bold text-success">{formatCurrency(metrics.ivaCredito)}</p>
-              </div>
-            )}
-            {/* IVA Neto - Always visible with disclaimer in Simple Mode */}
+            {/* IVA Neto */}
             <div className={`text-center p-4 rounded-lg ${metrics.ivaNeto >= 0 ? 'bg-destructive/10' : 'bg-success/10'}`}>
-              <p className="text-sm text-muted-foreground">{metrics.ivaNeto >= 0 ? 'IVA Pagar' : 'Saldo Favor'}</p>
+              <p className="text-sm text-muted-foreground">{metrics.ivaNeto >= 0 ? 'IVA por Pagar' : 'IVA a Favor'}</p>
               <p className={`text-lg font-bold ${metrics.ivaNeto >= 0 ? 'text-destructive' : 'text-success'}`}>
                 {formatCurrency(Math.abs(metrics.ivaNeto))}
               </p>
-              {!isAdvancedMode && (
-                <div className="flex items-center justify-center gap-1 mt-1">
-                  <Info className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-[9px] text-muted-foreground">Estimado</span>
-                </div>
-              )}
+              <div className="flex items-center justify-center gap-1 mt-1">
+                <Info className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[9px] text-muted-foreground">Estimado</span>
+              </div>
             </div>
             <div className="text-center p-4 rounded-lg bg-accent/10">
               <p className="text-sm text-muted-foreground">Retefuente</p>

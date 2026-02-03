@@ -11,7 +11,7 @@ import { MonthlySummaryTable } from '@/components/dashboard/MonthlySummaryTable'
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { useViewMode } from '@/contexts/ViewModeContext';
+
 
 interface TransactionData {
   id: string;
@@ -67,7 +67,7 @@ function formatCurrencyShort(value: number) {
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [loading, setLoading] = useState(true);
-  const { isAdvancedMode } = useViewMode();
+  
 
   // Unified period selection state
   const now = new Date();
@@ -519,53 +519,8 @@ export default function Dashboard() {
               </Card>
             </div>
 
-            {/* Tax Metrics - Simplified in Simple Mode */}
-            <div className={`grid gap-4 animate-fade-in ${isAdvancedMode ? 'md:grid-cols-2 lg:grid-cols-5' : 'md:grid-cols-3'}`}>
-              {/* IVA Débito (Ventas) - Only in Advanced Mode */}
-              {isAdvancedMode && (
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">
-                      IVA Débito (Ventas)
-                    </CardTitle>
-                    <div className="p-2 rounded-lg bg-warning/10">
-                      <Receipt className="h-4 w-4 text-warning" />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-xl font-bold text-warning">
-                      {formatCurrency(metrics.ivaDebito)}
-                    </div>
-                    <div className="flex items-center text-xs text-muted-foreground mt-1">
-                      <Calendar className="h-3 w-3 mr-1" />
-                      {metrics.cuatrimestreLabel}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* IVA Crédito (Compras) - Only in Advanced Mode */}
-              {isAdvancedMode && (
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">
-                      IVA Crédito (Compras)
-                    </CardTitle>
-                    <div className="p-2 rounded-lg bg-success/10">
-                      <Receipt className="h-4 w-4 text-success" />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-xl font-bold text-success">
-                      {formatCurrency(metrics.ivaCredito)}
-                    </div>
-                    <div className="flex items-center text-xs text-muted-foreground mt-1">
-                      <Calendar className="h-3 w-3 mr-1" />
-                      {metrics.cuatrimestreLabel}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+            {/* Tax Metrics */}
+            <div className="grid gap-4 md:grid-cols-3 animate-fade-in">
 
               {/* IVA Neto (Por Pagar / A Favor) - Always visible with disclaimer */}
               <Card>
@@ -650,42 +605,6 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* IVA Accumulation Chart - Only in Advanced Mode */}
-            {isAdvancedMode && (
-              <Card className="animate-slide-up">
-                <CardHeader>
-                  <CardTitle className="text-lg">IVA Débito vs Crédito ({metrics.cuatrimestreLabel})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {ivaAccumulationData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <LineChart data={ivaAccumulationData}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                        <YAxis tickFormatter={formatCurrencyShort} tick={{ fontSize: 12 }} />
-                        <Tooltip 
-                          formatter={(value: number) => formatCurrency(value)} 
-                          labelFormatter={label => `Fecha: ${label}`}
-                          contentStyle={{
-                            backgroundColor: 'hsl(var(--card))',
-                            border: '1px solid hsl(var(--border))',
-                            borderRadius: '8px'
-                          }}
-                        />
-                        <Legend />
-                        <Line type="monotone" dataKey="debito" name="IVA Débito" stroke="hsl(var(--warning))" strokeWidth={2} />
-                        <Line type="monotone" dataKey="credito" name="IVA Crédito" stroke="hsl(var(--success))" strokeWidth={2} />
-                        <Line type="monotone" dataKey="neto" name="IVA Neto" stroke="hsl(var(--destructive))" strokeWidth={2} strokeDasharray="5 5" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-[200px] flex items-center justify-center text-muted-foreground">
-                      Sin datos de IVA en el cuatrimestre
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
 
             {/* Monthly Summary Table */}
             <MonthlySummaryTable 
