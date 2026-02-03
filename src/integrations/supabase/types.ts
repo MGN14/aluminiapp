@@ -17,6 +17,7 @@ export type Database = {
       bank_statements: {
         Row: {
           bank_name: string
+          deleted_at: string | null
           file_name: string
           file_path: string
           id: string
@@ -27,11 +28,13 @@ export type Database = {
           statement_month: number | null
           statement_period: string | null
           statement_year: number | null
+          transaction_count: number | null
           uploaded_at: string
           user_id: string
         }
         Insert: {
           bank_name?: string
+          deleted_at?: string | null
           file_name: string
           file_path: string
           id?: string
@@ -42,11 +45,13 @@ export type Database = {
           statement_month?: number | null
           statement_period?: string | null
           statement_year?: number | null
+          transaction_count?: number | null
           uploaded_at?: string
           user_id: string
         }
         Update: {
           bank_name?: string
+          deleted_at?: string | null
           file_name?: string
           file_path?: string
           id?: string
@@ -57,6 +62,7 @@ export type Database = {
           statement_month?: number | null
           statement_period?: string | null
           statement_year?: number | null
+          transaction_count?: number | null
           uploaded_at?: string
           user_id?: string
         }
@@ -151,6 +157,7 @@ export type Database = {
           date: string
           dcto: string | null
           debit: number | null
+          deleted_at: string | null
           description: string
           has_iva: boolean
           has_retefuente: boolean
@@ -168,6 +175,7 @@ export type Database = {
           statement_id: string
           sucursal: string | null
           transaction_type: string | null
+          type: string | null
           user_id: string
         }
         Insert: {
@@ -180,6 +188,7 @@ export type Database = {
           date: string
           dcto?: string | null
           debit?: number | null
+          deleted_at?: string | null
           description: string
           has_iva?: boolean
           has_retefuente?: boolean
@@ -197,6 +206,7 @@ export type Database = {
           statement_id: string
           sucursal?: string | null
           transaction_type?: string | null
+          type?: string | null
           user_id: string
         }
         Update: {
@@ -209,6 +219,7 @@ export type Database = {
           date?: string
           dcto?: string | null
           debit?: number | null
+          deleted_at?: string | null
           description?: string
           has_iva?: boolean
           has_retefuente?: boolean
@@ -226,6 +237,7 @@ export type Database = {
           statement_id?: string
           sucursal?: string | null
           transaction_type?: string | null
+          type?: string | null
           user_id?: string
         }
         Relationships: [
@@ -263,7 +275,7 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      transaction_simple_type: "ingreso" | "egreso" | "transferencia"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -390,6 +402,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      transaction_simple_type: ["ingreso", "egreso", "transferencia"],
+    },
   },
 } as const

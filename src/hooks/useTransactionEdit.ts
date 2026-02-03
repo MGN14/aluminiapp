@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Transaction } from '@/types/transaction';
+import { Transaction, IVA_RATE, RETEFUENTE_RATE } from '@/types/transaction';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -14,6 +14,24 @@ interface UseTransactionEditReturn {
   errorMessage: string | null;
   updateField: (updates: Partial<Transaction>) => void;
   localTransaction: Transaction;
+}
+
+// Calculate IVA amount based on type and amount
+function calculateIvaAmount(amount: number | null, hasIva: boolean, type: string): number {
+  if (!hasIva || type === 'transferencia') return 0;
+  return Math.abs(amount ?? 0) * IVA_RATE;
+}
+
+// Calculate Retefuente amount (only for expenses)
+function calculateRetefuenteAmount(amount: number | null, hasRetefuente: boolean, type: string): number {
+  if (!hasRetefuente || type !== 'egreso') return 0;
+  return Math.abs(amount ?? 0) * RETEFUENTE_RATE;
+}
+
+// Get IVA type based on transaction type
+function getIvaType(type: string, hasIva: boolean): 'debito' | 'credito' | null {
+  if (!hasIva || type === 'transferencia') return null;
+  return type === 'ingreso' ? 'debito' : 'credito';
 }
 
 export function useTransactionEdit(
@@ -67,11 +85,51 @@ export function useTransactionEdit(
   }, [localTransaction.id, onError]);
 
   const updateField = useCallback((updates: Partial<Transaction>) => {
-    // Update local state immediately (optimistic)
-    setLocalTransaction(prev => ({ ...prev, ...updates }));
+    let computedUpdates: Partial<Transaction> = { ...updates };
+    
+    // Apply updates and recalculate computed fields
+    setLocalTransaction(prev => {
+      const merged = { ...prev, ...updates };
+      const type = merged.type || 'egreso';
+      
+      // Recalculate IVA when has_iva or type changes
+      if ('has_iva' in updates || 'type' in updates || 'amount' in updates) {
+        merged.iva_amount = calculateIvaAmount(merged.amount, merged.has_iva, type);
+        merged.iva_type = getIvaType(type, merged.has_iva);
+        
+        // Auto-disable IVA for transfers
+        if (type === 'transferencia') {
+          merged.has_iva = false;
+          merged.iva_amount = 0;
+          merged.iva_type = null;
+        }
+        
+        // Add computed fields to save
+        computedUpdates.iva_amount = merged.iva_amount;
+        computedUpdates.iva_type = merged.iva_type;
+        computedUpdates.has_iva = merged.has_iva;
+      }
+      
+      // Recalculate Retefuente when has_retefuente or type changes
+      if ('has_retefuente' in updates || 'type' in updates || 'amount' in updates) {
+        merged.retefuente_amount = calculateRetefuenteAmount(merged.amount, merged.has_retefuente, type);
+        
+        // Auto-disable retefuente for non-expenses
+        if (type !== 'egreso') {
+          merged.has_retefuente = false;
+          merged.retefuente_amount = 0;
+        }
+        
+        // Add computed fields to save
+        computedUpdates.retefuente_amount = merged.retefuente_amount;
+        computedUpdates.has_retefuente = merged.has_retefuente;
+      }
+      
+      return merged;
+    });
     
     // Accumulate pending updates
-    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...updates };
+    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...computedUpdates };
     
     // Clear existing debounce timer
     if (debounceRef.current) {

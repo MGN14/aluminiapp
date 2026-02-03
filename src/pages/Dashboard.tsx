@@ -22,6 +22,7 @@ interface TransactionData {
   category: string | null;
   responsible_id: string | null;
   transaction_type: 'compra' | 'venta';
+  type: 'ingreso' | 'egreso' | 'transferencia';
   has_iva: boolean;
   has_retefuente: boolean;
   iva_amount: number;
@@ -131,7 +132,8 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('id, date, description, amount, balance, category, responsible_id, transaction_type, has_iva, has_retefuente, iva_amount, iva_type, retefuente_amount')
+        .select('id, date, description, amount, balance, category, responsible_id, transaction_type, type, has_iva, has_retefuente, iva_amount, iva_type, retefuente_amount')
+        .is('deleted_at', null)
         .order('date', { ascending: true });
 
       if (error) throw error;
