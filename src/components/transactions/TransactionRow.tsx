@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Transaction, Category, Responsible, TransactionType, OperationalType } from '@/types/transaction';
 import { TableCell, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -21,12 +20,13 @@ import { Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { OPERATIONAL_TYPES, getDefaultOperationalType } from '@/lib/operationalTypes';
+import { useTransactionEdit } from '@/hooks/useTransactionEdit';
+import SaveStatusIndicator from './SaveStatusIndicator';
 
 interface TransactionRowProps {
   transaction: Transaction;
   categories: Category[];
   responsibles: Responsible[];
-  onUpdate: (id: string, updates: Partial<Transaction>) => Promise<void>;
   onViewDetail: (transaction: Transaction) => void;
 }
 
@@ -44,62 +44,51 @@ export default function TransactionRow({
   transaction, 
   categories, 
   responsibles, 
-  onUpdate,
   onViewDetail 
 }: TransactionRowProps) {
-  const [isUpdating, setIsUpdating] = useState(false);
   const { isAdvancedMode } = useViewMode();
-
-  const handleUpdate = async (updates: Partial<Transaction>) => {
-    setIsUpdating(true);
-    try {
-      await onUpdate(transaction.id, updates);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+  
+  const { status, errorMessage, updateField, localTransaction } = useTransactionEdit(transaction, {
+    debounceMs: 600,
+  });
 
   const handleTransactionTypeChange = (type: TransactionType) => {
     const updates: Partial<Transaction> = { 
       transaction_type: type,
-      // Set default operational type based on transaction type
       operational_type: getDefaultOperationalType(type) as OperationalType,
     };
     
-    // If retefuente is enabled and changing to venta, disable it (retefuente only for compras)
-    if (type === 'venta' && transaction.has_retefuente) {
+    if (type === 'venta' && localTransaction.has_retefuente) {
       updates.has_retefuente = false;
     }
     
-    handleUpdate(updates);
+    updateField(updates);
   };
 
   const handleOperationalTypeChange = (opType: OperationalType) => {
-    handleUpdate({ operational_type: opType });
+    updateField({ operational_type: opType });
   };
 
   const handleIvaChange = (checked: boolean) => {
-    handleUpdate({ has_iva: checked });
+    updateField({ has_iva: checked });
   };
 
   const handleRetefuenteChange = (checked: boolean) => {
-    if (transaction.transaction_type === 'venta' && checked) {
+    if (localTransaction.transaction_type === 'venta' && checked) {
       return;
     }
-    handleUpdate({ has_retefuente: checked });
+    updateField({ has_retefuente: checked });
   };
 
-  const amountColor = (transaction.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive';
-  const isReconciled = !!transaction.responsible_id;
-  const isVenta = transaction.transaction_type === 'venta';
-
-  const operationalTypeLabel = OPERATIONAL_TYPES.find(t => t.value === transaction.operational_type)?.label || 'Otros';
-  const operationalTypeColor = OPERATIONAL_TYPES.find(t => t.value === transaction.operational_type)?.color || 'text-muted-foreground';
+  const amountColor = (localTransaction.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive';
+  const isReconciled = !!localTransaction.responsible_id;
+  const isVenta = localTransaction.transaction_type === 'venta';
+  const isSaving = status === 'saving';
 
   return (
-    <TableRow className={`hover:bg-muted/30 ${isUpdating ? 'opacity-50' : ''} ${!isReconciled ? 'bg-destructive/5' : ''}`}>
+    <TableRow className={`hover:bg-muted/30 transition-colors ${isSaving ? 'bg-muted/20' : ''} ${!isReconciled ? 'bg-destructive/5' : ''}`}>
       <TableCell className="font-medium text-sm w-[80px]">
-        {format(new Date(transaction.date), 'dd MMM', { locale: es })}
+        {format(new Date(localTransaction.date), 'dd MMM', { locale: es })}
       </TableCell>
       
       <TableCell className="min-w-[200px] max-w-[350px]">
@@ -107,32 +96,32 @@ export default function TransactionRow({
           <TooltipTrigger asChild>
             <div className="flex items-center gap-2">
               <span className="text-sm truncate flex-1 cursor-help">
-                {transaction.description}
+                {localTransaction.description}
               </span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 w-6 p-0 shrink-0"
-                onClick={() => onViewDetail(transaction)}
+                onClick={() => onViewDetail(localTransaction)}
               >
                 <Eye className="h-3 w-3" />
               </Button>
             </div>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-[400px]">
-            <p className="text-sm">{transaction.description}</p>
+            <p className="text-sm">{localTransaction.description}</p>
           </TooltipContent>
         </Tooltip>
       </TableCell>
       
       <TableCell className={`text-right font-medium text-sm w-[100px] ${amountColor}`}>
-        {formatCurrency(transaction.amount)}
+        {formatCurrency(localTransaction.amount)}
       </TableCell>
       
-      {/* Operational Type Selector (replaces Compra/Venta in simple mode) */}
+      {/* Operational Type Selector */}
       <TableCell className="w-[130px]">
         <Select
-          value={transaction.operational_type || 'otros'}
+          value={localTransaction.operational_type || 'otros'}
           onValueChange={(value) => handleOperationalTypeChange(value as OperationalType)}
         >
           <SelectTrigger className="h-7 text-xs">
@@ -150,8 +139,8 @@ export default function TransactionRow({
       
       <TableCell className="w-[120px]">
         <Select
-          value={transaction.category_id || transaction.category || ''}
-          onValueChange={(value) => handleUpdate({ category_id: value, category: null })}
+          value={localTransaction.category_id || localTransaction.category || ''}
+          onValueChange={(value) => updateField({ category_id: value, category: null })}
         >
           <SelectTrigger className="h-7 text-xs">
             <SelectValue placeholder="Categoría" />
@@ -168,10 +157,10 @@ export default function TransactionRow({
       
       <TableCell className="w-[120px]">
         <Select
-          value={transaction.responsible_id || '__none__'}
-          onValueChange={(value) => handleUpdate({ responsible_id: value === '__none__' ? null : value })}
+          value={localTransaction.responsible_id || '__none__'}
+          onValueChange={(value) => updateField({ responsible_id: value === '__none__' ? null : value })}
         >
-          <SelectTrigger className={`h-7 text-xs ${!transaction.responsible_id ? 'border-destructive/50' : ''}`}>
+          <SelectTrigger className={`h-7 text-xs ${!localTransaction.responsible_id ? 'border-destructive/50' : ''}`}>
             <SelectValue placeholder="Sin asignar" />
           </SelectTrigger>
           <SelectContent>
@@ -188,7 +177,7 @@ export default function TransactionRow({
       {/* IVA Checkbox */}
       <TableCell className="text-center w-[40px]">
         <Checkbox
-          checked={transaction.has_iva}
+          checked={localTransaction.has_iva}
           onCheckedChange={(checked) => handleIvaChange(checked as boolean)}
         />
       </TableCell>
@@ -196,16 +185,16 @@ export default function TransactionRow({
       {/* IVA Type Badge - Only visible in Advanced Mode */}
       {isAdvancedMode && (
         <TableCell className="text-center w-[55px]">
-          {transaction.has_iva && transaction.iva_type && (
+          {localTransaction.has_iva && localTransaction.iva_type && (
             <Badge 
               variant="outline" 
               className={`text-[10px] px-1 ${
-                transaction.iva_type === 'debito' 
+                localTransaction.iva_type === 'debito' 
                   ? 'border-warning text-warning' 
                   : 'border-success text-success'
               }`}
             >
-              {transaction.iva_type === 'debito' ? 'Déb' : 'Cré'}
+              {localTransaction.iva_type === 'debito' ? 'Déb' : 'Cré'}
             </Badge>
           )}
         </TableCell>
@@ -213,7 +202,7 @@ export default function TransactionRow({
       
       {/* IVA Amount */}
       <TableCell className="text-right text-xs w-[75px] text-muted-foreground">
-        {transaction.iva_amount > 0 ? formatCurrency(transaction.iva_amount) : '-'}
+        {localTransaction.iva_amount > 0 ? formatCurrency(localTransaction.iva_amount) : '-'}
       </TableCell>
       
       {/* Retefuente Checkbox - only enabled for compras */}
@@ -222,7 +211,7 @@ export default function TransactionRow({
           <TooltipTrigger asChild>
             <span>
               <Checkbox
-                checked={transaction.has_retefuente}
+                checked={localTransaction.has_retefuente}
                 onCheckedChange={(checked) => handleRetefuenteChange(checked as boolean)}
                 disabled={isVenta}
                 className={isVenta ? 'opacity-30 cursor-not-allowed' : ''}
@@ -239,7 +228,12 @@ export default function TransactionRow({
       
       {/* Retefuente Amount */}
       <TableCell className="text-right text-xs w-[75px] text-muted-foreground">
-        {transaction.retefuente_amount > 0 ? formatCurrency(transaction.retefuente_amount) : '-'}
+        {localTransaction.retefuente_amount > 0 ? formatCurrency(localTransaction.retefuente_amount) : '-'}
+      </TableCell>
+
+      {/* Save Status Indicator */}
+      <TableCell className="w-[80px]">
+        <SaveStatusIndicator status={status} errorMessage={errorMessage} />
       </TableCell>
     </TableRow>
   );
