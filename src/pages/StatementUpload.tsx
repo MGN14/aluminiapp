@@ -84,9 +84,14 @@ export default function StatementUpload() {
           throw new Error('Se requiere agregar créditos para continuar procesando.');
         }
         if (response.status === 403 && errorData.limit_exceeded) {
-          // Redirect to pricing for plan upgrade
+          // Show toast and redirect to pricing for plan upgrade - don't throw error
+          toast({
+            title: 'Límite alcanzado',
+            description: errorData.message || 'Actualiza tu plan para continuar subiendo extractos.',
+            variant: 'destructive',
+          });
           navigate('/pricing');
-          throw new Error(errorData.message || 'Límite de PDFs alcanzado. Actualiza tu plan para continuar.');
+          return; // Exit cleanly without throwing
         }
         
         throw new Error(errorData.error || 'Error al procesar el PDF');
