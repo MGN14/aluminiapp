@@ -20,6 +20,7 @@ interface Statement {
   uploaded_at: string;
   processed: boolean;
   processing_error: string | null;
+  transaction_count: number;
 }
 
 export default function StatementUpload() {
@@ -38,6 +39,7 @@ export default function StatementUpload() {
       const { data, error } = await supabase
         .from('bank_statements')
         .select('*')
+        .is('deleted_at', null)
         .order('uploaded_at', { ascending: false });
 
       if (error) throw error;
@@ -178,6 +180,7 @@ export default function StatementUpload() {
                           statementId={statement.id}
                           fileName={statement.file_name}
                           filePath={statement.file_path}
+                          transactionCount={statement.transaction_count}
                           onDeleted={fetchStatements}
                         />
                       </div>

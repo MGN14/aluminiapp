@@ -22,13 +22,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Loader2, AlertCircle } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, Users } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useViewMode } from '@/contexts/ViewModeContext';
+import { Link } from 'react-router-dom';
 
 interface Statement {
   id: string;
   file_name: string;
+  transaction_count: number;
 }
 
 export default function Transactions() {
@@ -54,7 +56,8 @@ export default function Transactions() {
   const fetchStatements = async () => {
     const { data } = await supabase
       .from('bank_statements')
-      .select('id, file_name')
+      .select('id, file_name, transaction_count')
+      .is('deleted_at', null)
       .order('uploaded_at', { ascending: false });
     setStatements(data || []);
   };
@@ -81,6 +84,7 @@ export default function Transactions() {
       let query = supabase
         .from('transactions')
         .select('*')
+        .is('deleted_at', null)
         .order('date', { ascending: false });
 
       if (selectedStatement !== 'all') {
@@ -98,43 +102,55 @@ export default function Transactions() {
     }
   };
 
-  // Note: Updates are now handled per-row via useTransactionEdit hook
-  // No global refresh needed - each row manages its own state
-
   // Calculate pending reconciliation count (transactions without responsible)
   const pendingCount = transactions.filter(tx => !tx.responsible_id).length;
+  const totalCount = transactions.length;
 
   return (
     <AppLayout>
       <TooltipProvider>
-        <div className="max-w-full mx-auto space-y-6 px-4">
+        <div className="max-w-full mx-auto space-y-4 px-4">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <h1 className="text-2xl font-bold text-foreground">Transacciones</h1>
               <p className="text-muted-foreground">
-                Edita y clasifica tus movimientos bancarios.
+                Edita y clasifica tus movimientos bancarios
               </p>
             </div>
             
             <div className="flex items-center gap-4 flex-wrap">
+              {/* Pending reconciliation counter with link */}
               {pendingCount > 0 && (
-                <Badge variant="outline" className="flex items-center gap-1 text-destructive border-destructive">
+                <Badge 
+                  variant="outline" 
+                  className="flex items-center gap-1.5 text-destructive border-destructive cursor-pointer hover:bg-destructive/10"
+                >
                   <AlertCircle className="h-3 w-3" />
-                  {pendingCount} sin conciliar
+                  <span>{pendingCount} sin conciliar</span>
+                </Badge>
+              )}
+              
+              {pendingCount === 0 && totalCount > 0 && (
+                <Badge 
+                  variant="outline" 
+                  className="flex items-center gap-1.5 text-success border-success"
+                >
+                  <Users className="h-3 w-3" />
+                  <span>Todo conciliado</span>
                 </Badge>
               )}
               
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Extracto:</span>
                 <Select value={selectedStatement} onValueChange={setSelectedStatement}>
-                  <SelectTrigger className="w-[200px]">
+                  <SelectTrigger className="w-[220px]">
                     <SelectValue placeholder="Todos los extractos" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos los extractos</SelectItem>
                     {statements.map((stmt) => (
                       <SelectItem key={stmt.id} value={stmt.id}>
-                        {stmt.file_name}
+                        {stmt.file_name} ({stmt.transaction_count})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -143,15 +159,15 @@ export default function Transactions() {
             </div>
           </div>
 
-          {/* Management buttons */}
-          <div className="flex gap-2 flex-wrap">
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <span>Responsables:</span>
-              <ResponsibleManagement onUpdate={() => { fetchResponsibles(); fetchTransactions(); }} />
-            </div>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+          {/* Management buttons in a cleaner layout */}
+          <div className="flex gap-4 items-center text-sm">
+            <div className="flex items-center gap-1 text-muted-foreground">
               <span>Categorías:</span>
-              <CategoryManagement onUpdate={() => { fetchCategories(); fetchTransactions(); }} />
+              <CategoryManagement onUpdate={() => { fetchCategories(); }} />
+            </div>
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <span>Responsables:</span>
+              <ResponsibleManagement onUpdate={() => { fetchResponsibles(); }} />
             </div>
           </div>
 
@@ -162,7 +178,7 @@ export default function Transactions() {
                 Movimientos ({transactions.length})
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0 sm:p-6 sm:pt-0">
               {loading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-accent" />
@@ -171,7 +187,11 @@ export default function Transactions() {
                 <div className="text-center py-12 text-muted-foreground">
                   <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No hay transacciones</p>
-                  <p className="text-sm mt-1">Sube un extracto para comenzar</p>
+                  <p className="text-sm mt-1">
+                    <Link to="/statement-upload" className="text-primary hover:underline">
+                      Sube un extracto
+                    </Link> para comenzar
+                  </p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -179,11 +199,11 @@ export default function Transactions() {
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead className="w-[80px]">Fecha</TableHead>
-                        <TableHead className="min-w-[200px]">Descripción</TableHead>
+                        <TableHead className="min-w-[280px]">Descripción</TableHead>
                         <TableHead className="text-right w-[100px]">Monto</TableHead>
-                        <TableHead className="w-[130px]">Tipo</TableHead>
-                        <TableHead className="w-[120px]">Categoría</TableHead>
-                        <TableHead className="w-[120px]">Responsable</TableHead>
+                        <TableHead className="w-[110px]">Tipo</TableHead>
+                        <TableHead className="w-[130px]">Categoría</TableHead>
+                        <TableHead className="w-[130px]">Responsable</TableHead>
                         <TableHead className="text-center w-[40px]">IVA</TableHead>
                         {isAdvancedMode && (
                           <TableHead className="text-center w-[55px]">Déb/Cré</TableHead>
@@ -202,6 +222,8 @@ export default function Transactions() {
                           categories={categories}
                           responsibles={responsibles}
                           onViewDetail={setSelectedTransaction}
+                          onCategoryAdded={fetchCategories}
+                          onResponsibleAdded={fetchResponsibles}
                         />
                       ))}
                     </TableBody>

@@ -1,3 +1,7 @@
+// Simplified transaction types
+export type SimpleTransactionType = 'ingreso' | 'egreso' | 'transferencia';
+
+// Legacy types for backward compatibility
 export type TransactionType = 'compra' | 'venta';
 export type IvaType = 'credito' | 'debito' | null;
 export type OperationalType = 'ingreso' | 'costo' | 'gasto_operativo' | 'impuesto' | 'transferencia' | 'ajuste' | 'otros';
@@ -11,11 +15,12 @@ export interface Transaction {
   debit: number | null;
   credit: number | null;
   balance: number | null;
+  type: SimpleTransactionType; // New simplified type
   category: string | null;
   category_id: string | null;
   owner: string | null;
   responsible_id: string | null;
-  transaction_type: TransactionType;
+  transaction_type: TransactionType; // Legacy, auto-set by trigger
   operational_type: OperationalType | null;
   has_iva: boolean;
   iva_rate: number;
@@ -30,6 +35,7 @@ export interface Transaction {
   raw_line: string | null;
   created_at: string;
   user_id: string;
+  deleted_at: string | null;
 }
 
 export interface BankStatement {
@@ -45,6 +51,8 @@ export interface BankStatement {
   processed: boolean;
   processing_error: string | null;
   uploaded_at: string;
+  transaction_count: number;
+  deleted_at: string | null;
 }
 
 export interface Responsible {
@@ -63,6 +71,13 @@ export interface Category {
   sort_order: number;
   created_at: string;
 }
+
+// Simplified type options for UI
+export const SIMPLE_TYPES = [
+  { value: 'ingreso', label: 'Ingreso', color: 'text-success' },
+  { value: 'egreso', label: 'Egreso', color: 'text-destructive' },
+  { value: 'transferencia', label: 'Transferencia', color: 'text-muted-foreground' },
+] as const;
 
 // Legacy categories for backward compatibility
 export const CATEGORIES = [
@@ -157,4 +172,10 @@ export function parseSpanishMonth(monthStr: string): number | null {
   };
   
   return monthMap[monthStr.toLowerCase()] || null;
+}
+
+// Get type from amount (for auto-detection)
+export function getTypeFromAmount(amount: number | null): SimpleTransactionType {
+  if (amount === null || amount === 0) return 'transferencia';
+  return amount > 0 ? 'ingreso' : 'egreso';
 }
