@@ -5,11 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { getCuatrimestreForPeriod, getMonthPeriod, isDIANPayment, MONTH_NAMES } from '@/types/transaction';
-import { PeriodSelector } from '@/components/dashboard/PeriodSelector';
+import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES } from '@/types/transaction';
+import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/components/dashboard/UnifiedPeriodFilter';
 import { MonthlySummaryTable } from '@/components/dashboard/MonthlySummaryTable';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
+import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useViewMode } from '@/contexts/ViewModeContext';
+
 interface TransactionData {
   id: string;
   date: string;
@@ -25,6 +28,7 @@ interface TransactionData {
   iva_type: 'credito' | 'debito' | null;
   retefuente_amount: number;
 }
+
 interface Metrics {
   saldoActual: number;
   totalIngresos: number;
@@ -37,8 +41,9 @@ interface Metrics {
   pendingReconcile: number;
   transactionCount: number;
   cuatrimestreLabel: string;
-  monthLabel: string;
+  periodLabel: string;
 }
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',
@@ -47,6 +52,7 @@ function formatCurrency(value: number) {
     maximumFractionDigits: 0
   }).format(value);
 }
+
 function formatCurrencyShort(value: number) {
   if (Math.abs(value) >= 1000000) {
     return `$${(value / 1000000).toFixed(1)}M`;
@@ -56,44 +62,63 @@ function formatCurrencyShort(value: number) {
   }
   return `$${value.toFixed(0)}`;
 }
+
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [loading, setLoading] = useState(true);
   const { isAdvancedMode } = useViewMode();
 
-  // Period selection state - default to current month/year, will be updated from data
-  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  // Unified period selection state
+  const now = new Date();
+  const [periodSelection, setPeriodSelection] = useState<PeriodSelection>({
+    type: 'month',
+    month: now.getMonth() + 1,
+    quarter: Math.ceil((now.getMonth() + 1) / 3),
+    year: now.getFullYear(),
+  });
   const [periodInitialized, setPeriodInitialized] = useState(false);
+
   useEffect(() => {
     fetchTransactions();
     initializePeriodFromData();
   }, []);
+
   const initializePeriodFromData = async () => {
     try {
-      // First try to get period from most recent statement
-      const {
-        data: statement
-      } = await supabase.from('bank_statements').select('statement_month, statement_year').order('uploaded_at', {
-        ascending: false
-      }).limit(1).single();
+      const { data: statement } = await supabase
+        .from('bank_statements')
+        .select('statement_month, statement_year')
+        .order('uploaded_at', { ascending: false })
+        .limit(1)
+        .single();
+
       if (statement?.statement_month && statement?.statement_year) {
-        setSelectedMonth(statement.statement_month);
-        setSelectedYear(statement.statement_year);
+        setPeriodSelection({
+          type: 'month',
+          month: statement.statement_month,
+          quarter: Math.ceil(statement.statement_month / 3),
+          year: statement.statement_year,
+        });
         setPeriodInitialized(true);
         return;
       }
 
-      // Fallback to most recent transaction date
-      const {
-        data: transaction
-      } = await supabase.from('transactions').select('date').order('date', {
-        ascending: false
-      }).limit(1).single();
+      const { data: transaction } = await supabase
+        .from('transactions')
+        .select('date')
+        .order('date', { ascending: false })
+        .limit(1)
+        .single();
+
       if (transaction?.date) {
         const date = new Date(transaction.date);
-        setSelectedMonth(date.getMonth() + 1);
-        setSelectedYear(date.getFullYear());
+        const month = date.getMonth() + 1;
+        setPeriodSelection({
+          type: 'month',
+          month,
+          quarter: Math.ceil(month / 3),
+          year: date.getFullYear(),
+        });
       }
       setPeriodInitialized(true);
     } catch (error) {
@@ -101,14 +126,14 @@ export default function Dashboard() {
       setPeriodInitialized(true);
     }
   };
+
   const fetchTransactions = async () => {
     try {
-      const {
-        data,
-        error
-      } = await supabase.from('transactions').select('id, date, description, amount, balance, category, responsible_id, transaction_type, has_iva, has_retefuente, iva_amount, iva_type, retefuente_amount').order('date', {
-        ascending: true
-      });
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('id, date, description, amount, balance, category, responsible_id, transaction_type, has_iva, has_retefuente, iva_amount, iva_type, retefuente_amount')
+        .order('date', { ascending: true });
+
       if (error) throw error;
       setTransactions((data as TransactionData[]) || []);
     } catch (error) {
@@ -117,14 +142,31 @@ export default function Dashboard() {
       setLoading(false);
     }
   };
-  const handlePeriodChange = (month: number, year: number) => {
-    setSelectedMonth(month);
-    setSelectedYear(year);
-  };
 
-  // Calculate periods based on selection
-  const cuatrimestre = useMemo(() => getCuatrimestreForPeriod(selectedMonth, selectedYear), [selectedMonth, selectedYear]);
-  const monthPeriod = useMemo(() => getMonthPeriod(selectedMonth, selectedYear), [selectedMonth, selectedYear]);
+  // Get date range based on period selection
+  const periodRange = useMemo(() => getPeriodDateRange(periodSelection), [periodSelection]);
+  
+  // Cuatrimestre for IVA calculations (always based on the selected period's month/quarter)
+  const cuatrimestre = useMemo(() => {
+    return getCuatrimestreForPeriod(periodSelection.month, periodSelection.year);
+  }, [periodSelection.month, periodSelection.year]);
+
+  // Filter transactions for the selected period
+  const periodTransactions = useMemo(() => {
+    return transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= periodRange.start && txDate <= periodRange.end;
+    });
+  }, [transactions, periodRange]);
+
+  // Filter transactions for the cuatrimestre (for IVA)
+  const cuatrimestreTransactions = useMemo(() => {
+    return transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
+    });
+  }, [transactions, cuatrimestre]);
+
   const metrics = useMemo((): Metrics => {
     if (transactions.length === 0) {
       return {
@@ -139,36 +181,35 @@ export default function Dashboard() {
         pendingReconcile: 0,
         transactionCount: 0,
         cuatrimestreLabel: cuatrimestre.label,
-        monthLabel: monthPeriod.label
+        periodLabel: periodRange.label,
       };
     }
 
-    // Filter transactions for the selected month
-    const monthTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return txDate >= monthPeriod.start && txDate <= monthPeriod.end;
-    });
-
-    // Filter transactions for the cuatrimestre (for IVA)
-    const cuatrimestreTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
-    });
-
-    // Get the last balance from the most recent transaction in the selected month
-    const sortedByDate = [...monthTransactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // Get the last balance from the most recent transaction in the selected period
+    const sortedByDate = [...periodTransactions].sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
     const saldoActual = sortedByDate[0]?.balance ?? 0;
 
-    // Total income and expenses for selected month
-    const totalIngresos = monthTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-    const totalEgresos = Math.abs(monthTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0));
+    // Total income and expenses for selected period
+    const totalIngresos = periodTransactions
+      .filter(tx => (tx.amount ?? 0) > 0)
+      .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
+    
+    const totalEgresos = Math.abs(
+      periodTransactions
+        .filter(tx => (tx.amount ?? 0) < 0)
+        .reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
+    );
 
     // Burn rate (average monthly expenses based on available data in cuatrimestre)
     const cuatrimestreExpenses = cuatrimestreTransactions.filter(tx => (tx.amount ?? 0) < 0);
-    const monthsWithData = new Set(cuatrimestreExpenses.map(tx => {
-      const d = new Date(tx.date);
-      return `${d.getFullYear()}-${d.getMonth()}`;
-    })).size || 1;
+    const monthsWithData = new Set(
+      cuatrimestreExpenses.map(tx => {
+        const d = new Date(tx.date);
+        return `${d.getFullYear()}-${d.getMonth()}`;
+      })
+    ).size || 1;
     const burnRate = Math.abs(cuatrimestreExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / monthsWithData;
 
     // IVA Débito (ventas) y Crédito (compras) - cuatrimestral
@@ -187,11 +228,12 @@ export default function Dashboard() {
     // IVA Neto = Débito - Crédito - Pagos DIAN
     const ivaNeto = ivaDebito - ivaCredito - totalDianPayments;
 
-    // Retefuente por pagar (mensual) - only from compras
-    const retefuentePorPagar = monthTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
+    // Retefuente por pagar (period-based) - only from compras
+    const retefuentePorPagar = periodTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
 
-    // Pending reconciliation = transactions without responsible (for selected month)
-    const pendingReconcile = monthTransactions.filter(tx => !tx.responsible_id).length;
+    // Pending reconciliation = transactions without responsible (for selected period)
+    const pendingReconcile = periodTransactions.filter(tx => !tx.responsible_id).length;
+
     return {
       saldoActual,
       totalIngresos,
@@ -202,33 +244,43 @@ export default function Dashboard() {
       ivaNeto,
       retefuentePorPagar,
       pendingReconcile,
-      transactionCount: monthTransactions.length,
+      transactionCount: periodTransactions.length,
       cuatrimestreLabel: cuatrimestre.label,
-      monthLabel: monthPeriod.label
+      periodLabel: periodRange.label,
     };
-  }, [transactions, cuatrimestre, monthPeriod]);
+  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange]);
 
-  // Chart data: Income vs Expenses by month (all data)
+  // Chart data: Income vs Expenses - grouped by month within the period
   const incomeVsExpenseData = useMemo(() => {
     const monthlyData: Record<string, {
       month: string;
+      monthKey: string;
       ingresos: number;
       egresos: number;
     }> = {};
-    transactions.forEach(tx => {
+
+    // Use period transactions or all transactions depending on period type
+    const dataToUse = periodSelection.type === 'month' 
+      ? transactions // Show all months for comparison when viewing a single month
+      : periodTransactions;
+
+    dataToUse.forEach(tx => {
       const date = new Date(tx.date);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthLabel = date.toLocaleDateString('es-CO', {
         month: 'short',
         year: '2-digit'
       });
+
       if (!monthlyData[monthKey]) {
         monthlyData[monthKey] = {
           month: monthLabel,
+          monthKey,
           ingresos: 0,
           egresos: 0
         };
       }
+
       const amount = tx.amount ?? 0;
       if (amount > 0) {
         monthlyData[monthKey].ingresos += amount;
@@ -236,22 +288,27 @@ export default function Dashboard() {
         monthlyData[monthKey].egresos += Math.abs(amount);
       }
     });
-    return Object.entries(monthlyData).sort(([a], [b]) => a.localeCompare(b)).map(([, data]) => data);
-  }, [transactions]);
 
-  // Chart data: Expenses by category (selected month)
+    // Sort and limit to recent months for readability
+    const sorted = Object.entries(monthlyData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, data]) => data);
+
+    // Show last 12 months max for clarity
+    return sorted.slice(-12);
+  }, [transactions, periodTransactions, periodSelection.type]);
+
+  // Chart data: Expenses by category (selected period)
   const expensesByCategoryData = useMemo(() => {
     const categoryData: Record<string, number> = {};
-    const monthTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return txDate >= monthPeriod.start && txDate <= monthPeriod.end;
-    });
-    monthTransactions.forEach(tx => {
+
+    periodTransactions.forEach(tx => {
       if ((tx.amount ?? 0) < 0 && tx.category) {
         const cat = tx.category;
         categoryData[cat] = (categoryData[cat] || 0) + Math.abs(tx.amount ?? 0);
       }
     });
+
     const categoryLabels: Record<string, string> = {
       ventas: 'Ventas',
       nomina: 'Nómina',
@@ -262,11 +319,15 @@ export default function Dashboard() {
       gastos_operativos: 'Gastos Op.',
       otros: 'Otros'
     };
-    return Object.entries(categoryData).map(([category, value]) => ({
-      category: categoryLabels[category] || category,
-      value
-    })).sort((a, b) => b.value - a.value);
-  }, [transactions, monthPeriod]);
+
+    return Object.entries(categoryData)
+      .map(([category, value]) => ({
+        category: categoryLabels[category] || category,
+        categoryKey: category,
+        value
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [periodTransactions]);
 
   // Chart data: IVA débito vs crédito accumulation over time (cuatrimestre)
   const ivaAccumulationData = useMemo(() => {
@@ -279,60 +340,70 @@ export default function Dashboard() {
       neto: number;
     }[] = [];
     
-    transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
-    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(tx => {
-      if (tx.iva_type === 'debito') {
-        accumulatedDebito += tx.iva_amount ?? 0;
-      } else if (tx.iva_type === 'credito') {
-        accumulatedCredito += tx.iva_amount ?? 0;
-      }
-      
-      // Subtract DIAN payments from neto
-      if (isDIANPayment(tx.description)) {
-        accumulatedDebito -= Math.abs(tx.amount ?? 0);
-      }
-      
-      const dateLabel = new Date(tx.date).toLocaleDateString('es-CO', {
-        day: '2-digit',
-        month: 'short'
+    cuatrimestreTransactions
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .forEach(tx => {
+        if (tx.iva_type === 'debito') {
+          accumulatedDebito += tx.iva_amount ?? 0;
+        } else if (tx.iva_type === 'credito') {
+          accumulatedCredito += tx.iva_amount ?? 0;
+        }
+        
+        // Subtract DIAN payments from neto
+        if (isDIANPayment(tx.description)) {
+          accumulatedDebito -= Math.abs(tx.amount ?? 0);
+        }
+        
+        const dateLabel = new Date(tx.date).toLocaleDateString('es-CO', {
+          day: '2-digit',
+          month: 'short'
+        });
+        
+        data.push({
+          date: dateLabel,
+          debito: accumulatedDebito,
+          credito: accumulatedCredito,
+          neto: accumulatedDebito - accumulatedCredito
+        });
       });
-      data.push({
-        date: dateLabel,
-        debito: accumulatedDebito,
-        credito: accumulatedCredito,
-        neto: accumulatedDebito - accumulatedCredito
-      });
-    });
+
     return data;
-  }, [transactions, cuatrimestre]);
+  }, [cuatrimestreTransactions]);
+
   if (loading || !periodInitialized) {
-    return <AppLayout>
+    return (
+      <AppLayout>
         <div className="flex items-center justify-center py-24">
           <Loader2 className="h-8 w-8 animate-spin text-accent" />
         </div>
-      </AppLayout>;
+      </AppLayout>
+    );
   }
-  return <AppLayout>
+
+  return (
+    <AppLayout>
       <div className="max-w-7xl mx-auto space-y-8">
-        {/* Header with Period Selector */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        {/* Header with Unified Period Filter */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
             <p className="text-muted-foreground">
-              Resumen financiero para {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
+              Resumen financiero • {periodRange.label}
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <PeriodSelector selectedMonth={selectedMonth} selectedYear={selectedYear} onPeriodChange={handlePeriodChange} />
+            <UnifiedPeriodFilter 
+              selection={periodSelection} 
+              onSelectionChange={setPeriodSelection} 
+            />
             <Link to="/statement-upload">
               <Button>Subir Extracto</Button>
             </Link>
           </div>
         </div>
 
-        {metrics.transactionCount === 0 && transactions.length === 0 ? <Card className="animate-fade-in">
+        {metrics.transactionCount === 0 && transactions.length === 0 ? (
+          <Card className="animate-fade-in">
             <CardContent className="py-12 text-center">
               <Wallet className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-medium text-foreground mb-2">
@@ -345,25 +416,29 @@ export default function Dashboard() {
                 <Button>Subir Extracto</Button>
               </Link>
             </CardContent>
-          </Card> : metrics.transactionCount === 0 ? <Card className="animate-fade-in">
+          </Card>
+        ) : metrics.transactionCount === 0 ? (
+          <Card className="animate-fade-in">
             <CardContent className="py-12 text-center">
               <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-medium text-foreground mb-2">
                 Sin transacciones en este periodo
               </h3>
               <p className="text-muted-foreground mb-6">
-                No hay transacciones para {MONTH_NAMES[selectedMonth - 1]} {selectedYear}. 
+                No hay transacciones para {periodRange.label}. 
                 Selecciona otro periodo o sube un extracto.
               </p>
             </CardContent>
-          </Card> : <>
+          </Card>
+        ) : (
+          <>
             {/* Main Metrics Grid */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
               {/* Saldo Actual */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Saldo Final del Mes
+                    Saldo Final
                   </CardTitle>
                   <div className="p-2 rounded-lg bg-accent/10">
                     <Wallet className="h-4 w-4 text-accent" />
@@ -374,7 +449,7 @@ export default function Dashboard() {
                     {formatCurrency(metrics.saldoActual)}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {metrics.monthLabel}
+                    {periodRange.label}
                   </div>
                 </CardContent>
               </Card>
@@ -383,7 +458,7 @@ export default function Dashboard() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Ingresos del Mes
+                    Ingresos
                   </CardTitle>
                   <div className="p-2 rounded-lg bg-success/10">
                     <TrendingUp className="h-4 w-4 text-success" />
@@ -395,7 +470,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <ArrowUpRight className="h-3 w-3 mr-1 text-success" />
-                    {metrics.monthLabel}
+                    {periodRange.label}
                   </div>
                 </CardContent>
               </Card>
@@ -404,7 +479,7 @@ export default function Dashboard() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Egresos del Mes
+                    Egresos
                   </CardTitle>
                   <div className="p-2 rounded-lg bg-destructive/10">
                     <TrendingDown className="h-4 w-4 text-destructive" />
@@ -416,7 +491,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <ArrowDownRight className="h-3 w-3 mr-1 text-destructive" />
-                    {metrics.monthLabel}
+                    {periodRange.label}
                   </div>
                 </CardContent>
               </Card>
@@ -490,7 +565,7 @@ export default function Dashboard() {
                 </Card>
               )}
 
-              {/* IVA Neto (Por Pagar / A Favor) - Always visible with disclaimer in Simple Mode */}
+              {/* IVA Neto (Por Pagar / A Favor) - Always visible with disclaimer */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -532,7 +607,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <Calendar className="h-3 w-3 mr-1" />
-                    {metrics.monthLabel} (2.5% compras)
+                    {periodRange.label} (2.5% compras)
                   </div>
                 </CardContent>
               </Card>
@@ -558,69 +633,19 @@ export default function Dashboard() {
               </Card>
             </div>
 
-            {/* Charts */}
+            {/* Charts - Redesigned */}
             <div className="grid gap-6 lg:grid-cols-2 animate-slide-up">
-              {/* Income vs Expenses */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Ingresos vs Egresos</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {incomeVsExpenseData.length > 0 ? <ResponsiveContainer width="100%" height={250}>
-                      <LineChart data={incomeVsExpenseData}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="month" tick={{
-                    fontSize: 12
-                  }} className="text-muted-foreground" />
-                        <YAxis tickFormatter={formatCurrencyShort} tick={{
-                    fontSize: 12
-                  }} className="text-muted-foreground" />
-                        <Tooltip formatter={(value: number) => formatCurrency(value)} labelFormatter={label => `Periodo: ${label}`} contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} />
-                        <Legend />
-                        <Line type="monotone" dataKey="ingresos" name="Ingresos" stroke="hsl(var(--success))" strokeWidth={2} dot={{
-                    fill: 'hsl(var(--success))'
-                  }} />
-                        <Line type="monotone" dataKey="egresos" name="Egresos" stroke="hsl(var(--destructive))" strokeWidth={2} dot={{
-                    fill: 'hsl(var(--destructive))'
-                  }} />
-                      </LineChart>
-                    </ResponsiveContainer> : <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                      Sin datos para graficar
-                    </div>}
-                </CardContent>
-              </Card>
+              {/* Income vs Expenses - Stacked Column Chart */}
+              <IncomeVsExpenseChart 
+                data={incomeVsExpenseData} 
+                periodLabel={periodRange.label} 
+              />
 
-              {/* Expenses by Category */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Egresos por Categoría ({metrics.monthLabel})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {expensesByCategoryData.length > 0 ? <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={expensesByCategoryData} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis type="number" tickFormatter={formatCurrencyShort} tick={{
-                    fontSize: 12
-                  }} />
-                        <YAxis type="category" dataKey="category" tick={{
-                    fontSize: 12
-                  }} width={80} />
-                        <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} />
-                        <Bar dataKey="value" fill="hsl(var(--accent))" radius={[0, 4, 4, 0]} name="Monto" />
-                      </BarChart>
-                    </ResponsiveContainer> : <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                      Sin egresos categorizados
-                    </div>}
-                </CardContent>
-              </Card>
+              {/* Expenses by Category - Vertical Bar Chart */}
+              <ExpensesByCategoryChart 
+                data={expensesByCategoryData} 
+                periodLabel={periodRange.label} 
+              />
             </div>
 
             {/* IVA Accumulation Chart - Only in Advanced Mode */}
@@ -630,35 +655,45 @@ export default function Dashboard() {
                   <CardTitle className="text-lg">IVA Débito vs Crédito ({metrics.cuatrimestreLabel})</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {ivaAccumulationData.length > 0 ? <ResponsiveContainer width="100%" height={200}>
+                  {ivaAccumulationData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={200}>
                       <LineChart data={ivaAccumulationData}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="date" tick={{
-                    fontSize: 10
-                  }} interval="preserveStartEnd" />
-                        <YAxis tickFormatter={formatCurrencyShort} tick={{
-                    fontSize: 12
-                  }} />
-                        <Tooltip formatter={(value: number) => formatCurrency(value)} labelFormatter={label => `Fecha: ${label}`} contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                        <YAxis tickFormatter={formatCurrencyShort} tick={{ fontSize: 12 }} />
+                        <Tooltip 
+                          formatter={(value: number) => formatCurrency(value)} 
+                          labelFormatter={label => `Fecha: ${label}`}
+                          contentStyle={{
+                            backgroundColor: 'hsl(var(--card))',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '8px'
+                          }}
+                        />
                         <Legend />
                         <Line type="monotone" dataKey="debito" name="IVA Débito" stroke="hsl(var(--warning))" strokeWidth={2} />
                         <Line type="monotone" dataKey="credito" name="IVA Crédito" stroke="hsl(var(--success))" strokeWidth={2} />
                         <Line type="monotone" dataKey="neto" name="IVA Neto" stroke="hsl(var(--destructive))" strokeWidth={2} strokeDasharray="5 5" />
                       </LineChart>
-                    </ResponsiveContainer> : <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-[200px] flex items-center justify-center text-muted-foreground">
                       Sin datos de IVA en el cuatrimestre
-                    </div>}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
 
             {/* Monthly Summary Table */}
-            <MonthlySummaryTable transactions={transactions} selectedMonth={selectedMonth} selectedYear={selectedYear} />
-          </>}
+            <MonthlySummaryTable 
+              transactions={transactions} 
+              selectedMonth={periodSelection.month} 
+              selectedYear={periodSelection.year} 
+            />
+          </>
+        )}
       </div>
-    </AppLayout>;
+    </AppLayout>
+  );
 }
