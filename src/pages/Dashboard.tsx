@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
@@ -6,9 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES } from '@/types/transaction';
+import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category } from '@/types/transaction';
 import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/components/dashboard/UnifiedPeriodFilter';
-import { MonthlySummaryTable } from '@/components/dashboard/MonthlySummaryTable';
+import { PendingTransactionsTable } from '@/components/dashboard/PendingTransactionsTable';
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -26,6 +26,8 @@ interface TransactionData {
   amount: number | null;
   balance: number | null;
   category: string | null;
+  category_id: string | null;
+  category_name: string | null;
   responsible_id: string | null;
   transaction_type: 'compra' | 'venta';
   type: 'ingreso' | 'egreso' | 'transferencia';
@@ -72,6 +74,7 @@ function formatCurrencyShort(value: number) {
 
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
@@ -112,6 +115,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchTransactions();
+    fetchCategories();
     initializePeriodFromData();
   }, []);
 
@@ -159,22 +163,50 @@ export default function Dashboard() {
     }
   };
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     try {
+      // Join with categories table to get category names
       const { data, error } = await supabase
         .from('transactions')
-        .select('id, date, description, amount, balance, category, responsible_id, transaction_type, type, has_iva, has_retefuente, iva_amount, iva_type, retefuente_amount')
+        .select(`
+          id, date, description, amount, balance, category, category_id,
+          responsible_id, transaction_type, type, has_iva, has_retefuente, 
+          iva_amount, iva_type, retefuente_amount,
+          categories!transactions_category_id_fkey(name)
+        `)
         .is('deleted_at', null)
         .order('date', { ascending: true });
 
       if (error) throw error;
-      setTransactions((data as TransactionData[]) || []);
+      
+      // Map the joined data to include category_name
+      const mappedData = (data || []).map(tx => ({
+        ...tx,
+        category_name: tx.categories?.name || null,
+        categories: undefined, // Remove the nested object
+      }));
+      
+      setTransactions(mappedData as TransactionData[]);
     } catch (error) {
       console.error('Error fetching transactions:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('sort_order', { ascending: true });
+
+      if (error) throw error;
+      setCategories((data as Category[]) || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    }
+  }, []);
 
   // Get date range based on period selection
   const periodRange = useMemo(() => getPeriodDateRange(periodSelection), [periodSelection]);
@@ -331,31 +363,21 @@ export default function Dashboard() {
     return sorted.slice(-12);
   }, [transactions, periodTransactions, periodSelection.type]);
 
-  // Chart data: Expenses by category (selected period)
+  // Chart data: Expenses by category (selected period) - now using category_name from join
   const expensesByCategoryData = useMemo(() => {
     const categoryData: Record<string, number> = {};
 
     periodTransactions.forEach(tx => {
-      if ((tx.amount ?? 0) < 0 && tx.category) {
-        const cat = tx.category;
+      if ((tx.amount ?? 0) < 0) {
+        // Use category_name from join, fallback to legacy category, then "Sin categoría"
+        const cat = tx.category_name || tx.category || 'Sin categoría';
         categoryData[cat] = (categoryData[cat] || 0) + Math.abs(tx.amount ?? 0);
       }
     });
 
-    const categoryLabels: Record<string, string> = {
-      ventas: 'Ventas',
-      nomina: 'Nómina',
-      proveedores: 'Proveedores',
-      servicios: 'Servicios',
-      impuestos: 'Impuestos',
-      transferencias: 'Transferencias',
-      gastos_operativos: 'Gastos Op.',
-      otros: 'Otros'
-    };
-
     return Object.entries(categoryData)
       .map(([category, value]) => ({
-        category: categoryLabels[category] || category,
+        category,
         categoryKey: category,
         value
       }))
@@ -672,12 +694,21 @@ export default function Dashboard() {
               />
             </div>
 
-
-            {/* Monthly Summary Table */}
-            <MonthlySummaryTable 
-              transactions={transactions} 
-              selectedMonth={periodSelection.month} 
-              selectedYear={periodSelection.year} 
+            {/* Pending Transactions Table - Only unreconciled transactions */}
+            <PendingTransactionsTable 
+              transactions={periodTransactions.map(tx => ({
+                id: tx.id,
+                date: tx.date,
+                description: tx.description,
+                amount: tx.amount,
+                category_id: tx.category_id,
+                category_name: tx.category_name,
+                responsible_id: tx.responsible_id,
+              }))}
+              categories={categories}
+              periodLabel={periodRange.label}
+              onTransactionUpdated={fetchTransactions}
+              onCategoryAdded={fetchCategories}
             />
           </>
         )}
