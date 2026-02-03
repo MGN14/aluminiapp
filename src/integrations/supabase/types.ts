@@ -264,17 +264,75 @@ export type Database = {
           },
         ]
       }
+      user_subscriptions: {
+        Row: {
+          bank_accounts_count: number
+          created_at: string
+          current_period_end: string | null
+          current_period_start: string | null
+          id: string
+          pdf_uploads_this_month: number
+          pdf_uploads_total: number
+          plan: Database["public"]["Enums"]["subscription_plan"]
+          status: Database["public"]["Enums"]["subscription_status"]
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bank_accounts_count?: number
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          pdf_uploads_this_month?: number
+          pdf_uploads_total?: number
+          plan?: Database["public"]["Enums"]["subscription_plan"]
+          status?: Database["public"]["Enums"]["subscription_status"]
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bank_accounts_count?: number
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          pdf_uploads_this_month?: number
+          pdf_uploads_total?: number
+          plan?: Database["public"]["Enums"]["subscription_plan"]
+          status?: Database["public"]["Enums"]["subscription_status"]
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      check_pdf_upload_limit: { Args: { p_user_id: string }; Returns: Json }
       fix_transaction_dates_for_statement: {
         Args: { p_statement_id: string }
         Returns: number
       }
+      increment_pdf_upload: { Args: { p_user_id: string }; Returns: boolean }
+      reset_monthly_pdf_counts: { Args: never; Returns: undefined }
     }
     Enums: {
+      subscription_plan: "demo" | "basico" | "empresarial"
+      subscription_status:
+        | "active"
+        | "canceled"
+        | "past_due"
+        | "trialing"
+        | "inactive"
       transaction_simple_type: "ingreso" | "egreso" | "transferencia"
     }
     CompositeTypes: {
@@ -403,6 +461,14 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      subscription_plan: ["demo", "basico", "empresarial"],
+      subscription_status: [
+        "active",
+        "canceled",
+        "past_due",
+        "trialing",
+        "inactive",
+      ],
       transaction_simple_type: ["ingreso", "egreso", "transferencia"],
     },
   },
