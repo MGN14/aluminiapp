@@ -11,6 +11,8 @@ import { MonthlySummaryTable } from '@/components/dashboard/MonthlySummaryTable'
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
 interface TransactionData {
@@ -375,8 +377,27 @@ export default function Dashboard() {
   if (loading || !periodInitialized) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        <div className="max-w-7xl mx-auto space-y-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <Skeleton className="h-8 w-40 mb-2" />
+              <Skeleton className="h-4 w-60" />
+            </div>
+            <Skeleton className="h-10 w-48" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <Card key={i}>
+                <CardHeader className="pb-2">
+                  <Skeleton className="h-4 w-24" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-8 w-32 mb-2" />
+                  <Skeleton className="h-3 w-20" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       </AppLayout>
     );
@@ -404,6 +425,9 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Onboarding Guide for new users */}
+        <OnboardingGuide hasTransactions={transactions.length > 0} />
+
         {metrics.transactionCount === 0 && transactions.length === 0 ? (
           <Card className="animate-fade-in">
             <CardContent className="py-12 text-center">
@@ -411,11 +435,11 @@ export default function Dashboard() {
               <h3 className="text-lg font-medium text-foreground mb-2">
                 No hay datos aún
               </h3>
-              <p className="text-muted-foreground mb-6">
-                Sube tu primer extracto bancario para ver tus métricas financieras.
+              <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                Sube tu primer extracto bancario de Bancolombia para comenzar a ver tus métricas financieras y organizar tus transacciones.
               </p>
               <Link to="/statement-upload">
-                <Button>Subir Extracto</Button>
+                <Button>Subir mi primer extracto</Button>
               </Link>
             </CardContent>
           </Card>

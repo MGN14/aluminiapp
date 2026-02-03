@@ -1,0 +1,40 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0f172a"/>
+  
+  <!-- Gradient overlay -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a5f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0f172a;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grad1)"/>
+  
+  <!-- Icon container -->
+  <rect x="490" y="180" width="80" height="80" rx="16" fill="#2dd4bf"/>
+  
+  <!-- Document icon -->
+  <path d="M515 205 L555 205 L555 255 L515 255 Z" fill="white" stroke="none"/>
+  <path d="M520 215 L550 215" stroke="#0f172a" stroke-width="2"/>
+  <path d="M520 225 L545 225" stroke="#0f172a" stroke-width="2"/>
+  <path d="M520 235 L550 235" stroke="#0f172a" stroke-width="2"/>
+  <path d="M520 245 L540 245" stroke="#0f172a" stroke-width="2"/>
+  
+  <!-- Logo text -->
+  <text x="600" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="56" font-weight="700" fill="white" text-anchor="middle">AluminIA</text>
+  
+  <!-- Tagline -->
+  <text x="600" y="320" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="400" fill="#94a3b8" text-anchor="middle">Claridad financiera para PyMEs</text>
+  
+  <!-- Accent line -->
+  <rect x="450" y="370" width="300" height="3" rx="1.5" fill="#2dd4bf" opacity="0.6"/>
+  
+  <!-- Colombian flag colors accent -->
+  <rect x="520" y="420" width="50" height="4" fill="#fcd116"/>
+  <rect x="575" y="420" width="50" height="4" fill="#003893"/>
+  <rect x="630" y="420" width="50" height="4" fill="#ce1126"/>
+  
+  <!-- Subtitle -->
+  <text x="600" y="480" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="400" fill="#64748b" text-anchor="middle">Extractos bancarios • IVA • Retenciones • Excel</text>
+</svg>
