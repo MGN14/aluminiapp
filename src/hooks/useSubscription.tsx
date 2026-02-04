@@ -71,7 +71,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         },
       });
 
-      if (error) throw error;
+      // Handle auth errors gracefully (session expired, etc.)
+      if (error) {
+        // Check if it's an auth-related error - reset to default state
+        if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
+          setState(defaultState);
+          return;
+        }
+        throw error;
+      }
 
       setState({
         plan: data.plan || 'demo',
