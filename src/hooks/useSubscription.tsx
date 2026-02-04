@@ -55,6 +55,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     try {
       setState(prev => ({ ...prev, loading: true, error: null }));
+
+      const invokeCheck = async (accessToken: string) => {
+        try {
+          const { data, error } = await supabase.functions.invoke('check-subscription', {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+          return { data, error } as const;
+        } catch (error) {
+          return { data: null, error } as const;
+        }
+      };
       
       // Get fresh session to avoid expired token issues
       const { data: sessionData } = await supabase.auth.getSession();
@@ -65,24 +78,54 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         setState({ ...defaultState, loading: false });
         return;
       }
-      
-      const { data, error } = await supabase.functions.invoke('check-subscription', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
 
-      // Handle auth errors gracefully (session expired, etc.)
-      if (error) {
-        // Check if it's an auth-related error - reset to default state silently
-        if (error.message?.includes('401') || 
-            error.message?.includes('Unauthorized') ||
-            error.message?.includes('non-2xx')) {
+      // 1st attempt
+      let result = await invokeCheck(accessToken);
+
+      // If function call fails (401/403/session_not_found/etc), try one refresh, then retry.
+      if (result.error) {
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        const refreshedToken = refreshed?.session?.access_token;
+
+        if (!refreshError && refreshedToken) {
+          result = await invokeCheck(refreshedToken);
+        }
+      }
+
+      // Still failing -> sign out so ProtectedRoute can redirect (prevents blank screen loops)
+      if (result.error || !result.data) {
+        const errAny = result.error as any;
+        const msg = typeof errAny?.message === 'string' ? errAny.message : '';
+        const raw = (() => {
+          try {
+            return JSON.stringify(result.error);
+          } catch {
+            return String(result.error);
+          }
+        })();
+        const combined = `${msg} ${raw}`.toLowerCase();
+        const isAuthIssue =
+          combined.includes('401') ||
+          combined.includes('403') ||
+          combined.includes('unauthorized') ||
+          combined.includes('session_not_found') ||
+          combined.includes('auth session missing');
+
+        if (isAuthIssue) {
+          await supabase.auth.signOut();
           setState({ ...defaultState, loading: false });
           return;
         }
-        throw error;
+
+        setState(prev => ({
+          ...prev,
+          loading: false,
+          error: msg || 'Error checking subscription',
+        }));
+        return;
       }
+
+      const data = result.data as any;
 
       setState({
         plan: data.plan || 'demo',
@@ -98,19 +141,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         error: null,
       });
     } catch (err) {
-      const e = err as unknown as { name?: string; message?: string };
-      const name = typeof e?.name === 'string' ? e.name : '';
-      const message = typeof e?.message === 'string' ? e.message : '';
-
-      // supabase-js may throw (reject) on non-2xx statuses; treat auth failures as a silent reset.
-      if (
-        name === 'FunctionsHttpError' &&
-        (message.includes('non-2xx') || message.includes('401') || message.toLowerCase().includes('unauthorized'))
-      ) {
-        setState({ ...defaultState, loading: false });
-        return;
-      }
-
       console.error('Error checking subscription:', err);
       setState(prev => ({
         ...prev,
