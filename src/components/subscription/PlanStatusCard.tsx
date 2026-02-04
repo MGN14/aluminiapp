@@ -11,7 +11,8 @@ import {
   Settings, 
   Loader2,
   FileText,
-  Calendar
+  Calendar,
+  Shield
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -49,6 +50,14 @@ const planConfigs: Record<SubscriptionPlan, PlanConfig> = {
     badgeClass: 'bg-primary text-primary-foreground',
     features: ['PDFs ilimitados', 'Hasta 3 cuentas', 'Historial ilimitado'],
   },
+  admin: {
+    name: 'Enterprise (Internal)',
+    description: 'Acceso completo sin límites',
+    icon: Shield,
+    badgeVariant: 'default',
+    badgeClass: 'bg-purple-600 text-white',
+    features: ['PDFs ilimitados', 'Todas las funcionalidades', 'Sin restricciones'],
+  },
 };
 
 export default function PlanStatusCard() {
@@ -60,6 +69,7 @@ export default function PlanStatusCard() {
     subscriptionEnd,
     openCustomerPortal,
     getPlanLimits,
+    isAdmin,
     loading
   } = useSubscription();
   
@@ -86,13 +96,16 @@ export default function PlanStatusCard() {
   // Calculate usage
   const usageText = plan === 'demo' 
     ? `${pdfUploadsTotal}/1 PDF usado`
-    : plan === 'empresarial'
+    : plan === 'empresarial' || plan === 'admin'
     ? `${pdfUploadsThisMonth} PDFs este mes`
     : `${pdfUploadsThisMonth}/${limits.pdfLimit} PDFs este mes`;
 
   const renewalText = subscriptionEnd 
     ? `Renovación: ${new Date(subscriptionEnd).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}`
     : null;
+
+  // Determine card styling based on plan
+  const isPrivilegedPlan = plan !== 'demo';
 
   if (loading) {
     return (
@@ -105,15 +118,15 @@ export default function PlanStatusCard() {
   }
 
   return (
-    <Card className={plan === 'demo' ? 'border-warning/30 bg-warning/5' : 'border-accent/30 bg-accent/5'}>
+    <Card className={plan === 'demo' ? 'border-warning/30 bg-warning/5' : plan === 'admin' ? 'border-purple-500/30 bg-purple-500/5' : 'border-accent/30 bg-accent/5'}>
       <CardContent className="p-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           {/* Plan Info */}
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-              plan === 'demo' ? 'bg-warning/10' : 'bg-accent/10'
+              plan === 'demo' ? 'bg-warning/10' : plan === 'admin' ? 'bg-purple-500/10' : 'bg-accent/10'
             }`}>
-              <Icon className={`h-5 w-5 ${plan === 'demo' ? 'text-warning' : 'text-accent'}`} />
+              <Icon className={`h-5 w-5 ${plan === 'demo' ? 'text-warning' : plan === 'admin' ? 'text-purple-500' : 'text-accent'}`} />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -144,34 +157,36 @@ export default function PlanStatusCard() {
               )}
             </div>
 
-            {/* Action buttons */}
-            {plan === 'demo' ? (
-              <Link to="/pricing">
-                <Button size="sm" className="gap-1">
-                  Actualizar plan
-                  <ArrowRight className="h-4 w-4" />
+            {/* Action buttons - hidden for admin users */}
+            {!isAdmin && (
+              plan === 'demo' ? (
+                <Link to="/pricing">
+                  <Button size="sm" className="gap-1">
+                    Actualizar plan
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+              ) : subscribed && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleManageSubscription}
+                  disabled={loadingPortal}
+                  className="gap-1"
+                >
+                  {loadingPortal ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Cargando...
+                    </>
+                  ) : (
+                    <>
+                      <Settings className="h-4 w-4" />
+                      Gestionar
+                    </>
+                  )}
                 </Button>
-              </Link>
-            ) : subscribed && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleManageSubscription}
-                disabled={loadingPortal}
-                className="gap-1"
-              >
-                {loadingPortal ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Cargando...
-                  </>
-                ) : (
-                  <>
-                    <Settings className="h-4 w-4" />
-                    Gestionar
-                  </>
-                )}
-              </Button>
+              )
             )}
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badge';
-import { Crown, Sparkles, Star } from 'lucide-react';
+import { Crown, Sparkles, Star, Shield } from 'lucide-react';
 import { SubscriptionPlan } from '@/hooks/useSubscription';
 
 interface PlanBadgeProps {
@@ -26,6 +26,12 @@ export default function PlanBadge({ plan, size = 'sm' }: PlanBadgeProps) {
       icon: Crown,
       variant: 'default' as const,
       className: 'bg-success text-success-foreground',
+    },
+    admin: {
+      label: 'Enterprise (Internal)',
+      icon: Shield,
+      variant: 'default' as const,
+      className: 'bg-purple-600 text-white',
     },
   };
 

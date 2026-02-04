@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, createContext, useContext } from 'rea
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
-export type SubscriptionPlan = 'demo' | 'basico' | 'empresarial';
+export type SubscriptionPlan = 'demo' | 'basico' | 'empresarial' | 'admin';
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'inactive';
 
 interface SubscriptionState {
@@ -12,6 +12,7 @@ interface SubscriptionState {
   subscriptionEnd: string | null;
   pdfUploadsTotal: number;
   pdfUploadsThisMonth: number;
+  isAdmin: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -33,6 +34,7 @@ const defaultState: SubscriptionState = {
   subscriptionEnd: null,
   pdfUploadsTotal: 0,
   pdfUploadsThisMonth: 0,
+  isAdmin: false,
   loading: true,
   error: null,
 };
@@ -74,6 +76,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         subscriptionEnd: data.subscription_end || null,
         pdfUploadsTotal: data.pdf_uploads_total || 0,
         pdfUploadsThisMonth: data.pdf_uploads_this_month || 0,
+        isAdmin: data.is_admin || false,
         loading: false,
         error: null,
       });
@@ -165,6 +168,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         return { pdfLimit: 10, bankAccounts: 1, historyMonths: 6 };
       case 'empresarial':
         return { pdfLimit: -1, bankAccounts: 3, historyMonths: null }; // -1 = unlimited
+      case 'admin':
+        return { pdfLimit: -1, bankAccounts: -1, historyMonths: null }; // No limits
       default:
         return { pdfLimit: 1, bankAccounts: 1, historyMonths: null };
     }
