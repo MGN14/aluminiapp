@@ -489,6 +489,17 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       .update({ processed: true })
       .eq("id", statement_id);
 
+    // Increment user's PDF upload count AFTER successful processing
+    const { error: incrementError } = await supabase
+      .rpc("increment_pdf_upload", { p_user_id: statement.user_id });
+    
+    if (incrementError) {
+      console.error("Failed to increment PDF upload count:", incrementError);
+      // Don't throw - the PDF was processed successfully, just log the error
+    } else {
+      console.log("PDF upload count incremented for user:", statement.user_id);
+    }
+
     console.log("Transactions inserted successfully");
 
     return new Response(
