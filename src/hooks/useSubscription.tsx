@@ -49,7 +49,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const checkSubscription = useCallback(async () => {
     if (!user) {
-      setState(prev => ({ ...prev, loading: false }));
+      setState({ ...defaultState, loading: false });
       return;
     }
 
@@ -61,7 +61,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       const accessToken = sessionData?.session?.access_token;
       
       if (!accessToken) {
-        setState(prev => ({ ...prev, loading: false }));
+        // No access token means user isn't properly authenticated
+        setState({ ...defaultState, loading: false });
         return;
       }
       
@@ -73,9 +74,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       // Handle auth errors gracefully (session expired, etc.)
       if (error) {
-        // Check if it's an auth-related error - reset to default state
-        if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
-          setState(defaultState);
+        // Check if it's an auth-related error - reset to default state silently
+        if (error.message?.includes('401') || 
+            error.message?.includes('Unauthorized') ||
+            error.message?.includes('non-2xx')) {
+          setState({ ...defaultState, loading: false });
           return;
         }
         throw error;
