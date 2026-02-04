@@ -1,270 +1,142 @@
 
-# Plan: Rol de Administrador / Usuario Interno
 
-## Resumen
-Crear un sistema de roles que permita a usuarios "admin" acceder a todas las funcionalidades sin límites de PDFs y sin requerir suscripción de Stripe. El rol se almacenará en una tabla separada siguiendo las mejores prácticas de seguridad.
+# Plan de Lanzamiento: AluminIA
+
+## Estado Actual
+
+La aplicación tiene una base sólida con la mayoría de funcionalidades core implementadas:
+
+| Área | Estado |
+|------|--------|
+| Autenticación | Completo (login, registro, recuperación de contraseña) |
+| Páginas legales | Completo (términos, privacidad, contacto) |
+| SEO y metadatos | Completo (OpenGraph, Twitter Cards, robots.txt) |
+| Flujo principal | Completo (subir PDF → transacciones → dashboard → exportar) |
+| Suscripciones Stripe | Completo (checkout, portal, verificación) |
+| Página de ajustes | Completo (cuenta, empresa, seguridad) |
+| Edge Functions | 4 desplegadas y funcionando |
 
 ---
 
-## Cambios Requeridos
+## Pendientes Críticos (Bloquean Lanzamiento)
 
-### 1. Base de Datos
+### 1. Habilitar Protección de Contraseñas Filtradas
+El linter de seguridad detectó que la protección contra contraseñas comprometidas está deshabilitada. Esto es importante para usuarios B2B.
 
-**Crear tabla `user_roles`** con función de verificación segura:
+**Acción**: Habilitar "Leaked password protection" en la configuración de autenticación.
 
-```sql
--- Crear tipo enum para roles
-CREATE TYPE public.app_role AS ENUM ('admin', 'user');
+### 2. Formulario de Contacto No Funcional
+El formulario de `/contact` simula el envío pero no envía realmente los mensajes.
 
--- Tabla de roles (separada de profiles por seguridad)
-CREATE TABLE public.user_roles (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    role app_role NOT NULL DEFAULT 'user',
-    created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (user_id, role)
-);
+**Acción**: Crear edge function `send-contact` que envíe emails reales (usando Resend o guardando en base de datos).
 
--- Habilitar RLS
-ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+### 3. Dominio Personalizado
+El index.html tiene `https://aluminia.app` como dominio canónico, pero aún no está configurado.
 
--- Política: usuarios solo pueden ver su propio rol
-CREATE POLICY "Users can view own role" 
-ON public.user_roles FOR SELECT 
-TO authenticated 
-USING (auth.uid() = user_id);
+**Acción**: 
+- Registrar dominio `aluminia.app`
+- Configurarlo en Lovable (Settings → Domains)
 
--- Función SECURITY DEFINER para verificar rol (evita recursión RLS)
-CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role app_role)
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.user_roles
-    WHERE user_id = _user_id AND role = _role
-  )
-$$;
+---
 
--- Función para verificar si es admin
-CREATE OR REPLACE FUNCTION public.is_admin(_user_id UUID)
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.user_roles
-    WHERE user_id = _user_id AND role = 'admin'
-  )
-$$;
-```
+## Pendientes Recomendados (No Bloquean, Pero Mejoran)
 
-**Actualizar función `check_pdf_upload_limit`** para ignorar límites si es admin:
+### 4. Imagen OpenGraph en formato PNG
+La imagen OG actual es un SVG, que no todos los servicios procesan correctamente.
 
-```sql
-CREATE OR REPLACE FUNCTION public.check_pdf_upload_limit(p_user_id uuid)
-RETURNS json
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_subscription RECORD;
-  v_is_admin BOOLEAN;
-  v_can_upload BOOLEAN;
-  v_limit INTEGER;
-  v_used INTEGER;
-  v_message TEXT;
-  v_plan TEXT;
-BEGIN
-  -- Verificar si es admin primero
-  v_is_admin := public.is_admin(p_user_id);
-  
-  IF v_is_admin THEN
-    -- Admins tienen acceso ilimitado
-    RETURN json_build_object(
-      'can_upload', true,
-      'plan', 'admin',
-      'limit', -1,
-      'used', 0,
-      'message', '',
-      'status', 'active',
-      'is_admin', true
-    );
-  END IF;
-  
-  -- Lógica normal para usuarios regulares...
-  -- (resto del código existente)
-END;
-$$;
+**Acción**: Convertir `og-image.svg` a `og-image.png` (1200×630px) y actualizar referencias.
+
+### 5. Favicon Actualizado
+Actualmente usa un favicon genérico. Debería reflejar el logo de AluminIA.
+
+**Acción**: Generar favicon desde el nuevo logo/avatar.
+
+### 6. Email de Bienvenida
+Los nuevos usuarios no reciben confirmación de registro.
+
+**Acción**: Personalizar la plantilla de email de confirmación con branding de AluminIA.
+
+### 7. Google Analytics / Métricas
+Sin tracking de usuario para medir adopción.
+
+**Acción**: Agregar Google Analytics 4 o Plausible para analytics básicos.
+
+---
+
+## Checklist de Publicación
+
+```text
++----------------------------------------------------+
+|              ANTES DE PUBLICAR                     |
++----------------------------------------------------+
+| [x] Rutas protegidas funcionando                   |
+| [x] Flujo de pago Stripe configurado               |
+| [x] Páginas legales (términos, privacidad)         |
+| [x] Página de contacto                             |
+| [x] Página de precios                              |
+| [x] SEO básico configurado                         |
+| [x] robots.txt configurado                         |
+| [ ] Protección de contraseñas filtradas            |
+| [ ] Formulario de contacto funcional               |
+| [ ] Dominio personalizado                          |
++----------------------------------------------------+
+|              DESPUÉS DE PUBLICAR                   |
++----------------------------------------------------+
+| [ ] Probar flujo completo en producción            |
+| [ ] Verificar emails de Stripe funcionando         |
+| [ ] Verificar OG image en redes sociales           |
++----------------------------------------------------+
 ```
 
 ---
 
-### 2. Edge Function: `check-subscription`
+## Plan de Difusión (Post-Publicación)
 
-Modificar para detectar admins y retornar plan especial:
+### Semana 1: Lanzamiento Suave
+1. **Publicar la app** con el dominio configurado
+2. **Invitar 5-10 usuarios beta** (empresarios de confianza)
+3. Recopilar feedback inicial
 
-```typescript
-// Después de autenticar usuario, verificar si es admin
-const { data: isAdmin } = await supabaseClient
-  .rpc("is_admin", { _user_id: user.id });
+### Semana 2-3: Iteración
+1. Corregir bugs reportados
+2. Agregar testimonios reales a `/login`
+3. Crear contenido para redes
 
-if (isAdmin) {
-  logStep("User is admin, bypassing Stripe check");
-  return new Response(JSON.stringify({
-    subscribed: true,
-    plan: "admin",
-    status: "active",
-    is_admin: true,
-    pdf_uploads_total: 0,
-    pdf_uploads_this_month: 0,
-  }), {
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-    status: 200,
-  });
-}
-
-// Continuar con lógica normal de Stripe para no-admins...
-```
+### Mes 1: Difusión
+1. **LinkedIn**: Posts sobre el problema que resuelve AluminIA
+2. **Grupos de empresarios**: Foros de PyMEs colombianas
+3. **WhatsApp Business**: Canal de soporte y novedades
 
 ---
 
-### 3. Frontend: Hook `useSubscription`
+## Implementación Técnica
 
-Agregar tipo `admin` y estado `isAdmin`:
-
-```typescript
-// Actualizar tipos
-export type SubscriptionPlan = 'demo' | 'basico' | 'empresarial' | 'admin';
-
-interface SubscriptionState {
-  plan: SubscriptionPlan;
-  isAdmin: boolean;  // Nuevo campo
-  // ... resto igual
-}
-
-// En checkSubscription, manejar respuesta admin
-setState({
-  plan: data.plan || 'demo',
-  isAdmin: data.is_admin || false,
-  // ...
-});
-
-// En getPlanLimits, agregar caso admin
-case 'admin':
-  return { pdfLimit: -1, bankAccounts: -1, historyMonths: null }; // Sin límites
-```
-
----
-
-### 4. Componentes UI
-
-**PlanBadge.tsx** - Agregar configuración para admin:
-
-```typescript
-const config = {
-  // ... existentes
-  admin: {
-    label: 'Enterprise (Internal)',
-    icon: Shield,
-    variant: 'default' as const,
-    className: 'bg-purple-600 text-white',
-  },
-};
-```
-
-**PlanStatusCard.tsx** - Mostrar info especial para admin:
-
-```typescript
-const planConfigs = {
-  // ... existentes
-  admin: {
-    name: 'Enterprise (Internal)',
-    description: 'Acceso completo sin límites',
-    icon: Shield,
-    features: ['PDFs ilimitados', 'Todas las funcionalidades'],
-  },
-};
-
-// No mostrar botón "Gestionar" para admins (no tienen Stripe)
-// No mostrar "Actualizar plan" para admins
-```
-
----
-
-### 5. Seguridad
-
-- El rol `admin` NO será seleccionable desde la UI
-- Solo asignable manualmente via SQL:
-  ```sql
-  INSERT INTO user_roles (user_id, role) 
-  VALUES ('uuid-del-usuario', 'admin');
-  ```
-- La verificación es server-side (función SECURITY DEFINER)
-- Los usuarios normales no pueden ver/modificar roles de otros
-
----
-
-## Archivos a Modificar
+### Archivos a Modificar
 
 | Archivo | Cambio |
 |---------|--------|
-| Nueva migración SQL | Crear tabla `user_roles` + funciones |
-| `supabase/functions/check-subscription/index.ts` | Detectar admins antes de consultar Stripe |
-| `supabase/functions/parse-bancolombia-pdf/index.ts` | Ya usa `check_pdf_upload_limit`, se beneficia automáticamente |
-| `src/hooks/useSubscription.tsx` | Agregar tipo `admin` e `isAdmin` al estado |
-| `src/components/subscription/PlanBadge.tsx` | Agregar estilo para plan `admin` |
-| `src/components/subscription/PlanStatusCard.tsx` | Agregar configuración para `admin` |
+| Configuración Auth | Habilitar leaked password protection |
+| `supabase/functions/send-contact/index.ts` | Nueva edge function para emails |
+| `src/pages/Contact.tsx` | Conectar al edge function real |
+| `index.html` | Cambiar og-image.svg → og-image.png |
+| `public/og-image.png` | Nueva imagen rasterizada |
+| `public/favicon.ico` | Nuevo favicon con logo AluminIA |
+
+### Configuración Externa
+
+1. **Dominio**: Registrar aluminia.app y apuntar DNS
+2. **Stripe Portal**: Verificar que esté activo en modo producción
+3. **Supabase Auth**: Habilitar protección de contraseñas
 
 ---
 
-## Flujo de Verificación
+## Resumen Ejecutivo
 
-```text
-+------------------+
-|  Usuario carga   |
-|    Dashboard     |
-+--------+---------+
-         |
-         v
-+--------+---------+
-| check-subscription|
-|   Edge Function   |
-+--------+---------+
-         |
-         v
-+--------+---------+
-|  is_admin(uid)?  |
-+--------+---------+
-    |         |
-   YES        NO
-    |         |
-    v         v
-+-------+  +------------------+
-| Plan: |  | Consultar Stripe |
-| admin |  | y user_subs      |
-+-------+  +------------------+
-```
+| Esfuerzo | Tiempo Estimado |
+|----------|-----------------|
+| Pendientes críticos | 1-2 horas de desarrollo |
+| Dominio | 24-48 horas (propagación DNS) |
+| Pendientes recomendados | 2-3 horas adicionales |
 
----
+**La app está lista al 90%.** Los pendientes críticos son menores y pueden completarse en una sesión de trabajo. Una vez configurado el dominio, puedes comenzar a difundir.
 
-## Sección Técnica
-
-### Base de Datos
-- Tabla `user_roles` con RLS habilitado
-- Función `is_admin()` SECURITY DEFINER para evitar recursión RLS
-- Función `check_pdf_upload_limit()` actualizada para bypass de admins
-
-### Edge Functions
-- `check-subscription`: Consulta `is_admin()` ANTES de consultar Stripe
-- `parse-bancolombia-pdf`: Sin cambios directos (usa `check_pdf_upload_limit`)
-
-### Frontend
-- Nuevo tipo de plan `'admin'` en TypeScript
-- Nuevo campo `isAdmin: boolean` en contexto de suscripción
-- Componentes UI actualizados para mostrar "Enterprise (Internal)"
