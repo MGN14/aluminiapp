@@ -5,9 +5,10 @@ import { SubscriptionPlan } from '@/hooks/useSubscription';
 interface PlanBadgeProps {
   plan: SubscriptionPlan;
   size?: 'sm' | 'md';
+  isFounder?: boolean;
 }
 
-export default function PlanBadge({ plan, size = 'sm' }: PlanBadgeProps) {
+export default function PlanBadge({ plan, size = 'sm', isFounder = false }: PlanBadgeProps) {
   const config = {
     demo: {
       label: 'Demo',
@@ -35,12 +36,19 @@ export default function PlanBadge({ plan, size = 'sm' }: PlanBadgeProps) {
     },
   };
 
-  const { label, icon: Icon, className } = config[plan];
+  // For founder, show basico plan with (Admin) suffix
+  const displayPlan = isFounder ? 'basico' : plan;
+  const { label: baseLabel, icon: Icon, className } = config[displayPlan];
+  const label = isFounder ? 'Básico (Admin)' : baseLabel;
+  
   const iconSize = size === 'sm' ? 'h-3 w-3' : 'h-4 w-4';
   const textSize = size === 'sm' ? 'text-xs' : 'text-sm';
+  
+  // Founder gets purple styling
+  const finalClassName = isFounder ? 'bg-purple-600 text-white' : className;
 
   return (
-    <Badge className={`${className} ${textSize} gap-1`}>
+    <Badge className={`${finalClassName} ${textSize} gap-1`}>
       <Icon className={iconSize} />
       {label}
     </Badge>

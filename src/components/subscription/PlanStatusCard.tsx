@@ -70,14 +70,20 @@ export default function PlanStatusCard() {
     openCustomerPortal,
     getPlanLimits,
     isAdmin,
+    isFounder,
     loading
   } = useSubscription();
   
   const [loadingPortal, setLoadingPortal] = useState(false);
   
-  const config = planConfigs[plan];
+  // For founder admin, use basico config but with admin suffix
+  const displayPlan = isFounder ? 'basico' : plan;
+  const config = planConfigs[displayPlan];
   const Icon = config.icon;
   const limits = getPlanLimits();
+  
+  // Custom name for founder
+  const displayName = isFounder ? 'Plan Básico (Admin)' : config.name;
   
   const handleManageSubscription = async () => {
     setLoadingPortal(true);
@@ -130,10 +136,15 @@ export default function PlanStatusCard() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground">{config.name}</span>
-                {plan !== 'demo' && (
+                <span className="font-semibold text-foreground">{displayName}</span>
+                {(plan !== 'demo' || isFounder) && (
                   <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
                     Activo
+                  </Badge>
+                )}
+                {isFounder && (
+                  <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-600 border-purple-500/30">
+                    Interno
                   </Badge>
                 )}
               </div>

@@ -43,7 +43,53 @@ serve(async (req) => {
     if (!user?.email) throw new Error("User not authenticated or email not available");
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    // Check if user is admin FIRST (bypass Stripe entirely)
+    // Check if user is FOUNDER first (special admin with basico plan)
+    const founderEmail = Deno.env.get("FOUNDER_EMAIL");
+    const isFounder = founderEmail && user.email.toLowerCase() === founderEmail.toLowerCase();
+    
+    if (isFounder) {
+      logStep("User is FOUNDER, bypassing Stripe check with basico plan");
+      
+      // Ensure founder has admin role in database
+      const { data: existingRole } = await supabaseClient
+        .from("user_roles")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("role", "admin")
+        .single();
+      
+      if (!existingRole) {
+        await supabaseClient
+          .from("user_roles")
+          .upsert({ user_id: user.id, role: "admin" }, { onConflict: "user_id,role" });
+        logStep("Admin role assigned to founder");
+      }
+      
+      // Get usage stats from subscription table
+      const { data: dbSubscription } = await supabaseClient
+        .from("user_subscriptions")
+        .select("pdf_uploads_total, pdf_uploads_this_month")
+        .eq("user_id", user.id)
+        .single();
+      
+      return new Response(JSON.stringify({
+        subscribed: true,
+        plan: "basico",
+        plan_override: "basico",
+        plan_source: "founder",
+        status: "active",
+        is_admin: true,
+        is_founder: true,
+        subscription_end: null,
+        pdf_uploads_total: dbSubscription?.pdf_uploads_total || 0,
+        pdf_uploads_this_month: dbSubscription?.pdf_uploads_this_month || 0,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
+
+    // Check if user is regular admin (bypass Stripe with unlimited access)
     const { data: isAdmin, error: adminError } = await supabaseClient
       .rpc("is_admin", { _user_id: user.id });
     
@@ -66,6 +112,7 @@ serve(async (req) => {
         plan: "admin",
         status: "active",
         is_admin: true,
+        is_founder: false,
         subscription_end: null,
         pdf_uploads_total: dbSubscription?.pdf_uploads_total || 0,
         pdf_uploads_this_month: dbSubscription?.pdf_uploads_this_month || 0,
