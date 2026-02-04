@@ -95,6 +95,36 @@ export type Database = {
         }
         Relationships: []
       }
+      contact_messages: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          message: string
+          name: string
+          read_at: string | null
+          replied_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          message: string
+          name: string
+          read_at?: string | null
+          replied_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          message?: string
+          name?: string
+          read_at?: string | null
+          replied_at?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           company_initial: string | null

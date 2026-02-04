@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import Footer from '@/components/layout/Footer';
+import { supabase } from '@/integrations/supabase/client';
 import { z } from 'zod';
 
 const contactSchema = z.object({
@@ -40,11 +41,27 @@ export default function Contact() {
 
     setLoading(true);
     
-    // Simulate sending (in production, this would call an edge function)
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    
-    setSuccess(true);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-contact', {
+        body: {
+          name: result.data.name,
+          email: result.data.email,
+          message: result.data.message,
+        },
+      });
+
+      if (error) {
+        setErrors({ message: 'Error al enviar el mensaje. Por favor intenta de nuevo.' });
+        setLoading(false);
+        return;
+      }
+
+      setSuccess(true);
+    } catch {
+      setErrors({ message: 'Error de conexión. Por favor intenta de nuevo.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (success) {
