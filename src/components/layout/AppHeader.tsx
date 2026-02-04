@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { LogOut, Settings, User } from 'lucide-react';
+import { LogOut, Settings } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import MobileNav from './MobileNav';
@@ -15,9 +17,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 const navItems = [{
   path: '/dashboard',
@@ -35,9 +36,31 @@ const navItems = [{
 
 export default function AppHeader() {
   const { user, signOut } = useAuth();
-  const { plan, subscribed, openCustomerPortal } = useSubscription();
+  const { plan, subscribed, isFounder, openCustomerPortal } = useSubscription();
   const location = useLocation();
   const [loadingPortal, setLoadingPortal] = useState(false);
+  const [companyInitial, setCompanyInitial] = useState<string | null>(null);
+
+  // Load company initial from profile
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user) return;
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('company_initial')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        
+        if (data?.company_initial) {
+          setCompanyInitial(data.company_initial);
+        }
+      } catch (error) {
+        console.error('Error loading profile:', error);
+      }
+    };
+    loadProfile();
+  }, [user]);
 
   const handleManageSubscription = async () => {
     setLoadingPortal(true);
@@ -53,8 +76,11 @@ export default function AppHeader() {
     }
   };
 
-  // Get user initial for avatar
-  const getUserInitial = () => {
+  // Get user initial for avatar - prioritize company initial
+  const getAvatarInitial = () => {
+    if (companyInitial) {
+      return companyInitial;
+    }
     if (user?.user_metadata?.full_name) {
       return user.user_metadata.full_name.charAt(0).toUpperCase();
     }
@@ -107,7 +133,7 @@ export default function AppHeader() {
               <Button variant="ghost" size="icon" className="rounded-full h-9 w-9 p-0">
                 <Avatar className="h-9 w-9 border-2 border-border hover:border-accent transition-colors">
                   <AvatarFallback className="bg-accent/10 text-accent font-semibold">
-                    {getUserInitial()}
+                    {getAvatarInitial()}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -123,9 +149,9 @@ export default function AppHeader() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link to="/pricing" className="cursor-pointer">
+                <Link to="/settings" className="cursor-pointer">
                   <Settings className="h-4 w-4 mr-2" />
-                  Ajustes y planes
+                  Ajustes
                 </Link>
               </DropdownMenuItem>
               {subscribed && (
