@@ -13,6 +13,8 @@ interface SubscriptionState {
   pdfUploadsTotal: number;
   pdfUploadsThisMonth: number;
   isAdmin: boolean;
+  isFounder: boolean;
+  planSource: 'stripe' | 'founder' | 'admin' | null;
   loading: boolean;
   error: string | null;
 }
@@ -35,6 +37,8 @@ const defaultState: SubscriptionState = {
   pdfUploadsTotal: 0,
   pdfUploadsThisMonth: 0,
   isAdmin: false,
+  isFounder: false,
+  planSource: null,
   loading: true,
   error: null,
 };
@@ -77,6 +81,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         pdfUploadsTotal: data.pdf_uploads_total || 0,
         pdfUploadsThisMonth: data.pdf_uploads_this_month || 0,
         isAdmin: data.is_admin || false,
+        isFounder: data.is_founder || false,
+        planSource: data.plan_source || (data.is_admin ? 'admin' : 'stripe'),
         loading: false,
         error: null,
       });
