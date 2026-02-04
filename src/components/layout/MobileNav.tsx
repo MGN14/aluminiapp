@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, FileSpreadsheet, LogOut } from 'lucide-react';
+import { Menu, LogOut, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
+import aluminiaAvatar from '@/assets/aluminia-avatar.png';
 
 interface NavItem {
   path: string;
@@ -51,8 +52,12 @@ export default function MobileNav({ isAuthenticated = false }: MobileNavProps) {
       <SheetContent side="left" className="w-[280px] sm:w-[320px]">
         <SheetHeader className="pb-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg gradient-brand flex items-center justify-center">
-              <FileSpreadsheet className="w-5 h-5 text-primary-foreground" />
+            <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-accent/20 shadow-sm">
+              <img 
+                src={aluminiaAvatar} 
+                alt="AluminIA" 
+                className="w-full h-full object-cover"
+              />
             </div>
             <span className="text-xl font-bold">AluminIA</span>
           </SheetTitle>
@@ -68,7 +73,7 @@ export default function MobileNav({ isAuthenticated = false }: MobileNavProps) {
                 className={cn(
                   "flex items-center px-3 py-3 text-sm font-medium rounded-md transition-colors",
                   location.pathname === item.path
-                    ? "bg-accent/10 text-accent"
+                    ? "bg-accent text-accent-foreground font-semibold"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 )}
               >
@@ -79,14 +84,25 @@ export default function MobileNav({ isAuthenticated = false }: MobileNavProps) {
 
           <div className="border-t border-border mt-6 pt-6 space-y-2">
             {isAuthenticated ? (
-              <Button
-                variant="ghost"
-                className="w-full justify-start text-muted-foreground"
-                onClick={handleSignOut}
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Cerrar sesión
-              </Button>
+              <>
+                <Link to="/pricing" onClick={() => setOpen(false)}>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start text-muted-foreground"
+                  >
+                    <Settings className="h-4 w-4 mr-2" />
+                    Ajustes y planes
+                  </Button>
+                </Link>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-destructive"
+                  onClick={handleSignOut}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Cerrar sesión
+                </Button>
+              </>
             ) : (
               <>
                 <Link to="/login" onClick={() => setOpen(false)}>
