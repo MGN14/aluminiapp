@@ -23,11 +23,13 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const supabaseClient = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    { auth: { persistSession: false } }
-  );
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+
+  const supabaseClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
 
   try {
     logStep("Function started");
@@ -42,18 +44,37 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: userData, error: userError } = await supabaseClient.auth.getUser(token);
-    if (userError) {
-      logStep("Auth error", { message: userError.message });
+
+    // Validate JWT using signing-keys compatible flow
+    if (!anonKey) throw new Error("SUPABASE_ANON_KEY is not set");
+    const authClient = createClient(supabaseUrl, anonKey, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: claimsData, error: claimsError } = await authClient.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      logStep("Auth error", { message: claimsError?.message || "Missing claims" });
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 401,
       });
     }
-    
-    const user = userData.user;
-    if (!user?.email) throw new Error("User not authenticated or email not available");
-    logStep("User authenticated", { userId: user.id, email: user.email });
+
+    const claims = claimsData.claims as Record<string, unknown>;
+    const userId = typeof claims.sub === "string" ? claims.sub : "";
+    const email = typeof claims.email === "string" ? claims.email : "";
+
+    if (!userId || !email) {
+      logStep("Auth error", { message: "Missing sub/email in claims" });
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401,
+      });
+    }
+
+    const user = { id: userId, email };
+    logStep("User authenticated (claims)", { userId: user.id, email: user.email });
 
     // Check if user is FOUNDER first (special admin with basico plan)
     const founderEmail = Deno.env.get("FOUNDER_EMAIL");

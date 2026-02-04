@@ -98,6 +98,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         error: null,
       });
     } catch (err) {
+      const e = err as unknown as { name?: string; message?: string };
+      const name = typeof e?.name === 'string' ? e.name : '';
+      const message = typeof e?.message === 'string' ? e.message : '';
+
+      // supabase-js may throw (reject) on non-2xx statuses; treat auth failures as a silent reset.
+      if (
+        name === 'FunctionsHttpError' &&
+        (message.includes('non-2xx') || message.includes('401') || message.toLowerCase().includes('unauthorized'))
+      ) {
+        setState({ ...defaultState, loading: false });
+        return;
+      }
+
       console.error('Error checking subscription:', err);
       setState(prev => ({
         ...prev,
