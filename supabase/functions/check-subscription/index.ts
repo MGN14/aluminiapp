@@ -32,10 +32,6 @@ serve(async (req) => {
   try {
     logStep("Function started");
 
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
-    logStep("Stripe key verified");
-
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("No authorization header provided");
 
@@ -46,6 +42,43 @@ serve(async (req) => {
     const user = userData.user;
     if (!user?.email) throw new Error("User not authenticated or email not available");
     logStep("User authenticated", { userId: user.id, email: user.email });
+
+    // Check if user is admin FIRST (bypass Stripe entirely)
+    const { data: isAdmin, error: adminError } = await supabaseClient
+      .rpc("is_admin", { _user_id: user.id });
+    
+    if (adminError) {
+      logStep("Error checking admin status", { error: adminError.message });
+    }
+
+    if (isAdmin) {
+      logStep("User is admin, bypassing Stripe check");
+      
+      // Get usage stats from subscription table (for display purposes only)
+      const { data: dbSubscription } = await supabaseClient
+        .from("user_subscriptions")
+        .select("pdf_uploads_total, pdf_uploads_this_month")
+        .eq("user_id", user.id)
+        .single();
+      
+      return new Response(JSON.stringify({
+        subscribed: true,
+        plan: "admin",
+        status: "active",
+        is_admin: true,
+        subscription_end: null,
+        pdf_uploads_total: dbSubscription?.pdf_uploads_total || 0,
+        pdf_uploads_this_month: dbSubscription?.pdf_uploads_this_month || 0,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
+
+    // Non-admin: proceed with Stripe verification
+    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    logStep("Stripe key verified");
 
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });

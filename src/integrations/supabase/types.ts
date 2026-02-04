@@ -264,6 +264,27 @@ export type Database = {
           },
         ]
       }
+      user_roles: {
+        Row: {
+          created_at: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_subscriptions: {
         Row: {
           bank_accounts_count: number
@@ -322,10 +343,19 @@ export type Database = {
         Args: { p_statement_id: string }
         Returns: number
       }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
       increment_pdf_upload: { Args: { p_user_id: string }; Returns: boolean }
+      is_admin: { Args: { _user_id: string }; Returns: boolean }
       reset_monthly_pdf_counts: { Args: never; Returns: undefined }
     }
     Enums: {
+      app_role: "admin" | "user"
       subscription_plan: "demo" | "basico" | "empresarial"
       subscription_status:
         | "active"
@@ -461,6 +491,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role: ["admin", "user"],
       subscription_plan: ["demo", "basico", "empresarial"],
       subscription_status: [
         "active",
