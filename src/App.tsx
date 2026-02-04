@@ -20,6 +20,7 @@ import Privacy from "./pages/Privacy";
 import Pricing from "./pages/Pricing";
 import Contact from "./pages/Contact";
 import Checkout from "./pages/Checkout";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -80,6 +81,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Export />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/settings" 
+              element={
+                <ProtectedRoute>
+                  <Settings />
                 </ProtectedRoute>
               } 
             />
