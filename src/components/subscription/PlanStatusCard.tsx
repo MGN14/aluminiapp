@@ -99,12 +99,24 @@ export default function PlanStatusCard() {
     }
   };
 
-  // Calculate usage
-  const usageText = plan === 'demo' 
-    ? `${pdfUploadsTotal}/1 PDF usado`
-    : plan === 'empresarial' || plan === 'admin'
-    ? `${pdfUploadsThisMonth} PDFs este mes`
-    : `${pdfUploadsThisMonth}/${limits.pdfLimit} PDFs este mes`;
+  // Calculate usage - show different format based on plan
+  // For founder (admin with basico plan), show basico limits (10/month)
+  const getUsageText = () => {
+    if (isFounder) {
+      // Founder has basico limits (10 PDFs/month)
+      return `PDFs usados: ${pdfUploadsThisMonth}/10 este mes`;
+    }
+    if (plan === 'demo') {
+      return `PDFs usados: ${pdfUploadsTotal}/1`;
+    }
+    if (plan === 'empresarial' || plan === 'admin') {
+      return `PDFs usados: ${pdfUploadsThisMonth} este mes`;
+    }
+    // basico plan
+    return `PDFs usados: ${pdfUploadsThisMonth}/${limits.pdfLimit} este mes`;
+  };
+  
+  const usageText = getUsageText();
 
   const renewalText = subscriptionEnd 
     ? `Renovación: ${new Date(subscriptionEnd).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}`
