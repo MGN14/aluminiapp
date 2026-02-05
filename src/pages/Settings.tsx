@@ -12,8 +12,9 @@ import { Separator } from '@/components/ui/separator';
 import PlanBadge from '@/components/subscription/PlanBadge';
 import ReteicaSettings from '@/components/settings/ReteicaSettings';
 import TaxRecalculationButton from '@/components/settings/TaxRecalculationButton';
+import AutoRulesButton from '@/components/settings/AutoRulesButton';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Mail, Building2, Shield, LogOut, CreditCard, ArrowUpCircle, Key, Save, Calculator } from 'lucide-react';
+import { Loader2, Mail, Building2, Shield, LogOut, CreditCard, ArrowUpCircle, Key, Save, Calculator, Wand2 } from 'lucide-react';
 
 export default function Settings() {
   const { user, signOut } = useAuth();
@@ -297,14 +298,30 @@ export default function Settings() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Calculator className="h-5 w-5 text-muted-foreground" />
-              Reglas fiscales automáticas
+              Reglas fiscales
             </CardTitle>
             <CardDescription>
-              Aplica las reglas fiscales a todas las transacciones existentes
+              Recalcula los montos de IVA, ReteICA y Retefuente
             </CardDescription>
           </CardHeader>
           <CardContent>
             <TaxRecalculationButton />
+          </CardContent>
+        </Card>
+
+        {/* Section 5: Auto-categorization Rules */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Wand2 className="h-5 w-5 text-muted-foreground" />
+              Categorización automática
+            </CardTitle>
+            <CardDescription>
+              Aplica reglas de categorización basadas en la descripción de cada transacción
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AutoRulesButton />
           </CardContent>
         </Card>
 
