@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,8 +18,19 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get the redirect destination from state, or default to dashboard
+  const from = (location.state as { from?: string })?.from || '/dashboard';
+
+  // If user is already logged in, redirect them
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate(from, { replace: true });
+    }
+  }, [user, authLoading, navigate, from]);
 
   const validateForm = (): boolean => {
     if (!email) {
@@ -66,7 +77,8 @@ export default function Login() {
       }
       setLoading(false);
     } else {
-      navigate('/dashboard');
+      // Navigation will happen via the useEffect when user state updates
+      // This prevents race conditions
     }
   };
 
