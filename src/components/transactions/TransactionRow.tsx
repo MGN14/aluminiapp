@@ -58,17 +58,36 @@ export default function TransactionRow({
     reteicaRate,
   });
 
-  const handleTypeChange = (type: SimpleTransactionType) => {
-    const updates: Partial<Transaction> = { type };
+  // Helper to check if a category is "Ventas" by name
+  const isSalesCategory = (categoryId: string | null): boolean => {
+    if (!categoryId) return false;
+    const category = categories.find(c => c.id === categoryId);
+    return category?.name?.toLowerCase() === 'ventas';
+  };
+
+  const handleCategoryChange = (categoryId: string | null) => {
+    const updates: Partial<Transaction> = { category_id: categoryId, category: null };
     
-    // Auto-enable taxes for income (sales) - reducing friction
-    if (type === 'ingreso') {
+    // Auto-enable taxes for "Ventas" category
+    if (isSalesCategory(categoryId)) {
       updates.has_iva = true;
-      // Only enable ReteICA if rate is configured
-      if (reteicaRate > 0) {
+      // Only enable ReteICA if rate is configured and transaction is income
+      if (reteicaRate > 0 && localTransaction.type === 'ingreso') {
         updates.has_reteica = true;
       }
+    } else {
+      // When leaving "Ventas" category, disable IVA and ReteICA
+      if (isSalesCategory(localTransaction.category_id)) {
+        updates.has_iva = false;
+        updates.has_reteica = false;
+      }
     }
+    
+    updateField(updates);
+  };
+
+  const handleTypeChange = (type: SimpleTransactionType) => {
+    const updates: Partial<Transaction> = { type };
     
     // Auto-disable ReteICA when changing from income to other types
     if (type !== 'ingreso' && localTransaction.has_reteica) {
@@ -83,6 +102,14 @@ export default function TransactionRow({
     // Auto-disable IVA for transfers
     if (type === 'transferencia') {
       updates.has_iva = false;
+    }
+    
+    // If changing to income and category is "Ventas", enable taxes
+    if (type === 'ingreso' && isSalesCategory(localTransaction.category_id)) {
+      updates.has_iva = true;
+      if (reteicaRate > 0) {
+        updates.has_reteica = true;
+      }
     }
     
     updateField(updates);
@@ -221,7 +248,7 @@ export default function TransactionRow({
         <SearchableSelect
           options={categoryOptions}
           value={localTransaction.category_id}
-          onChange={(value) => updateField({ category_id: value, category: null })}
+          onChange={handleCategoryChange}
           placeholder="Categoría"
           emptyLabel="Sin categoría"
           addLabel="+ Agregar categoría"
