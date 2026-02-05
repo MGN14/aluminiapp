@@ -13,6 +13,7 @@ import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChar
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
+import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
@@ -317,6 +318,30 @@ export default function Dashboard() {
       return txDate >= yearStart && txDate <= yearEnd && tx.has_reteica;
     });
     const yearlyTotal = yearlyTransactions.reduce((sum, tx) => sum + (tx.reteica_amount ?? 0), 0);
+    
+    return {
+      monthlyTotal,
+      monthlyCount: monthlyTransactions.length,
+      yearlyTotal,
+      yearlyCount: yearlyTransactions.length,
+    };
+  }, [transactions, periodTransactions, periodSelection.year]);
+
+  // Calculate Retefuente metrics
+  const retefuenteMetrics = useMemo(() => {
+    const yearStart = new Date(periodSelection.year, 0, 1);
+    const yearEnd = new Date(periodSelection.year, 11, 31, 23, 59, 59);
+    
+    // Monthly Retefuente - from period transactions
+    const monthlyTransactions = periodTransactions.filter(tx => tx.has_retefuente);
+    const monthlyTotal = monthlyTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
+    
+    // Yearly Retefuente - all transactions with Retefuente in the year
+    const yearlyTransactions = transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= yearStart && txDate <= yearEnd && tx.has_retefuente;
+    });
+    const yearlyTotal = yearlyTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
     
     return {
       monthlyTotal,
@@ -731,26 +756,19 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Retefuente por Pagar */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Retefuente por Pagar
-                  </CardTitle>
-                  <div className="p-2 rounded-lg bg-accent/10">
-                    <Receipt className="h-4 w-4 text-accent" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-foreground">
-                    {formatCurrency(metrics.retefuentePorPagar)}
-                  </div>
-                  <div className="flex items-center text-xs text-muted-foreground mt-1">
-                    <Calendar className="h-3 w-3 mr-1" />
-                    {periodRange.label} (2.5% compras)
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Retefuente por Pagar - using new component */}
+              <RetefuenteMonthlyCard
+                total={retefuenteMetrics.monthlyTotal}
+                periodLabel={periodRange.label}
+                transactionCount={retefuenteMetrics.monthlyCount}
+              />
+
+              {/* Retefuente Acumulada (Año) */}
+              <RetefuenteYearlyCard
+                total={retefuenteMetrics.yearlyTotal}
+                year={periodSelection.year}
+                transactionCount={retefuenteMetrics.yearlyCount}
+              />
 
               {/* Pending Reconciliation */}
               <Card>
