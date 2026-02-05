@@ -9,19 +9,20 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading } = useAuth();
+  const { user, session, loading, sessionExpired } = useAuth();
   const location = useLocation();
 
   if (isDev) {
-    console.log('[ProtectedRoute]', { 
-      path: location.pathname, 
-      loading, 
-      hasUser: !!user
+    console.log('[AUTH] ProtectedRoute', {
+      path: `${location.pathname}${location.search}${location.hash}`,
+      loading,
+      hasUser: !!user,
+      hasSession: !!session,
+      sessionExpired,
     });
   }
 
   // CRITICAL: Never redirect while loading
-  // This prevents false logouts during initial load or token refresh
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -35,11 +36,19 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   // Only redirect if loading is complete AND we confirmed no user
   if (!user) {
+    const from = `${location.pathname}${location.search}${location.hash}`;
+
     if (isDev) {
-      console.log('[ProtectedRoute] No user after load complete, redirecting to login');
+      console.log('[AUTH] redirect_to_login', {
+        reason: sessionExpired ? 'session_expired' : 'no_user_after_loading',
+        from,
+        loading,
+        hasUser: false,
+        hasSession: !!session,
+      });
     }
-    // Store the intended destination so we can redirect back after login
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+
+    return <Navigate to="/login" state={{ from }} replace />;
   }
 
   return <>{children}</>;

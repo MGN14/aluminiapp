@@ -11,15 +11,26 @@ import {
 import { Button } from '@/components/ui/button';
 import { LogIn, Clock } from 'lucide-react';
 
+const isDev = import.meta.env.DEV;
+
 export default function SessionExpiredModal() {
-  const { sessionExpired, clearSessionExpired } = useAuth();
+  const { sessionExpired, sessionExpiredReason, clearSessionExpired } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const handleLogin = () => {
+    const from = `${location.pathname}${location.search}${location.hash}`;
+
+    if (isDev) {
+      console.log('[AUTH] session_expired_modal_login', { from, reason: sessionExpiredReason });
+    }
+
     clearSessionExpired();
-    // Pass current location so user can be redirected back after login
-    navigate('/login', { state: { from: location.pathname } });
+
+    // If we're already on /login, don't navigate again.
+    if (location.pathname === '/login') return;
+
+    navigate('/login', { state: { from }, replace: true });
   };
 
   return (
@@ -32,6 +43,11 @@ export default function SessionExpiredModal() {
           <DialogTitle className="text-center">Tu sesión ha expirado</DialogTitle>
           <DialogDescription className="text-center">
             Por seguridad, tu sesión ha expirado. Por favor, vuelve a iniciar sesión para continuar.
+            {sessionExpiredReason ? (
+              <span className="mt-2 block text-xs text-muted-foreground">
+                Debug: <span className="font-mono">{sessionExpiredReason}</span>
+              </span>
+            ) : null}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="sm:justify-center">

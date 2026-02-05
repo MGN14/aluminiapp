@@ -1,14 +1,16 @@
 import { useState, useEffect, createContext, useContext, useCallback, useRef } from 'react';
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { AUTH_SESSION_EXPIRED_EVENT, type SessionExpiredDetail } from '@/lib/authSessionEvents';
 
 const isDev = import.meta.env.DEV;
+const isDebugEnabled =
+  isDev || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1');
 
-// Dev-only logging with timestamp
+// Dev/debug logging
 const authLog = (message: string, data?: unknown) => {
-  if (isDev) {
-    const time = new Date().toISOString().split('T')[1].slice(0, 12);
-    console.log(`[Auth ${time}] ${message}`, data ?? '');
+  if (isDebugEnabled) {
+    console.log(`[AUTH] ${message}`, data ?? '');
   }
 };
 
@@ -16,7 +18,15 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+
+  // UX flags
   sessionExpired: boolean;
+  sessionExpiredReason: string | null;
+
+  // Debug telemetry
+  lastAuthEvent: AuthChangeEvent | null;
+  lastAuthEventAt: number | null;
+
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -25,97 +35,181 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function setupFetchUnauthorizedLogger() {
+  if (!isDebugEnabled) return;
+  if (typeof window === 'undefined') return;
+  const w = window as any;
+  if (w.__authFetchLoggerInstalled) return;
+  w.__authFetchLoggerInstalled = true;
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const res = await originalFetch(input, init);
+
+    if (res.status === 401 || res.status === 403) {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+      authLog('HTTP_401_403', {
+        status: res.status,
+        url,
+        method: init?.method ?? 'GET',
+      });
+    }
+
+    return res;
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+
   const [sessionExpired, setSessionExpired] = useState(false);
-  
-  // Prevent multiple initializations
+  const [sessionExpiredReason, setSessionExpiredReason] = useState<string | null>(null);
+
+  const [lastAuthEvent, setLastAuthEvent] = useState<AuthChangeEvent | null>(null);
+  const [lastAuthEventAt, setLastAuthEventAt] = useState<number | null>(null);
+
+  // Prevent multiple initializations (StrictMode)
   const initialized = useRef(false);
   // Track if component is mounted
   const isMounted = useRef(true);
+  // Track whether we already received an auth event (avoid getSession overriding it)
+  const authEventReceived = useRef(false);
+  // Track manual sign-out vs unexpected sign-out
+  const manualSignOut = useRef(false);
+  const prevUserId = useRef<string | null>(null);
 
   useEffect(() => {
-    // Prevent double initialization in StrictMode
     if (initialized.current) {
       authLog('Already initialized, skipping');
       return;
     }
+
     initialized.current = true;
     isMounted.current = true;
-    
+
+    setupFetchUnauthorizedLogger();
+
     authLog('Initializing auth provider');
 
-    // Handle auth state changes
+    const onSessionExpired = (evt: Event) => {
+      const detail = (evt as CustomEvent<SessionExpiredDetail>).detail;
+      authLog('session_expired_event', detail);
+
+      setSessionExpired(true);
+      setSessionExpiredReason(detail?.reason ?? 'unauthorized');
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired as EventListener);
+    }
+
     const handleAuthChange = (event: AuthChangeEvent, newSession: Session | null) => {
       if (!isMounted.current) return;
-      
-      authLog('Auth state change', { event, hasSession: !!newSession });
+
+      authEventReceived.current = true;
+      setLastAuthEvent(event);
+      setLastAuthEventAt(Date.now());
+
+      authLog('onAuthStateChange', {
+        event,
+        hasSession: !!newSession,
+        hasUser: !!newSession?.user,
+      });
 
       switch (event) {
         case 'SIGNED_IN':
         case 'TOKEN_REFRESHED':
-        case 'USER_UPDATED':
+        case 'USER_UPDATED': {
           setSession(newSession);
           setUser(newSession?.user ?? null);
           setSessionExpired(false);
+          setSessionExpiredReason(null);
           setLoading(false);
+          prevUserId.current = newSession?.user?.id ?? null;
           break;
+        }
 
-        case 'SIGNED_OUT':
+        case 'SIGNED_OUT': {
+          const hadUserBefore = !!prevUserId.current;
+          const wasManual = manualSignOut.current;
+
           setSession(null);
           setUser(null);
           setLoading(false);
-          authLog('User signed out');
-          break;
 
-        case 'INITIAL_SESSION':
+          authLog('SIGNED_OUT', { hadUserBefore, wasManual });
+
+          // Only show session-expired UX if user *was* logged in and this was not a manual sign-out
+          if (hadUserBefore && !wasManual) {
+            setSessionExpired(true);
+            setSessionExpiredReason('signed_out_unexpected');
+          }
+
+          manualSignOut.current = false;
+          prevUserId.current = null;
+          break;
+        }
+
+        case 'INITIAL_SESSION': {
           setSession(newSession);
           setUser(newSession?.user ?? null);
           setLoading(false);
-          authLog('Initial session', { hasUser: !!newSession?.user });
+          prevUserId.current = newSession?.user?.id ?? null;
+          authLog('INITIAL_SESSION', { hasUser: !!newSession?.user });
           break;
+        }
 
-        default:
+        default: {
           // For unknown events, just update if we have a session
           if (newSession) {
             setSession(newSession);
             setUser(newSession.user);
+            prevUserId.current = newSession.user.id;
           }
           setLoading(false);
+        }
       }
     };
 
     // Set up the auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthChange);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(handleAuthChange);
 
-    // Then get the initial session
-    // This is needed because onAuthStateChange might not fire immediately
+    // Then get the initial session (only if we didn't receive an event yet)
     const getInitialSession = async () => {
       try {
-        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
-        
+        const {
+          data: { session: currentSession },
+          error,
+        } = await supabase.auth.getSession();
+
         if (error) {
-          authLog('Error getting session', error.message);
-          if (isMounted.current) {
-            setLoading(false);
-          }
+          authLog('getSession_error', error.message);
+          if (isMounted.current) setLoading(false);
           return;
         }
 
-        // Only set state if we haven't received an auth event yet
-        if (isMounted.current && loading) {
-          setSession(currentSession);
-          setUser(currentSession?.user ?? null);
-          setLoading(false);
-          authLog('Got initial session', { hasUser: !!currentSession?.user });
+        if (authEventReceived.current) {
+          authLog('getSession_skipped', 'Auth event already received');
+          return;
         }
+
+        setSession(currentSession);
+        setUser(currentSession?.user ?? null);
+        setLoading(false);
+        prevUserId.current = currentSession?.user?.id ?? null;
+        authLog('getSession_ok', { hasUser: !!currentSession?.user });
       } catch (err) {
-        authLog('Exception getting session', err);
-        if (isMounted.current) {
-          setLoading(false);
-        }
+        authLog('getSession_exception', err);
+        if (isMounted.current) setLoading(false);
       }
     };
 
@@ -125,53 +219,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authLog('Cleaning up auth provider');
       isMounted.current = false;
       subscription.unsubscribe();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired as EventListener);
+      }
     };
-  }, []); // Empty deps - only run once
+  }, []);
 
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {
-    authLog('Sign up attempt', { email });
+    authLog('signUp_attempt', { email });
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: window.location.origin,
-        data: { full_name: fullName }
-      }
+        data: { full_name: fullName },
+      },
     });
-    if (error) authLog('Sign up error', error.message);
+    if (error) authLog('signUp_error', error.message);
     return { error };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    authLog('Sign in attempt', { email });
+    authLog('signIn_attempt', { email });
     const { error } = await supabase.auth.signInWithPassword({
       email,
-      password
+      password,
     });
-    if (error) authLog('Sign in error', error.message);
+    if (error) authLog('signIn_error', error.message);
     return { error };
   }, []);
 
   const signOut = useCallback(async () => {
-    authLog('Sign out initiated');
+    authLog('signOut_initiated');
+    manualSignOut.current = true;
     await supabase.auth.signOut();
   }, []);
 
   const clearSessionExpired = useCallback(() => {
     setSessionExpired(false);
+    setSessionExpiredReason(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session, 
-      loading, 
-      sessionExpired,
-      signUp, 
-      signIn, 
-      signOut,
-      clearSessionExpired
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        loading,
+        sessionExpired,
+        sessionExpiredReason,
+        lastAuthEvent,
+        lastAuthEventAt,
+        signUp,
+        signIn,
+        signOut,
+        clearSessionExpired,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
