@@ -33,71 +33,71 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <SessionExpiredModal />
           <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/terms" element={<Terms />} />
-            <Route path="/privacy" element={<Privacy />} />
-            <Route path="/pricing" element={<Pricing />} />
-            <Route path="/contact" element={<Contact />} />
-            <Route path="/checkout" element={<Checkout />} />
-            <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/upload" 
-              element={
-                <ProtectedRoute>
-                  <StatementUpload />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/statement-upload" 
-              element={
-                <ProtectedRoute>
-                  <StatementUpload />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/transactions" 
-              element={
-                <ProtectedRoute>
-                  <Transactions />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/export" 
-              element={
-                <ProtectedRoute>
-                  <Export />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/settings" 
-              element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              } 
-            />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
+            <SessionExpiredModal />
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/checkout" element={<Checkout />} />
+              <Route 
+                path="/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/upload" 
+                element={
+                  <ProtectedRoute>
+                    <StatementUpload />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/statement-upload" 
+                element={
+                  <ProtectedRoute>
+                    <StatementUpload />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/transactions" 
+                element={
+                  <ProtectedRoute>
+                    <Transactions />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/export" 
+                element={
+                  <ProtectedRoute>
+                    <Export />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/settings" 
+                element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                } 
+              />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
         </TooltipProvider>
       </SubscriptionProvider>
     </AuthProvider>
