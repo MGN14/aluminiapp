@@ -59,12 +59,12 @@ export default function ReteicaSettings() {
 
     setSaving(true);
     try {
-      // Validate rate is between 0 and 100
+      // Validate rate is between 0 and 5%
       const rateDecimal = config.reteica_rate;
-      if (rateDecimal < 0 || rateDecimal > 0.10) {
+      if (rateDecimal < 0 || rateDecimal > 0.05) {
         toast({
           title: 'Tasa inválida',
-          description: 'La tasa debe estar entre 0% y 10%.',
+          description: 'La tasa debe estar entre 0% y 5%.',
           variant: 'destructive',
         });
         return;
@@ -150,13 +150,28 @@ export default function ReteicaSettings() {
     }
   };
 
-  // Convert rate to percentage for display
-  const displayRate = (config.reteica_rate * 100).toFixed(2);
+  // Convert rate to percentage for display (show actual value user entered)
+  const [rateInputValue, setRateInputValue] = useState('');
+
+  // Sync input value when config loads
+  useEffect(() => {
+    if (config.reteica_rate > 0) {
+      setRateInputValue((config.reteica_rate * 100).toString());
+    }
+  }, [loading]);
 
   const handleRateChange = (value: string) => {
-    // Convert percentage input to decimal
-    const percent = parseFloat(value) || 0;
-    setConfig(prev => ({ ...prev, reteica_rate: percent / 100 }));
+    // Normalize comma to dot for decimal
+    const normalized = value.replace(',', '.');
+    
+    // Allow empty, numbers, and single decimal point
+    if (normalized === '' || /^\d*\.?\d*$/.test(normalized)) {
+      setRateInputValue(normalized);
+      
+      // Convert percentage input to decimal for storage
+      const percent = parseFloat(normalized) || 0;
+      setConfig(prev => ({ ...prev, reteica_rate: percent / 100 }));
+    }
   };
 
   if (loading) {
@@ -204,16 +219,15 @@ export default function ReteicaSettings() {
             <Label htmlFor="reteica_rate">Tasa de ReteICA (%)</Label>
             <Input
               id="reteica_rate"
-              type="number"
-              step="0.01"
-              min="0"
-              max="10"
-              value={displayRate}
+              type="text"
+              inputMode="decimal"
+              value={rateInputValue}
               onChange={(e) => handleRateChange(e.target.value)}
-              placeholder="Ej: 0.4, 0.7, 1.0"
+              placeholder="Ej: 0.966, 0.4, 1.25"
+              className="[appearance:textfield]"
             />
             <p className="text-xs text-muted-foreground">
-              Ejemplo: 0.4% = 4 por mil, 1.0% = 10 por mil
+              Ejemplo: 0.966% = 9,66 por mil
             </p>
           </div>
         </div>
