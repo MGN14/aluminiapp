@@ -29,6 +29,8 @@ export interface Transaction {
   has_retefuente: boolean;
   retefuente_rate: number;
   retefuente_amount: number;
+  has_reteica: boolean;
+  reteica_amount: number;
   notes: string | null;
   sucursal: string | null;
   dcto: string | null;

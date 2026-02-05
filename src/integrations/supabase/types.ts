@@ -132,6 +132,8 @@ export type Database = {
           created_at: string
           full_name: string | null
           id: string
+          reteica_city: string | null
+          reteica_rate: number | null
           updated_at: string
           user_id: string
         }
@@ -141,6 +143,8 @@ export type Database = {
           created_at?: string
           full_name?: string | null
           id?: string
+          reteica_city?: string | null
+          reteica_rate?: number | null
           updated_at?: string
           user_id: string
         }
@@ -150,6 +154,8 @@ export type Database = {
           created_at?: string
           full_name?: string | null
           id?: string
+          reteica_city?: string | null
+          reteica_rate?: number | null
           updated_at?: string
           user_id?: string
         }
@@ -194,6 +200,7 @@ export type Database = {
           description: string
           has_iva: boolean
           has_retefuente: boolean
+          has_reteica: boolean | null
           id: string
           iva_amount: number
           iva_rate: number
@@ -205,6 +212,7 @@ export type Database = {
           responsible_id: string | null
           retefuente_amount: number
           retefuente_rate: number
+          reteica_amount: number | null
           statement_id: string
           sucursal: string | null
           transaction_type: string | null
@@ -225,6 +233,7 @@ export type Database = {
           description: string
           has_iva?: boolean
           has_retefuente?: boolean
+          has_reteica?: boolean | null
           id?: string
           iva_amount?: number
           iva_rate?: number
@@ -236,6 +245,7 @@ export type Database = {
           responsible_id?: string | null
           retefuente_amount?: number
           retefuente_rate?: number
+          reteica_amount?: number | null
           statement_id: string
           sucursal?: string | null
           transaction_type?: string | null
@@ -256,6 +266,7 @@ export type Database = {
           description?: string
           has_iva?: boolean
           has_retefuente?: boolean
+          has_reteica?: boolean | null
           id?: string
           iva_amount?: number
           iva_rate?: number
@@ -267,6 +278,7 @@ export type Database = {
           responsible_id?: string | null
           retefuente_amount?: number
           retefuente_rate?: number
+          reteica_amount?: number | null
           statement_id?: string
           sucursal?: string | null
           transaction_type?: string | null

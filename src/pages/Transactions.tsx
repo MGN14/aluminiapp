@@ -32,6 +32,10 @@ interface Statement {
   transaction_count: number;
 }
 
+interface ReteicaConfig {
+  reteica_rate: number;
+}
+
 export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -40,12 +44,29 @@ export default function Transactions() {
   const [selectedStatement, setSelectedStatement] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_rate: 0 });
 
   useEffect(() => {
     fetchStatements();
     fetchCategories();
     fetchResponsibles();
+    fetchReteicaConfig();
   }, []);
+
+  const fetchReteicaConfig = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('reteica_rate')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (data) {
+      setReteicaConfig({ reteica_rate: data.reteica_rate || 0 });
+    }
+  };
 
   useEffect(() => {
     fetchTransactions();
@@ -206,6 +227,8 @@ export default function Transactions() {
                         <TableHead className="text-right w-[90px]">$ IVA</TableHead>
                         <TableHead className="text-center w-[45px]">Rete</TableHead>
                         <TableHead className="text-right w-[90px]">$ Rete</TableHead>
+                        <TableHead className="text-center w-[45px]">ICA</TableHead>
+                        <TableHead className="text-right w-[90px]">$ ICA</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -215,6 +238,7 @@ export default function Transactions() {
                           transaction={transaction}
                           categories={categories}
                           responsibles={responsibles}
+                          reteicaRate={reteicaConfig.reteica_rate}
                           onViewDetail={setSelectedTransaction}
                           onCategoryAdded={fetchCategories}
                           onResponsibleAdded={fetchResponsibles}

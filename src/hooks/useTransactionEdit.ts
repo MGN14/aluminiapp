@@ -7,6 +7,7 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 interface UseTransactionEditOptions {
   debounceMs?: number;
   onError?: (error: Error) => void;
+  reteicaRate?: number; // Rate from user settings
 }
 
 interface UseTransactionEditReturn {
@@ -28,6 +29,12 @@ function calculateRetefuenteAmount(amount: number | null, hasRetefuente: boolean
   return Math.abs(amount ?? 0) * RETEFUENTE_RATE;
 }
 
+// Calculate ReteICA amount (only for income)
+function calculateReteicaAmount(amount: number | null, hasReteica: boolean, type: string, reteicaRate: number): number {
+  if (!hasReteica || type !== 'ingreso' || reteicaRate <= 0) return 0;
+  return Math.round(Math.abs(amount ?? 0) * reteicaRate);
+}
+
 // Get IVA type based on transaction type
 function getIvaType(type: string, hasIva: boolean): 'debito' | 'credito' | null {
   if (!hasIva || type === 'transferencia') return null;
@@ -38,7 +45,7 @@ export function useTransactionEdit(
   initialTransaction: Transaction,
   options: UseTransactionEditOptions = {}
 ): UseTransactionEditReturn {
-  const { debounceMs = 600, onError } = options;
+  const { debounceMs = 600, onError, reteicaRate = 0 } = options;
   
   const [localTransaction, setLocalTransaction] = useState<Transaction>(initialTransaction);
   const [status, setStatus] = useState<SaveStatus>('idle');
@@ -123,6 +130,21 @@ export function useTransactionEdit(
         // Add computed fields to save
         computedUpdates.retefuente_amount = merged.retefuente_amount;
         computedUpdates.has_retefuente = merged.has_retefuente;
+      }
+      
+      // Recalculate ReteICA when has_reteica or type changes (only for income)
+      if ('has_reteica' in updates || 'type' in updates || 'amount' in updates) {
+        merged.reteica_amount = calculateReteicaAmount(merged.amount, merged.has_reteica, type, reteicaRate);
+        
+        // Auto-disable reteica for non-income
+        if (type !== 'ingreso') {
+          merged.has_reteica = false;
+          merged.reteica_amount = 0;
+        }
+        
+        // Add computed fields to save
+        computedUpdates.reteica_amount = merged.reteica_amount;
+        computedUpdates.has_reteica = merged.has_reteica;
       }
       
       return merged;

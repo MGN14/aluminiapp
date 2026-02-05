@@ -26,6 +26,7 @@ interface TransactionRowProps {
   transaction: Transaction;
   categories: Category[];
   responsibles: Responsible[];
+  reteicaRate?: number;
   onViewDetail: (transaction: Transaction) => void;
   onCategoryAdded?: () => void;
   onResponsibleAdded?: () => void;
@@ -45,6 +46,7 @@ export default function TransactionRow({
   transaction, 
   categories, 
   responsibles, 
+  reteicaRate = 0,
   onViewDetail,
   onCategoryAdded,
   onResponsibleAdded,
@@ -53,6 +55,7 @@ export default function TransactionRow({
   
   const { status, errorMessage, updateField, localTransaction } = useTransactionEdit(transaction, {
     debounceMs: 600,
+    reteicaRate,
   });
 
   const handleTypeChange = (type: SimpleTransactionType) => {
@@ -81,6 +84,14 @@ export default function TransactionRow({
       return;
     }
     updateField({ has_retefuente: checked });
+  };
+
+  const handleReteicaChange = (checked: boolean) => {
+    // ReteICA only for income
+    if (localTransaction.type !== 'ingreso' && checked) {
+      return;
+    }
+    updateField({ has_reteica: checked });
   };
 
   const handleAddCategory = async (name: string): Promise<string | null> => {
@@ -122,8 +133,10 @@ export default function TransactionRow({
   const amountColor = (localTransaction.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive';
   const isReconciled = !!localTransaction.responsible_id;
   const isEgreso = localTransaction.type === 'egreso';
+  const isIngreso = localTransaction.type === 'ingreso';
   const isTransferencia = localTransaction.type === 'transferencia';
   const isSaving = status === 'saving';
+  const hasReteicaConfigured = reteicaRate > 0;
 
   // Prepare options for searchable selects
   const categoryOptions = categories
@@ -270,6 +283,39 @@ export default function TransactionRow({
       <TableCell className="text-right text-sm w-[90px] text-muted-foreground">
         {localTransaction.has_retefuente && localTransaction.retefuente_amount > 0 
           ? formatCurrency(localTransaction.retefuente_amount) 
+          : '-'}
+      </TableCell>
+      
+      {/* ReteICA Checkbox - only for income */}
+      <TableCell className="text-center w-[45px]">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Checkbox
+                checked={localTransaction.has_reteica}
+                onCheckedChange={(checked) => handleReteicaChange(checked as boolean)}
+                disabled={!isIngreso || !hasReteicaConfigured}
+                className={(!isIngreso || !hasReteicaConfigured) ? 'opacity-30 cursor-not-allowed' : ''}
+              />
+            </span>
+          </TooltipTrigger>
+          {!isIngreso && (
+            <TooltipContent>
+              <p className="text-xs">ReteICA solo aplica a ingresos</p>
+            </TooltipContent>
+          )}
+          {isIngreso && !hasReteicaConfigured && (
+            <TooltipContent>
+              <p className="text-xs">Configura la tasa de ReteICA en Ajustes</p>
+            </TooltipContent>
+          )}
+        </Tooltip>
+      </TableCell>
+      
+      {/* ReteICA Amount */}
+      <TableCell className="text-right text-sm w-[90px] text-muted-foreground">
+        {localTransaction.has_reteica && localTransaction.reteica_amount > 0 
+          ? formatCurrency(localTransaction.reteica_amount) 
           : '-'}
       </TableCell>
     </TableRow>
