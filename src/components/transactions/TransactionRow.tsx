@@ -61,13 +61,27 @@ export default function TransactionRow({
   const handleTypeChange = (type: SimpleTransactionType) => {
     const updates: Partial<Transaction> = { type };
     
+    // Auto-enable taxes for income (sales) - reducing friction
+    if (type === 'ingreso') {
+      updates.has_iva = true;
+      // Only enable ReteICA if rate is configured
+      if (reteicaRate > 0) {
+        updates.has_reteica = true;
+      }
+    }
+    
+    // Auto-disable ReteICA when changing from income to other types
+    if (type !== 'ingreso' && localTransaction.has_reteica) {
+      updates.has_reteica = false;
+    }
+    
     // Auto-disable retefuente for non-expenses
     if (type !== 'egreso' && localTransaction.has_retefuente) {
       updates.has_retefuente = false;
     }
     
     // Auto-disable IVA for transfers
-    if (type === 'transferencia' && localTransaction.has_iva) {
+    if (type === 'transferencia') {
       updates.has_iva = false;
     }
     

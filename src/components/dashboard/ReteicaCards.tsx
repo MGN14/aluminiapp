@@ -1,13 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Receipt, Calendar } from 'lucide-react';
-
-interface ReteicaCardsProps {
-  monthlyTotal: number;
-  yearlyTotal: number;
-  monthLabel: string;
-  year: number;
-  transactionCount: number;
-}
+import { Receipt, Calendar, MapPin, Percent } from 'lucide-react';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -18,15 +10,21 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+interface ReteicaMonthlyCardProps {
+  total: number;
+  periodLabel: string;
+  transactionCount: number;
+  city?: string;
+  rate?: number;
+}
+
 export function ReteicaMonthlyCard({ 
   total, 
   periodLabel, 
-  transactionCount 
-}: { 
-  total: number; 
-  periodLabel: string; 
-  transactionCount: number;
-}) {
+  transactionCount,
+  city,
+  rate,
+}: ReteicaMonthlyCardProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -45,9 +43,26 @@ export function ReteicaMonthlyCard({
           <Calendar className="h-3 w-3 mr-1" />
           {periodLabel}
         </div>
+        {/* City and rate info */}
+        {(city || rate) && (
+          <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
+            {city && (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3 w-3" />
+                {city}
+              </span>
+            )}
+            {rate !== undefined && rate > 0 && (
+              <span className="flex items-center gap-1">
+                <Percent className="h-3 w-3" />
+                {(rate * 100).toFixed(3)}%
+              </span>
+            )}
+          </div>
+        )}
         {transactionCount > 0 && (
           <div className="text-[10px] text-muted-foreground mt-1">
-            {transactionCount} transacción{transactionCount !== 1 ? 'es' : ''}
+            {transactionCount} venta{transactionCount !== 1 ? 's' : ''} con ReteICA
           </div>
         )}
       </CardContent>
@@ -55,15 +70,17 @@ export function ReteicaMonthlyCard({
   );
 }
 
+interface ReteicaYearlyCardProps {
+  total: number;
+  year: number;
+  transactionCount: number;
+}
+
 export function ReteicaYearlyCard({ 
   total, 
   year, 
   transactionCount 
-}: { 
-  total: number; 
-  year: number; 
-  transactionCount: number;
-}) {
+}: ReteicaYearlyCardProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -84,7 +101,7 @@ export function ReteicaYearlyCard({
         </div>
         {transactionCount > 0 && (
           <div className="text-[10px] text-muted-foreground mt-1">
-            {transactionCount} transacción{transactionCount !== 1 ? 'es' : ''}
+            {transactionCount} venta{transactionCount !== 1 ? 's' : ''} con ReteICA
           </div>
         )}
       </CardContent>
