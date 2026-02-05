@@ -9,15 +9,14 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading, sessionExpired } = useAuth();
+  const { user, loading } = useAuth();
   const location = useLocation();
 
   if (isDev) {
     console.log('[ProtectedRoute]', { 
       path: location.pathname, 
       loading, 
-      hasUser: !!user, 
-      sessionExpired 
+      hasUser: !!user
     });
   }
 
@@ -37,7 +36,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   // Only redirect if loading is complete AND we confirmed no user
   if (!user) {
     if (isDev) {
-      console.log('[ProtectedRoute] No user, redirecting to login', { from: location.pathname });
+      console.log('[ProtectedRoute] No user after load complete, redirecting to login');
     }
     // Store the intended destination so we can redirect back after login
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
