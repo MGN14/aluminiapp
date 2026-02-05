@@ -7,6 +7,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { SubscriptionProvider } from "@/hooks/useSubscription";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
+import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -35,6 +36,7 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <SessionExpiredModal />
+            <AuthDebugPanel />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
@@ -46,53 +48,53 @@ const App = () => (
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/contact" element={<Contact />} />
               <Route path="/checkout" element={<Checkout />} />
-              <Route 
-                path="/dashboard" 
+              <Route
+                path="/dashboard"
                 element={
                   <ProtectedRoute>
                     <Dashboard />
                   </ProtectedRoute>
-                } 
+                }
               />
-              <Route 
-                path="/upload" 
+              <Route
+                path="/upload"
                 element={
                   <ProtectedRoute>
                     <StatementUpload />
                   </ProtectedRoute>
-                } 
+                }
               />
-              <Route 
-                path="/statement-upload" 
+              <Route
+                path="/statement-upload"
                 element={
                   <ProtectedRoute>
                     <StatementUpload />
                   </ProtectedRoute>
-                } 
+                }
               />
-              <Route 
-                path="/transactions" 
+              <Route
+                path="/transactions"
                 element={
                   <ProtectedRoute>
                     <Transactions />
                   </ProtectedRoute>
-                } 
+                }
               />
-              <Route 
-                path="/export" 
+              <Route
+                path="/export"
                 element={
                   <ProtectedRoute>
                     <Export />
                   </ProtectedRoute>
-                } 
+                }
               />
-              <Route 
-                path="/settings" 
+              <Route
+                path="/settings"
                 element={
                   <ProtectedRoute>
                     <Settings />
                   </ProtectedRoute>
-                } 
+                }
               />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

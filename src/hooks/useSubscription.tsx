@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { invokeFunctionWithAuthRetry } from '@/lib/authRetry';
 
 export type SubscriptionPlan = 'demo' | 'basico' | 'empresarial' | 'admin';
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'inactive';
@@ -44,83 +45,32 @@ const defaultState: SubscriptionState = {
 };
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
-  const { user, session } = useAuth();
+  const { user, session, sessionExpired } = useAuth();
   const [state, setState] = useState<SubscriptionState>(defaultState);
 
   const checkSubscription = useCallback(async () => {
-    if (!user) {
+    if (!user || !session || sessionExpired) {
       setState({ ...defaultState, loading: false });
       return;
     }
 
     try {
-      setState(prev => ({ ...prev, loading: true, error: null }));
+      setState((prev) => ({ ...prev, loading: true, error: null }));
 
-      const invokeCheck = async (accessToken: string) => {
-        try {
-          const { data, error } = await supabase.functions.invoke('check-subscription', {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          });
-          return { data, error } as const;
-        } catch (error) {
-          return { data: null, error } as const;
-        }
-      };
-      
-      // Get fresh session to avoid expired token issues
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      
-      if (!accessToken) {
-        // No access token means user isn't properly authenticated
-        setState({ ...defaultState, loading: false });
-        return;
-      }
+      const result = await invokeFunctionWithAuthRetry<any>(
+        'check-subscription',
+        {
+          // Authorization header is injected by invokeFunctionWithAuthRetry
+        },
+        'check-subscription'
+      );
 
-      // 1st attempt
-      let result = await invokeCheck(accessToken);
-
-      // If function call fails (401/403/session_not_found/etc), try one refresh, then retry.
-      if (result.error) {
-        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
-        const refreshedToken = refreshed?.session?.access_token;
-
-        if (!refreshError && refreshedToken) {
-          result = await invokeCheck(refreshedToken);
-        }
-      }
-
-      // Still failing -> sign out so ProtectedRoute can redirect (prevents blank screen loops)
       if (result.error || !result.data) {
-        const errAny = result.error as any;
-        const msg = typeof errAny?.message === 'string' ? errAny.message : '';
-        const raw = (() => {
-          try {
-            return JSON.stringify(result.error);
-          } catch {
-            return String(result.error);
-          }
-        })();
-        const combined = `${msg} ${raw}`.toLowerCase();
-        const isAuthIssue =
-          combined.includes('401') ||
-          combined.includes('403') ||
-          combined.includes('unauthorized') ||
-          combined.includes('session_not_found') ||
-          combined.includes('auth session missing');
-
-        if (isAuthIssue) {
-          await supabase.auth.signOut();
-          setState({ ...defaultState, loading: false });
-          return;
-        }
-
-        setState(prev => ({
+        // IMPORTANT: NEVER sign out here. Auth errors are handled by session-expired UX.
+        setState((prev) => ({
           ...prev,
           loading: false,
-          error: msg || 'Error checking subscription',
+          error: prev.error ?? 'No se pudo validar la suscripción.',
         }));
         return;
       }
@@ -142,13 +92,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       });
     } catch (err) {
       console.error('Error checking subscription:', err);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         loading: false,
         error: err instanceof Error ? err.message : 'Error checking subscription',
       }));
     }
-  }, [user]);
+  }, [user, session, sessionExpired]);
 
   const checkUploadLimit = useCallback(async (): Promise<{ canUpload: boolean; message: string }> => {
     if (!user) {
@@ -164,7 +114,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       // Parse the JSON response from the database function
       const result = typeof data === 'string' ? JSON.parse(data) : data;
-      
+
       return {
         canUpload: result?.can_upload ?? false,
         message: result?.message || '',
@@ -176,19 +126,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [user]);
 
   const createCheckout = useCallback(async (plan: 'basico' | 'empresarial'): Promise<string | null> => {
-    if (!user) return null;
+    if (!user || sessionExpired) return null;
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) return null;
-
-      const { data, error } = await supabase.functions.invoke('create-checkout', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
+      const { data, error } = await invokeFunctionWithAuthRetry<any>(
+        'create-checkout',
+        {
+          body: { plan },
         },
-        body: { plan },
-      });
+        'create-checkout'
+      );
 
       if (error) throw error;
       return data.url;
@@ -196,21 +143,17 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       console.error('Error creating checkout:', err);
       return null;
     }
-  }, [user]);
+  }, [user, sessionExpired]);
 
   const openCustomerPortal = useCallback(async (): Promise<string | null> => {
-    if (!user) return null;
+    if (!user || sessionExpired) return null;
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) return null;
-
-      const { data, error } = await supabase.functions.invoke('customer-portal', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
+      const { data, error } = await invokeFunctionWithAuthRetry<any>(
+        'customer-portal',
+        {},
+        'customer-portal'
+      );
 
       if (error) throw error;
       return data.url;
@@ -218,7 +161,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       console.error('Error opening customer portal:', err);
       return null;
     }
-  }, [user]);
+  }, [user, sessionExpired]);
 
   const getPlanLimits = useCallback(() => {
     switch (state.plan) {
@@ -237,20 +180,20 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   // Check subscription on mount and when user changes
   useEffect(() => {
-    if (user && session) {
+    if (user && session && !sessionExpired) {
       checkSubscription();
     } else {
       setState(defaultState);
     }
-  }, [user, session, checkSubscription]);
+  }, [user, session, sessionExpired, checkSubscription]);
 
   // Periodic refresh every 60 seconds
   useEffect(() => {
-    if (!user || !session) return;
+    if (!user || !session || sessionExpired) return;
 
     const interval = setInterval(checkSubscription, 60000);
     return () => clearInterval(interval);
-  }, [user, session, checkSubscription]);
+  }, [user, session, sessionExpired, checkSubscription]);
 
   return (
     <SubscriptionContext.Provider
