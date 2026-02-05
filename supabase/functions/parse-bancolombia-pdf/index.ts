@@ -341,114 +341,107 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       })
       .eq("id", statement_id);
 
-    // Get or create categories and responsibles for auto-categorization
-    let impuestosCategoryId: string | null = null;
-    let otrosCategoryId: string | null = null;
-    let dianResponsibleId: string | null = null;
-    let bancoResponsibleId: string | null = null;
+    // Get or create all categories and responsibles needed for auto-rules
+    const categoriesMap: Record<string, string> = {};
+    const responsiblesMap: Record<string, string> = {};
     
-    // Check if user has "Impuestos" category
-    const { data: existingImpuestos } = await supabase
-      .from("categories")
-      .select("id")
-      .eq("user_id", statement.user_id)
-      .ilike("name", "impuestos")
-      .maybeSingle();
+    const requiredCategories = ['Impuestos', 'Otros', 'Ventas', 'Gastos Operativos'];
+    const requiredResponsibles = ['DIAN', 'Banco'];
     
-    if (existingImpuestos) {
-      impuestosCategoryId = existingImpuestos.id;
-    } else {
-      const { data: newCategory } = await supabase
+    // Fetch or create categories
+    for (const catName of requiredCategories) {
+      const { data: existing } = await supabase
         .from("categories")
-        .insert({ user_id: statement.user_id, name: "Impuestos", sort_order: 999 })
         .select("id")
-        .single();
-      impuestosCategoryId = newCategory?.id || null;
+        .eq("user_id", statement.user_id)
+        .ilike("name", catName)
+        .maybeSingle();
+      
+      if (existing) {
+        categoriesMap[catName.toLowerCase()] = existing.id;
+      } else {
+        const { data: newCat } = await supabase
+          .from("categories")
+          .insert({ user_id: statement.user_id, name: catName, sort_order: 999 })
+          .select("id")
+          .single();
+        if (newCat) categoriesMap[catName.toLowerCase()] = newCat.id;
+      }
     }
     
-    // Check if user has "Otros" category
-    const { data: existingOtros } = await supabase
-      .from("categories")
-      .select("id")
-      .eq("user_id", statement.user_id)
-      .ilike("name", "otros")
-      .maybeSingle();
-    
-    if (existingOtros) {
-      otrosCategoryId = existingOtros.id;
-    } else {
-      const { data: newCategory } = await supabase
-        .from("categories")
-        .insert({ user_id: statement.user_id, name: "Otros", sort_order: 998 })
-        .select("id")
-        .single();
-      otrosCategoryId = newCategory?.id || null;
-    }
-    
-    // Check if user has "DIAN" responsible
-    const { data: existingDian } = await supabase
-      .from("responsibles")
-      .select("id")
-      .eq("user_id", statement.user_id)
-      .ilike("name", "dian")
-      .maybeSingle();
-    
-    if (existingDian) {
-      dianResponsibleId = existingDian.id;
-    } else {
-      const { data: newResponsible } = await supabase
+    // Fetch or create responsibles
+    for (const respName of requiredResponsibles) {
+      const { data: existing } = await supabase
         .from("responsibles")
-        .insert({ user_id: statement.user_id, name: "DIAN" })
         .select("id")
-        .single();
-      dianResponsibleId = newResponsible?.id || null;
-    }
-    
-    // Check if user has "Banco" responsible
-    const { data: existingBanco } = await supabase
-      .from("responsibles")
-      .select("id")
-      .eq("user_id", statement.user_id)
-      .ilike("name", "banco")
-      .maybeSingle();
-    
-    if (existingBanco) {
-      bancoResponsibleId = existingBanco.id;
-    } else {
-      const { data: newResponsible } = await supabase
-        .from("responsibles")
-        .insert({ user_id: statement.user_id, name: "Banco" })
-        .select("id")
-        .single();
-      bancoResponsibleId = newResponsible?.id || null;
+        .eq("user_id", statement.user_id)
+        .ilike("name", respName)
+        .maybeSingle();
+      
+      if (existing) {
+        responsiblesMap[respName.toLowerCase()] = existing.id;
+      } else {
+        const { data: newResp } = await supabase
+          .from("responsibles")
+          .insert({ user_id: statement.user_id, name: respName })
+          .select("id")
+          .single();
+        if (newResp) responsiblesMap[respName.toLowerCase()] = newResp.id;
+      }
     }
 
-    // Insert transactions into database
-    // The database trigger will calculate iva_amount and retefuente_amount
+    // Fetch user's ReteICA rate from profile
+    const { data: userProfile } = await supabase
+      .from("profiles")
+      .select("reteica_rate")
+      .eq("user_id", statement.user_id)
+      .maybeSingle();
+    
+    const reteicaRate = userProfile?.reteica_rate || 0;
+
+    // Insert transactions into database with auto-rules applied
     const transactionsToInsert = parsed.transactions.map((tx) => {
       // Fix the date using statement period
       const fixedDate = fixTransactionDate(tx.date, statementMonth, statementYear);
       
-      // Check auto-categorization rules
-      const isGMF = isGMFTransaction(tx.description);
-      const isInterest = isInterestTransaction(tx.description);
+      // Apply auto-categorization rules
+      const matchedRule = findMatchingRule(tx.description);
       
-      // Determine category and responsible based on rules
-      let categoryText: string | null = inferCategory(tx.description);
+      let categoryText: string | null = null;
       let categoryId: string | null = null;
       let responsibleId: string | null = null;
-      let transactionType: string | null = null;
+      let transactionType: string = tx.amount >= 0 ? "ingreso" : "egreso";
+      let hasIva = false;
+      let hasRetefuente = false;
+      let hasReteica = false;
+      let ivaAmount = 0;
+      let retefuenteAmount = 0;
+      let reteicaAmount = 0;
       
-      if (isGMF) {
-        categoryText = "impuestos";
-        categoryId = impuestosCategoryId;
-        responsibleId = dianResponsibleId;
-        transactionType = "egreso";
-      } else if (isInterest) {
-        categoryText = "otros";
-        categoryId = otrosCategoryId;
-        responsibleId = bancoResponsibleId;
-        transactionType = "ingreso";
+      if (matchedRule) {
+        // Use the matched rule to set all fields
+        categoryText = matchedRule.categoryName.toLowerCase();
+        categoryId = categoriesMap[matchedRule.categoryName.toLowerCase()] || null;
+        responsibleId = matchedRule.responsibleName 
+          ? (responsiblesMap[matchedRule.responsibleName.toLowerCase()] || null)
+          : null;
+        transactionType = matchedRule.type;
+        hasIva = matchedRule.hasIva;
+        hasRetefuente = matchedRule.hasRetefuente;
+        hasReteica = matchedRule.hasReteica && reteicaRate > 0;
+        
+        // Calculate tax amounts
+        const absAmount = Math.abs(tx.amount || 0);
+        ivaAmount = hasIva ? absAmount * 0.19 : 0;
+        retefuenteAmount = hasRetefuente && transactionType === 'egreso' ? absAmount * 0.025 : 0;
+        reteicaAmount = hasReteica && transactionType === 'ingreso' ? Math.round(absAmount * (reteicaRate / 100)) : 0;
+        
+        console.log(`Rule "${matchedRule.id}" applied to: ${tx.description.substring(0, 40)}...`);
+      } else {
+        // Fallback to legacy categorization for non-matched transactions
+        categoryText = inferCategory(tx.description);
+        hasIva = shouldApplyIVA(tx.description, tx.amount);
+        hasRetefuente = shouldApplyRetefuente(tx.description, tx.amount);
       }
       
       return {
@@ -466,11 +459,15 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         category: categoryText,
         category_id: categoryId,
         responsible_id: responsibleId,
-        type: transactionType || (tx.amount >= 0 ? "ingreso" : "egreso"),
-        has_iva: shouldApplyIVA(tx.description, tx.amount),
-        has_retefuente: shouldApplyRetefuente(tx.description, tx.amount),
+        type: transactionType,
+        has_iva: hasIva,
+        has_retefuente: hasRetefuente,
+        has_reteica: hasReteica,
         iva_rate: 0.19,
         retefuente_rate: 0.025,
+        iva_amount: ivaAmount,
+        retefuente_amount: retefuenteAmount,
+        reteica_amount: reteicaAmount,
       };
     });
 
@@ -538,7 +535,107 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
   }
 });
 
-// Helper to detect GMF/4x1000 transactions
+/**
+ * Auto-categorization rules for bank transactions.
+ * Rules are applied in order, from most specific to most general.
+ */
+interface AutoRule {
+  id: string;
+  keywords: string[];
+  type: 'ingreso' | 'egreso';
+  categoryName: string;
+  responsibleName: string | null;
+  hasIva: boolean;
+  hasRetefuente: boolean;
+  hasReteica: boolean;
+}
+
+const AUTO_RULES: AutoRule[] = [
+  // Rule A: Bank interest deposits
+  {
+    id: 'interest',
+    keywords: ['ABONO INTERESES AHORROS', 'ABONO INTERESES', 'INTERESES AHORROS', 'INTERESES CUENTA', 'INTERESES CTA'],
+    type: 'ingreso',
+    categoryName: 'Otros',
+    responsibleName: 'Banco',
+    hasIva: false,
+    hasRetefuente: false,
+    hasReteica: false,
+  },
+  // Rule B: GMF / 4x1000 tax
+  {
+    id: 'gmf',
+    keywords: ['IMPTO GOBIERNO 4X1000', '4X1000', 'GMF', 'GRAVAMEN MOVIMIENTOS FINANCIEROS', 'IMPUESTO GMF'],
+    type: 'egreso',
+    categoryName: 'Impuestos',
+    responsibleName: 'DIAN',
+    hasIva: false,
+    hasRetefuente: false,
+    hasReteica: false,
+  },
+  // Rule E: IVA automatic payments
+  {
+    id: 'cobro_iva',
+    keywords: ['COBRO IVA PAGOS AUTOMATICOS', 'COBRO IVA PAGOS'],
+    type: 'egreso',
+    categoryName: 'Impuestos',
+    responsibleName: 'DIAN',
+    hasIva: false,
+    hasRetefuente: false,
+    hasReteica: false,
+  },
+  // Rule F: Virtual transfer service fee
+  {
+    id: 'servicio_transferencia',
+    keywords: ['SERVICIO TRANSFERENCIA VIRTUAL'],
+    type: 'egreso',
+    categoryName: 'Gastos Operativos',
+    responsibleName: 'Banco',
+    hasIva: false,
+    hasRetefuente: false,
+    hasReteica: false,
+  },
+  // Rule C: National cash deposits (Sales, needs human review)
+  {
+    id: 'consig_efectivo',
+    keywords: ['CONSIG NACIONAL EFECTIVO'],
+    type: 'ingreso',
+    categoryName: 'Ventas',
+    responsibleName: null,
+    hasIva: true,
+    hasRetefuente: false,
+    hasReteica: true,
+  },
+  // Rule D: Correspondent banking deposits (Sales, needs human review)
+  {
+    id: 'consig_corresponsal',
+    keywords: ['CONSIGNACION CORRESPONSAL CB', 'CONSIGNACION CORRESPONSAL'],
+    type: 'ingreso',
+    categoryName: 'Ventas',
+    responsibleName: null,
+    hasIva: true,
+    hasRetefuente: false,
+    hasReteica: true,
+  },
+];
+
+// Find matching rule for a description
+function findMatchingRule(description: string): AutoRule | null {
+  const descUpper = description.toUpperCase();
+  
+  for (const rule of AUTO_RULES) {
+    const matches = rule.keywords.some(keyword => 
+      descUpper.includes(keyword.toUpperCase())
+    );
+    if (matches) {
+      return rule;
+    }
+  }
+  
+  return null;
+}
+
+// Legacy helper functions (kept for backward compatibility)
 function isGMFTransaction(description: string): boolean {
   const desc = description.toLowerCase();
   return (
@@ -550,7 +647,6 @@ function isGMFTransaction(description: string): boolean {
   );
 }
 
-// Helper to detect interest deposit transactions
 function isInterestTransaction(description: string): boolean {
   const desc = description.toLowerCase();
   return (
@@ -561,11 +657,9 @@ function isInterestTransaction(description: string): boolean {
   );
 }
 
-// Helper functions to auto-categorize and detect tax applicability
 function inferCategory(description: string): string | null {
   const desc = description.toUpperCase();
   
-  // GMF is handled separately with auto-categorization
   if (isGMFTransaction(description)) return "impuestos";
   
   if (/COBRO IVA|IVA PAGOS|PAGO.*IVA/.test(desc)) return "impuestos";
@@ -581,17 +675,13 @@ function inferCategory(description: string): string | null {
 }
 
 function shouldApplyIVA(description: string, amount: number): boolean {
-  // IVA applies to expenses (negative amounts) from purchases
   if (amount >= 0) return false;
   
   const desc = description.toUpperCase();
-  // Don't apply IVA to transfers between own accounts or tax payments
   if (/COBRO IVA|IVA PAGOS|PAGO PSE IMPUESTO/.test(desc)) return false;
   if (/TRANSFERENCIA|NOMINA|SALARIO/.test(desc)) return false;
-  // Don't apply IVA to GMF
   if (isGMFTransaction(description)) return false;
   
-  // Apply IVA to purchases from suppliers
   if (/PAGO PROVEEDOR|COMPRA|MATERIALES|INSUMOS|MERCANCIA/.test(desc)) return true;
   if (/SERVICIOS|EPM|ENERGIA|AGUA|GAS|INTERNET/.test(desc)) return true;
   
@@ -599,14 +689,11 @@ function shouldApplyIVA(description: string, amount: number): boolean {
 }
 
 function shouldApplyRetefuente(description: string, amount: number): boolean {
-  // Retefuente applies to purchases of goods (negative amounts)
   if (amount >= 0) return false;
   
-  // Don't apply retefuente to GMF
   if (isGMFTransaction(description)) return false;
   
   const desc = description.toUpperCase();
-  // Apply retefuente to purchases from suppliers
   if (/PAGO PROVEEDOR|COMPRA|MATERIALES|INSUMOS|MERCANCIA/.test(desc)) return true;
   
   return false;
