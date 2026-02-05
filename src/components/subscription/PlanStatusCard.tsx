@@ -127,9 +127,15 @@ export default function PlanStatusCard() {
 
   if (loading) {
     return (
-      <Card className="animate-pulse">
+      <Card className="border-muted">
         <CardContent className="p-4">
-          <div className="h-16 bg-muted rounded" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-muted animate-pulse" />
+            <div className="space-y-2">
+              <div className="h-4 w-32 bg-muted rounded animate-pulse" />
+              <div className="h-3 w-48 bg-muted rounded animate-pulse" />
+            </div>
+          </div>
         </CardContent>
       </Card>
     );

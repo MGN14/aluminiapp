@@ -126,7 +126,7 @@ export default function AppHeader() {
         </div>
         
         <div className="flex items-center gap-2 sm:gap-4">
-          <PlanBadge plan={plan} />
+          <PlanBadge />
           
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
