@@ -1,14 +1,20 @@
 import { Badge } from '@/components/ui/badge';
-import { Crown, Sparkles, Star, Shield } from 'lucide-react';
-import { SubscriptionPlan } from '@/hooks/useSubscription';
+import { Crown, Sparkles, Star, Shield, Loader2 } from 'lucide-react';
+import { SubscriptionPlan, useSubscription } from '@/hooks/useSubscription';
 
 interface PlanBadgeProps {
-  plan: SubscriptionPlan;
+  plan?: SubscriptionPlan;
   size?: 'sm' | 'md';
   isFounder?: boolean;
 }
 
-export default function PlanBadge({ plan, size = 'sm', isFounder = false }: PlanBadgeProps) {
+export default function PlanBadge({ plan: propPlan, size = 'sm', isFounder: propIsFounder }: PlanBadgeProps) {
+  const { plan: contextPlan, isFounder: contextIsFounder, loading } = useSubscription();
+  
+  // Use props if provided, otherwise use context
+  const plan = propPlan ?? contextPlan;
+  const isFounder = propIsFounder ?? contextIsFounder;
+  
   const config = {
     demo: {
       label: 'Demo',
@@ -35,6 +41,16 @@ export default function PlanBadge({ plan, size = 'sm', isFounder = false }: Plan
       className: 'bg-purple-600 text-white',
     },
   };
+
+  // While loading, show a loading badge instead of "Demo"
+  if (loading) {
+    return (
+      <Badge className="bg-muted text-muted-foreground text-xs gap-1">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Cargando...
+      </Badge>
+    );
+  }
 
   // For founder, show basico plan with (Admin) suffix
   const displayPlan = isFounder ? 'basico' : plan;

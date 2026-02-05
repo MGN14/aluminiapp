@@ -50,32 +50,50 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const checkSubscription = useCallback(async () => {
     if (!user || !session || sessionExpired) {
+      console.log('[PLAN] checkSubscription skipped - no user/session', { 
+        hasUser: !!user, 
+        hasSession: !!session, 
+        sessionExpired 
+      });
       setState({ ...defaultState, loading: false });
       return;
     }
 
     try {
       setState((prev) => ({ ...prev, loading: true, error: null }));
+      console.log('[PLAN] Checking subscription for user:', user.email);
 
       const result = await invokeFunctionWithAuthRetry<any>(
         'check-subscription',
-        {
-          // Authorization header is injected by invokeFunctionWithAuthRetry
-        },
+        {},
         'check-subscription'
       );
 
       if (result.error || !result.data) {
+        console.error('[PLAN] Error from check-subscription:', result.error);
         // IMPORTANT: NEVER sign out here. Auth errors are handled by session-expired UX.
+        // Keep current plan state, don't reset to demo on transient errors
         setState((prev) => ({
           ...prev,
           loading: false,
-          error: prev.error ?? 'No se pudo validar la suscripción.',
+          error: 'No se pudo validar la suscripción.',
         }));
         return;
       }
 
       const data = result.data as any;
+
+      console.log('[PLAN] Subscription data received:', {
+        user_id: user.id,
+        email: user.email,
+        plan: data.plan,
+        plan_source: data.plan_source,
+        status: data.status,
+        is_admin: data.is_admin,
+        is_founder: data.is_founder,
+        subscribed: data.subscribed,
+        stripe_customer_id: data.stripe_customer_id || null,
+      });
 
       setState({
         plan: data.plan || 'demo',
@@ -91,7 +109,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         error: null,
       });
     } catch (err) {
-      console.error('Error checking subscription:', err);
+      console.error('[PLAN] Exception in checkSubscription:', err);
+      // On error, keep previous state, just mark as not loading
       setState((prev) => ({
         ...prev,
         loading: false,
