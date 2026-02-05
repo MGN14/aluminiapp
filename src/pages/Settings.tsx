@@ -11,8 +11,9 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import PlanBadge from '@/components/subscription/PlanBadge';
 import ReteicaSettings from '@/components/settings/ReteicaSettings';
+import TaxRecalculationButton from '@/components/settings/TaxRecalculationButton';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Mail, Building2, Shield, LogOut, CreditCard, ArrowUpCircle, Key, Save } from 'lucide-react';
+import { Loader2, Mail, Building2, Shield, LogOut, CreditCard, ArrowUpCircle, Key, Save, Calculator } from 'lucide-react';
 
 export default function Settings() {
   const { user, signOut } = useAuth();
@@ -290,6 +291,22 @@ export default function Settings() {
 
         {/* Section 3: Taxes (ReteICA) */}
         <ReteicaSettings />
+
+        {/* Section 4: Tax Recalculation */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Calculator className="h-5 w-5 text-muted-foreground" />
+              Reglas fiscales automáticas
+            </CardTitle>
+            <CardDescription>
+              Aplica las reglas fiscales a todas las transacciones existentes
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TaxRecalculationButton />
+          </CardContent>
+        </Card>
 
         {/* Section 4: Security */}
         <Card>
