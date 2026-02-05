@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import PlanBadge from '@/components/subscription/PlanBadge';
+import ReteicaSettings from '@/components/settings/ReteicaSettings';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mail, Building2, Shield, LogOut, CreditCard, ArrowUpCircle, Key, Save } from 'lucide-react';
 
@@ -287,7 +288,10 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Section 3: Security */}
+        {/* Section 3: Taxes (ReteICA) */}
+        <ReteicaSettings />
+
+        {/* Section 4: Security */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">

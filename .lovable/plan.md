@@ -7,6 +7,54 @@ La aplicación tiene una base sólida con la mayoría de funcionalidades core im
 
 | Área | Estado |
 |------|--------|
+| Autenticación | ✅ Completo |
+| Páginas legales | ✅ Completo |
+| SEO y metadatos | ✅ Completo |
+| Flujo principal | ✅ Completo |
+| Suscripciones Stripe | ✅ Completo |
+| Página de ajustes | ✅ Completo |
+| Edge Functions | ✅ 5 desplegadas |
+| Formulario de contacto | ✅ Funcional |
+| OpenGraph Image | ✅ PNG generado |
+| Favicon | ✅ Actualizado |
+| **RETEICA** | ✅ **Implementado** |
+
+---
+
+## Pendientes
+
+### Crítico
+- [ ] Dominio personalizado (`aluminia.app`)
+
+### Recomendados
+- [ ] Email de bienvenida personalizado
+- [ ] Google Analytics / Plausible
+
+---
+
+## Funcionalidad RETEICA (Nuevo)
+
+### Configuración (Settings)
+- Ciudad de declaración RETEICA (texto libre)
+- Tasa de ReteICA (%) configurable
+- Botón para recalcular transacciones existentes
+- Mensaje informativo sobre responsabilidad del usuario
+
+### Transacciones
+- Checkbox "Aplica ReteICA" (solo para ingresos)
+- Columna "$ ICA" con valor calculado
+- Cálculo automático: `reteica_amount = amount * reteica_rate`
+
+### Dashboard
+- Card "ReteICA por Pagar" (periodo seleccionado)
+- Card "ReteICA Acumulado" (año)
+
+## Estado Actual
+
+La aplicación tiene una base sólida con la mayoría de funcionalidades core implementadas:
+
+| Área | Estado |
+|------|--------|
 | Autenticación | ✅ Completo (login, registro, recuperación de contraseña) |
 | Páginas legales | ✅ Completo (términos, privacidad, contacto) |
 | SEO y metadatos | ✅ Completo (OpenGraph, Twitter Cards, robots.txt) |

@@ -12,6 +12,7 @@ import { PendingTransactionsTable } from '@/components/dashboard/PendingTransact
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
+import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
@@ -19,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useAuth } from '@/hooks/useAuth';
 
 interface TransactionData {
   id: string;
@@ -34,9 +36,11 @@ interface TransactionData {
   type: 'ingreso' | 'egreso' | 'transferencia';
   has_iva: boolean;
   has_retefuente: boolean;
+  has_reteica: boolean;
   iva_amount: number;
   iva_type: 'credito' | 'debito' | null;
   retefuente_amount: number;
+  reteica_amount: number;
 }
 
 interface Metrics {
@@ -173,8 +177,8 @@ export default function Dashboard() {
         .from('transactions')
         .select(`
           id, date, description, amount, balance, category, category_id,
-          responsible_id, transaction_type, type, has_iva, has_retefuente, 
-          iva_amount, iva_type, retefuente_amount,
+          responsible_id, transaction_type, type, has_iva, has_retefuente, has_reteica,
+          iva_amount, iva_type, retefuente_amount, reteica_amount,
           categories!transactions_category_id_fkey(name)
         `)
         .is('deleted_at', null)
@@ -268,6 +272,30 @@ export default function Dashboard() {
       year: periodSelection.year,
     };
   }, [transactions, periodSelection.year]);
+
+  // Calculate RETEICA metrics
+  const reteicaMetrics = useMemo(() => {
+    const yearStart = new Date(periodSelection.year, 0, 1);
+    const yearEnd = new Date(periodSelection.year, 11, 31, 23, 59, 59);
+    
+    // Monthly RETEICA - from period transactions
+    const monthlyTransactions = periodTransactions.filter(tx => tx.has_reteica);
+    const monthlyTotal = monthlyTransactions.reduce((sum, tx) => sum + (tx.reteica_amount ?? 0), 0);
+    
+    // Yearly RETEICA - all transactions with RETEICA in the year
+    const yearlyTransactions = transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= yearStart && txDate <= yearEnd && tx.has_reteica;
+    });
+    const yearlyTotal = yearlyTransactions.reduce((sum, tx) => sum + (tx.reteica_amount ?? 0), 0);
+    
+    return {
+      monthlyTotal,
+      monthlyCount: monthlyTransactions.length,
+      yearlyTotal,
+      yearlyCount: yearlyTransactions.length,
+    };
+  }, [transactions, periodTransactions, periodSelection.year]);
 
   const metrics = useMemo((): Metrics => {
     if (transactions.length === 0) {
@@ -722,6 +750,22 @@ export default function Dashboard() {
                 transactionCount={gmfMetrics.transactionCount}
               />
             </div>
+
+            {/* RETEICA Metrics */}
+            {(reteicaMetrics.monthlyTotal > 0 || reteicaMetrics.yearlyTotal > 0) && (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+                <ReteicaMonthlyCard
+                  total={reteicaMetrics.monthlyTotal}
+                  periodLabel={periodRange.label}
+                  transactionCount={reteicaMetrics.monthlyCount}
+                />
+                <ReteicaYearlyCard
+                  total={reteicaMetrics.yearlyTotal}
+                  year={periodSelection.year}
+                  transactionCount={reteicaMetrics.yearlyCount}
+                />
+              </div>
+            )}
 
             {/* Charts - Redesigned */}
             <div className="grid gap-6 lg:grid-cols-2 animate-slide-up">
