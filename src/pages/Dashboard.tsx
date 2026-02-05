@@ -77,6 +77,11 @@ function formatCurrencyShort(value: number) {
   return `$${value.toFixed(0)}`;
 }
 
+interface ReteicaConfig {
+  reteica_city: string | null;
+  reteica_rate: number;
+}
+
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -86,6 +91,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const { checkSubscription, plan } = useSubscription();
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_city: null, reteica_rate: 0 });
 
   // Unified period selection state
   const now = new Date();
@@ -119,10 +125,33 @@ export default function Dashboard() {
     }
   }, [searchParams, setSearchParams, checkSubscription, toast]);
 
+  const fetchReteicaConfig = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('reteica_city, reteica_rate')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (data) {
+        setReteicaConfig({
+          reteica_city: data.reteica_city,
+          reteica_rate: data.reteica_rate || 0,
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching ReteICA config:', error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTransactions();
     fetchCategories();
     fetchResponsibles();
+    fetchReteicaConfig();
     initializePeriodFromData();
   }, []);
 
@@ -751,13 +780,15 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* RETEICA Metrics */}
-            {(reteicaMetrics.monthlyTotal > 0 || reteicaMetrics.yearlyTotal > 0) && (
+            {/* RETEICA Metrics - Show alongside Retefuente in Tax Metrics grid */}
+            {reteicaConfig.reteica_rate > 0 && (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
                 <ReteicaMonthlyCard
                   total={reteicaMetrics.monthlyTotal}
                   periodLabel={periodRange.label}
                   transactionCount={reteicaMetrics.monthlyCount}
+                  city={reteicaConfig.reteica_city || undefined}
+                  rate={reteicaConfig.reteica_rate}
                 />
                 <ReteicaYearlyCard
                   total={reteicaMetrics.yearlyTotal}
