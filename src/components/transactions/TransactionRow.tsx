@@ -1,4 +1,5 @@
 import { Transaction, Category, Responsible, SimpleTransactionType, SIMPLE_TYPES } from '@/types/transaction';
+import { cn } from '@/lib/utils';
 import { TableCell, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -191,7 +192,10 @@ export default function TransactionRow({
   const typeConfig = SIMPLE_TYPES.find(t => t.value === localTransaction.type);
 
   return (
-    <TableRow className={`hover:bg-muted/30 transition-colors ${!isReconciled ? 'bg-warning/5' : ''}`}>
+    <TableRow className={cn(
+      'hover:bg-muted/30 transition-colors',
+      !isReconciled && 'bg-warning/5 border-l-2 border-l-warning'
+    )}>
       <TableCell className="font-medium text-sm w-[80px]">
         {format(new Date(localTransaction.date), 'dd MMM', { locale: es })}
       </TableCell>
@@ -259,16 +263,21 @@ export default function TransactionRow({
       
       {/* Responsible with searchable dropdown - shows reconciliation status */}
       <TableCell className="w-[140px]">
-        <SearchableSelect
-          options={responsibleOptions}
-          value={localTransaction.responsible_id}
-          onChange={(value) => updateField({ responsible_id: value })}
-          placeholder="Pendiente"
-          emptyLabel="Pendiente"
-          addLabel="+ Agregar responsable"
-          onAdd={handleAddResponsible}
-          triggerClassName={`w-full ${!localTransaction.responsible_id ? 'border-warning/50 text-warning' : ''}`}
-        />
+        <div className="flex items-center gap-1">
+          <SearchableSelect
+            options={responsibleOptions}
+            value={localTransaction.responsible_id}
+            onChange={(value) => updateField({ responsible_id: value })}
+            placeholder="Pendiente"
+            emptyLabel="Pendiente"
+            addLabel="+ Agregar responsable"
+            onAdd={handleAddResponsible}
+            triggerClassName={cn('w-full', !localTransaction.responsible_id && 'border-warning/50 text-warning')}
+          />
+          {!localTransaction.responsible_id && (
+            <span className="shrink-0 text-[10px] text-warning font-medium">⚠</span>
+          )}
+        </div>
       </TableCell>
       
       {/* IVA Checkbox - disabled for transfers */}

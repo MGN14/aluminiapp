@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible } from '@/types/transaction';
@@ -6,6 +6,10 @@ import TransactionRow from '@/components/transactions/TransactionRow';
 import TransactionDetailModal from '@/components/transactions/TransactionDetailModal';
 import ResponsibleManagement from '@/components/management/ResponsibleManagement';
 import CategoryManagement from '@/components/management/CategoryManagement';
+import TransactionFilters, {
+  TransactionFilterState,
+  defaultFilters,
+} from '@/components/transactions/TransactionFilters';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -45,6 +49,7 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_rate: 0 });
+  const [filters, setFilters] = useState<TransactionFilterState>(defaultFilters);
 
   useEffect(() => {
     fetchStatements();
@@ -104,7 +109,7 @@ export default function Transactions() {
         .from('transactions')
         .select('*')
         .is('deleted_at', null)
-        .order('date', { ascending: false });
+        .order('date', { ascending: true }); // Default: ASC (oldest first, like bank statement)
 
       if (selectedStatement !== 'all') {
         query = query.eq('statement_id', selectedStatement);
@@ -121,9 +126,53 @@ export default function Transactions() {
     }
   };
 
-  // Calculate pending reconciliation count (transactions without responsible)
-  const pendingCount = transactions.filter(tx => !tx.responsible_id).length;
-  const totalCount = transactions.length;
+  // Counts for filter badges (computed from ALL transactions, not filtered)
+  const filterCounts = useMemo(() => {
+    const total = transactions.length;
+    const pendientes = transactions.filter(tx => !tx.responsible_id).length;
+    const conciliadas = total - pendientes;
+    return { total, pendientes, conciliadas };
+  }, [transactions]);
+
+  // Apply client-side filters and sorting
+  const filteredTransactions = useMemo(() => {
+    let result = [...transactions];
+
+    // Estado filter
+    if (filters.estado === 'pendientes') {
+      result = result.filter(tx => !tx.responsible_id);
+    } else if (filters.estado === 'conciliadas') {
+      result = result.filter(tx => !!tx.responsible_id);
+    }
+
+    // Tipo filter
+    if (filters.tipo === 'ingresos') {
+      result = result.filter(tx => tx.type === 'ingreso');
+    } else if (filters.tipo === 'egresos') {
+      result = result.filter(tx => tx.type === 'egreso');
+    }
+
+    // Date range filter
+    if (filters.dateFrom) {
+      const from = new Date(filters.dateFrom);
+      from.setHours(0, 0, 0, 0);
+      result = result.filter(tx => new Date(tx.date) >= from);
+    }
+    if (filters.dateTo) {
+      const to = new Date(filters.dateTo);
+      to.setHours(23, 59, 59, 999);
+      result = result.filter(tx => new Date(tx.date) <= to);
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      const dateA = new Date(a.date).getTime();
+      const dateB = new Date(b.date).getTime();
+      return filters.sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+
+    return result;
+  }, [transactions, filters]);
 
   return (
     <AppLayout>
@@ -138,18 +187,19 @@ export default function Transactions() {
             </div>
             
             <div className="flex items-center gap-4 flex-wrap">
-              {/* Pending reconciliation counter with link */}
-              {pendingCount > 0 && (
+              {/* Pending reconciliation counter */}
+              {filterCounts.pendientes > 0 && (
                 <Badge 
                   variant="outline" 
                   className="flex items-center gap-1.5 text-destructive border-destructive cursor-pointer hover:bg-destructive/10"
+                  onClick={() => setFilters(f => ({ ...f, estado: 'pendientes' }))}
                 >
                   <AlertCircle className="h-3 w-3" />
-                  <span>{pendingCount} sin conciliar</span>
+                  <span>{filterCounts.pendientes} sin conciliar</span>
                 </Badge>
               )}
               
-              {pendingCount === 0 && totalCount > 0 && (
+              {filterCounts.pendientes === 0 && filterCounts.total > 0 && (
                 <Badge 
                   variant="outline" 
                   className="flex items-center gap-1.5 text-success border-success"
@@ -178,7 +228,7 @@ export default function Transactions() {
             </div>
           </div>
 
-          {/* Management buttons in a cleaner layout */}
+          {/* Management buttons */}
           <div className="flex gap-4 items-center text-sm">
             <div className="flex items-center gap-1 text-muted-foreground">
               <span>Categorías:</span>
@@ -190,11 +240,21 @@ export default function Transactions() {
             </div>
           </div>
 
+          {/* Filters */}
+          <TransactionFilters
+            filters={filters}
+            onFiltersChange={setFilters}
+            counts={filterCounts}
+          />
+
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Movimientos ({transactions.length})
+                Movimientos ({filteredTransactions.length}
+                {filteredTransactions.length !== filterCounts.total
+                  ? ` de ${filterCounts.total}`
+                  : ''})
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 sm:p-6 sm:pt-0">
@@ -210,6 +270,14 @@ export default function Transactions() {
                     <Link to="/statement-upload" className="text-primary hover:underline">
                       Sube un extracto
                     </Link> para comenzar
+                  </p>
+                </div>
+              ) : filteredTransactions.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No hay transacciones con estos filtros</p>
+                  <p className="text-sm mt-1">
+                    Prueba cambiando los filtros activos
                   </p>
                 </div>
               ) : (
@@ -232,7 +300,7 @@ export default function Transactions() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {transactions.map((transaction) => (
+                      {filteredTransactions.map((transaction) => (
                         <TransactionRow
                           key={transaction.id}
                           transaction={transaction}
