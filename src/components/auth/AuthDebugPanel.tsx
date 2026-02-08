@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { useSubscription } from '@/hooks/useSubscription';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
+// CRITICAL: Only ever render in development mode. NEVER in production.
 const isDev = import.meta.env.DEV;
 
 function formatSeconds(totalSeconds: number) {
@@ -15,17 +15,18 @@ function formatSeconds(totalSeconds: number) {
 }
 
 export default function AuthDebugPanel() {
+  // HARD GATE: never render in production, regardless of query params or roles
+  if (!isDev) return null;
+
+  return <AuthDebugPanelInner />;
+}
+
+function AuthDebugPanelInner() {
   const { user, session, loading, lastAuthEvent, lastAuthEventAt, sessionExpired, sessionExpiredReason } = useAuth();
-  const { isAdmin } = useSubscription();
   const location = useLocation();
 
-  const enabled = useMemo(() => {
-    // In development: always show
-    if (isDev) return true;
-    // In production: ONLY if ?debug=1 AND user is admin
-    const params = new URLSearchParams(location.search);
-    return params.get('debug') === '1' && isAdmin;
-  }, [location.search, isAdmin]);
+  // In dev mode, always enabled (no admin check needed in dev)
+  const enabled = true;
 
   const [now, setNow] = useState(() => Date.now());
 

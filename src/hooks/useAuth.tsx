@@ -3,13 +3,12 @@ import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { AUTH_SESSION_EXPIRED_EVENT, type SessionExpiredDetail } from '@/lib/authSessionEvents';
 
+// CRITICAL: All auth debug logging is strictly dev-only. NEVER log in production.
 const isDev = import.meta.env.DEV;
-const isDebugEnabled =
-  isDev || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1');
 
-// Dev/debug logging
+// Dev-only logging — completely silent in production builds
 const authLog = (message: string, data?: unknown) => {
-  if (isDebugEnabled) {
+  if (isDev) {
     console.log(`[AUTH] ${message}`, data ?? '');
   }
 };
@@ -36,7 +35,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 function setupFetchUnauthorizedLogger() {
-  if (!isDebugEnabled) return;
+  if (!isDev) return;
   if (typeof window === 'undefined') return;
   const w = window as any;
   if (w.__authFetchLoggerInstalled) return;

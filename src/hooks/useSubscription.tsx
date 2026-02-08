@@ -3,6 +3,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { invokeFunctionWithAuthRetry } from '@/lib/authRetry';
 
+// CRITICAL: All plan debug logging is strictly dev-only
+const isDev = import.meta.env.DEV;
+
 export type SubscriptionPlan = 'demo' | 'basico' | 'empresarial' | 'admin';
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'inactive';
 
@@ -50,7 +53,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const checkSubscription = useCallback(async () => {
     if (!user || !session || sessionExpired) {
-      console.log('[PLAN] checkSubscription skipped - no user/session', { 
+      if (isDev) console.log('[PLAN] checkSubscription skipped - no user/session', { 
         hasUser: !!user, 
         hasSession: !!session, 
         sessionExpired 
@@ -61,7 +64,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     try {
       setState((prev) => ({ ...prev, loading: true, error: null }));
-      console.log('[PLAN] Checking subscription for user:', user.email);
+      if (isDev) console.log('[PLAN] Checking subscription for user:', user.email);
 
       const result = await invokeFunctionWithAuthRetry<any>(
         'check-subscription',
@@ -70,7 +73,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       );
 
       if (result.error || !result.data) {
-        console.error('[PLAN] Error from check-subscription:', result.error);
+        if (isDev) console.error('[PLAN] Error from check-subscription:', result.error);
         // IMPORTANT: NEVER sign out here. Auth errors are handled by session-expired UX.
         // Keep current plan state, don't reset to demo on transient errors
         setState((prev) => ({
@@ -83,7 +86,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       const data = result.data as any;
 
-      console.log('[PLAN] Subscription data received:', {
+      if (isDev) console.log('[PLAN] Subscription data received:', {
         user_id: user.id,
         email: user.email,
         plan: data.plan,
@@ -109,7 +112,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         error: null,
       });
     } catch (err) {
-      console.error('[PLAN] Exception in checkSubscription:', err);
+      if (isDev) console.error('[PLAN] Exception in checkSubscription:', err);
       // On error, keep previous state, just mark as not loading
       setState((prev) => ({
         ...prev,
