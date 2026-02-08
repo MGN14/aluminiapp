@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible } from '@/types/transaction';
@@ -109,7 +109,8 @@ export default function Transactions() {
         .from('transactions')
         .select('*')
         .is('deleted_at', null)
-        .order('date', { ascending: true }); // Default: ASC (oldest first, like bank statement)
+        .order('date', { ascending: true })
+        .order('created_at', { ascending: true }); // Stable secondary sort
 
       if (selectedStatement !== 'all') {
         query = query.eq('statement_id', selectedStatement);
@@ -126,7 +127,15 @@ export default function Transactions() {
     }
   };
 
-  // Counts for filter badges (computed from ALL transactions, not filtered)
+  // Optimistic local update: when a transaction changes (e.g., responsible assigned),
+  // update state immediately so pending filters react instantly.
+  const handleTransactionUpdated = useCallback((updated: Transaction) => {
+    setTransactions(prev =>
+      prev.map(tx => tx.id === updated.id ? { ...tx, ...updated } : tx)
+    );
+  }, []);
+
+  // Counts for filter badges (computed from ALL transactions for the selected statement, not filtered)
   const filterCounts = useMemo(() => {
     const total = transactions.length;
     const pendientes = transactions.filter(tx => !tx.responsible_id).length;
@@ -152,6 +161,11 @@ export default function Transactions() {
       result = result.filter(tx => tx.type === 'egreso');
     }
 
+    // Category filter
+    if (filters.categoryId) {
+      result = result.filter(tx => tx.category_id === filters.categoryId);
+    }
+
     // Date range filter
     if (filters.dateFrom) {
       const from = new Date(filters.dateFrom);
@@ -164,11 +178,16 @@ export default function Transactions() {
       result = result.filter(tx => new Date(tx.date) <= to);
     }
 
-    // Sort
+    // Stable sort: date + created_at as tiebreaker
     result.sort((a, b) => {
       const dateA = new Date(a.date).getTime();
       const dateB = new Date(b.date).getTime();
-      return filters.sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+      const dateDiff = filters.sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+      if (dateDiff !== 0) return dateDiff;
+      // Tiebreaker: created_at ASC preserves bank statement order
+      const createdA = new Date(a.created_at).getTime();
+      const createdB = new Date(b.created_at).getTime();
+      return createdA - createdB;
     });
 
     return result;
@@ -245,6 +264,7 @@ export default function Transactions() {
             filters={filters}
             onFiltersChange={setFilters}
             counts={filterCounts}
+            categories={categories}
           />
 
           <Card>
@@ -310,6 +330,7 @@ export default function Transactions() {
                           onViewDetail={setSelectedTransaction}
                           onCategoryAdded={fetchCategories}
                           onResponsibleAdded={fetchResponsibles}
+                          onTransactionUpdated={handleTransactionUpdated}
                         />
                       ))}
                     </TableBody>

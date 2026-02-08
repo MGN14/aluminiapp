@@ -5,7 +5,13 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import {
-  ArrowUpDown,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   CalendarIcon,
   CheckCircle2,
   Circle,
@@ -17,6 +23,7 @@ import {
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { Category } from '@/types/transaction';
 
 export type EstadoFilter = 'todas' | 'pendientes' | 'conciliadas';
 export type TipoFilter = 'todos' | 'ingresos' | 'egresos';
@@ -25,6 +32,7 @@ export type SortOrder = 'asc' | 'desc';
 export interface TransactionFilterState {
   estado: EstadoFilter;
   tipo: TipoFilter;
+  categoryId: string | null;
   dateFrom: Date | undefined;
   dateTo: Date | undefined;
   sortOrder: SortOrder;
@@ -38,17 +46,19 @@ interface TransactionFiltersProps {
     pendientes: number;
     conciliadas: number;
   };
+  categories: Category[];
 }
 
 export const defaultFilters: TransactionFilterState = {
   estado: 'todas',
   tipo: 'todos',
+  categoryId: null,
   dateFrom: undefined,
   dateTo: undefined,
   sortOrder: 'asc',
 };
 
-export default function TransactionFilters({ filters, onFiltersChange, counts }: TransactionFiltersProps) {
+export default function TransactionFilters({ filters, onFiltersChange, counts, categories }: TransactionFiltersProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   const update = (partial: Partial<TransactionFilterState>) => {
@@ -58,6 +68,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts }:
   const hasActiveFilters =
     filters.estado !== 'todas' ||
     filters.tipo !== 'todos' ||
+    filters.categoryId !== null ||
     filters.dateFrom !== undefined ||
     filters.dateTo !== undefined;
 
@@ -79,6 +90,8 @@ export default function TransactionFilters({ filters, onFiltersChange, counts }:
   const clearDates = () => {
     update({ dateFrom: undefined, dateTo: undefined });
   };
+
+  const activeCategories = categories.filter(c => c.active);
 
   return (
     <div className="space-y-3">
@@ -150,6 +163,32 @@ export default function TransactionFilters({ filters, onFiltersChange, counts }:
         </div>
 
         <Separator orientation="vertical" className="h-5" />
+
+        {/* Category filter */}
+        {activeCategories.length > 0 && (
+          <>
+            <Select
+              value={filters.categoryId ?? '_all'}
+              onValueChange={(val) => update({ categoryId: val === '_all' ? null : val })}
+            >
+              <SelectTrigger className={cn(
+                'h-7 w-[150px] text-xs',
+                filters.categoryId && 'border-primary text-primary'
+              )}>
+                <SelectValue placeholder="Categoría" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">Todas las categorías</SelectItem>
+                {activeCategories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Separator orientation="vertical" className="h-5" />
+          </>
+        )}
 
         {/* Date filter */}
         <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
