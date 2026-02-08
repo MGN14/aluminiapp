@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Transaction, Category, Responsible, SimpleTransactionType, SIMPLE_TYPES } from '@/types/transaction';
 import { cn } from '@/lib/utils';
 import { TableCell, TableRow } from '@/components/ui/table';
@@ -31,6 +32,7 @@ interface TransactionRowProps {
   onViewDetail: (transaction: Transaction) => void;
   onCategoryAdded?: () => void;
   onResponsibleAdded?: () => void;
+  onTransactionUpdated?: (transaction: Transaction) => void;
 }
 
 function formatCurrency(value: number | null) {
@@ -51,6 +53,7 @@ export default function TransactionRow({
   onViewDetail,
   onCategoryAdded,
   onResponsibleAdded,
+  onTransactionUpdated,
 }: TransactionRowProps) {
   const { user } = useAuth();
   
@@ -58,6 +61,25 @@ export default function TransactionRow({
     debounceMs: 600,
     reteicaRate,
   });
+
+  // Notify parent of optimistic updates so filters (e.g. pending) react instantly
+  const prevResponsibleRef = useRef(transaction.responsible_id);
+  const prevCategoryRef = useRef(transaction.category_id);
+  const prevTypeRef = useRef(transaction.type);
+
+  useEffect(() => {
+    const changed =
+      localTransaction.responsible_id !== prevResponsibleRef.current ||
+      localTransaction.category_id !== prevCategoryRef.current ||
+      localTransaction.type !== prevTypeRef.current;
+
+    if (changed) {
+      prevResponsibleRef.current = localTransaction.responsible_id;
+      prevCategoryRef.current = localTransaction.category_id;
+      prevTypeRef.current = localTransaction.type;
+      onTransactionUpdated?.(localTransaction);
+    }
+  }, [localTransaction.responsible_id, localTransaction.category_id, localTransaction.type, onTransactionUpdated, localTransaction]);
 
   // Helper to check if a category is "Ventas" by name
   const isSalesCategory = (categoryId: string | null): boolean => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useSubscription } from '@/hooks/useSubscription';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -15,12 +16,16 @@ function formatSeconds(totalSeconds: number) {
 
 export default function AuthDebugPanel() {
   const { user, session, loading, lastAuthEvent, lastAuthEventAt, sessionExpired, sessionExpiredReason } = useAuth();
+  const { isAdmin } = useSubscription();
   const location = useLocation();
 
   const enabled = useMemo(() => {
+    // In development: always show
+    if (isDev) return true;
+    // In production: ONLY if ?debug=1 AND user is admin
     const params = new URLSearchParams(location.search);
-    return isDev || params.get('debug') === '1';
-  }, [location.search]);
+    return params.get('debug') === '1' && isAdmin;
+  }, [location.search, isAdmin]);
 
   const [now, setNow] = useState(() => Date.now());
 
@@ -30,9 +35,10 @@ export default function AuthDebugPanel() {
     return () => window.clearInterval(id);
   }, [enabled]);
 
+  // CRITICAL: Never render in production without explicit admin + debug flag
   if (!enabled) return null;
 
-  const expiresAtSec = session?.expires_at ?? null; // seconds (supabase)
+  const expiresAtSec = session?.expires_at ?? null;
   const expiresAtMs = expiresAtSec ? expiresAtSec * 1000 : null;
   const secondsLeft = expiresAtMs ? Math.floor((expiresAtMs - now) / 1000) : null;
 
@@ -92,10 +98,6 @@ export default function AuthDebugPanel() {
               reason: <span className="font-mono">{sessionExpiredReason ?? 'unknown'}</span>
             </div>
           )}
-
-          <div className="pt-2 text-muted-foreground">
-            Tip: añade <span className="font-mono">?debug=1</span> para ver esto en prod.
-          </div>
         </CardContent>
       </Card>
     </div>
