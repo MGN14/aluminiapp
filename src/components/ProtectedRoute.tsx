@@ -2,7 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Loader2 } from 'lucide-react';
 
-const isDev = import.meta.env.DEV;
+const isDev = import.meta.env.MODE === 'development';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -29,6 +29,18 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-accent" />
           <p className="text-sm text-muted-foreground">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If the session is known to be expired, DO NOT aggressively redirect.
+  // The global SessionExpiredModal will guide the user to re-login.
+  if (!user && sessionExpired) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-2 px-6 text-center">
+          <p className="text-sm text-muted-foreground">Tu sesión expiró. Inicia sesión para continuar.</p>
         </div>
       </div>
     );

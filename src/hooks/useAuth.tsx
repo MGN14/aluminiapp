@@ -4,8 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { AUTH_SESSION_EXPIRED_EVENT, type SessionExpiredDetail } from '@/lib/authSessionEvents';
 
 // CRITICAL: All auth debug logging is strictly dev-only. NEVER log in production.
-const isDev = import.meta.env.DEV;
-
+const isDev = import.meta.env.MODE === 'development';
 // Dev-only logging — completely silent in production builds
 const authLog = (message: string, data?: unknown) => {
   if (isDev) {

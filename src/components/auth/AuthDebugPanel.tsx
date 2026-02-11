@@ -4,8 +4,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-// CRITICAL: Only ever render in development mode. NEVER in production.
-const isDev = import.meta.env.DEV;
+// CRITICAL: Debug UI must NEVER render in production.
+// It is allowed ONLY in local development AND when explicitly enabled with ?debug=1.
+const isDevelopment = import.meta.env.MODE === 'development';
 
 function formatSeconds(totalSeconds: number) {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -15,8 +16,8 @@ function formatSeconds(totalSeconds: number) {
 }
 
 export default function AuthDebugPanel() {
-  // HARD GATE: never render in production, regardless of query params or roles
-  if (!isDev) return null;
+  // HARD GATE: never render outside development.
+  if (!isDevelopment) return null;
 
   return <AuthDebugPanelInner />;
 }
@@ -25,8 +26,8 @@ function AuthDebugPanelInner() {
   const { user, session, loading, lastAuthEvent, lastAuthEventAt, sessionExpired, sessionExpiredReason } = useAuth();
   const location = useLocation();
 
-  // In dev mode, always enabled (no admin check needed in dev)
-  const enabled = true;
+  // Only show when explicitly enabled.
+  const enabled = new URLSearchParams(location.search).get('debug') === '1';
 
   const [now, setNow] = useState(() => Date.now());
 
@@ -36,7 +37,6 @@ function AuthDebugPanelInner() {
     return () => window.clearInterval(id);
   }, [enabled]);
 
-  // CRITICAL: Never render in production without explicit admin + debug flag
   if (!enabled) return null;
 
   const expiresAtSec = session?.expires_at ?? null;
