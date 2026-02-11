@@ -178,37 +178,26 @@ export default function Transactions() {
       result = result.filter(tx => new Date(tx.date) <= to);
     }
 
-    // Amount filter
-    if (filters.amountMin !== '') {
-      const min = parseFloat(filters.amountMin);
-      if (!isNaN(min)) {
-        result = result.filter(tx => {
-          const amount = tx.debit || tx.credit || 0;
-          return amount >= min;
-        });
-      }
+    // Sort logic
+    if (filters.amountSortOrder) {
+      // Sort by amount (debit or credit)
+      result.sort((a, b) => {
+        const amountA = a.debit || a.credit || 0;
+        const amountB = b.debit || b.credit || 0;
+        return filters.amountSortOrder === 'asc' ? amountA - amountB : amountB - amountA;
+      });
+    } else {
+      // Default: sort by date with created_at tiebreaker
+      result.sort((a, b) => {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        const dateDiff = filters.sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+        if (dateDiff !== 0) return dateDiff;
+        const createdA = new Date(a.created_at).getTime();
+        const createdB = new Date(b.created_at).getTime();
+        return createdA - createdB;
+      });
     }
-    if (filters.amountMax !== '') {
-      const max = parseFloat(filters.amountMax);
-      if (!isNaN(max)) {
-        result = result.filter(tx => {
-          const amount = tx.debit || tx.credit || 0;
-          return amount <= max;
-        });
-      }
-    }
-
-    // Stable sort: date + created_at as tiebreaker
-    result.sort((a, b) => {
-      const dateA = new Date(a.date).getTime();
-      const dateB = new Date(b.date).getTime();
-      const dateDiff = filters.sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
-      if (dateDiff !== 0) return dateDiff;
-      // Tiebreaker: created_at ASC preserves bank statement order
-      const createdA = new Date(a.created_at).getTime();
-      const createdB = new Date(b.created_at).getTime();
-      return createdA - createdB;
-    });
 
     return result;
   }, [transactions, filters]);
