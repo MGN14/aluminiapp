@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchWithAuthRetry } from '@/lib/authRetry';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
 import PDFUploader from '@/components/PDFUploader';
@@ -58,20 +59,18 @@ export default function StatementUpload() {
     });
 
     try {
-      // Call edge function to parse the PDF with AI
-      const response = await fetch(
+      // Call edge function with authenticated user token
+      const response = await fetchWithAuthRetry(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-bancolombia-pdf`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             file_path: filePath,
             statement_id: statementId,
           }),
-        }
+        },
+        'parse-bancolombia-pdf'
       );
 
       if (!response.ok) {
@@ -84,14 +83,13 @@ export default function StatementUpload() {
           throw new Error('Se requiere agregar créditos para continuar procesando.');
         }
         if (response.status === 403 && errorData.limit_exceeded) {
-          // Show toast and redirect to pricing for plan upgrade - don't throw error
           toast({
             title: 'Límite alcanzado',
             description: errorData.message || 'Actualiza tu plan para continuar subiendo extractos.',
             variant: 'destructive',
           });
           navigate('/pricing');
-          return; // Exit cleanly without throwing
+          return;
         }
         
         throw new Error(errorData.error || 'Error al procesar el PDF');
@@ -110,7 +108,6 @@ export default function StatementUpload() {
     } catch (error: any) {
       console.error('Processing error:', error);
       
-      // Refresh to show error status
       await fetchStatements();
       
       toast({
