@@ -3,7 +3,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { invokeFunctionWithAuthRetry } from '@/lib/authRetry';
 
-// CRITICAL: All plan debug logging is strictly dev-only
 const isDev = import.meta.env.MODE === 'development';
 
 export type SubscriptionPlan = 'demo' | 'basico' | 'empresarial' | 'admin';
@@ -18,7 +17,7 @@ interface SubscriptionState {
   pdfUploadsThisMonth: number;
   isAdmin: boolean;
   isFounder: boolean;
-  planSource: 'stripe' | 'founder' | 'admin' | null;
+  planSource: 'founder' | 'admin' | 'database' | null;
   loading: boolean;
   error: string | null;
 }
@@ -26,8 +25,6 @@ interface SubscriptionState {
 interface SubscriptionContextType extends SubscriptionState {
   checkSubscription: () => Promise<void>;
   checkUploadLimit: () => Promise<{ canUpload: boolean; message: string }>;
-  createCheckout: (plan: 'basico' | 'empresarial') => Promise<string | null>;
-  openCustomerPortal: () => Promise<string | null>;
   getPlanLimits: () => { pdfLimit: number; bankAccounts: number; historyMonths: number | null };
 }
 
@@ -53,18 +50,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const checkSubscription = useCallback(async () => {
     if (!user || !session || sessionExpired) {
-      if (isDev) console.log('[PLAN] checkSubscription skipped - no user/session', { 
-        hasUser: !!user, 
-        hasSession: !!session, 
-        sessionExpired 
-      });
+      if (isDev) console.log('[PLAN] checkSubscription skipped - no user/session');
       setState({ ...defaultState, loading: false });
       return;
     }
 
     try {
       setState((prev) => ({ ...prev, loading: true, error: null }));
-      if (isDev) console.log('[PLAN] Checking subscription for user:', user.email);
 
       const result = await invokeFunctionWithAuthRetry<any>(
         'check-subscription',
@@ -74,8 +66,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       if (result.error || !result.data) {
         if (isDev) console.error('[PLAN] Error from check-subscription:', result.error);
-        // IMPORTANT: NEVER sign out here. Auth errors are handled by session-expired UX.
-        // Keep current plan state, don't reset to demo on transient errors
         setState((prev) => ({
           ...prev,
           loading: false,
@@ -86,18 +76,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       const data = result.data as any;
 
-      if (isDev) console.log('[PLAN] Subscription data received:', {
-        user_id: user.id,
-        email: user.email,
-        plan: data.plan,
-        plan_source: data.plan_source,
-        status: data.status,
-        is_admin: data.is_admin,
-        is_founder: data.is_founder,
-        subscribed: data.subscribed,
-        stripe_customer_id: data.stripe_customer_id || null,
-      });
-
       setState({
         plan: data.plan || 'demo',
         status: data.status || 'active',
@@ -107,13 +85,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         pdfUploadsThisMonth: data.pdf_uploads_this_month || 0,
         isAdmin: data.is_admin || false,
         isFounder: data.is_founder || false,
-        planSource: data.plan_source || (data.is_admin ? 'admin' : 'stripe'),
+        planSource: data.plan_source || (data.is_admin ? 'admin' : 'database'),
         loading: false,
         error: null,
       });
     } catch (err) {
       if (isDev) console.error('[PLAN] Exception in checkSubscription:', err);
-      // On error, keep previous state, just mark as not loading
       setState((prev) => ({
         ...prev,
         loading: false,
@@ -133,8 +110,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       });
 
       if (error) throw error;
-
-      // Parse the JSON response from the database function
       const result = typeof data === 'string' ? JSON.parse(data) : data;
 
       return {
@@ -147,44 +122,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [user]);
 
-  const createCheckout = useCallback(async (plan: 'basico' | 'empresarial'): Promise<string | null> => {
-    if (!user || sessionExpired) return null;
-
-    try {
-      const { data, error } = await invokeFunctionWithAuthRetry<any>(
-        'create-checkout',
-        {
-          body: { plan },
-        },
-        'create-checkout'
-      );
-
-      if (error) throw error;
-      return data.url;
-    } catch (err) {
-      console.error('Error creating checkout:', err);
-      return null;
-    }
-  }, [user, sessionExpired]);
-
-  const openCustomerPortal = useCallback(async (): Promise<string | null> => {
-    if (!user || sessionExpired) return null;
-
-    try {
-      const { data, error } = await invokeFunctionWithAuthRetry<any>(
-        'customer-portal',
-        {},
-        'customer-portal'
-      );
-
-      if (error) throw error;
-      return data.url;
-    } catch (err) {
-      console.error('Error opening customer portal:', err);
-      return null;
-    }
-  }, [user, sessionExpired]);
-
   const getPlanLimits = useCallback(() => {
     switch (state.plan) {
       case 'demo':
@@ -192,15 +129,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       case 'basico':
         return { pdfLimit: 10, bankAccounts: 1, historyMonths: 6 };
       case 'empresarial':
-        return { pdfLimit: -1, bankAccounts: 3, historyMonths: null }; // -1 = unlimited
+        return { pdfLimit: -1, bankAccounts: 3, historyMonths: null };
       case 'admin':
-        return { pdfLimit: -1, bankAccounts: -1, historyMonths: null }; // No limits
+        return { pdfLimit: -1, bankAccounts: -1, historyMonths: null };
       default:
         return { pdfLimit: 1, bankAccounts: 1, historyMonths: null };
     }
   }, [state.plan]);
 
-  // Check subscription on mount and when user changes
   useEffect(() => {
     if (user && session && !sessionExpired) {
       checkSubscription();
@@ -209,10 +145,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [user, session, sessionExpired, checkSubscription]);
 
-  // Periodic refresh every 60 seconds
   useEffect(() => {
     if (!user || !session || sessionExpired) return;
-
     const interval = setInterval(checkSubscription, 60000);
     return () => clearInterval(interval);
   }, [user, session, sessionExpired, checkSubscription]);
@@ -223,8 +157,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         ...state,
         checkSubscription,
         checkUploadLimit,
-        createCheckout,
-        openCustomerPortal,
         getPlanLimits,
       }}
     >

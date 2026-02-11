@@ -1,21 +1,17 @@
-import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { FileSpreadsheet, Check, ArrowRight, Sparkles, Shield, CreditCard, Lock, Loader2, MessageCircle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { FileSpreadsheet, Check, ArrowRight, Sparkles, Shield, Lock, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import Footer from '@/components/layout/Footer';
 import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
-import { useToast } from '@/hooks/use-toast';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const plans = [
   {
     id: 'demo',
     name: 'Demo',
     price: '$0',
-    priceValue: 0,
     period: 'gratis',
     description: 'Prueba AluminIA con un extracto real',
     features: [
@@ -36,7 +32,6 @@ const plans = [
     id: 'basico',
     name: 'Básico',
     price: '$399.000',
-    priceValue: 399000,
     period: 'COP/mes',
     description: 'Para negocios en crecimiento',
     features: [
@@ -49,8 +44,8 @@ const plans = [
       'Exportación a Excel',
       'Soporte por email',
     ],
-    cta: 'Suscribirme al plan Básico',
-    ctaAction: 'checkout-basico',
+    cta: 'Contactar para suscribirme',
+    ctaAction: 'contact',
     highlighted: true,
     note: null,
   },
@@ -58,7 +53,6 @@ const plans = [
     id: 'empresarial',
     name: 'Empresarial',
     price: '$699.000',
-    priceValue: 699000,
     period: 'COP/mes',
     description: 'Para PyMEs establecidas',
     features: [
@@ -69,8 +63,8 @@ const plans = [
       'Soporte prioritario',
       'Acceso temprano a módulo de inventario',
     ],
-    cta: 'Contactar / Suscribirme',
-    ctaAction: 'checkout-empresarial',
+    cta: 'Contactar para suscribirme',
+    ctaAction: 'contact',
     highlighted: false,
     note: null,
   },
@@ -78,53 +72,17 @@ const plans = [
 
 export default function Pricing() {
   const { user } = useAuth();
-  const { plan: currentPlan, createCheckout } = useSubscription();
+  const { plan: currentPlan } = useSubscription();
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const [searchParams] = useSearchParams();
-  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
-  const checkoutCancelled = searchParams.get('checkout') === 'cancelled';
-
-  const handlePlanAction = async (action: string) => {
+  const handlePlanAction = (action: string) => {
     if (action === 'signup') {
       navigate(user ? '/upload' : '/signup');
       return;
     }
-
-    if (action.startsWith('checkout-')) {
-      const planId = action.replace('checkout-', '') as 'basico' | 'empresarial';
-      
-      if (!user) {
-        toast({
-          title: 'Inicia sesión primero',
-          description: 'Debes tener una cuenta para suscribirte a un plan.',
-        });
-        navigate('/signup');
-        return;
-      }
-
-      setLoadingPlan(planId);
-      try {
-        const url = await createCheckout(planId);
-        if (url) {
-          window.open(url, '_blank');
-        } else {
-          toast({
-            title: 'Error',
-            description: 'No pudimos crear la sesión de pago. Intenta de nuevo.',
-            variant: 'destructive',
-          });
-        }
-      } catch (error) {
-        toast({
-          title: 'Error',
-          description: 'Hubo un problema al procesar tu solicitud.',
-          variant: 'destructive',
-        });
-      } finally {
-        setLoadingPlan(null);
-      }
+    if (action === 'contact') {
+      navigate('/contact');
+      return;
     }
   };
 
@@ -174,23 +132,12 @@ export default function Pricing() {
         </div>
       </section>
 
-      {checkoutCancelled && (
-        <div className="container mx-auto px-4 mb-6">
-          <Alert className="max-w-3xl mx-auto">
-            <AlertDescription>
-              El proceso de pago fue cancelado. Puedes intentar de nuevo cuando quieras.
-            </AlertDescription>
-          </Alert>
-        </div>
-      )}
-
       {/* Pricing Cards */}
       <section className="pb-12">
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {plans.map((plan) => {
               const isCurrentPlan = user && currentPlan === plan.id;
-              const isLoading = loadingPlan === plan.id;
 
               return (
                 <Card 
@@ -242,15 +189,10 @@ export default function Pricing() {
                         className="w-full" 
                         size="lg"
                         variant={plan.highlighted ? 'default' : 'outline'}
-                        disabled={isCurrentPlan || isLoading}
+                        disabled={!!isCurrentPlan}
                         onClick={() => handlePlanAction(plan.ctaAction)}
                       >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Cargando...
-                          </>
-                        ) : isCurrentPlan ? (
+                        {isCurrentPlan ? (
                           'Plan actual'
                         ) : (
                           <>
@@ -274,15 +216,11 @@ export default function Pricing() {
           <div className="flex flex-wrap justify-center gap-8 md:gap-16">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Shield className="h-5 w-5" />
-              <span className="text-sm">Pagos seguros</span>
-            </div>
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <CreditCard className="h-5 w-5" />
-              <span className="text-sm">Cancelas cuando quieras</span>
+              <span className="text-sm">Datos protegidos</span>
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
               <Lock className="h-5 w-5" />
-              <span className="text-sm">Datos protegidos con encriptación</span>
+              <span className="text-sm">Encriptación de nivel bancario</span>
             </div>
           </div>
         </div>
@@ -300,7 +238,7 @@ export default function Pricing() {
                 ¿Puedo cambiar de plan en cualquier momento?
               </h3>
               <p className="text-muted-foreground text-sm">
-                Sí, puedes actualizar o reducir tu plan en cualquier momento desde tu dashboard. Los cambios se aplican inmediatamente.
+                Sí, puedes actualizar o reducir tu plan en cualquier momento. Contáctanos para gestionar el cambio.
               </p>
             </div>
             <div>
@@ -325,15 +263,7 @@ export default function Pricing() {
               </h3>
               <p className="text-muted-foreground text-sm">
                 No. AluminIA es una herramienta de organización financiera que complementa el trabajo de tu contador, 
-                no lo reemplaza. Siempre consulta a un profesional para obligaciones tributarias oficiales.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-foreground mb-2">
-                ¿Cómo funciona la facturación?
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                Los pagos se procesan mensualmente de forma automática. Recibirás una factura electrónica por cada pago.
+                no lo reemplaza.
               </p>
             </div>
           </div>

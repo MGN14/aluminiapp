@@ -14,11 +14,11 @@ import ReteicaSettings from '@/components/settings/ReteicaSettings';
 import TaxRecalculationButton from '@/components/settings/TaxRecalculationButton';
 import AutoRulesButton from '@/components/settings/AutoRulesButton';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Mail, Building2, Shield, LogOut, CreditCard, ArrowUpCircle, Key, Save, Calculator, Wand2 } from 'lucide-react';
+import { Loader2, Mail, Building2, Shield, LogOut, Key, Save, Calculator, Wand2 } from 'lucide-react';
 
 export default function Settings() {
   const { user, signOut } = useAuth();
-  const { plan, subscribed, isFounder, openCustomerPortal, createCheckout } = useSubscription();
+  const { plan, isFounder } = useSubscription();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -26,8 +26,6 @@ export default function Settings() {
   const [companyInitial, setCompanyInitial] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [loadingPortal, setLoadingPortal] = useState(false);
-  const [loadingCheckout, setLoadingCheckout] = useState(false);
 
   // Load profile data
   useEffect(() => {
@@ -62,7 +60,6 @@ export default function Settings() {
 
     setSaving(true);
     try {
-      // Validate initial is exactly 1 character
       const validInitial = companyInitial.trim().charAt(0).toUpperCase() || null;
 
       const { error } = await supabase
@@ -94,44 +91,6 @@ export default function Settings() {
     }
   };
 
-  const handleManageSubscription = async () => {
-    setLoadingPortal(true);
-    try {
-      const url = await openCustomerPortal();
-      if (url) {
-        window.open(url, '_blank');
-      }
-    } catch (error) {
-      console.error('Error opening portal:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo abrir el portal de suscripción.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoadingPortal(false);
-    }
-  };
-
-  const handleUpgrade = async () => {
-    setLoadingCheckout(true);
-    try {
-      const url = await createCheckout('basico');
-      if (url) {
-        window.open(url, '_blank');
-      }
-    } catch (error) {
-      console.error('Error creating checkout:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo iniciar el proceso de pago.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoadingCheckout(false);
-    }
-  };
-
   const handleChangePassword = () => {
     navigate('/forgot-password');
   };
@@ -151,8 +110,6 @@ export default function Settings() {
     );
   }
 
-  const isPaidPlan = subscribed || isFounder;
-
   return (
     <AppLayout>
       <div className="max-w-2xl mx-auto space-y-6">
@@ -168,7 +125,7 @@ export default function Settings() {
               <Mail className="h-5 w-5 text-muted-foreground" />
               Cuenta
             </CardTitle>
-            <CardDescription>Información de tu cuenta y suscripción</CardDescription>
+            <CardDescription>Información de tu cuenta y plan</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -186,52 +143,6 @@ export default function Settings() {
                 <PlanBadge plan={plan} size="md" isFounder={isFounder} />
               </div>
             </div>
-
-            {isPaidPlan && (
-              <Button
-                variant="outline"
-                onClick={handleManageSubscription}
-                disabled={loadingPortal}
-                className="w-full sm:w-auto"
-              >
-                {loadingPortal ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Cargando...
-                  </>
-                ) : (
-                  <>
-                    <CreditCard className="h-4 w-4 mr-2" />
-                    Gestionar suscripción
-                  </>
-                )}
-              </Button>
-            )}
-
-            {plan === 'demo' && !isFounder && (
-              <div className="p-4 bg-accent/10 rounded-lg border border-accent/20">
-                <p className="text-sm text-foreground mb-3">
-                  Actualiza al plan Básico para desbloquear más funcionalidades.
-                </p>
-                <Button
-                  onClick={handleUpgrade}
-                  disabled={loadingCheckout}
-                  className="w-full sm:w-auto"
-                >
-                  {loadingCheckout ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Procesando...
-                    </>
-                  ) : (
-                    <>
-                      <ArrowUpCircle className="h-4 w-4 mr-2" />
-                      Actualizar al plan Básico
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
           </CardContent>
         </Card>
 
@@ -325,7 +236,7 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Section 4: Security */}
+        {/* Section 6: Security */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
