@@ -41,8 +41,9 @@ const plans = [
     description: 'Para negocios en crecimiento',
     features: [
       'Hasta 10 PDFs por mes',
-      '1 cuenta bancaria',
-      '6 meses de historial',
+      'Hasta 2 cuentas bancarias',
+      'Historial de hasta 2 años',
+      '2 usuarios incluidos (Administrador y Auxiliar)',
       'Dashboard completo',
       'IVA y retenciones automáticas',
       'Exportación a Excel',
