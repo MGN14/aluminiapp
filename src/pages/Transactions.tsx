@@ -178,6 +178,26 @@ export default function Transactions() {
       result = result.filter(tx => new Date(tx.date) <= to);
     }
 
+    // Amount filter
+    if (filters.amountMin !== '') {
+      const min = parseFloat(filters.amountMin);
+      if (!isNaN(min)) {
+        result = result.filter(tx => {
+          const amount = tx.debit || tx.credit || 0;
+          return amount >= min;
+        });
+      }
+    }
+    if (filters.amountMax !== '') {
+      const max = parseFloat(filters.amountMax);
+      if (!isNaN(max)) {
+        result = result.filter(tx => {
+          const amount = tx.debit || tx.credit || 0;
+          return amount <= max;
+        });
+      }
+    }
+
     // Stable sort: date + created_at as tiebreaker
     result.sort((a, b) => {
       const dateA = new Date(a.date).getTime();

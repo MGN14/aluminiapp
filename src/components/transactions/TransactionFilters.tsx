@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
+import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -36,6 +37,8 @@ export interface TransactionFilterState {
   dateFrom: Date | undefined;
   dateTo: Date | undefined;
   sortOrder: SortOrder;
+  amountMin: string;
+  amountMax: string;
 }
 
 interface TransactionFiltersProps {
@@ -56,6 +59,8 @@ export const defaultFilters: TransactionFilterState = {
   dateFrom: undefined,
   dateTo: undefined,
   sortOrder: 'asc',
+  amountMin: '',
+  amountMax: '',
 };
 
 export default function TransactionFilters({ filters, onFiltersChange, counts, categories }: TransactionFiltersProps) {
@@ -70,7 +75,9 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
     filters.tipo !== 'todos' ||
     filters.categoryId !== null ||
     filters.dateFrom !== undefined ||
-    filters.dateTo !== undefined;
+    filters.dateTo !== undefined ||
+    filters.amountMin !== '' ||
+    filters.amountMax !== '';
 
   const clearFilters = () => {
     onFiltersChange({ ...defaultFilters, sortOrder: filters.sortOrder });
@@ -244,6 +251,62 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
                   />
                 </div>
               </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <Separator orientation="vertical" className="h-5" />
+
+        {/* Amount filter */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                'h-7 text-xs gap-1',
+                (filters.amountMin || filters.amountMax) && 'border-primary text-primary'
+              )}
+            >
+              💰
+              {filters.amountMin || filters.amountMax
+                ? `${filters.amountMin ? `≥${Number(filters.amountMin).toLocaleString('es-CO')}` : ''}${filters.amountMin && filters.amountMax ? ' · ' : ''}${filters.amountMax ? `≤${Number(filters.amountMax).toLocaleString('es-CO')}` : ''}`
+                : 'Monto'}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-3" align="start">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Filtrar por monto</p>
+              <div>
+                <label className="text-xs text-muted-foreground">Monto mínimo</label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  className="h-8 text-xs"
+                  value={filters.amountMin}
+                  onChange={(e) => update({ amountMin: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Monto máximo</label>
+                <Input
+                  type="number"
+                  placeholder="Sin límite"
+                  className="h-8 text-xs"
+                  value={filters.amountMax}
+                  onChange={(e) => update({ amountMax: e.target.value })}
+                />
+              </div>
+              {(filters.amountMin || filters.amountMax) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-xs text-muted-foreground"
+                  onClick={() => update({ amountMin: '', amountMax: '' })}
+                >
+                  Limpiar montos
+                </Button>
+              )}
             </div>
           </PopoverContent>
         </Popover>
