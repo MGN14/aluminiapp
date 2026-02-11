@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select';
 import { Download, FileSpreadsheet, Loader2, Receipt } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import * as XLSX from 'xlsx';
+import writeXlsxFile from 'write-excel-file';
 
 interface Statement {
   id: string;
@@ -140,91 +140,101 @@ export default function Export() {
         return;
       }
 
-      // Sheet 1: Transactions (simplified - no debit/credit columns)
-      const transactionData = transactions.map(tx => ({
-        'Fecha': tx.date,
-        'Descripción': tx.description,
-        'Monto': tx.amount,
-        'Tipo': tx.type === 'ingreso' ? 'Ingreso' : tx.type === 'egreso' ? 'Egreso' : 'Transferencia',
-        'Categoría': getCategoryName(tx),
-        'Responsable': getResponsibleName(tx),
-        'Conciliado': tx.responsible_id ? 'Sí' : 'No',
-        'Aplica IVA': tx.has_iva ? 'Sí' : 'No',
-        'IVA Calculado': tx.iva_amount > 0 ? tx.iva_amount : '',
-        'Tasa IVA': tx.has_iva ? `${(tx.iva_rate * 100).toFixed(0)}%` : '',
-        'Aplica Retefuente': tx.has_retefuente ? 'Sí' : 'No',
-        'Retefuente Calculada': tx.retefuente_amount > 0 ? tx.retefuente_amount : '',
-        'Tasa Retefuente': tx.has_retefuente ? `${(tx.retefuente_rate * 100).toFixed(1)}%` : '',
-        'Notas': tx.notes || '',
-      }));
-
-      const wsTransactions = XLSX.utils.json_to_sheet(transactionData);
-      
-      // Set column widths (simplified)
-      wsTransactions['!cols'] = [
-        { wch: 12 },  // Fecha
-        { wch: 50 },  // Descripción
-        { wch: 15 },  // Monto
-        { wch: 12 },  // Tipo
-        { wch: 18 },  // Categoría
-        { wch: 15 },  // Responsable
-        { wch: 10 },  // Conciliado
-        { wch: 10 },  // Aplica IVA
-        { wch: 15 },  // IVA Calculado
-        { wch: 10 },  // Tasa IVA
-        { wch: 12 },  // Aplica Retefuente
-        { wch: 15 },  // Retefuente Calculada
-        { wch: 10 },  // Tasa Retefuente
-        { wch: 25 },  // Notas
+      // Sheet 1: Transactions
+      const txHeader = [
+        { value: 'Fecha', fontWeight: 'bold' as const },
+        { value: 'Descripción', fontWeight: 'bold' as const },
+        { value: 'Monto', fontWeight: 'bold' as const },
+        { value: 'Tipo', fontWeight: 'bold' as const },
+        { value: 'Categoría', fontWeight: 'bold' as const },
+        { value: 'Responsable', fontWeight: 'bold' as const },
+        { value: 'Conciliado', fontWeight: 'bold' as const },
+        { value: 'Aplica IVA', fontWeight: 'bold' as const },
+        { value: 'IVA Calculado', fontWeight: 'bold' as const },
+        { value: 'Tasa IVA', fontWeight: 'bold' as const },
+        { value: 'Aplica Retefuente', fontWeight: 'bold' as const },
+        { value: 'Retefuente Calculada', fontWeight: 'bold' as const },
+        { value: 'Tasa Retefuente', fontWeight: 'bold' as const },
+        { value: 'Notas', fontWeight: 'bold' as const },
       ];
+
+      const txRows = transactions.map(tx => [
+        { type: String, value: tx.date },
+        { type: String, value: tx.description },
+        { type: Number, value: tx.amount ?? 0 },
+        { type: String, value: tx.type === 'ingreso' ? 'Ingreso' : tx.type === 'egreso' ? 'Egreso' : 'Transferencia' },
+        { type: String, value: getCategoryName(tx) },
+        { type: String, value: getResponsibleName(tx) },
+        { type: String, value: tx.responsible_id ? 'Sí' : 'No' },
+        { type: String, value: tx.has_iva ? 'Sí' : 'No' },
+        { type: Number, value: tx.iva_amount > 0 ? tx.iva_amount : 0 },
+        { type: String, value: tx.has_iva ? `${(tx.iva_rate * 100).toFixed(0)}%` : '' },
+        { type: String, value: tx.has_retefuente ? 'Sí' : 'No' },
+        { type: Number, value: tx.retefuente_amount > 0 ? tx.retefuente_amount : 0 },
+        { type: String, value: tx.has_retefuente ? `${(tx.retefuente_rate * 100).toFixed(1)}%` : '' },
+        { type: String, value: tx.notes || '' },
+      ] as const);
+
+      const sheet1Data = [txHeader, ...txRows];
 
       // Sheet 2: DIAN Summary
-      const dianSummaryData = [
-        { 'Concepto': 'IVA por Pagar - Cuatrimestre', 'Período': taxSummary.cuatrimestreLabel, 'Monto': taxSummary.cuatrimestreIVA, 'Transacciones': taxSummary.ivaCount },
-        { 'Concepto': 'IVA Total Acumulado', 'Período': 'Todo', 'Monto': taxSummary.totalIVA, 'Transacciones': taxSummary.ivaCount },
-        { 'Concepto': 'Retefuente por Pagar - Mes', 'Período': taxSummary.monthLabel, 'Monto': taxSummary.monthlyRetefuente, 'Transacciones': '' },
-        { 'Concepto': 'Retefuente Total Acumulada', 'Período': 'Todo', 'Monto': taxSummary.totalRetefuente, 'Transacciones': taxSummary.retefuenteCount },
-        { 'Concepto': '', 'Período': '', 'Monto': '', 'Transacciones': '' },
-        { 'Concepto': 'OBLIGACIÓN DIAN ESTIMADA', 'Período': taxSummary.cuatrimestreLabel, 'Monto': taxSummary.cuatrimestreIVA + taxSummary.monthlyRetefuente, 'Transacciones': '' },
+      const dianHeader = [
+        { value: 'Concepto', fontWeight: 'bold' as const },
+        { value: 'Período', fontWeight: 'bold' as const },
+        { value: 'Monto', fontWeight: 'bold' as const },
+        { value: 'Transacciones', fontWeight: 'bold' as const },
       ];
 
-      const wsDIAN = XLSX.utils.json_to_sheet(dianSummaryData);
-      wsDIAN['!cols'] = [
-        { wch: 30 },
-        { wch: 15 },
-        { wch: 18 },
-        { wch: 15 },
-      ];
-
-      // Sheet 3: Income Summary
       const totalIncome = transactions.filter(tx => (tx.amount ?? 0) > 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
       const totalExpenses = Math.abs(transactions.filter(tx => (tx.amount ?? 0) < 0).reduce((sum, tx) => sum + (tx.amount ?? 0), 0));
       const reconciled = transactions.filter(tx => tx.responsible_id).length;
       const pending = transactions.filter(tx => !tx.responsible_id).length;
-      
-      const summaryData = [
-        { 'Métrica': 'Total Ingresos', 'Valor': totalIncome },
-        { 'Métrica': 'Total Egresos', 'Valor': totalExpenses },
-        { 'Métrica': 'Saldo Neto', 'Valor': totalIncome - totalExpenses },
-        { 'Métrica': 'Transacciones Totales', 'Valor': transactions.length },
-        { 'Métrica': 'Transacciones Conciliadas', 'Valor': reconciled },
-        { 'Métrica': 'Pendientes por Conciliar', 'Valor': pending },
+
+      const sheet2Data = [
+        dianHeader,
+        [{ type: String, value: 'IVA por Pagar - Cuatrimestre' }, { type: String, value: taxSummary.cuatrimestreLabel }, { type: Number, value: taxSummary.cuatrimestreIVA }, { type: Number, value: taxSummary.ivaCount }],
+        [{ type: String, value: 'IVA Total Acumulado' }, { type: String, value: 'Todo' }, { type: Number, value: taxSummary.totalIVA }, { type: Number, value: taxSummary.ivaCount }],
+        [{ type: String, value: 'Retefuente por Pagar - Mes' }, { type: String, value: taxSummary.monthLabel }, { type: Number, value: taxSummary.monthlyRetefuente }, { type: Number, value: 0 }],
+        [{ type: String, value: 'Retefuente Total Acumulada' }, { type: String, value: 'Todo' }, { type: Number, value: taxSummary.totalRetefuente }, { type: Number, value: taxSummary.retefuenteCount }],
+        [{ type: String, value: '' }, { type: String, value: '' }, { type: Number, value: 0 }, { type: Number, value: 0 }],
+        [{ type: String, value: 'OBLIGACIÓN DIAN ESTIMADA' }, { type: String, value: taxSummary.cuatrimestreLabel }, { type: Number, value: taxSummary.cuatrimestreIVA + taxSummary.monthlyRetefuente }, { type: Number, value: 0 }],
+      ] as any;
+
+      // Sheet 3: Summary
+      const summaryHeader = [
+        { value: 'Métrica', fontWeight: 'bold' as const },
+        { value: 'Valor', fontWeight: 'bold' as const },
       ];
 
-      const wsSummary = XLSX.utils.json_to_sheet(summaryData);
-      wsSummary['!cols'] = [
-        { wch: 25 },
-        { wch: 18 },
-      ];
-
-      // Create workbook with all sheets
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, wsTransactions, 'Transacciones');
-      XLSX.utils.book_append_sheet(wb, wsDIAN, 'Resumen DIAN');
-      XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen General');
+      const sheet3Data = [
+        summaryHeader,
+        [{ type: String, value: 'Total Ingresos' }, { type: Number, value: totalIncome }],
+        [{ type: String, value: 'Total Egresos' }, { type: Number, value: totalExpenses }],
+        [{ type: String, value: 'Saldo Neto' }, { type: Number, value: totalIncome - totalExpenses }],
+        [{ type: String, value: 'Transacciones Totales' }, { type: Number, value: transactions.length }],
+        [{ type: String, value: 'Transacciones Conciliadas' }, { type: Number, value: reconciled }],
+        [{ type: String, value: 'Pendientes por Conciliar' }, { type: Number, value: pending }],
+      ] as any;
 
       const fileName = `aluminia_export_${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(wb, fileName);
+
+      await writeXlsxFile([sheet1Data, sheet2Data, sheet3Data] as any, {
+        sheets: ['Transacciones', 'Resumen DIAN', 'Resumen General'],
+        fileName,
+        columns: [
+          // Sheet 1 columns
+          [
+            { width: 12 }, { width: 50 }, { width: 15 }, { width: 12 },
+            { width: 18 }, { width: 15 }, { width: 10 }, { width: 10 },
+            { width: 15 }, { width: 10 }, { width: 12 }, { width: 15 },
+            { width: 10 }, { width: 25 },
+          ],
+          // Sheet 2 columns
+          [{ width: 30 }, { width: 15 }, { width: 18 }, { width: 15 }],
+          // Sheet 3 columns
+          [{ width: 25 }, { width: 18 }],
+        ],
+      });
 
       toast({
         title: 'Exportación exitosa',
