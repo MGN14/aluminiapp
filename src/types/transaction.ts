@@ -65,12 +65,23 @@ export interface Responsible {
   created_at: string;
 }
 
+export type ReportGroup = 'ingresos' | 'costos_operacionales' | 'gastos_operativos' | 'impuestos' | 'otros';
+
+export const REPORT_GROUPS = [
+  { value: 'ingresos', label: 'Ingresos' },
+  { value: 'costos_operacionales', label: 'Costos Operacionales' },
+  { value: 'gastos_operativos', label: 'Gastos Operativos' },
+  { value: 'impuestos', label: 'Impuestos' },
+  { value: 'otros', label: 'Otros' },
+] as const;
+
 export interface Category {
   id: string;
   user_id: string;
   name: string;
   active: boolean;
   sort_order: number;
+  report_group: ReportGroup;
   created_at: string;
 }
 
