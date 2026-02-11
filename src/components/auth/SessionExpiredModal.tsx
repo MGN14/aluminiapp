@@ -11,18 +11,21 @@ import {
 import { Button } from '@/components/ui/button';
 import { LogIn, Clock } from 'lucide-react';
 
-const isDev = import.meta.env.DEV;
+const isDevelopment = import.meta.env.MODE === 'development';
 
 export default function SessionExpiredModal() {
   const { sessionExpired, sessionExpiredReason, clearSessionExpired } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
+  const debugEnabled =
+    isDevelopment && new URLSearchParams(location.search).get('debug') === '1';
+
   const handleLogin = () => {
     const from = `${location.pathname}${location.search}${location.hash}`;
 
-    if (isDev) {
-      console.log('[AUTH] session_expired_modal_login', { from, reason: sessionExpiredReason });
+    if (isDevelopment) {
+      console.log('[AUTH] session_expired_modal_login', { from });
     }
 
     clearSessionExpired();
@@ -43,7 +46,7 @@ export default function SessionExpiredModal() {
           <DialogTitle className="text-center">Tu sesión ha expirado</DialogTitle>
           <DialogDescription className="text-center">
             Por seguridad, tu sesión ha expirado. Por favor, vuelve a iniciar sesión para continuar.
-            {sessionExpiredReason ? (
+            {debugEnabled && sessionExpiredReason ? (
               <span className="mt-2 block text-xs text-muted-foreground">
                 Debug: <span className="font-mono">{sessionExpiredReason}</span>
               </span>

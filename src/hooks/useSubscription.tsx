@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { invokeFunctionWithAuthRetry } from '@/lib/authRetry';
 
 // CRITICAL: All plan debug logging is strictly dev-only
-const isDev = import.meta.env.DEV;
+const isDev = import.meta.env.MODE === 'development';
 
 export type SubscriptionPlan = 'demo' | 'basico' | 'empresarial' | 'admin';
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'inactive';

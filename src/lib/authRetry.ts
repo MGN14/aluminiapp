@@ -2,13 +2,42 @@ import { supabase } from '@/integrations/supabase/client';
 import type { FunctionInvokeOptions } from '@supabase/supabase-js';
 import { emitSessionExpired } from '@/lib/authSessionEvents';
 
-const isDev = import.meta.env.DEV;
+const isDev = import.meta.env.MODE === 'development';
 
 const authLog = (message: string, data?: unknown) => {
   if (isDev) {
     console.log(`[AUTH] ${message}`, data ?? '');
   }
 };
+
+const authError = (message: string, data?: unknown) => {
+  // In production, keep logs minimal and never include tokens.
+  if (isDev) {
+    console.error(`[AUTH] ${message}`, data ?? '');
+  } else {
+    const suffix = data ? ` ${safeStringify(data)}` : '';
+    console.error(`[AUTH] ${message}${suffix}`);
+  }
+};
+
+function safeStringify(value: unknown) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '';
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function backoffMs(attemptIndex: number) {
+  // attemptIndex: 0,1,2...
+  const base = 500;
+  const jitter = Math.floor(Math.random() * 150);
+  return base * Math.pow(2, attemptIndex) + jitter;
+}
 
 const isUnauthorized = (err: unknown) => {
   const anyErr = err as any;
@@ -32,22 +61,35 @@ export async function refreshAccessTokenOnce(reason: string): Promise<string | n
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
-    authLog('refresh_attempt', { reason });
+    const maxAttempts = 3; // 1 initial + 2 retries
 
-    const { data, error } = await supabase.auth.refreshSession();
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      authLog('refresh_attempt', { reason, attempt, maxAttempts });
 
-    if (error) {
-      authLog('refresh_failed', { reason, message: error.message });
+      const { data, error } = await supabase.auth.refreshSession();
+
+      if (!error) {
+        authLog('refresh_success', {
+          reason,
+          attempt,
+          expires_at: data.session?.expires_at,
+          user_id: data.session?.user?.id,
+        });
+        return data.session?.access_token ?? null;
+      }
+
+      // Failure: log, then backoff and retry (transient network/storage issues happen)
+      authError('refresh_failed', { reason, attempt, message: error.message });
+
+      if (attempt < maxAttempts) {
+        await sleep(backoffMs(attempt - 1));
+        continue;
+      }
+
       return null;
     }
 
-    authLog('refresh_success', {
-      reason,
-      expires_at: data.session?.expires_at,
-      user_id: data.session?.user?.id,
-    });
-
-    return data.session?.access_token ?? null;
+    return null;
   })();
 
   try {
@@ -87,7 +129,11 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
   if (!attempt1.error) return { data: attempt1.data as T, error: null };
 
   if (!isUnauthorized(attempt1.error)) {
-    authLog('invoke_error', { label, error: attempt1.error });
+    authError('invoke_error', {
+      label,
+      status: (attempt1.error as any)?.status ?? (attempt1.error as any)?.context?.status,
+      message: (attempt1.error as any)?.message,
+    });
     return { data: null, error: attempt1.error };
   }
 
@@ -96,7 +142,7 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
   // Refresh once, then retry
   const refreshedToken = await refreshAccessTokenOnce(label);
   if (!refreshedToken) {
-    emitSessionExpired({ reason: `${label}:refresh_failed` });
+    authError('refresh_failed', { label }); emitSessionExpired({ reason: `${label}:refresh_failed` });
     return { data: null, error: attempt1.error };
   }
 
@@ -107,7 +153,11 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
     emitSessionExpired({ reason: `${label}:unauthorized_after_retry` });
   }
 
-  authLog('invoke_error_after_retry', { label, error: attempt2.error });
+  authError('invoke_error_after_retry', {
+    label,
+    status: (attempt2.error as any)?.status ?? (attempt2.error as any)?.context?.status,
+    message: (attempt2.error as any)?.message,
+  });
   return { data: null, error: attempt2.error };
 }
 
@@ -143,12 +193,13 @@ export async function fetchWithAuthRetry(
 
   const refreshedToken = await refreshAccessTokenOnce(`fetch:${debugLabel}`);
   if (!refreshedToken) {
-    emitSessionExpired({ reason: `fetch:${debugLabel}:refresh_failed`, status: res1.status });
+    authError('fetch_refresh_failed', { label: debugLabel, status: res1.status }); emitSessionExpired({ reason: `fetch:${debugLabel}:refresh_failed`, status: res1.status });
     return res1;
   }
 
   const res2 = await doFetch(refreshedToken, true);
   if (res2.status === 401 || res2.status === 403) {
+    authError('fetch_unauthorized_after_retry', { label: debugLabel, status: res2.status });
     emitSessionExpired({
       reason: `fetch:${debugLabel}:unauthorized_after_retry`,
       status: res2.status,
