@@ -29,6 +29,9 @@ const navItems = [{
   path: '/transactions',
   label: 'Transacciones'
 }, {
+  path: '/reports',
+  label: 'Reportes'
+}, {
   path: '/export',
   label: 'Exportar'
 }];
