@@ -5,3 +5,12 @@ verify_jwt = false
 
 [functions.send-contact]
 verify_jwt = false
+
+[functions.create-wompi-checkout]
+verify_jwt = false
+
+[functions.wompi-webhook]
+verify_jwt = false
+
+[functions.check-subscription]
+verify_jwt = false

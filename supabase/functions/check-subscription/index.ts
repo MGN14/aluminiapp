@@ -7,8 +7,7 @@ const corsHeaders = {
 };
 
 const logStep = (step: string, details?: Record<string, unknown>) => {
-  const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
-  console.log(`[CHECK-SUBSCRIPTION] ${step}${detailsStr}`);
+  console.log(`[CHECK-SUBSCRIPTION] ${step}${details ? ` - ${JSON.stringify(details)}` : ''}`);
 };
 
 serve(async (req) => {
@@ -46,10 +45,7 @@ serve(async (req) => {
     }
 
     const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        apikey: anonKey,
-      },
+      headers: { Authorization: `Bearer ${token}`, apikey: anonKey },
     });
 
     if (!authRes.ok) {
@@ -70,113 +66,85 @@ serve(async (req) => {
       });
     }
 
-    const user = { id: userId, email };
-    logStep("User authenticated", { userId: user.id });
+    logStep("User authenticated", { userId });
 
-    // Check if user is FOUNDER
+    // Check FOUNDER
     const founderEmail = Deno.env.get("FOUNDER_EMAIL");
-    const isFounder = founderEmail && user.email.toLowerCase() === founderEmail.toLowerCase();
+    const isFounder = founderEmail && email.toLowerCase() === founderEmail.toLowerCase();
 
     if (isFounder) {
       logStep("User is FOUNDER");
-
       const { data: existingRole } = await supabaseClient
-        .from("user_roles")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("role", "admin")
-        .single();
-
+        .from("user_roles").select("id").eq("user_id", userId).eq("role", "admin").single();
       if (!existingRole) {
-        await supabaseClient
-          .from("user_roles")
-          .upsert({ user_id: user.id, role: "admin" }, { onConflict: "user_id,role" });
+        await supabaseClient.from("user_roles")
+          .upsert({ user_id: userId, role: "admin" }, { onConflict: "user_id,role" });
       }
-
-      const { data: dbSubscription } = await supabaseClient
-        .from("user_subscriptions")
-        .select("pdf_uploads_total, pdf_uploads_this_month")
-        .eq("user_id", user.id)
-        .single();
-
+      const { data: sub } = await supabaseClient
+        .from("user_subscriptions").select("pdf_uploads_total, pdf_uploads_this_month")
+        .eq("user_id", userId).single();
       return new Response(JSON.stringify({
-        subscribed: true,
-        plan: "basico",
-        plan_source: "founder",
-        status: "active",
-        is_admin: true,
-        is_founder: true,
-        subscription_end: null,
-        pdf_uploads_total: dbSubscription?.pdf_uploads_total || 0,
-        pdf_uploads_this_month: dbSubscription?.pdf_uploads_this_month || 0,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+        subscribed: true, plan: "basico", plan_source: "founder", status: "active",
+        is_admin: true, is_founder: true, subscription_end: null,
+        pdf_uploads_total: sub?.pdf_uploads_total || 0,
+        pdf_uploads_this_month: sub?.pdf_uploads_this_month || 0,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
     }
 
-    // Check if user is admin
-    const { data: isAdmin } = await supabaseClient
-      .rpc("is_admin", { _user_id: user.id });
-
+    // Check admin
+    const { data: isAdmin } = await supabaseClient.rpc("is_admin", { _user_id: userId });
     if (isAdmin) {
       logStep("User is admin");
-
-      const { data: dbSubscription } = await supabaseClient
-        .from("user_subscriptions")
-        .select("pdf_uploads_total, pdf_uploads_this_month")
-        .eq("user_id", user.id)
-        .single();
-
+      const { data: sub } = await supabaseClient
+        .from("user_subscriptions").select("pdf_uploads_total, pdf_uploads_this_month")
+        .eq("user_id", userId).single();
       return new Response(JSON.stringify({
-        subscribed: true,
-        plan: "admin",
-        status: "active",
-        is_admin: true,
-        is_founder: false,
-        subscription_end: null,
-        pdf_uploads_total: dbSubscription?.pdf_uploads_total || 0,
-        pdf_uploads_this_month: dbSubscription?.pdf_uploads_this_month || 0,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+        subscribed: true, plan: "admin", status: "active",
+        is_admin: true, is_founder: false, subscription_end: null,
+        pdf_uploads_total: sub?.pdf_uploads_total || 0,
+        pdf_uploads_this_month: sub?.pdf_uploads_this_month || 0,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
     }
 
-    // Regular user: read plan from database only (no Stripe)
-    const { data: dbSubscription } = await supabaseClient
-      .from("user_subscriptions")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    // Regular user: read from database + check expiration
+    let { data: dbSub } = await supabaseClient
+      .from("user_subscriptions").select("*").eq("user_id", userId).single();
 
-    if (!dbSubscription) {
-      await supabaseClient
-        .from("user_subscriptions")
-        .insert({ user_id: user.id, plan: "demo", status: "active" });
+    if (!dbSub) {
+      await supabaseClient.from("user_subscriptions")
+        .insert({ user_id: userId, plan: "demo", status: "active" });
+      const { data: newSub } = await supabaseClient
+        .from("user_subscriptions").select("*").eq("user_id", userId).single();
+      dbSub = newSub;
     }
 
-    const plan = dbSubscription?.plan || "demo";
-    const status = dbSubscription?.status || "active";
-    const subscribed = plan !== "demo" && status === "active";
+    // Check if plan has expired
+    let plan = dbSub?.plan || "demo";
+    if (plan !== "demo" && dbSub?.plan_expires_at) {
+      const expiresAt = new Date(dbSub.plan_expires_at);
+      if (expiresAt < new Date()) {
+        logStep("Plan expired, reverting to demo", { expiresAt: dbSub.plan_expires_at });
+        await supabaseClient.from("user_subscriptions").update({
+          plan: "demo", plan_expires_at: null, wompi_transaction_id: null, updated_at: new Date().toISOString(),
+        }).eq("user_id", userId);
+        plan = "demo";
+        dbSub = { ...dbSub, plan: "demo", plan_expires_at: null };
+      }
+    }
+
+    const subscribed = plan !== "demo";
 
     return new Response(JSON.stringify({
-      subscribed,
-      plan,
-      status,
-      subscription_end: dbSubscription?.current_period_end || null,
-      pdf_uploads_total: dbSubscription?.pdf_uploads_total || 0,
-      pdf_uploads_this_month: dbSubscription?.pdf_uploads_this_month || 0,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
+      subscribed, plan, status: dbSub?.status || "active",
+      subscription_end: dbSub?.plan_expires_at || null,
+      pdf_uploads_total: dbSub?.pdf_uploads_total || 0,
+      pdf_uploads_this_month: dbSub?.pdf_uploads_this_month || 0,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logStep("ERROR", { message: errorMessage });
-    return new Response(JSON.stringify({ error: "Subscription check failed. Please try again." }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 500,
+    const msg = error instanceof Error ? error.message : String(error);
+    logStep("ERROR", { message: msg });
+    return new Response(JSON.stringify({ error: "Subscription check failed." }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500,
     });
   }
 });

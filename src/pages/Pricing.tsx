@@ -1,11 +1,14 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { FileSpreadsheet, Check, ArrowRight, Sparkles, Shield, Lock, MessageCircle } from 'lucide-react';
+import { useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { FileSpreadsheet, Check, ArrowRight, Sparkles, Shield, Lock, Loader2, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import Footer from '@/components/layout/Footer';
 import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const plans = [
   {
@@ -24,7 +27,7 @@ const plans = [
       'Exportación a Excel',
     ],
     cta: 'Probar con un extracto',
-    ctaAction: 'signup',
+    ctaAction: 'signup' as const,
     highlighted: false,
     note: 'Este plan es solo para probar AluminIA con un extracto real',
   },
@@ -32,7 +35,7 @@ const plans = [
     id: 'basico',
     name: 'Básico',
     price: '$399.000',
-    period: 'COP/mes',
+    period: 'COP / 30 días',
     description: 'Para negocios en crecimiento',
     features: [
       'Hasta 10 PDFs por mes',
@@ -44,8 +47,8 @@ const plans = [
       'Exportación a Excel',
       'Soporte por email',
     ],
-    cta: 'Contactar para suscribirme',
-    ctaAction: 'contact',
+    cta: 'Suscribirme al plan Básico',
+    ctaAction: 'wompi-basico' as const,
     highlighted: true,
     note: null,
   },
@@ -64,7 +67,7 @@ const plans = [
       'Acceso temprano a módulo de inventario',
     ],
     cta: 'Contactar para suscribirme',
-    ctaAction: 'contact',
+    ctaAction: 'contact' as const,
     highlighted: false,
     note: null,
   },
@@ -72,17 +75,56 @@ const plans = [
 
 export default function Pricing() {
   const { user } = useAuth();
-  const { plan: currentPlan } = useSubscription();
+  const { plan: currentPlan, createWompiCheckout } = useSubscription();
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
-  const handlePlanAction = (action: string) => {
+  const paymentSuccess = searchParams.get('payment') === 'success';
+
+  const handlePlanAction = async (action: string) => {
     if (action === 'signup') {
       navigate(user ? '/upload' : '/signup');
       return;
     }
+
     if (action === 'contact') {
       navigate('/contact');
       return;
+    }
+
+    if (action === 'wompi-basico') {
+      if (!user) {
+        toast({
+          title: 'Inicia sesión primero',
+          description: 'Debes tener una cuenta para suscribirte a un plan.',
+        });
+        navigate('/signup');
+        return;
+      }
+
+      setLoadingPlan('basico');
+      try {
+        const url = await createWompiCheckout();
+        if (url) {
+          window.location.href = url;
+        } else {
+          toast({
+            title: 'Error',
+            description: 'No pudimos crear el enlace de pago. Intenta de nuevo.',
+            variant: 'destructive',
+          });
+        }
+      } catch (error) {
+        toast({
+          title: 'Error',
+          description: 'Hubo un problema al procesar tu solicitud.',
+          variant: 'destructive',
+        });
+      } finally {
+        setLoadingPlan(null);
+      }
     }
   };
 
@@ -132,12 +174,23 @@ export default function Pricing() {
         </div>
       </section>
 
+      {paymentSuccess && (
+        <div className="container mx-auto px-4 mb-6">
+          <Alert className="max-w-3xl mx-auto border-success bg-success/10">
+            <AlertDescription className="text-success">
+              ¡Pago procesado! Tu plan se activará en unos momentos. Si no ves el cambio, recarga la página.
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
       {/* Pricing Cards */}
       <section className="pb-12">
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {plans.map((plan) => {
               const isCurrentPlan = user && currentPlan === plan.id;
+              const isLoading = loadingPlan === plan.id;
 
               return (
                 <Card 
@@ -189,10 +242,15 @@ export default function Pricing() {
                         className="w-full" 
                         size="lg"
                         variant={plan.highlighted ? 'default' : 'outline'}
-                        disabled={!!isCurrentPlan}
+                        disabled={!!isCurrentPlan || isLoading}
                         onClick={() => handlePlanAction(plan.ctaAction)}
                       >
-                        {isCurrentPlan ? (
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Redirigiendo...
+                          </>
+                        ) : isCurrentPlan ? (
                           'Plan actual'
                         ) : (
                           <>
@@ -216,11 +274,11 @@ export default function Pricing() {
           <div className="flex flex-wrap justify-center gap-8 md:gap-16">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Shield className="h-5 w-5" />
-              <span className="text-sm">Datos protegidos</span>
+              <span className="text-sm">Pagos seguros con Wompi</span>
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
               <Lock className="h-5 w-5" />
-              <span className="text-sm">Encriptación de nivel bancario</span>
+              <span className="text-sm">Datos protegidos con encriptación</span>
             </div>
           </div>
         </div>
@@ -235,10 +293,18 @@ export default function Pricing() {
           <div className="space-y-6">
             <div>
               <h3 className="font-semibold text-foreground mb-2">
-                ¿Puedo cambiar de plan en cualquier momento?
+                ¿Cómo funciona el pago?
               </h3>
               <p className="text-muted-foreground text-sm">
-                Sí, puedes actualizar o reducir tu plan en cualquier momento. Contáctanos para gestionar el cambio.
+                Al suscribirte, serás redirigido a Wompi para realizar un pago único. Tu plan se activará automáticamente por 30 días una vez el pago sea aprobado.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground mb-2">
+                ¿Se renueva automáticamente?
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                No. Al vencer los 30 días, puedes renovar manualmente realizando un nuevo pago. No hay cargos automáticos.
               </p>
             </div>
             <div>
