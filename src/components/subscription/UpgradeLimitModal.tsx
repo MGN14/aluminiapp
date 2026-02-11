@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
@@ -8,7 +9,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Lock, Sparkles } from 'lucide-react';
+import { Lock, Sparkles, Loader2 } from 'lucide-react';
+import { useSubscription } from '@/hooks/useSubscription';
 
 interface UpgradeLimitModalProps {
   open: boolean;
@@ -21,13 +23,28 @@ export default function UpgradeLimitModal({
   open,
   onOpenChange,
   title = 'Límite alcanzado',
-  message = 'Ya usaste el extracto gratuito. Para seguir usando AluminIA, contáctanos para suscribirte al plan Básico.',
+  message = 'Ya usaste el extracto gratuito. Para seguir usando AluminIA, suscríbete al plan Básico.',
 }: UpgradeLimitModalProps) {
   const navigate = useNavigate();
+  const { createWompiCheckout } = useSubscription();
+  const [loading, setLoading] = useState(false);
 
-  const handleContact = () => {
-    onOpenChange(false);
-    navigate('/contact');
+  const handleSubscribe = async () => {
+    setLoading(true);
+    try {
+      const url = await createWompiCheckout();
+      if (url) {
+        window.location.href = url;
+      } else {
+        navigate('/pricing');
+      }
+    } catch (error) {
+      console.error('Error creating checkout:', error);
+      navigate('/pricing');
+    } finally {
+      setLoading(false);
+      onOpenChange(false);
+    }
   };
 
   const handleViewPlans = () => {
@@ -52,7 +69,7 @@ export default function UpgradeLimitModal({
           <div className="bg-muted/50 rounded-lg p-4 space-y-2">
             <p className="text-sm font-medium flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
-              Plan Básico - $399.000 COP/mes
+              Plan Básico - $399.000 COP / 30 días
             </p>
             <ul className="text-sm text-muted-foreground space-y-1 ml-6">
               <li>• Hasta 10 PDFs por mes</li>
@@ -64,8 +81,15 @@ export default function UpgradeLimitModal({
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-col">
-          <Button onClick={handleContact} className="w-full">
-            Contactar para suscribirme
+          <Button onClick={handleSubscribe} disabled={loading} className="w-full">
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Redirigiendo a Wompi...
+              </>
+            ) : (
+              'Suscribirme al plan Básico'
+            )}
           </Button>
           <Button variant="outline" onClick={handleViewPlans} className="w-full">
             Ver todos los planes
@@ -73,7 +97,7 @@ export default function UpgradeLimitModal({
         </DialogFooter>
 
         <p className="text-xs text-center text-muted-foreground mt-2">
-          🔒 Datos protegidos · Cancelas cuando quieras
+          🔒 Pago seguro con Wompi · Sin cargos automáticos
         </p>
       </DialogContent>
     </Dialog>

@@ -73,9 +73,17 @@ export default function PlanStatusCard() {
   };
   
   const usageText = getUsageText();
-  const renewalText = subscriptionEnd 
-    ? `Renovación: ${new Date(subscriptionEnd).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}`
-    : null;
+
+  const getExpirationText = () => {
+    if (!subscriptionEnd) return null;
+    const expiresAt = new Date(subscriptionEnd);
+    const now = new Date();
+    const daysLeft = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysLeft <= 0) return 'Expirado';
+    return `Vence en ${daysLeft} día${daysLeft !== 1 ? 's' : ''}`;
+  };
+
+  const expirationText = getExpirationText();
 
   if (loading) {
     return (
@@ -127,10 +135,10 @@ export default function PlanStatusCard() {
                 <FileText className="h-4 w-4" />
                 {usageText}
               </span>
-              {renewalText && (
+              {expirationText && (
                 <span className="flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
-                  {renewalText}
+                  {expirationText}
                 </span>
               )}
             </div>

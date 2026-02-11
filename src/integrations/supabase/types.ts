@@ -340,11 +340,11 @@ export type Database = {
           pdf_uploads_this_month: number
           pdf_uploads_total: number
           plan: Database["public"]["Enums"]["subscription_plan"]
+          plan_expires_at: string | null
           status: Database["public"]["Enums"]["subscription_status"]
-          stripe_customer_id: string | null
-          stripe_subscription_id: string | null
           updated_at: string
           user_id: string
+          wompi_transaction_id: string | null
         }
         Insert: {
           bank_accounts_count?: number
@@ -355,11 +355,11 @@ export type Database = {
           pdf_uploads_this_month?: number
           pdf_uploads_total?: number
           plan?: Database["public"]["Enums"]["subscription_plan"]
+          plan_expires_at?: string | null
           status?: Database["public"]["Enums"]["subscription_status"]
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
           updated_at?: string
           user_id: string
+          wompi_transaction_id?: string | null
         }
         Update: {
           bank_accounts_count?: number
@@ -370,11 +370,11 @@ export type Database = {
           pdf_uploads_this_month?: number
           pdf_uploads_total?: number
           plan?: Database["public"]["Enums"]["subscription_plan"]
+          plan_expires_at?: string | null
           status?: Database["public"]["Enums"]["subscription_status"]
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
           updated_at?: string
           user_id?: string
+          wompi_transaction_id?: string | null
         }
         Relationships: []
       }
@@ -384,6 +384,7 @@ export type Database = {
     }
     Functions: {
       check_pdf_upload_limit: { Args: { p_user_id: string }; Returns: Json }
+      expire_plans: { Args: never; Returns: undefined }
       fix_transaction_dates_for_statement: {
         Args: { p_statement_id: string }
         Returns: number

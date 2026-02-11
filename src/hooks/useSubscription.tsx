@@ -25,6 +25,7 @@ interface SubscriptionState {
 interface SubscriptionContextType extends SubscriptionState {
   checkSubscription: () => Promise<void>;
   checkUploadLimit: () => Promise<{ canUpload: boolean; message: string }>;
+  createWompiCheckout: () => Promise<string | null>;
   getPlanLimits: () => { pdfLimit: number; bankAccounts: number; historyMonths: number | null };
 }
 
@@ -122,6 +123,28 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [user]);
 
+  const createWompiCheckout = useCallback(async (): Promise<string | null> => {
+    if (!user || sessionExpired) return null;
+
+    try {
+      const result = await invokeFunctionWithAuthRetry<any>(
+        'create-wompi-checkout',
+        {},
+        'create-wompi-checkout'
+      );
+
+      if (result.error || !result.data) {
+        console.error('Error creating Wompi checkout:', result.error);
+        return null;
+      }
+
+      return result.data.url || null;
+    } catch (err) {
+      console.error('Error creating Wompi checkout:', err);
+      return null;
+    }
+  }, [user, sessionExpired]);
+
   const getPlanLimits = useCallback(() => {
     switch (state.plan) {
       case 'demo':
@@ -157,6 +180,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         ...state,
         checkSubscription,
         checkUploadLimit,
+        createWompiCheckout,
         getPlanLimits,
       }}
     >
