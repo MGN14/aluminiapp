@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Category } from '@/types/transaction';
+import { Category, REPORT_GROUPS, ReportGroup } from '@/types/transaction';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -11,6 +11,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Plus, Settings, Trash2, Loader2, ChevronUp, ChevronDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -26,6 +33,7 @@ export default function CategoryManagement({ onUpdate }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newReportGroup, setNewReportGroup] = useState<ReportGroup>('otros');
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
@@ -50,12 +58,13 @@ export default function CategoryManagement({ onUpdate }: Props) {
     
     const { error } = await supabase
       .from('categories')
-      .insert({ user_id: user.id, name: newName.trim(), sort_order: maxOrder + 1 });
+      .insert({ user_id: user.id, name: newName.trim(), sort_order: maxOrder + 1, report_group: newReportGroup });
 
     if (error) {
       toast({ title: 'Error', description: 'No se pudo crear la categoría.', variant: 'destructive' });
     } else {
       setNewName('');
+      setNewReportGroup('otros');
       fetchCategories();
       onUpdate?.();
     }
@@ -68,14 +77,16 @@ export default function CategoryManagement({ onUpdate }: Props) {
     onUpdate?.();
   };
 
+  const handleReportGroupChange = async (id: string, report_group: string) => {
+    await supabase.from('categories').update({ report_group }).eq('id', id);
+    fetchCategories();
+    onUpdate?.();
+  };
+
   const handleMove = async (index: number, direction: 'up' | 'down') => {
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= categories.length) return;
 
-    const updated = [...categories];
-    [updated[index], updated[newIndex]] = [updated[newIndex], updated[index]];
-
-    // Update sort_order for both
     await Promise.all([
       supabase.from('categories').update({ sort_order: newIndex }).eq('id', categories[index].id),
       supabase.from('categories').update({ sort_order: index }).eq('id', categories[newIndex].id),
@@ -103,7 +114,7 @@ export default function CategoryManagement({ onUpdate }: Props) {
           Gestionar
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Administrar Categorías</DialogTitle>
         </DialogHeader>
@@ -111,11 +122,22 @@ export default function CategoryManagement({ onUpdate }: Props) {
         <div className="space-y-4">
           <div className="flex gap-2">
             <Input
-              placeholder="Nombre de la categoría"
+              placeholder="Nombre"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              className="flex-1"
             />
+            <Select value={newReportGroup} onValueChange={(v) => setNewReportGroup(v as ReportGroup)}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REPORT_GROUPS.map((g) => (
+                  <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={handleAdd} disabled={adding || !newName.trim()}>
               {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             </Button>
@@ -126,39 +148,34 @@ export default function CategoryManagement({ onUpdate }: Props) {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
               {categories.map((cat, index) => (
-                <div key={cat.id} className="flex items-center justify-between p-2 rounded-lg border border-border">
-                  <span className={`text-sm ${!cat.active ? 'text-muted-foreground line-through' : ''}`}>
+                <div key={cat.id} className="flex items-center justify-between p-2 rounded-lg border border-border gap-2">
+                  <span className={`text-sm flex-shrink-0 ${!cat.active ? 'text-muted-foreground line-through' : ''}`}>
                     {cat.name}
                   </span>
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleMove(index, 'up')}
-                      disabled={index === 0}
+                    <Select
+                      value={cat.report_group || 'otros'}
+                      onValueChange={(v) => handleReportGroupChange(cat.id, v)}
                     >
+                      <SelectTrigger className="h-7 text-xs w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REPORT_GROUPS.map((g) => (
+                          <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button variant="ghost" size="sm" onClick={() => handleMove(index, 'up')} disabled={index === 0}>
                       <ChevronUp className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleMove(index, 'down')}
-                      disabled={index === categories.length - 1}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => handleMove(index, 'down')} disabled={index === categories.length - 1}>
                       <ChevronDown className="h-4 w-4" />
                     </Button>
-                    <Switch
-                      checked={cat.active}
-                      onCheckedChange={(checked) => handleToggleActive(cat.id, checked)}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(cat.id)}
-                      className="text-destructive hover:text-destructive"
-                    >
+                    <Switch checked={cat.active} onCheckedChange={(checked) => handleToggleActive(cat.id, checked)} />
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(cat.id)} className="text-destructive hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

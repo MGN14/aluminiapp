@@ -74,6 +74,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          report_group: string
           sort_order: number
           user_id: string
         }
@@ -82,6 +83,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          report_group?: string
           sort_order?: number
           user_id: string
         }
@@ -90,6 +92,7 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          report_group?: string
           sort_order?: number
           user_id?: string
         }
