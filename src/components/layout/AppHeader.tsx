@@ -17,7 +17,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Loader2 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 const navItems = [{
@@ -36,12 +35,9 @@ const navItems = [{
 
 export default function AppHeader() {
   const { user, signOut } = useAuth();
-  const { plan, subscribed, isFounder, openCustomerPortal } = useSubscription();
   const location = useLocation();
-  const [loadingPortal, setLoadingPortal] = useState(false);
   const [companyInitial, setCompanyInitial] = useState<string | null>(null);
 
-  // Load company initial from profile
   useEffect(() => {
     const loadProfile = async () => {
       if (!user) return;
@@ -62,38 +58,16 @@ export default function AppHeader() {
     loadProfile();
   }, [user]);
 
-  const handleManageSubscription = async () => {
-    setLoadingPortal(true);
-    try {
-      const url = await openCustomerPortal();
-      if (url) {
-        window.open(url, '_blank');
-      }
-    } catch (error) {
-      console.error('Error opening portal:', error);
-    } finally {
-      setLoadingPortal(false);
-    }
-  };
-
-  // Get user initial for avatar - prioritize company initial
   const getAvatarInitial = () => {
-    if (companyInitial) {
-      return companyInitial;
-    }
-    if (user?.user_metadata?.full_name) {
-      return user.user_metadata.full_name.charAt(0).toUpperCase();
-    }
-    if (user?.email) {
-      return user.email.charAt(0).toUpperCase();
-    }
+    if (companyInitial) return companyInitial;
+    if (user?.user_metadata?.full_name) return user.user_metadata.full_name.charAt(0).toUpperCase();
+    if (user?.email) return user.email.charAt(0).toUpperCase();
     return 'U';
   };
   
   return <header className="border-b border-border bg-card">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          {/* Mobile nav */}
           <MobileNav isAuthenticated={true} />
           
           <Link to="/dashboard" className="flex items-center gap-2">
@@ -154,18 +128,6 @@ export default function AppHeader() {
                   Ajustes
                 </Link>
               </DropdownMenuItem>
-              {subscribed && (
-                <DropdownMenuItem onClick={handleManageSubscription} disabled={loadingPortal}>
-                  {loadingPortal ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Cargando...
-                    </>
-                  ) : (
-                    'Gestionar suscripción'
-                  )}
-                </DropdownMenuItem>
-              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={signOut} className="text-destructive cursor-pointer">
                 <LogOut className="h-4 w-4 mr-2" />

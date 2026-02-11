@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
@@ -9,8 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Lock, Sparkles, Loader2 } from 'lucide-react';
-import { useSubscription } from '@/hooks/useSubscription';
+import { Lock, Sparkles } from 'lucide-react';
 
 interface UpgradeLimitModalProps {
   open: boolean;
@@ -23,29 +21,13 @@ export default function UpgradeLimitModal({
   open,
   onOpenChange,
   title = 'Límite alcanzado',
-  message = 'Ya usaste el extracto gratuito. Para seguir usando AluminIA, suscríbete al plan Básico.',
+  message = 'Ya usaste el extracto gratuito. Para seguir usando AluminIA, contáctanos para suscribirte al plan Básico.',
 }: UpgradeLimitModalProps) {
   const navigate = useNavigate();
-  const { createCheckout } = useSubscription();
-  const [loading, setLoading] = useState(false);
 
-  const handleSubscribe = async () => {
-    setLoading(true);
-    try {
-      const url = await createCheckout('basico');
-      if (url) {
-        window.open(url, '_blank');
-      } else {
-        // Fallback to pricing page
-        navigate('/pricing');
-      }
-    } catch (error) {
-      console.error('Error creating checkout:', error);
-      navigate('/pricing');
-    } finally {
-      setLoading(false);
-      onOpenChange(false);
-    }
+  const handleContact = () => {
+    onOpenChange(false);
+    navigate('/contact');
   };
 
   const handleViewPlans = () => {
@@ -82,15 +64,8 @@ export default function UpgradeLimitModal({
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-col">
-          <Button onClick={handleSubscribe} disabled={loading} className="w-full">
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Cargando...
-              </>
-            ) : (
-              'Suscribirme al plan Básico'
-            )}
+          <Button onClick={handleContact} className="w-full">
+            Contactar para suscribirme
           </Button>
           <Button variant="outline" onClick={handleViewPlans} className="w-full">
             Ver todos los planes
@@ -98,7 +73,7 @@ export default function UpgradeLimitModal({
         </DialogFooter>
 
         <p className="text-xs text-center text-muted-foreground mt-2">
-          🔒 Pagos seguros · Cancelas cuando quieras
+          🔒 Datos protegidos · Cancelas cuando quieras
         </p>
       </DialogContent>
     </Dialog>

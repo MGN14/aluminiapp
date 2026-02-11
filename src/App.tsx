@@ -21,7 +21,6 @@ import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import Pricing from "./pages/Pricing";
 import Contact from "./pages/Contact";
-import Checkout from "./pages/Checkout";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -47,7 +46,6 @@ const App = () => (
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/contact" element={<Contact />} />
-              <Route path="/checkout" element={<Checkout />} />
               <Route
                 path="/dashboard"
                 element={
