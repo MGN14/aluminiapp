@@ -11,6 +11,27 @@ interface ContactRequest {
   message: string
 }
 
+// Simple in-memory rate limiter (resets on cold start, but sufficient for spam prevention)
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000 // 1 hour
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now()
+  const entry = rateLimitMap.get(ip)
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+    return false
+  }
+
+  entry.count++
+  if (entry.count > RATE_LIMIT_MAX) {
+    return true
+  }
+  return false
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -18,6 +39,18 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Rate limiting by IP
+    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+                     req.headers.get('cf-connecting-ip') ||
+                     'unknown'
+
+    if (isRateLimited(clientIp)) {
+      return new Response(
+        JSON.stringify({ error: 'Demasiados mensajes enviados. Intenta de nuevo más tarde.' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     const { name, email, message }: ContactRequest = await req.json()
 
     // Validate inputs
@@ -45,6 +78,14 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Validate name length
+    if (name.length > 100) {
+      return new Response(
+        JSON.stringify({ error: 'El nombre es demasiado largo' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     // Create Supabase client with service role for inserting
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -67,8 +108,6 @@ Deno.serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-
-    console.log(`Contact message received from ${email}`)
 
     return new Response(
       JSON.stringify({ success: true, message: 'Mensaje enviado correctamente' }),
