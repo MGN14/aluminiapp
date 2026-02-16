@@ -78,8 +78,8 @@ serve(async (req) => {
         redirect_url: `${origin}/dashboard?payment=success`,
         customer_data: {
           customer_references: [
-            { label: "user_id", value: userJson.id },
-            { label: "email", value: userJson.email },
+            { label: "user_id", is_required: true },
+            { label: "email", is_required: true },
           ],
         },
       }),
