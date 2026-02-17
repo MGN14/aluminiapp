@@ -14,7 +14,7 @@ const steps = [
   {
     icon: Upload,
     title: 'Sube tu primer extracto',
-    description: 'Arrastra tu PDF de Bancolombia para extraer automáticamente tus transacciones.',
+    description: 'Carga el extracto de tu banco (PDF) para extraer automáticamente tus transacciones. Compatible con la mayoría de bancos en Colombia.',
     cta: 'Subir PDF',
     link: '/statement-upload',
   },

@@ -312,7 +312,7 @@ export default function Pricing() {
                 ¿Qué bancos soportan?
               </h3>
               <p className="text-muted-foreground text-sm">
-                Actualmente soportamos extractos de Bancolombia. Estamos trabajando para agregar más bancos colombianos.
+                Soportamos distintos formatos de extractos bancarios colombianos. Algunos formatos pueden requerir ajuste de plantilla.
               </p>
             </div>
             <div>

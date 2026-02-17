@@ -186,7 +186,7 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
                       {isDragActive ? 'Suelta el archivo aquí' : 'Arrastra tu extracto PDF'}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      o haz clic para seleccionar (solo Bancolombia por ahora)
+                      o haz clic para seleccionar · compatible con múltiples bancos
                     </p>
                   </div>
                   {plan === 'demo' && (

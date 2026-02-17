@@ -123,18 +123,18 @@ export default function StatementUpload() {
       <div className="max-w-4xl mx-auto space-y-8">
         <section className="animate-fade-in">
           <h1 className="text-2xl font-bold text-foreground mb-2">
-            Subir Extracto Bancario
+            Sube tu extracto bancario (PDF)
           </h1>
           <p className="text-muted-foreground mb-6">
-            Sube tu extracto bancario de Bancolombia en formato PDF.
+            Funciona con múltiples bancos. Si tu PDF no se procesa correctamente, lo ajustamos.
           </p>
 
           <Alert className="mb-6">
             <Info className="h-4 w-4" />
             <AlertTitle>Formato esperado del PDF</AlertTitle>
             <AlertDescription>
-              El extracto debe contener la tabla de movimientos con: fecha, descripción, sucursal, dcto, valor y saldo.
-              El resumen (saldo anterior, total abonos, total cargos) se usa solo para validación.
+              Soportamos distintos formatos de extractos bancarios. El PDF debe contener la tabla de movimientos con: fecha, descripción, valor y saldo.
+              Algunos formatos pueden requerir ajuste de plantilla.
             </AlertDescription>
           </Alert>
 
