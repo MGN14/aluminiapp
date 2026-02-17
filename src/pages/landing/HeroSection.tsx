@@ -24,9 +24,9 @@ export default function HeroSection() {
 
           {/* Subheading */}
           <p className="text-lg md:text-xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            Automatiza tus extractos bancarios, visualiza tu PyG en segundos y pregúntale a tus
-            finanzas cualquier cosa con{' '}
-            <span className="font-semibold text-foreground">Nico Coach</span>.
+            Automatiza tus extractos bancarios, visualiza tu PyG en segundos y{' '}
+            <span className="font-semibold text-foreground">pregúntale a Nico</span>{' '}
+            cualquier cosa sobre tu negocio.
           </p>
 
           {/* CTAs */}

@@ -17,7 +17,7 @@ const steps = [
     icon: BarChart3,
     number: '03',
     title: 'Obtienes reportes e inteligencia',
-    description: 'Accede a tu PyG, métricas clave y conversaciones con Nico Coach.',
+    description: 'Accede a tu PyG, métricas clave y pregúntale a Nico lo que necesites.',
   },
 ];
 
