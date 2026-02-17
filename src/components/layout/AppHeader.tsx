@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { LogOut, Settings } from 'lucide-react';
+import { LogOut, Settings, Bot } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import MobileNav from './MobileNav';
@@ -31,6 +31,11 @@ const navItems = [{
 }, {
   path: '/reports',
   label: 'Reportes'
+}, {
+  path: '/nico',
+  label: 'Nico',
+  icon: Bot,
+  highlight: true,
 }, {
   path: '/export',
   label: 'Exportar'
@@ -86,16 +91,19 @@ export default function AppHeader() {
           
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map(item => (
-              <Link 
-                key={item.path} 
-                to={item.path} 
+              <Link
+                key={item.path}
+                to={item.path}
                 className={cn(
-                  "px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                  location.pathname === item.path 
-                    ? "bg-accent text-accent-foreground font-semibold shadow-sm" 
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  "px-3 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-1.5",
+                  location.pathname === item.path
+                    ? "bg-accent text-accent-foreground font-semibold shadow-sm"
+                    : item.highlight
+                      ? "text-success hover:bg-success/10 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 )}
               >
+                {item.icon && <item.icon className="w-3.5 h-3.5" />}
                 {item.label}
               </Link>
             ))}

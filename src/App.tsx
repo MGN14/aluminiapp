@@ -23,6 +23,7 @@ import Pricing from "./pages/Pricing";
 import Contact from "./pages/Contact";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
+import Nico from "./pages/Nico";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -100,6 +101,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Reports />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/nico"
+                element={
+                  <ProtectedRoute>
+                    <Nico />
                   </ProtectedRoute>
                 }
               />
