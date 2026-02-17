@@ -52,8 +52,8 @@ export default function Index() {
             </div>
             
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 text-balance">
-              Convierte tus extractos de{' '}
-              <span className="text-success">Bancolombia</span>{' '}
+              Convierte los extractos de{' '}
+              <span className="text-success">tu banco</span>{' '}
               en datos organizados
             </h1>
             
@@ -102,7 +102,7 @@ export default function Index() {
                 Sube tu PDF
               </h3>
               <p className="text-muted-foreground">
-                Arrastra y suelta el extracto bancario de Bancolombia directamente en la plataforma.
+                Arrastra y suelta el extracto bancario (PDF) de tu banco directamente en la plataforma.
               </p>
             </div>
 
@@ -193,7 +193,7 @@ export default function Index() {
                 <ul className="space-y-3 text-sm">
                   <li className="flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-accent" />
-                    <span className="text-foreground">Soporte para extractos Bancolombia</span>
+                    <span className="text-foreground">Compatible con la mayoría de bancos en Colombia</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-accent" />

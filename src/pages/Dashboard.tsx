@@ -620,7 +620,7 @@ export default function Dashboard() {
                 No hay datos aún
               </h3>
               <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                Sube tu primer extracto bancario de Bancolombia para comenzar a ver tus métricas financieras y organizar tus transacciones.
+                Carga el extracto de tu banco (PDF) para comenzar a ver tus métricas financieras y organizar tus transacciones.
               </p>
               <Link to="/statement-upload">
                 <Button>Subir mi primer extracto</Button>
