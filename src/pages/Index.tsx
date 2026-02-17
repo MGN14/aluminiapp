@@ -93,11 +93,11 @@ export default function Index() {
 
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             {/* Step 1 */}
-            <div className="bg-card rounded-xl p-8 border border-border shadow-sm hover:shadow-md transition-shadow animate-slide-up">
-              <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center mb-6">
-                <Upload className="w-7 h-7 text-accent" />
+            <div className="bg-card rounded-xl p-8 border-2 border-accent/30 shadow-md hover:shadow-lg hover:border-accent/60 transition-all animate-slide-up">
+              <div className="w-14 h-14 rounded-xl bg-accent flex items-center justify-center mb-6">
+                <Upload className="w-7 h-7 text-accent-foreground" />
               </div>
-              <div className="text-sm font-medium text-accent mb-2">Paso 1</div>
+              <div className="text-sm font-bold text-accent mb-2 uppercase tracking-wide">Paso 1</div>
               <h3 className="text-xl font-semibold text-foreground mb-3">
                 Sube tu PDF
               </h3>
@@ -107,13 +107,13 @@ export default function Index() {
             </div>
 
             {/* Step 2 */}
-            <div className="bg-card rounded-xl p-8 border border-border shadow-sm hover:shadow-md transition-shadow animate-slide-up" style={{
+            <div className="bg-card rounded-xl p-8 border-2 border-accent/30 shadow-md hover:shadow-lg hover:border-accent/60 transition-all animate-slide-up" style={{
             animationDelay: '0.1s'
           }}>
-              <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center mb-6">
-                <TableProperties className="w-7 h-7 text-accent" />
+              <div className="w-14 h-14 rounded-xl bg-accent flex items-center justify-center mb-6">
+                <TableProperties className="w-7 h-7 text-accent-foreground" />
               </div>
-              <div className="text-sm font-medium text-accent mb-2">Paso 2</div>
+              <div className="text-sm font-bold text-accent mb-2 uppercase tracking-wide">Paso 2</div>
               <h3 className="text-xl font-semibold text-foreground mb-3">
                 Revisa y categoriza
               </h3>
@@ -123,13 +123,13 @@ export default function Index() {
             </div>
 
             {/* Step 3 */}
-            <div className="bg-card rounded-xl p-8 border border-border shadow-sm hover:shadow-md transition-shadow animate-slide-up" style={{
+            <div className="bg-card rounded-xl p-8 border-2 border-accent/30 shadow-md hover:shadow-lg hover:border-accent/60 transition-all animate-slide-up" style={{
             animationDelay: '0.2s'
           }}>
-              <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center mb-6">
-                <Download className="w-7 h-7 text-accent" />
+              <div className="w-14 h-14 rounded-xl bg-accent flex items-center justify-center mb-6">
+                <Download className="w-7 h-7 text-accent-foreground" />
               </div>
-              <div className="text-sm font-medium text-accent mb-2">Paso 3</div>
+              <div className="text-sm font-bold text-accent mb-2 uppercase tracking-wide">Paso 3</div>
               <h3 className="text-xl font-semibold text-foreground mb-3">
                 Exporta a Excel
               </h3>
