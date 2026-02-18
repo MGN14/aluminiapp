@@ -36,7 +36,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages } = await req.json();
+    const { messages, pageContext } = await req.json();
 
     // --- Gather financial context ---
     const now = new Date();
@@ -238,6 +238,13 @@ Ejemplo de tono y estilo (no copies literal, solo el estilo):
 
 ${financialContext}`;
 
+    // Add page context note to system prompt if present
+    const pageContextNote = pageContext
+      ? `\n\nCONTEXTO DE NAVEGACIÓN ACTUAL: El usuario está en la página "${pageContext.page}"${pageContext.filters ? `. Filtros activos: ${JSON.stringify(pageContext.filters)}` : ""}. Si el usuario pregunta sobre un período específico, prioriza ese período.`
+      : "";
+
+    const finalSystemPrompt = systemPrompt + pageContextNote;
+
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -247,7 +254,7 @@ ${financialContext}`;
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: finalSystemPrompt },
           ...messages,
         ],
         stream: true,
