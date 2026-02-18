@@ -3,7 +3,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles } from 'lucide-react';
+import { useNico } from '@/hooks/useNicoContext';
+import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
@@ -91,6 +93,7 @@ export default function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
   const { checkSubscription, plan } = useSubscription();
+  const { openNico } = useNico();
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_city: null, reteica_rate: 0 });
 
@@ -608,6 +611,28 @@ export default function Dashboard() {
 
         {/* Plan Status Card */}
         <PlanStatusCard />
+
+        {/* Nico Card */}
+        <div
+          onClick={openNico}
+          className="cursor-pointer group flex items-center gap-4 p-4 rounded-2xl border border-success/30 bg-success/5 hover:bg-success/10 hover:border-success/50 transition-all animate-fade-in"
+        >
+          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-success/30 flex-shrink-0">
+            <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-sm font-semibold text-foreground">Pregúntale a Nico</span>
+              <Sparkles className="w-3.5 h-3.5 text-success" />
+            </div>
+            <p className="text-xs text-muted-foreground truncate">
+              "¿Cuánto gasté este mes y cómo voy frente al anterior?"
+            </p>
+          </div>
+          <span className="text-xs font-medium text-success group-hover:underline whitespace-nowrap flex-shrink-0">
+            Abrir Nico →
+          </span>
+        </div>
 
         {/* Onboarding Guide for new users */}
         <OnboardingGuide hasTransactions={transactions.length > 0} />
