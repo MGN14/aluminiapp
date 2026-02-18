@@ -752,8 +752,8 @@ export default function Dashboard() {
               </Card>
             </div>
 
-            {/* Tax Metrics */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+            {/* Tax & Misc Metrics - single fluid grid, no gaps */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 auto-rows-fr animate-fade-in">
 
               {/* IVA Neto (Por Pagar / A Favor) - Always visible with disclaimer */}
               <Card>
@@ -781,7 +781,7 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Retefuente por Pagar - using new component */}
+              {/* Retefuente por Pagar */}
               <RetefuenteMonthlyCard
                 total={retefuenteMetrics.monthlyTotal}
                 periodLabel={periodRange.label}
@@ -793,6 +793,13 @@ export default function Dashboard() {
                 total={retefuenteMetrics.yearlyTotal}
                 year={periodSelection.year}
                 transactionCount={retefuenteMetrics.yearlyCount}
+              />
+
+              {/* 4x1000 (GMF) Accumulated */}
+              <GMFAccumulatedCard
+                total={gmfMetrics.total}
+                year={gmfMetrics.year}
+                transactionCount={gmfMetrics.transactionCount}
               />
 
               {/* Pending Reconciliation */}
@@ -815,17 +822,8 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* 4x1000 (GMF) Accumulated */}
-              <GMFAccumulatedCard 
-                total={gmfMetrics.total}
-                year={gmfMetrics.year}
-                transactionCount={gmfMetrics.transactionCount}
-              />
-            </div>
-
-            {/* RETEICA Metrics - Show alongside Retefuente in Tax Metrics grid */}
-            {reteicaConfig.reteica_rate > 0 && (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+              {/* RETEICA Metrics - inline when configured */}
+              {reteicaConfig.reteica_rate > 0 && (
                 <ReteicaMonthlyCard
                   total={reteicaMetrics.monthlyTotal}
                   periodLabel={periodRange.label}
@@ -833,13 +831,15 @@ export default function Dashboard() {
                   city={reteicaConfig.reteica_city || undefined}
                   rate={reteicaConfig.reteica_rate}
                 />
+              )}
+              {reteicaConfig.reteica_rate > 0 && (
                 <ReteicaYearlyCard
                   total={reteicaMetrics.yearlyTotal}
                   year={periodSelection.year}
                   transactionCount={reteicaMetrics.yearlyCount}
                 />
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Charts - Redesigned */}
             <div className="grid gap-6 lg:grid-cols-2 animate-slide-up">
