@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { lovable } from '@/integrations/lovable/index';
@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, FileSpreadsheet, Eye, EyeOff, Mail, Lock, Chrome } from 'lucide-react';
+import { Loader2, FileSpreadsheet, Eye, EyeOff, Mail, Lock, LogOut, LayoutDashboard } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import SecurityFeatures from '@/components/auth/SecurityFeatures';
 import TestimonialReviews from '@/components/auth/TestimonialReviews';
@@ -21,19 +21,21 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const { signIn, user, loading: authLoading } = useAuth();
+  const [switchingAccount, setSwitchingAccount] = useState(false);
+  const { signIn, signOut, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
   // Get the redirect destination from state, or default to dashboard
   const from = (location.state as { from?: string })?.from || '/dashboard';
 
-  // If user is already logged in, redirect them
-  useEffect(() => {
-    if (!authLoading && user) {
-      navigate(from, { replace: true });
-    }
-  }, [user, authLoading, navigate, from]);
+  const handleGoToDashboard = () => navigate(from, { replace: true });
+
+  const handleSwitchAccount = async () => {
+    setSwitchingAccount(true);
+    await signOut();
+    setSwitchingAccount(false);
+  };
 
   const validateForm = (): boolean => {
     if (!email) {
@@ -97,6 +99,15 @@ export default function Login() {
     }
   };
 
+  // Show loader while auth is initializing to avoid flicker
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="flex min-h-screen">
@@ -110,6 +121,38 @@ export default function Login() {
               </div>
               <span className="text-2xl font-bold text-foreground">AluminIA</span>
             </div>
+
+            {/* Already logged in banner */}
+            {user && (
+              <div className="mb-6 p-4 rounded-lg border border-accent/30 bg-accent/5">
+                <p className="text-sm font-medium text-foreground mb-1">
+                  Ya estás conectado como <span className="text-accent">{user.email}</span>
+                </p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Puedes ir a tu dashboard o iniciar sesión con otra cuenta.
+                </p>
+                <div className="flex gap-2">
+                  <Button size="sm" className="flex-1" onClick={handleGoToDashboard}>
+                    <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
+                    Ir al Dashboard
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={handleSwitchAccount}
+                    disabled={switchingAccount}
+                  >
+                    {switchingAccount ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <LogOut className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    Cambiar cuenta
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {/* Header */}
             <div className="mb-8">

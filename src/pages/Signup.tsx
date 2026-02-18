@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { lovable } from '@/integrations/lovable/index';
@@ -9,7 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, FileSpreadsheet, CheckCircle } from 'lucide-react';
+import { Loader2, FileSpreadsheet, CheckCircle, LayoutDashboard, LogOut } from 'lucide-react';
+
 export default function Signup() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -18,9 +19,16 @@ export default function Signup() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const {
-    signUp
-  } = useAuth();
+  const [switchingAccount, setSwitchingAccount] = useState(false);
+  const { signUp, signOut, user, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSwitchAccount = async () => {
+    setSwitchingAccount(true);
+    await signOut();
+    setSwitchingAccount(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -30,9 +38,7 @@ export default function Signup() {
       setLoading(false);
       return;
     }
-    const {
-      error
-    } = await signUp(email, password, fullName);
+    const { error } = await signUp(email, password, fullName);
     if (error) {
       setError(error.message);
       setLoading(false);
@@ -41,6 +47,7 @@ export default function Signup() {
       setLoading(false);
     }
   };
+
   const handleResendEmail = async () => {
     setLoading(true);
     const { error } = await supabase.auth.resend({
@@ -64,6 +71,16 @@ export default function Signup() {
       setGoogleLoading(false);
     }
   };
+
+  // Show loader while auth is initializing to avoid flicker
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
 
   if (success) {
     return <div className="min-h-screen flex items-center justify-center bg-background px-4">
@@ -134,6 +151,38 @@ export default function Signup() {
           </div>
           <span className="text-2xl font-bold text-foreground">AluminIA</span>
         </div>
+
+        {/* Already logged in banner */}
+        {user && (
+          <div className="mb-5 p-4 rounded-lg border border-accent/30 bg-accent/5">
+            <p className="text-sm font-medium text-foreground mb-1">
+              Ya estás conectado como <span className="text-accent">{user.email}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Puedes ir a tu dashboard o iniciar sesión con otra cuenta.
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1" onClick={() => navigate('/dashboard', { replace: true })}>
+                <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
+                Ir al Dashboard
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={handleSwitchAccount}
+                disabled={switchingAccount}
+              >
+                {switchingAccount ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <LogOut className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Cambiar cuenta
+              </Button>
+            </div>
+          </div>
+        )}
 
         <Card className="border-border shadow-lg">
           <CardHeader className="text-center pb-4">
