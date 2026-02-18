@@ -13,20 +13,19 @@ export default function HeroSection() {
           {/* Eyebrow */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-border bg-card text-sm font-medium text-muted-foreground mb-8">
             <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-            Copiloto financiero para empresarios en Colombia
+            Auxiliar contable y financiero para empresarios en Colombia
           </div>
 
           {/* Heading */}
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground leading-tight mb-6 tracking-tight">
-            Tu copiloto financiero para tomar{' '}
-            <span className="text-success">decisiones inteligentes</span>
+            Tu auxiliar contable y financiero que trabaja contigo{' '}
+            <span className="text-success">24/7.</span>
           </h1>
 
           {/* Subheading */}
           <p className="text-lg md:text-xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            Automatiza tus extractos bancarios, visualiza tu PyG en segundos y{' '}
-            <span className="font-semibold text-foreground">pregúntale a Nico</span>{' '}
-            cualquier cosa sobre tu negocio.
+            Organiza tus extractos, analiza tus números y evita sorpresas con la{' '}
+            <span className="font-semibold text-foreground">DIAN</span>.
           </p>
 
           {/* CTAs */}
