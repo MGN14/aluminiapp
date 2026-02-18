@@ -3,7 +3,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { LogOut, Settings, Bot } from 'lucide-react';
+import { LogOut, Settings } from 'lucide-react';
+import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import MobileNav from './MobileNav';
@@ -34,7 +35,6 @@ const navItems = [{
 }, {
   path: '/nico',
   label: 'Nico',
-  icon: Bot,
   highlight: true,
 }, {
   path: '/export',
@@ -90,7 +90,7 @@ export default function AppHeader() {
           </Link>
           
           <nav className="hidden md:flex items-center gap-1">
-            {navItems.map(item => (
+          {navItems.map(item => (
               <Link
                 key={item.path}
                 to={item.path}
@@ -103,7 +103,9 @@ export default function AppHeader() {
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 )}
               >
-                {item.icon && <item.icon className="w-3.5 h-3.5" />}
+                {item.highlight && (
+                  <img src={nicoAvatar} alt="Nico" className="w-5 h-5 rounded-full object-cover object-top" />
+                )}
                 {item.label}
               </Link>
             ))}

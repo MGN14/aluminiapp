@@ -1,4 +1,5 @@
-import { CheckCircle, Bot } from 'lucide-react';
+import { CheckCircle } from 'lucide-react';
+import nicoAvatar from '@/assets/nico-avatar.png';
 
 const chatMessages = [
   { role: 'user', text: '¿Cómo cambiaron mis gastos este año?' },
@@ -30,7 +31,7 @@ export default function NicoCoachSection() {
             {/* Left: copy */}
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-success/10 text-success text-xs font-semibold uppercase tracking-wider mb-6">
-                <Bot className="w-3.5 h-3.5" />
+                <img src={nicoAvatar} alt="Nico" className="w-4 h-4 rounded-full object-cover object-top" />
                 Nico · IA Financiera
               </div>
               <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4 leading-tight">
@@ -67,8 +68,8 @@ export default function NicoCoachSection() {
             <div className="bg-card border border-border rounded-2xl shadow-lg overflow-hidden">
               {/* Chat header */}
               <div className="flex items-center gap-3 px-5 py-4 border-b border-border bg-card">
-                <div className="w-8 h-8 rounded-full bg-success flex items-center justify-center">
-                  <Bot className="w-4 h-4 text-white" />
+                <div className="w-8 h-8 rounded-full overflow-hidden border border-border bg-muted">
+                  <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
                 </div>
                 <div>
                   <div className="text-sm font-semibold text-foreground">Nico</div>
@@ -87,8 +88,8 @@ export default function NicoCoachSection() {
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     {msg.role === 'nico' && (
-                      <div className="w-6 h-6 rounded-full bg-success flex items-center justify-center mr-2 flex-shrink-0 mt-0.5">
-                        <Bot className="w-3 h-3 text-white" />
+                      <div className="w-6 h-6 rounded-full overflow-hidden border border-border bg-muted mr-2 flex-shrink-0 mt-0.5">
+                        <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
                       </div>
                     )}
                     <div

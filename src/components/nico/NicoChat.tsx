@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Send, Sparkles, Bot } from 'lucide-react';
+import { Send, Sparkles } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import nicoAvatar from '@/assets/nico-avatar.png';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -120,8 +121,8 @@ export default function NicoChat() {
     <div className="flex flex-col h-full min-h-[500px] max-h-[700px]">
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-4 border-b border-border bg-card rounded-t-2xl">
-        <div className="w-9 h-9 rounded-full bg-success flex items-center justify-center">
-          <Bot className="w-5 h-5 text-white" />
+        <div className="w-9 h-9 rounded-full overflow-hidden border border-border shadow-sm bg-muted">
+          <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
         </div>
         <div>
           <div className="text-sm font-semibold text-foreground">Nico</div>
@@ -165,8 +166,8 @@ export default function NicoChat() {
             className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
           >
             {msg.role === 'assistant' && (
-              <div className="w-7 h-7 rounded-full bg-success flex items-center justify-center mr-2 flex-shrink-0 mt-0.5">
-                <Bot className="w-3.5 h-3.5 text-white" />
+              <div className="w-7 h-7 rounded-full overflow-hidden border border-border bg-muted mr-2 flex-shrink-0 mt-0.5">
+                <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
               </div>
             )}
             <div
@@ -187,8 +188,8 @@ export default function NicoChat() {
 
         {isLoading && messages[messages.length - 1]?.role === 'user' && (
           <div className="flex items-start gap-2">
-            <div className="w-7 h-7 rounded-full bg-success flex items-center justify-center flex-shrink-0 mt-0.5">
-              <Bot className="w-3.5 h-3.5 text-white" />
+            <div className="w-7 h-7 rounded-full overflow-hidden border border-border bg-muted flex-shrink-0 mt-0.5">
+              <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
             </div>
             <div className="bg-card border border-border rounded-2xl rounded-bl-sm px-4 py-3">
               <div className="flex gap-1.5 items-center h-4">
