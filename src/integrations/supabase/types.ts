@@ -16,8 +16,10 @@ export type Database = {
     Tables: {
       bank_statements: {
         Row: {
+          account_number: string | null
           bank_name: string
           deleted_at: string | null
+          display_name: string | null
           file_name: string
           file_path: string
           id: string
@@ -33,8 +35,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          account_number?: string | null
           bank_name?: string
           deleted_at?: string | null
+          display_name?: string | null
           file_name: string
           file_path: string
           id?: string
@@ -50,8 +54,10 @@ export type Database = {
           user_id: string
         }
         Update: {
+          account_number?: string | null
           bank_name?: string
           deleted_at?: string | null
+          display_name?: string | null
           file_name?: string
           file_path?: string
           id?: string

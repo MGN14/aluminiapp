@@ -5,9 +5,11 @@ import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
 import PDFUploader from '@/components/PDFUploader';
 import DeleteStatementButton from '@/components/statements/DeleteStatementButton';
+import StatementConfigModal from '@/components/statements/StatementConfigModal';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Check, Clock, AlertCircle, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { FileText, Check, Clock, AlertCircle, Info, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
@@ -22,6 +24,11 @@ interface Statement {
   processed: boolean;
   processing_error: string | null;
   transaction_count: number;
+  display_name: string | null;
+  bank_name: string;
+  statement_month: number | null;
+  statement_year: number | null;
+  account_number: string | null;
 }
 
 export default function StatementUpload() {
@@ -30,6 +37,11 @@ export default function StatementUpload() {
   const navigate = useNavigate();
   const [statements, setStatements] = useState<Statement[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [pendingStatementId, setPendingStatementId] = useState<string | null>(null);
+  const [editingStatement, setEditingStatement] = useState<Statement | null>(null);
 
   useEffect(() => {
     fetchStatements();
@@ -44,7 +56,7 @@ export default function StatementUpload() {
         .order('uploaded_at', { ascending: false });
 
       if (error) throw error;
-      setStatements(data || []);
+      setStatements((data || []) as Statement[]);
     } catch (error) {
       console.error('Error fetching statements:', error);
     } finally {
@@ -59,7 +71,6 @@ export default function StatementUpload() {
     });
 
     try {
-      // Call edge function with authenticated user token
       const response = await fetchWithAuthRetry(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-bancolombia-pdf`,
         {
@@ -75,7 +86,7 @@ export default function StatementUpload() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        
+
         if (response.status === 429) {
           throw new Error('Límite de solicitudes excedido. Intenta de nuevo en unos minutos.');
         }
@@ -91,25 +102,26 @@ export default function StatementUpload() {
           navigate('/pricing');
           return;
         }
-        
+
         throw new Error(errorData.error || 'Error al procesar el PDF');
       }
 
       const result = await response.json();
-
       await fetchStatements();
 
       toast({
         title: '¡Transacciones extraídas!',
-        description: `Se encontraron ${result.transactions_count} transacciones. Ve a Transacciones para revisarlas.`,
+        description: `Se encontraron ${result.transactions_count} transacciones. Configura el extracto para continuar.`,
       });
 
-      setTimeout(() => navigate('/transactions'), 1500);
+      // Open mandatory config modal after successful processing
+      setPendingStatementId(statementId);
+      setEditingStatement(null);
+      setModalOpen(true);
     } catch (error: any) {
       console.error('Processing error:', error);
-      
       await fetchStatements();
-      
+
       toast({
         title: 'Error al procesar',
         description: error.message || 'Hubo un error al procesar el extracto.',
@@ -117,6 +129,26 @@ export default function StatementUpload() {
       });
     }
   };
+
+  const handleModalSaved = () => {
+    setModalOpen(false);
+    setPendingStatementId(null);
+    setEditingStatement(null);
+    fetchStatements();
+
+    if (!editingStatement) {
+      // After new upload, navigate to transactions
+      setTimeout(() => navigate('/transactions'), 1200);
+    }
+  };
+
+  const openEditModal = (stmt: Statement) => {
+    setEditingStatement(stmt);
+    setPendingStatementId(null);
+    setModalOpen(true);
+  };
+
+  const activeStatementId = editingStatement?.id ?? pendingStatementId ?? '';
 
   return (
     <AppLayout>
@@ -158,11 +190,16 @@ export default function StatementUpload() {
                       className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-muted/30 transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <FileText className="h-5 w-5 text-muted-foreground" />
+                        <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
                         <div>
-                          <p className="font-medium text-sm">{statement.file_name}</p>
+                          <p className="font-medium text-sm">
+                            {statement.display_name || statement.file_name}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {format(new Date(statement.uploaded_at), "dd MMM yyyy, HH:mm", { locale: es })}
+                            {statement.transaction_count
+                              ? ` · ${statement.transaction_count} transacciones`
+                              : ''}
                           </p>
                         </div>
                       </div>
@@ -183,9 +220,18 @@ export default function StatementUpload() {
                             Pendiente
                           </Badge>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Editar configuración"
+                          onClick={() => openEditModal(statement)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                         <DeleteStatementButton
                           statementId={statement.id}
-                          fileName={statement.file_name}
+                          fileName={statement.display_name || statement.file_name}
                           filePath={statement.file_path}
                           transactionCount={statement.transaction_count}
                           onDeleted={fetchStatements}
@@ -199,6 +245,20 @@ export default function StatementUpload() {
           </section>
         )}
       </div>
+
+      {/* Statement config modal */}
+      {activeStatementId && (
+        <StatementConfigModal
+          open={modalOpen}
+          statementId={activeStatementId}
+          initialBankName={editingStatement?.bank_name}
+          initialMonth={editingStatement?.statement_month}
+          initialYear={editingStatement?.statement_year}
+          initialAccountNumber={editingStatement?.account_number}
+          onSaved={handleModalSaved}
+          required={!editingStatement} // Required only after a new upload
+        />
+      )}
     </AppLayout>
   );
 }

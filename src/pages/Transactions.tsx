@@ -33,6 +33,7 @@ import { Link } from 'react-router-dom';
 interface Statement {
   id: string;
   file_name: string;
+  display_name: string | null;
   transaction_count: number;
 }
 
@@ -80,10 +81,10 @@ export default function Transactions() {
   const fetchStatements = async () => {
     const { data } = await supabase
       .from('bank_statements')
-      .select('id, file_name, transaction_count')
+      .select('id, file_name, display_name, transaction_count')
       .is('deleted_at', null)
       .order('uploaded_at', { ascending: false });
-    setStatements(data || []);
+    setStatements((data || []) as Statement[]);
   };
 
   const fetchCategories = async () => {
@@ -247,7 +248,8 @@ export default function Transactions() {
                     <SelectItem value="all">Todos los extractos</SelectItem>
                     {statements.map((stmt) => (
                       <SelectItem key={stmt.id} value={stmt.id}>
-                        {stmt.file_name} ({stmt.transaction_count})
+                        {stmt.display_name || stmt.file_name}
+                        {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
