@@ -125,7 +125,19 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData.session?.access_token;
 
-  const attempt1 = await invoke(accessToken);
+  // If no token available, try to refresh once before giving up
+  let tokenToUse = accessToken;
+  if (!tokenToUse) {
+    authLog('invoke_no_token', { label, reason: 'refreshing before first attempt' });
+    const refreshed = await refreshAccessTokenOnce(`${label}:no_token`);
+    if (!refreshed) {
+      authError('invoke_no_token_after_refresh', { label });
+      return { data: null, error: new Error('No active session') };
+    }
+    tokenToUse = refreshed;
+  }
+
+  const attempt1 = await invoke(tokenToUse);
   if (!attempt1.error) return { data: attempt1.data as T, error: null };
 
   if (!isUnauthorized(attempt1.error)) {
@@ -141,6 +153,7 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
 
   // Refresh once, then retry
   const refreshedToken = await refreshAccessTokenOnce(label);
+
   if (!refreshedToken) {
     authError('refresh_failed', { label }); emitSessionExpired({ reason: `${label}:refresh_failed` });
     return { data: null, error: attempt1.error };
