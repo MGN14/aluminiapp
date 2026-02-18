@@ -1,6 +1,6 @@
 import AppLayout from '@/components/layout/AppLayout';
 import NicoChat from '@/components/nico/NicoChat';
-import { Bot } from 'lucide-react';
+import nicoAvatar from '@/assets/nico-avatar.png';
 
 export default function NicoPage() {
   return (
@@ -9,8 +9,8 @@ export default function NicoPage() {
         {/* Header */}
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-success flex items-center justify-center">
-              <Bot className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-xl overflow-hidden border border-border shadow-sm bg-muted">
+              <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-foreground">Nico</h1>
