@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { ExtractedInvoiceData } from '@/types/invoice';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, Upload } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Loader2, Upload, RefreshCw, X, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useDropzone } from 'react-dropzone';
+import { Button } from '@/components/ui/button';
 import InvoiceValidationForm from './InvoiceValidationForm';
 
 interface Props {
@@ -14,15 +15,31 @@ interface Props {
   onInvoiceSaved: () => void;
 }
 
+type Step = 'upload' | 'validating' | 'review' | 'error';
+
+interface ErrorState {
+  phase: 'storage' | 'extraction' | 'save';
+  canRetry: boolean;
+}
+
+const MAX_RETRIES = 3;
+const BACKOFF_BASE_MS = 1500;
+
+async function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [step, setStep] = useState<'upload' | 'validating' | 'review'>('upload');
+  const [step, setStep] = useState<Step>('upload');
   const [extracted, setExtracted] = useState<ExtractedInvoiceData | null>(null);
   const [rawExtracted, setRawExtracted] = useState<any>(null);
   const [storagePath, setStoragePath] = useState<string | null>(null);
   const [originalFilename, setOriginalFilename] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [errorState, setErrorState] = useState<ErrorState | null>(null);
+  const fileRef = useRef<File | null>(null);
 
   const reset = () => {
     setStep('upload');
@@ -31,45 +48,86 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
     setStoragePath(null);
     setOriginalFilename('');
     setSaving(false);
+    setErrorState(null);
+    fileRef.current = null;
   };
 
-  const handleClose = () => { reset(); onClose(); };
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
 
-  const onDrop = async (files: File[]) => {
-    if (!files.length || !user) return;
-    const file = files[0];
-    if (file.type !== 'application/pdf') {
-      toast({ title: 'Solo se permiten archivos PDF', variant: 'destructive' });
-      return;
+  const uploadToStorage = async (file: File): Promise<string> => {
+    const path = `${user!.id}/${Date.now()}_${file.name}`;
+    const { error } = await supabase.storage.from('invoices').upload(path, file);
+    if (error) throw error;
+    return path;
+  };
+
+  const callExtraction = async (file: File): Promise<any> => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const resp = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-invoice-pdf`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formData }
+    );
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(errText || `HTTP ${resp.status}`);
     }
+    return resp.json();
+  };
 
-    setOriginalFilename(file.name);
+  const processFile = useCallback(async (file: File) => {
+    if (!user) return;
+
     setStep('validating');
+    setErrorState(null);
+
     try {
-      const path = `${user.id}/${Date.now()}_${file.name}`;
-      const { error: uploadError } = await supabase.storage.from('invoices').upload(path, file);
-      if (uploadError) throw uploadError;
-      setStoragePath(path);
-
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-
-      const resp = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-invoice-pdf`,
-        { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formData }
-      );
-
-      if (!resp.ok) {
-        const errText = await resp.text();
-        throw new Error(errText || 'Error parsing invoice');
+      // Phase 1: Upload to storage (with retries)
+      let path = storagePath;
+      if (!path) {
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            path = await uploadToStorage(file);
+            setStoragePath(path);
+            break;
+          } catch (err) {
+            console.error(`Storage upload attempt ${attempt}/${MAX_RETRIES}:`, err);
+            if (attempt === MAX_RETRIES) {
+              setStep('error');
+              setErrorState({ phase: 'storage', canRetry: true });
+              return;
+            }
+            await sleep(BACKOFF_BASE_MS * attempt);
+          }
+        }
       }
 
-      const result = await resp.json();
-      setRawExtracted(result);
+      // Phase 2: AI extraction (with retries)
+      let result: any = null;
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          result = await callExtraction(file);
+          break;
+        } catch (err) {
+          console.error(`Extraction attempt ${attempt}/${MAX_RETRIES}:`, err);
+          if (attempt === MAX_RETRIES) {
+            // Extraction failed — allow manual completion
+            setStep('error');
+            setErrorState({ phase: 'extraction', canRetry: true });
+            return;
+          }
+          await sleep(BACKOFF_BASE_MS * attempt);
+        }
+      }
 
+      setRawExtracted(result);
       const mapped: ExtractedInvoiceData = {
         ...result,
         counterparty_name: result.counterparty_name || (result.type === 'venta' ? result.buyer_name : result.seller_name) || '',
@@ -78,11 +136,56 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
       };
       setExtracted(mapped);
       setStep('review');
-    } catch (err: any) {
-      console.error('Invoice upload error:', err);
-      toast({ title: 'Error al procesar factura', description: err.message, variant: 'destructive' });
-      setStep('upload');
+    } catch (err) {
+      console.error('Unexpected invoice processing error:', err);
+      setStep('error');
+      setErrorState({ phase: 'extraction', canRetry: true });
     }
+  }, [user, storagePath]);
+
+  const handleRetry = () => {
+    if (!fileRef.current) return;
+    processFile(fileRef.current);
+  };
+
+  const handleSkipToManual = () => {
+    // Let user fill everything manually
+    setExtracted({
+      invoice_number: '',
+      prefix: '',
+      number_int: null,
+      type: 'compra',
+      issue_date: '',
+      due_date: '',
+      counterparty_name: '',
+      counterparty_nit: '',
+      seller_name: '',
+      seller_nit: '',
+      buyer_name: '',
+      buyer_nit: '',
+      city: '',
+      subtotal_base: 0,
+      iva_rate: 0.19,
+      iva_amount: 0,
+      total_amount: 0,
+      cufe: '',
+      payment_method: '',
+      items: [],
+    });
+    setRawExtracted(null);
+    setStep('review');
+  };
+
+  const onDrop = async (files: File[]) => {
+    if (!files.length || !user) return;
+    const file = files[0];
+    if (file.type !== 'application/pdf') {
+      toast({ title: 'Solo se permiten archivos PDF', variant: 'destructive' });
+      return;
+    }
+    fileRef.current = file;
+    setOriginalFilename(file.name);
+    processFile(file);
   };
 
   const handleSave = async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; status: string; display_name: string }) => {
@@ -151,7 +254,11 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
       handleClose();
     } catch (err: any) {
       console.error('Save invoice error:', err);
-      toast({ title: 'Error al guardar factura', description: err.message, variant: 'destructive' });
+      toast({
+        title: 'No se pudo guardar la factura',
+        description: 'Revisa tu conexión e intenta nuevamente.',
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
     }
@@ -166,13 +273,20 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" aria-describedby="invoice-upload-desc">
         <DialogHeader>
           <DialogTitle>
             {step === 'upload' && 'Subir factura PDF'}
             {step === 'validating' && 'Procesando factura...'}
             {step === 'review' && 'Configurar factura'}
+            {step === 'error' && 'Conexión con el servidor interrumpida'}
           </DialogTitle>
+          <DialogDescription id="invoice-upload-desc">
+            {step === 'upload' && 'Sube un PDF de factura electrónica colombiana para extraer sus datos automáticamente.'}
+            {step === 'validating' && 'Estamos extrayendo los datos de tu factura con IA.'}
+            {step === 'review' && 'Verifica y completa los datos extraídos antes de guardar.'}
+            {step === 'error' && 'No te preocupes, tu factura no se perdió. Intenta nuevamente en unos segundos.'}
+          </DialogDescription>
         </DialogHeader>
 
         {step === 'upload' && (
@@ -196,6 +310,40 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
           <div className="flex flex-col items-center justify-center py-16 gap-4">
             <Loader2 className="h-10 w-10 animate-spin text-primary" />
             <p className="text-muted-foreground">Extrayendo datos de la factura con IA...</p>
+            <p className="text-xs text-muted-foreground">Esto puede tomar unos segundos</p>
+          </div>
+        )}
+
+        {step === 'error' && (
+          <div className="flex flex-col items-center justify-center py-12 gap-6">
+            <div className="rounded-full bg-destructive/10 p-4">
+              <AlertTriangle className="h-10 w-10 text-destructive" />
+            </div>
+            <div className="text-center space-y-2 max-w-md">
+              <p className="text-muted-foreground">
+                No te preocupes, tu factura no se perdió. Intenta nuevamente en unos segundos.
+              </p>
+              {originalFilename && (
+                <p className="text-xs text-muted-foreground">
+                  Archivo: {originalFilename}
+                </p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={handleClose}>
+                <X className="h-4 w-4 mr-2" />
+                Cancelar
+              </Button>
+              {errorState?.phase === 'extraction' && (
+                <Button variant="secondary" onClick={handleSkipToManual}>
+                  Completar manualmente
+                </Button>
+              )}
+              <Button onClick={handleRetry}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Reintentar
+              </Button>
+            </div>
           </div>
         )}
 
