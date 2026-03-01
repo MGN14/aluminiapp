@@ -1,35 +1,26 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { ExtractedInvoiceData, Invoice } from '@/types/invoice';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Loader2, Upload, RefreshCw, X, AlertTriangle, Save } from 'lucide-react';
+import { Loader2, Upload, RefreshCw, X, AlertTriangle, Save, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import InvoiceValidationForm from './InvoiceValidationForm';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onInvoiceSaved: () => void;
-  /** If provided, resume this draft invoice instead of uploading a new one */
   resumeDraft?: Invoice | null;
 }
 
-type Step = 'upload' | 'uploading' | 'validating' | 'review' | 'error';
+type Step = 'upload' | 'uploading' | 'processing' | 'review' | 'error';
 
-interface ErrorState {
-  phase: 'storage' | 'extraction' | 'save';
-  message: string;
-}
-
-const MAX_RETRIES = 3;
-const BACKOFF_BASE_MS = 1500;
-
-async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+const POLL_INTERVAL_MS = 2000;
+const MAX_POLLS = 90; // 90 * 2s = 3 minutes max
 
 export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resumeDraft }: Props) {
   const { user } = useAuth();
@@ -41,53 +32,17 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
   const [storagePath, setStoragePath] = useState<string | null>(null);
   const [originalFilename, setOriginalFilename] = useState<string>('');
   const [saving, setSaving] = useState(false);
-  const [errorState, setErrorState] = useState<ErrorState | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [pollProgress, setPollProgress] = useState(0);
   const fileRef = useRef<File | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Initialize from resumeDraft when modal opens
-  const initFromDraft = useCallback((draft: Invoice) => {
-    setDraftId(draft.id);
-    setStoragePath(draft.storage_path);
-    setOriginalFilename(draft.original_filename || '');
-    
-    if (draft.extracted_data) {
-      // Draft already has extracted data — go to review
-      const ed = draft.extracted_data as any;
-      const mapped: ExtractedInvoiceData = {
-        invoice_number: draft.invoice_number || ed.invoice_number || '',
-        prefix: draft.prefix || ed.prefix || '',
-        number_int: draft.number_int ?? ed.number_int ?? null,
-        type: draft.type as 'venta' | 'compra',
-        issue_date: draft.issue_date || ed.issue_date || '',
-        due_date: draft.due_date || ed.due_date || null,
-        counterparty_name: draft.counterparty_name || ed.counterparty_name || '',
-        counterparty_nit: draft.counterparty_nit || ed.counterparty_nit || '',
-        seller_name: draft.seller_name || ed.seller_name || '',
-        seller_nit: draft.seller_nit || ed.seller_nit || '',
-        buyer_name: draft.buyer_name || ed.buyer_name || '',
-        buyer_nit: draft.buyer_nit || ed.buyer_nit || '',
-        city: draft.city || ed.city || null,
-        subtotal_base: draft.subtotal_base || ed.subtotal_base || 0,
-        iva_rate: draft.iva_rate ?? ed.iva_rate ?? 0.19,
-        iva_amount: draft.iva_amount || ed.iva_amount || 0,
-        total_amount: draft.total_amount || ed.total_amount || 0,
-        cufe: draft.cufe || ed.cufe || null,
-        payment_method: draft.payment_method || ed.payment_method || null,
-        items: ed.items || [],
-      };
-      setExtracted(mapped);
-      setRawExtracted(ed);
-      setStep('review');
-    } else {
-      // No extracted data — let user re-upload or show manual
-      setExtracted(null);
-      setRawExtracted(null);
-      setStep(draft.status === 'error' ? 'error' : 'upload');
-      setErrorState(draft.status === 'error' ? { phase: 'extraction', message: 'La extracción anterior falló.' } : null);
-    }
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
-  // When modal opens with a resumeDraft, initialize
+  // Initialize from resumeDraft when modal opens
   const prevOpenRef = useRef(false);
   if (open && !prevOpenRef.current) {
     if (resumeDraft) {
@@ -96,7 +51,62 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
   }
   prevOpenRef.current = open;
 
+  function initFromDraft(draft: Invoice) {
+    setDraftId(draft.id);
+    setStoragePath(draft.storage_path);
+    setOriginalFilename(draft.original_filename || '');
+
+    if (draft.status === 'ready' && draft.extracted_data) {
+      // Data ready → go straight to review
+      const ed = draft.extracted_data as any;
+      setExtracted(mapExtracted(draft, ed));
+      setRawExtracted(ed);
+      setStep('review');
+    } else if (draft.status === 'processing') {
+      // Already processing → start polling
+      setStep('processing');
+      startPolling(draft.id);
+    } else if (draft.status === 'error') {
+      setStep('error');
+      setErrorMessage(draft.processing_error || 'La extracción anterior falló.');
+    } else if (draft.extracted_data) {
+      // Draft with data (old flow)
+      const ed = draft.extracted_data as any;
+      setExtracted(mapExtracted(draft, ed));
+      setRawExtracted(ed);
+      setStep('review');
+    } else {
+      setStep('upload');
+    }
+  }
+
+  function mapExtracted(draft: Invoice, ed: any): ExtractedInvoiceData {
+    return {
+      invoice_number: draft.invoice_number || ed.invoice_number || '',
+      prefix: draft.prefix || ed.prefix || '',
+      number_int: draft.number_int ?? ed.number_int ?? null,
+      type: (draft.type as 'venta' | 'compra') || ed.type || 'compra',
+      issue_date: draft.issue_date || ed.issue_date || '',
+      due_date: draft.due_date || ed.due_date || null,
+      counterparty_name: draft.counterparty_name || ed.counterparty_name || '',
+      counterparty_nit: draft.counterparty_nit || ed.counterparty_nit || '',
+      seller_name: draft.seller_name || ed.seller_name || '',
+      seller_nit: draft.seller_nit || ed.seller_nit || '',
+      buyer_name: draft.buyer_name || ed.buyer_name || '',
+      buyer_nit: draft.buyer_nit || ed.buyer_nit || '',
+      city: draft.city || ed.city || null,
+      subtotal_base: draft.subtotal_base || ed.subtotal_base || 0,
+      iva_rate: draft.iva_rate ?? ed.iva_rate ?? 0.19,
+      iva_amount: draft.iva_amount || ed.iva_amount || 0,
+      total_amount: draft.total_amount || ed.total_amount || 0,
+      cufe: draft.cufe || ed.cufe || null,
+      payment_method: draft.payment_method || ed.payment_method || null,
+      items: ed.items || [],
+    };
+  }
+
   const reset = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setStep('upload');
     setExtracted(null);
     setRawExtracted(null);
@@ -104,216 +114,205 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     setStoragePath(null);
     setOriginalFilename('');
     setSaving(false);
-    setErrorState(null);
+    setErrorMessage('');
+    setPollProgress(0);
     fileRef.current = null;
   };
 
   const handleClose = () => {
-    // If we have a draft, refresh the list so it appears
-    if (draftId) {
-      onInvoiceSaved();
-    }
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (draftId) onInvoiceSaved();
     reset();
     onClose();
   };
 
-  const uploadToStorage = async (file: File): Promise<string> => {
-    const path = `${user!.id}/${Date.now()}_${file.name}`;
-    const { error } = await supabase.storage.from('invoices').upload(path, file);
-    if (error) throw error;
-    return path;
-  };
-
-  const createDraftInvoice = async (path: string, filename: string): Promise<string> => {
-    const { data, error } = await supabase
-      .from('invoices')
-      .insert({
-        user_id: user!.id,
-        storage_path: path,
-        pdf_path: path,
-        original_filename: filename,
-        display_name: filename.replace('.pdf', ''),
-        invoice_number: 'Pendiente',
-        issue_date: new Date().toISOString().slice(0, 10),
-        status: 'draft',
-      } as any)
-      .select('id')
-      .single();
-    if (error) throw error;
-    return data.id;
-  };
-
-  const updateDraftWithExtraction = async (invoiceId: string, result: any) => {
-    const updateData: any = {
-      extracted_data: result,
-      invoice_number: result.invoice_number || 'Pendiente',
-      prefix: result.prefix || null,
-      number_int: result.number_int ?? null,
-      type: result.type || 'compra',
-      issue_date: result.issue_date || new Date().toISOString().slice(0, 10),
-      due_date: result.due_date || null,
-      counterparty_name: result.counterparty_name || '',
-      counterparty_nit: result.counterparty_nit || '',
-      seller_name: result.seller_name || '',
-      seller_nit: result.seller_nit || '',
-      buyer_name: result.buyer_name || '',
-      buyer_nit: result.buyer_nit || '',
-      city: result.city || null,
-      subtotal_base: result.subtotal_base || 0,
-      iva_rate: result.iva_rate ?? 0.19,
-      iva_amount: result.iva_amount || 0,
-      total_amount: result.total_amount || 0,
-      cufe: result.cufe || null,
-      payment_method: result.payment_method || null,
-      status: 'draft',
-    };
-    const { error } = await supabase
-      .from('invoices')
-      .update(updateData)
-      .eq('id', invoiceId);
-    if (error) throw error;
-  };
-
-  const callExtraction = async (file: File): Promise<any> => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData?.session?.access_token;
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const resp = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-invoice-pdf`,
-      { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formData }
-    );
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(errText || `HTTP ${resp.status}`);
-    }
-    return resp.json();
-  };
-
+  // ─── Step 1: Upload to storage + create draft ───
   const processFile = useCallback(async (file: File) => {
     if (!user) return;
-    setErrorState(null);
+    setErrorMessage('');
 
     try {
-      // Phase 1: Upload to storage + create draft
       let path = storagePath;
       let id = draftId;
 
+      // Upload to storage if needed
       if (!path) {
         setStep('uploading');
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-          try {
-            path = await uploadToStorage(file);
-            setStoragePath(path);
-            break;
-          } catch (err) {
-            console.error(`Storage upload attempt ${attempt}/${MAX_RETRIES}:`, err);
-            if (attempt === MAX_RETRIES) {
-              setStep('error');
-              setErrorState({ phase: 'storage', message: 'No se pudo subir el archivo.' });
-              return;
-            }
-            await sleep(BACKOFF_BASE_MS * attempt);
-          }
-        }
-      }
-
-      if (!id && path) {
-        try {
-          id = await createDraftInvoice(path, file.name);
-          setDraftId(id);
-        } catch (err) {
-          console.error('Failed to create draft invoice:', err);
+        const uploadPath = `${user.id}/${Date.now()}_${file.name}`;
+        const { error } = await supabase.storage.from('invoices').upload(uploadPath, file);
+        if (error) {
+          console.error('Storage upload error:', error);
           setStep('error');
-          setErrorState({ phase: 'storage', message: 'No se pudo crear el registro borrador.' });
+          setErrorMessage('No se pudo subir el archivo.');
           return;
         }
+        path = uploadPath;
+        setStoragePath(path);
       }
 
-      // Phase 2: AI extraction (with retries)
-      setStep('validating');
-      let result: any = null;
-      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-          result = await callExtraction(file);
-          break;
-        } catch (err) {
-          console.error(`Extraction attempt ${attempt}/${MAX_RETRIES}:`, err);
-          if (attempt === MAX_RETRIES) {
-            // Mark draft as error
-            if (id) {
-              try { await supabase.from('invoices').update({ status: 'error' } as any).eq('id', id); } catch {}
-            }
-            setStep('error');
-            setErrorState({ phase: 'extraction', message: 'No se pudieron extraer los datos del PDF.' });
-            return;
-          }
-          await sleep(BACKOFF_BASE_MS * attempt);
+      // Create draft if needed
+      if (!id && path) {
+        const { data, error } = await supabase
+          .from('invoices')
+          .insert({
+            user_id: user.id,
+            storage_path: path,
+            pdf_path: path,
+            original_filename: file.name,
+            display_name: file.name.replace('.pdf', ''),
+            invoice_number: 'Pendiente',
+            issue_date: new Date().toISOString().slice(0, 10),
+            status: 'uploading',
+          } as any)
+          .select('id')
+          .single();
+        if (error) {
+          console.error('Draft creation error:', error);
+          setStep('error');
+          setErrorMessage('No se pudo crear el registro borrador.');
+          return;
         }
+        id = data.id;
+        setDraftId(id);
       }
 
-      // Phase 3: Save extracted data to draft
-      if (id && result) {
-        try {
-          await updateDraftWithExtraction(id, result);
-        } catch (err) {
-          console.error('Failed to update draft with extraction:', err);
-          // Non-critical — we still have the data in memory
-        }
-      }
-
-      setRawExtracted(result);
-      const mapped: ExtractedInvoiceData = {
-        ...result,
-        counterparty_name: result.counterparty_name || (result.type === 'venta' ? result.buyer_name : result.seller_name) || '',
-        counterparty_nit: result.counterparty_nit || (result.type === 'venta' ? result.buyer_nit : result.seller_nit) || '',
-        items: result.items || [],
-      };
-      setExtracted(mapped);
-      setStep('review');
+      // ─── Step 2: Trigger async processing ───
+      setStep('processing');
+      setPollProgress(0);
+      await triggerProcessing(id!);
+      startPolling(id!);
     } catch (err) {
-      console.error('Unexpected invoice processing error:', err);
+      console.error('Unexpected error:', err);
       setStep('error');
-      setErrorState({ phase: 'extraction', message: 'Error inesperado al procesar la factura.' });
+      setErrorMessage('Error inesperado al procesar la factura.');
     }
   }, [user, storagePath, draftId]);
 
-  const handleRetry = () => {
-    if (!fileRef.current) return;
-    processFile(fileRef.current);
+  const triggerProcessing = async (invoiceId: string) => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/start-invoice-processing`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ invoice_id: invoiceId }),
+        }
+      );
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        console.error('Processing trigger failed:', errData);
+        // Don't set error here — polling will pick up the status
+      }
+    } catch (err) {
+      console.error('Failed to trigger processing:', err);
+      // Polling will catch the error status
+    }
+  };
+
+  // ─── Step 3: Poll for status ───
+  const startPolling = (invoiceId: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    let count = 0;
+
+    pollRef.current = setInterval(async () => {
+      count++;
+      setPollProgress(Math.min((count / MAX_POLLS) * 100, 95));
+
+      if (count >= MAX_POLLS) {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        setStep('error');
+        setErrorMessage('El análisis está tardando más de lo esperado. Puedes reintentar o completar manualmente.');
+        return;
+      }
+
+      try {
+        const { data: inv, error } = await supabase
+          .from('invoices')
+          .select('*')
+          .eq('id', invoiceId)
+          .single();
+
+        if (error) {
+          console.error('Poll fetch error:', error);
+          return; // Keep polling
+        }
+
+        const invoice = inv as any as Invoice;
+
+        if (invoice.status === 'ready') {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setPollProgress(100);
+
+          const ed = invoice.extracted_data as any;
+          if (ed) {
+            setExtracted(mapExtracted(invoice, ed));
+            setRawExtracted(ed);
+          } else {
+            setExtracted(emptyExtracted());
+          }
+          setStep('review');
+        } else if (invoice.status === 'error') {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setStep('error');
+          setErrorMessage(invoice.processing_error || 'Error al analizar la factura.');
+        }
+        // If 'processing' or 'uploading', keep polling
+      } catch (err) {
+        console.error('Poll error:', err);
+        // Keep polling
+      }
+    }, POLL_INTERVAL_MS);
+  };
+
+  const emptyExtracted = (): ExtractedInvoiceData => ({
+    invoice_number: '',
+    prefix: '',
+    number_int: null,
+    type: 'compra',
+    issue_date: '',
+    due_date: '',
+    counterparty_name: '',
+    counterparty_nit: '',
+    seller_name: '',
+    seller_nit: '',
+    buyer_name: '',
+    buyer_nit: '',
+    city: '',
+    subtotal_base: 0,
+    iva_rate: 0.19,
+    iva_amount: 0,
+    total_amount: 0,
+    cufe: '',
+    payment_method: '',
+    items: [],
+  });
+
+  const handleRetry = async () => {
+    if (!draftId) return;
+    setErrorMessage('');
+    setStep('processing');
+    setPollProgress(0);
+    await triggerProcessing(draftId);
+    startPolling(draftId);
   };
 
   const handleSaveAsDraft = () => {
-    // Draft already exists in DB — just close
     toast({ title: 'Factura guardada como borrador' });
     handleClose();
   };
 
   const handleSkipToManual = () => {
-    setExtracted({
-      invoice_number: '',
-      prefix: '',
-      number_int: null,
-      type: 'compra',
-      issue_date: '',
-      due_date: '',
-      counterparty_name: '',
-      counterparty_nit: '',
-      seller_name: '',
-      seller_nit: '',
-      buyer_name: '',
-      buyer_nit: '',
-      city: '',
-      subtotal_base: 0,
-      iva_rate: 0.19,
-      iva_amount: 0,
-      total_amount: 0,
-      cufe: '',
-      payment_method: '',
-      items: [],
-    });
+    setExtracted(emptyExtracted());
     setRawExtracted(null);
     setStep('review');
   };
@@ -335,7 +334,6 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     setSaving(true);
     try {
       if (draftId) {
-        // UPDATE existing draft
         const { error: invError } = await supabase
           .from('invoices')
           .update({
@@ -365,13 +363,12 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
             payment_method: data.payment_method,
             status: data.status,
             extracted_data: rawExtracted,
+            processing_error: null,
           } as any)
           .eq('id', draftId);
         if (invError) throw invError;
 
-        // Delete existing items then re-insert
         await supabase.from('invoice_items').delete().eq('invoice_id', draftId);
-        
         if (data.items.length > 0) {
           const items = data.items.map(item => ({
             invoice_id: draftId,
@@ -390,7 +387,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           if (itemsError) throw itemsError;
         }
       } else {
-        // Fallback: INSERT (shouldn't happen in new flow but safe)
+        // Fallback INSERT (shouldn't happen in new flow)
         const { data: inv, error: invError } = await supabase
           .from('invoices')
           .insert({
@@ -472,7 +469,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
   });
 
   return (
-    <Dialog open={open} onOpenChange={() => { /* controlled — no auto-close */ }}>
+    <Dialog open={open} onOpenChange={() => { /* controlled */ }}>
       <DialogContent
         className="max-w-3xl max-h-[90vh] overflow-y-auto"
         aria-describedby="invoice-upload-desc"
@@ -483,14 +480,14 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           <DialogTitle>
             {step === 'upload' && 'Subir factura PDF'}
             {step === 'uploading' && 'Subiendo archivo...'}
-            {step === 'validating' && 'Analizando factura...'}
+            {step === 'processing' && 'Analizando factura...'}
             {step === 'review' && 'Configurar factura'}
             {step === 'error' && 'Conexión con el servidor interrumpida'}
           </DialogTitle>
           <DialogDescription id="invoice-upload-desc">
             {step === 'upload' && 'Sube un PDF de factura electrónica colombiana para extraer sus datos automáticamente.'}
             {step === 'uploading' && 'Estamos subiendo tu archivo de forma segura.'}
-            {step === 'validating' && 'Estamos extrayendo los datos de tu factura con IA.'}
+            {step === 'processing' && 'Estamos extrayendo los datos de tu factura con IA. Este proceso es seguro — puedes cerrar y volver después.'}
             {step === 'review' && 'Verifica y completa los datos extraídos antes de guardar.'}
             {step === 'error' && 'No te preocupes, tu factura no se perdió. Intenta nuevamente en unos segundos.'}
           </DialogDescription>
@@ -528,11 +525,27 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           </div>
         )}
 
-        {step === 'validating' && (
-          <div className="flex flex-col items-center justify-center py-16 gap-4">
-            <Loader2 className="h-10 w-10 animate-spin text-primary" />
-            <p className="text-muted-foreground">Extrayendo datos de la factura con IA...</p>
-            <p className="text-xs text-muted-foreground">Esto puede tomar unos segundos</p>
+        {step === 'processing' && (
+          <div className="flex flex-col items-center justify-center py-16 gap-6">
+            <div className="relative">
+              <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              <CheckCircle2 className="h-5 w-5 text-primary absolute -top-1 -right-1" />
+            </div>
+            <div className="text-center space-y-2 max-w-sm">
+              <p className="font-medium text-foreground">Extrayendo datos con IA...</p>
+              <p className="text-sm text-muted-foreground">
+                Tu PDF está guardado. Puedes cerrar este modal y volver después — la factura aparecerá en tu lista.
+              </p>
+            </div>
+            <div className="w-full max-w-xs space-y-1">
+              <Progress value={pollProgress} className="h-2" />
+              <p className="text-xs text-muted-foreground text-center">
+                {pollProgress < 30 ? 'Iniciando análisis...' : pollProgress < 70 ? 'Procesando documento...' : 'Finalizando...'}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={handleClose}>
+              Cerrar y continuar después
+            </Button>
           </div>
         )}
 
@@ -546,31 +559,24 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
                 No te preocupes, tu factura no se perdió. Intenta nuevamente en unos segundos.
               </p>
               {originalFilename && (
-                <p className="text-xs text-muted-foreground">
-                  Archivo: {originalFilename}
-                </p>
+                <p className="text-xs text-muted-foreground">Archivo: {originalFilename}</p>
               )}
             </div>
             <div className="flex gap-3 flex-wrap justify-center">
               <Button variant="outline" onClick={handleClose}>
-                <X className="h-4 w-4 mr-2" />
-                Cancelar
+                <X className="h-4 w-4 mr-2" /> Cancelar
               </Button>
               {draftId && (
                 <Button variant="secondary" onClick={handleSaveAsDraft}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Guardar como borrador
+                  <Save className="h-4 w-4 mr-2" /> Guardar como borrador
                 </Button>
               )}
-              {errorState?.phase === 'extraction' && (
-                <Button variant="secondary" onClick={handleSkipToManual}>
-                  Completar manualmente
-                </Button>
-              )}
-              {fileRef.current && (
+              <Button variant="secondary" onClick={handleSkipToManual}>
+                Completar manualmente
+              </Button>
+              {draftId && (
                 <Button onClick={handleRetry}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Reintentar
+                  <RefreshCw className="h-4 w-4 mr-2" /> Reintentar
                 </Button>
               )}
             </div>

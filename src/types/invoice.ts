@@ -25,13 +25,14 @@ export interface Invoice {
   cufe: string | null;
   payment_method: string | null;
   notes: string | null;
-  status: 'draft' | 'confirmed' | 'error';
+  status: 'draft' | 'confirmed' | 'error' | 'uploading' | 'processing' | 'ready';
   storage_path: string | null;
   pdf_path: string | null;
   extracted_data: any | null;
   confidence_score: number | null;
   display_name: string | null;
   original_filename: string | null;
+  processing_error: string | null;
   created_at: string;
   updated_at: string;
 }
