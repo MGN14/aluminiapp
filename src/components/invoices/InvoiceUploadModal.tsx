@@ -21,6 +21,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
   const [extracted, setExtracted] = useState<ExtractedInvoiceData | null>(null);
   const [rawExtracted, setRawExtracted] = useState<any>(null);
   const [storagePath, setStoragePath] = useState<string | null>(null);
+  const [originalFilename, setOriginalFilename] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
   const reset = () => {
@@ -28,6 +29,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
     setExtracted(null);
     setRawExtracted(null);
     setStoragePath(null);
+    setOriginalFilename('');
     setSaving(false);
   };
 
@@ -41,6 +43,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
       return;
     }
 
+    setOriginalFilename(file.name);
     setStep('validating');
     try {
       const path = `${user.id}/${Date.now()}_${file.name}`;
@@ -67,7 +70,6 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
       const result = await resp.json();
       setRawExtracted(result);
 
-      // Map to ExtractedInvoiceData
       const mapped: ExtractedInvoiceData = {
         ...result,
         counterparty_name: result.counterparty_name || (result.type === 'venta' ? result.buyer_name : result.seller_name) || '',
@@ -83,7 +85,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
     }
   };
 
-  const handleSave = async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; status: string }) => {
+  const handleSave = async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; status: string; display_name: string }) => {
     if (!user) return;
     setSaving(true);
     try {
@@ -93,6 +95,8 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
           user_id: user.id,
           storage_path: storagePath,
           pdf_path: storagePath,
+          display_name: data.display_name,
+          original_filename: originalFilename,
           invoice_number: data.invoice_number,
           prefix: data.prefix,
           number_int: data.number_int,
@@ -167,7 +171,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
           <DialogTitle>
             {step === 'upload' && 'Subir factura PDF'}
             {step === 'validating' && 'Procesando factura...'}
-            {step === 'review' && 'Validar datos extraídos'}
+            {step === 'review' && 'Configurar factura'}
           </DialogTitle>
         </DialogHeader>
 
@@ -198,6 +202,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
         {step === 'review' && extracted && (
           <InvoiceValidationForm
             data={extracted}
+            originalFilename={originalFilename}
             onSave={handleSave}
             onCancel={handleClose}
             saving={saving}

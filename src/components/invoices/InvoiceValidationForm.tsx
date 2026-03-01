@@ -3,7 +3,7 @@ import { ExtractedInvoiceData } from '@/types/invoice';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -21,16 +21,25 @@ interface FormData extends ExtractedInvoiceData {
   reteica_rate: number;
   reteica_amount: number;
   status: string;
+  display_name: string;
 }
 
 interface Props {
   data: ExtractedInvoiceData;
+  originalFilename?: string;
   onSave: (data: FormData) => void;
   onCancel: () => void;
   saving: boolean;
 }
 
-export default function InvoiceValidationForm({ data, onSave, onCancel, saving }: Props) {
+export default function InvoiceValidationForm({ data, originalFilename, onSave, onCancel, saving }: Props) {
+  // Build a suggested display name
+  const suggestedName = [
+    data.type === 'venta' ? data.buyer_name : data.seller_name,
+    data.invoice_number ? `#${data.invoice_number}` : null,
+    data.issue_date ? new Date(data.issue_date).toLocaleDateString('es-CO', { month: 'short', year: 'numeric' }) : null,
+  ].filter(Boolean).join(' - ') || '';
+
   const [form, setForm] = useState<FormData>({
     ...data,
     autoretefuente_rate: 0,
@@ -38,13 +47,13 @@ export default function InvoiceValidationForm({ data, onSave, onCancel, saving }
     reteica_rate: 0,
     reteica_amount: 0,
     status: 'draft',
+    display_name: suggestedName || (originalFilename?.replace('.pdf', '') || ''),
   });
 
   const update = useCallback((field: keyof FormData, value: any) => {
     setForm(prev => {
       const next = { ...prev, [field]: value };
 
-      // Auto-recalc tax amounts when rates or base change
       if (field === 'autoretefuente_rate' || field === 'subtotal_base') {
         const rate = field === 'autoretefuente_rate' ? (value as number) : next.autoretefuente_rate;
         const base = field === 'subtotal_base' ? (value as number) : next.subtotal_base;
@@ -61,15 +70,34 @@ export default function InvoiceValidationForm({ data, onSave, onCancel, saving }
   }, []);
 
   const handleConfirm = () => {
+    if (!form.display_name.trim()) return;
     onSave({ ...form, status: 'confirmed' });
   };
 
   const handleDraft = () => {
+    if (!form.display_name.trim()) return;
     onSave({ ...form, status: 'draft' });
   };
 
   return (
     <div className="space-y-6">
+      {/* Display name - required */}
+      <div className="p-4 rounded-md border-2 border-primary/30 bg-primary/5">
+        <Label className="text-base font-semibold">Nombre visible del PDF *</Label>
+        <Input
+          value={form.display_name}
+          onChange={e => update('display_name', e.target.value)}
+          placeholder="Ej: Factura Proveedor - #123 - Ene 2026"
+          className="mt-2"
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Recomendado: Proveedor + No. factura + Mes/Año
+        </p>
+        {!form.display_name.trim() && (
+          <p className="text-xs text-destructive mt-1">Este campo es obligatorio</p>
+        )}
+      </div>
+
       {/* Header info */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div>
@@ -108,37 +136,19 @@ export default function InvoiceValidationForm({ data, onSave, onCancel, saving }
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 rounded-md bg-muted/50">
         <div>
           <Label>Base gravable</Label>
-          <Input
-            type="number"
-            value={form.subtotal_base}
-            onChange={e => update('subtotal_base', parseFloat(e.target.value) || 0)}
-          />
+          <Input type="number" value={form.subtotal_base} onChange={e => update('subtotal_base', parseFloat(e.target.value) || 0)} />
         </div>
         <div>
           <Label>% IVA</Label>
-          <Input
-            type="number"
-            step="0.01"
-            value={form.iva_rate}
-            onChange={e => update('iva_rate', parseFloat(e.target.value) || 0)}
-          />
+          <Input type="number" step="0.01" value={form.iva_rate} onChange={e => update('iva_rate', parseFloat(e.target.value) || 0)} />
         </div>
         <div>
           <Label>$ IVA</Label>
-          <Input
-            type="number"
-            value={form.iva_amount}
-            onChange={e => update('iva_amount', parseFloat(e.target.value) || 0)}
-          />
+          <Input type="number" value={form.iva_amount} onChange={e => update('iva_amount', parseFloat(e.target.value) || 0)} />
         </div>
         <div>
           <Label>Total</Label>
-          <Input
-            type="number"
-            value={form.total_amount}
-            onChange={e => update('total_amount', parseFloat(e.target.value) || 0)}
-            className="font-semibold"
-          />
+          <Input type="number" value={form.total_amount} onChange={e => update('total_amount', parseFloat(e.target.value) || 0)} className="font-semibold" />
         </div>
       </div>
 
@@ -151,44 +161,33 @@ export default function InvoiceValidationForm({ data, onSave, onCancel, saving }
           </div>
           <div>
             <Label>% Autorretefuente</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={form.autoretefuente_rate}
-              onChange={e => update('autoretefuente_rate', parseFloat(e.target.value) || 0)}
-              placeholder="Ej: 0.4"
-            />
+            <Input type="number" step="0.01" value={form.autoretefuente_rate} onChange={e => update('autoretefuente_rate', parseFloat(e.target.value) || 0)} placeholder="Ej: 0.4" />
           </div>
           <div>
             <Label>$ Autorretefuente</Label>
-            <Input
-              type="number"
-              value={form.autoretefuente_amount}
-              readOnly
-              className="bg-muted"
-            />
+            <Input type="number" value={form.autoretefuente_amount} readOnly className="bg-muted" />
           </div>
           <div>
             <Label>% ReteICA</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={form.reteica_rate}
-              onChange={e => update('reteica_rate', parseFloat(e.target.value) || 0)}
-              placeholder="Ej: 0.966"
-            />
+            <Input type="number" step="0.01" value={form.reteica_rate} onChange={e => update('reteica_rate', parseFloat(e.target.value) || 0)} placeholder="Ej: 0.966" />
           </div>
           <div>
             <Label>$ ReteICA</Label>
-            <Input
-              type="number"
-              value={form.reteica_amount}
-              readOnly
-              className="bg-muted"
-            />
+            <Input type="number" value={form.reteica_amount} readOnly className="bg-muted" />
           </div>
         </div>
       )}
+
+      {/* Notas */}
+      <div>
+        <Label>Notas (opcional)</Label>
+        <Textarea
+          value={(form as any).notes || ''}
+          onChange={e => update('notes' as any, e.target.value)}
+          placeholder="Notas adicionales sobre esta factura..."
+          rows={2}
+        />
+      </div>
 
       {/* Items table */}
       {form.items.length > 0 && (
@@ -232,11 +231,11 @@ export default function InvoiceValidationForm({ data, onSave, onCancel, saving }
         <Button variant="outline" onClick={onCancel} disabled={saving}>
           <X className="h-4 w-4 mr-1" /> Cancelar
         </Button>
-        <Button variant="secondary" onClick={handleDraft} disabled={saving}>
+        <Button variant="secondary" onClick={handleDraft} disabled={saving || !form.display_name.trim()}>
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
           Guardar borrador
         </Button>
-        <Button onClick={handleConfirm} disabled={saving}>
+        <Button onClick={handleConfirm} disabled={saving || !form.display_name.trim()}>
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-1" />}
           Confirmar factura
         </Button>

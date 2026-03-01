@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
@@ -7,16 +7,22 @@ import { Invoice } from '@/types/invoice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Upload, Loader2, Crown, Lock } from 'lucide-react';
+import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Pencil, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useToast } from '@/hooks/use-toast';
 import InvoiceUploadModal from '@/components/invoices/InvoiceUploadModal';
 import DIANSummary from '@/components/invoices/DIANSummary';
 
@@ -31,34 +37,85 @@ const statusLabel: Record<string, { text: string; variant: 'default' | 'secondar
 export default function Invoices() {
   const { plan, loading: subLoading } = useSubscription();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const isPro = plan === 'pro' || plan === 'empresarial' || plan === 'admin';
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('invoices')
       .select('*')
-      .order('issue_date', { ascending: false });
-    if (!error) setInvoices((data as Invoice[]) || []);
+      .order('created_at', { ascending: false });
+    if (!error) setInvoices((data as any as Invoice[]) || []);
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     if (isPro) fetchInvoices();
-  }, [isPro]);
+  }, [isPro, fetchInvoices]);
 
   const filtered = useMemo(() => {
     let result = invoices;
     if (typeFilter !== 'all') result = result.filter(i => i.type === typeFilter);
     if (statusFilter !== 'all') result = result.filter(i => i.status === statusFilter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(i =>
+        (i.display_name || '').toLowerCase().includes(q) ||
+        (i.counterparty_name || '').toLowerCase().includes(q) ||
+        (i.seller_name || '').toLowerCase().includes(q) ||
+        (i.buyer_name || '').toLowerCase().includes(q) ||
+        (i.invoice_number || '').toLowerCase().includes(q)
+      );
+    }
     return result;
-  }, [invoices, typeFilter, statusFilter]);
+  }, [invoices, typeFilter, statusFilter, searchQuery]);
+
+  const handleViewPDF = async (storagePath: string | null) => {
+    if (!storagePath) {
+      toast({ title: 'No hay PDF asociado', variant: 'destructive' });
+      return;
+    }
+    const { data, error } = await supabase.storage.from('invoices').createSignedUrl(storagePath, 300);
+    if (error || !data?.signedUrl) {
+      toast({ title: 'Error al generar enlace del PDF', variant: 'destructive' });
+      return;
+    }
+    window.open(data.signedUrl, '_blank');
+  };
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    setDeleting(true);
+    try {
+      const inv = invoices.find(i => i.id === deleteId);
+      // Delete items first
+      await supabase.from('invoice_items').delete().eq('invoice_id', deleteId);
+      // Delete invoice
+      const { error } = await supabase.from('invoices').delete().eq('id', deleteId);
+      if (error) throw error;
+      // Delete PDF from storage
+      if (inv?.storage_path) {
+        await supabase.storage.from('invoices').remove([inv.storage_path]);
+      }
+      toast({ title: 'Factura eliminada' });
+      setInvoices(prev => prev.filter(i => i.id !== deleteId));
+    } catch (err: any) {
+      toast({ title: 'Error al eliminar', description: err.message, variant: 'destructive' });
+    } finally {
+      setDeleting(false);
+      setDeleteId(null);
+    }
+  };
 
   if (subLoading) {
     return (
@@ -70,7 +127,6 @@ export default function Invoices() {
     );
   }
 
-  // Plan gate
   if (!isPro) {
     return (
       <AppLayout>
@@ -96,16 +152,14 @@ export default function Invoices() {
     <AppLayout>
       <div className="max-w-full mx-auto space-y-4 px-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                Facturas (DIAN)
-                <Badge variant="outline" className="text-xs font-medium gap-1 border-warning text-warning">
-                  <Crown className="h-3 w-3" /> Pro
-                </Badge>
-              </h1>
-              <p className="text-muted-foreground">Gestiona tus facturas electrónicas colombianas</p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              Facturas (DIAN)
+              <Badge variant="outline" className="text-xs font-medium gap-1 border-warning text-warning">
+                <Crown className="h-3 w-3" /> Pro
+              </Badge>
+            </h1>
+            <p className="text-muted-foreground">Gestiona tus facturas electrónicas colombianas</p>
           </div>
           <Button onClick={() => setUploadOpen(true)} className="gap-2">
             <Upload className="h-4 w-4" />
@@ -121,7 +175,18 @@ export default function Invoices() {
 
           <TabsContent value="facturas" className="space-y-4">
             {/* Filters */}
-            <div className="flex gap-3 flex-wrap">
+            <div className="flex gap-3 flex-wrap items-end">
+              <div className="flex-1 min-w-[200px] max-w-sm">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por nombre, proveedor o número..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Tipo:</span>
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -163,11 +228,7 @@ export default function Invoices() {
                     <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <p className="font-medium">No hay facturas</p>
                     <p className="text-sm mt-1">Sube tu primera factura electrónica</p>
-                    <Button
-                      variant="outline"
-                      className="mt-4 gap-2"
-                      onClick={() => setUploadOpen(true)}
-                    >
+                    <Button variant="outline" className="mt-4 gap-2" onClick={() => setUploadOpen(true)}>
                       <Upload className="h-4 w-4" />
                       Subir factura PDF
                     </Button>
@@ -177,38 +238,56 @@ export default function Invoices() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/50">
-                          <TableHead className="w-[130px]">Número</TableHead>
-                          <TableHead className="w-[80px]">Tipo</TableHead>
                           <TableHead className="w-[100px]">Fecha</TableHead>
-                          <TableHead>Cliente / Proveedor</TableHead>
-                          <TableHead className="text-right w-[130px]">Base</TableHead>
-                          <TableHead className="text-right w-[110px]">IVA</TableHead>
+                          <TableHead>Nombre</TableHead>
+                          <TableHead>Proveedor / Cliente</TableHead>
+                          <TableHead className="w-[120px]">Número</TableHead>
                           <TableHead className="text-right w-[130px]">Total</TableHead>
-                          <TableHead className="w-[120px]">Estado</TableHead>
+                          <TableHead className="w-[110px]">Estado</TableHead>
+                          <TableHead className="w-[130px] text-right">Acciones</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filtered.map((inv) => {
                           const s = statusLabel[inv.status] || statusLabel.draft;
+                          const displayDate = inv.issue_date || inv.created_at;
                           return (
                             <TableRow key={inv.id}>
-                              <TableCell className="font-medium">{inv.invoice_number}</TableCell>
-                              <TableCell>
-                                <Badge variant={inv.type === 'venta' ? 'default' : 'outline'} className="text-xs">
-                                  {inv.type === 'venta' ? 'Venta' : 'Compra'}
-                                </Badge>
-                              </TableCell>
                               <TableCell className="text-sm">
-                                {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
+                                {format(new Date(displayDate), 'dd MMM yy', { locale: es })}
                               </TableCell>
-                              <TableCell className="text-sm truncate max-w-[200px]">
-                                {inv.counterparty_name || (inv.type === 'venta' ? inv.buyer_name : inv.seller_name)}
+                              <TableCell className="font-medium text-sm truncate max-w-[200px]">
+                                {inv.display_name || inv.invoice_number || inv.original_filename || '—'}
                               </TableCell>
-                              <TableCell className="text-right text-sm">{formatCurrency(inv.subtotal_base)}</TableCell>
-                              <TableCell className="text-right text-sm">{formatCurrency(inv.iva_amount)}</TableCell>
+                              <TableCell className="text-sm truncate max-w-[180px]">
+                                {inv.counterparty_name || (inv.type === 'venta' ? inv.buyer_name : inv.seller_name) || '—'}
+                              </TableCell>
+                              <TableCell className="text-sm">{inv.invoice_number || '—'}</TableCell>
                               <TableCell className="text-right font-medium">{formatCurrency(inv.total_amount)}</TableCell>
                               <TableCell>
                                 <Badge variant={s.variant} className="text-xs">{s.text}</Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    title="Ver PDF"
+                                    onClick={() => handleViewPDF(inv.storage_path || inv.pdf_path)}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-destructive hover:text-destructive"
+                                    title="Eliminar"
+                                    onClick={() => setDeleteId(inv.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </TableCell>
                             </TableRow>
                           );
@@ -232,6 +311,25 @@ export default function Invoices() {
         onClose={() => setUploadOpen(false)}
         onInvoiceSaved={fetchInvoices}
       />
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta factura?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará la factura, sus ítems y el archivo PDF asociado. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
