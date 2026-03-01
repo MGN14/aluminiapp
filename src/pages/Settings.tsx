@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import PlanBadge from '@/components/subscription/PlanBadge';
-import ReteicaSettings from '@/components/settings/ReteicaSettings';
+import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import TaxRecalculationButton from '@/components/settings/TaxRecalculationButton';
 import AutoRulesButton from '@/components/settings/AutoRulesButton';
 import { useToast } from '@/hooks/use-toast';
@@ -201,8 +201,8 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Section 3: Taxes (ReteICA) */}
-        <ReteicaSettings />
+        {/* Section 3: Tax Configuration */}
+        <TaxSettingsCard />
 
         {/* Section 4: Tax Recalculation */}
         <Card>
