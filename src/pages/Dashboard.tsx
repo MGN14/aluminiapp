@@ -16,6 +16,7 @@ import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCatego
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
+import InvoiceSummaryCards from '@/components/dashboard/InvoiceSummaryCards';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
@@ -96,6 +97,7 @@ export default function Dashboard() {
   const { openNico } = useNico();
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_city: null, reteica_rate: 0 });
+  const [invoiceIva, setInvoiceIva] = useState({ ventasIva: 0, comprasIva: 0 });
 
   // Unified period selection state
   const now = new Date();
@@ -412,8 +414,8 @@ export default function Dashboard() {
     const dianPayments = cuatrimestreTransactions.filter(tx => isDIANPayment(tx.description));
     const totalDianPayments = Math.abs(dianPayments.reduce((sum, tx) => sum + (tx.amount ?? 0), 0));
 
-    // IVA Neto = Débito - Crédito - Pagos DIAN
-    const ivaNeto = ivaDebito - ivaCredito - totalDianPayments;
+    // IVA Neto = Débito - Crédito - Pagos DIAN + IVA facturas ventas - IVA facturas compras
+    const ivaNeto = ivaDebito - ivaCredito - totalDianPayments + invoiceIva.ventasIva - invoiceIva.comprasIva;
 
     // Retefuente por pagar (period-based) - only from compras
     const retefuentePorPagar = periodTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
@@ -435,7 +437,11 @@ export default function Dashboard() {
       cuatrimestreLabel: cuatrimestre.label,
       periodLabel: periodRange.label,
     };
-  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange]);
+  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange, invoiceIva]);
+
+  const handleInvoiceIva = useCallback((ventasIva: number, comprasIva: number) => {
+    setInvoiceIva({ ventasIva, comprasIva });
+  }, []);
 
   // Chart data: Income vs Expenses - grouped by month within the period
   const incomeVsExpenseData = useMemo(() => {
@@ -839,9 +845,16 @@ export default function Dashboard() {
                   transactionCount={reteicaMetrics.yearlyCount}
                 />
               )}
-            </div>
 
-            {/* Charts - Redesigned */}
+              {/* Invoice Summary Cards */}
+              <InvoiceSummaryCards
+                periodStart={periodRange.start}
+                periodEnd={periodRange.end}
+                periodLabel={periodRange.label}
+                year={periodSelection.year}
+                onIvaInvoices={handleInvoiceIva}
+              />
+            </div>
             <div className="grid gap-6 lg:grid-cols-2 animate-slide-up">
               {/* Income vs Expenses - Stacked Column Chart */}
               <IncomeVsExpenseChart 
