@@ -1,4 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { ExtractedInvoiceData } from '@/types/invoice';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,7 +12,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Loader2, Save, X, CheckCircle } from 'lucide-react';
+import { Loader2, Save, X, CheckCircle, Info } from 'lucide-react';
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
@@ -33,7 +35,9 @@ interface Props {
 }
 
 export default function InvoiceValidationForm({ data, originalFilename, onSave, onCancel, saving }: Props) {
-  // Build a suggested display name
+  const { user } = useAuth();
+  const settingsLoadedRef = useRef(false);
+
   const suggestedName = [
     data.type === 'venta' ? data.buyer_name : data.seller_name,
     data.invoice_number ? `#${data.invoice_number}` : null,
@@ -49,6 +53,41 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
     status: 'draft',
     display_name: suggestedName || (originalFilename?.replace('.pdf', '') || ''),
   });
+
+  // Fetch tax_settings once and auto-populate rates + recalculate amounts
+  useEffect(() => {
+    if (!user || settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+
+    const loadSettings = async () => {
+      try {
+        const { data: settings } = await supabase
+          .from('tax_settings')
+          .select('autoretefuente_rate, reteica_rate')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (settings) {
+          setForm(prev => {
+            // Rates from tax_settings are stored as decimals (e.g., 0.004 for 0.4%)
+            // Convert to percentage for display
+            const autoRate = (settings.autoretefuente_rate || 0) * 100;
+            const reteicaRate = (settings.reteica_rate || 0) * 100;
+            return {
+              ...prev,
+              autoretefuente_rate: autoRate,
+              autoretefuente_amount: Math.round(prev.subtotal_base * autoRate / 100),
+              reteica_rate: reteicaRate,
+              reteica_amount: Math.round(prev.subtotal_base * reteicaRate / 100),
+            };
+          });
+        }
+      } catch (err) {
+        console.error('Error loading tax settings:', err);
+      }
+    };
+    loadSettings();
+  }, [user]);
 
   const update = useCallback((field: keyof FormData, value: any) => {
     setForm(prev => {
@@ -69,15 +108,15 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
     });
   }, []);
 
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(() => {
     if (!form.display_name.trim()) return;
     onSave({ ...form, status: 'confirmed' });
-  };
+  }, [form, onSave]);
 
-  const handleDraft = () => {
+  const handleDraft = useCallback(() => {
     if (!form.display_name.trim()) return;
     onSave({ ...form, status: 'draft' });
-  };
+  }, [form, onSave]);
 
   return (
     <div className="space-y-6">
@@ -152,12 +191,15 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
         </div>
       </div>
 
-      {/* Tax fields for VENTAS */}
+      {/* Tax fields for VENTAS — auto-calculated from settings */}
       {form.type === 'venta' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-md border border-warning/30 bg-warning/5">
           <div className="sm:col-span-2 lg:col-span-4">
             <p className="text-sm font-medium text-foreground mb-1">Retenciones (sobre base gravable)</p>
-            <p className="text-xs text-muted-foreground">Estos valores se usan para el resumen DIAN mensual</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <Info className="h-3 w-3" />
+              Calculadas automáticamente desde tu configuración fiscal. Puedes ajustarlas si es necesario.
+            </p>
           </div>
           <div>
             <Label>% Autorretefuente</Label>

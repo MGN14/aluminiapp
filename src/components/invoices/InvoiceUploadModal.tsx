@@ -20,7 +20,42 @@ interface Props {
 type Step = 'upload' | 'uploading' | 'processing' | 'review' | 'error';
 
 const POLL_INTERVAL_MS = 2000;
-const MAX_POLLS = 90; // 90 * 2s = 3 minutes max
+const MAX_POLLS = 90;
+
+function mapExtracted(draft: Invoice, ed: any): ExtractedInvoiceData {
+  return {
+    invoice_number: draft.invoice_number || ed.invoice_number || '',
+    prefix: draft.prefix || ed.prefix || '',
+    number_int: draft.number_int ?? ed.number_int ?? null,
+    type: (draft.type as 'venta' | 'compra') || ed.type || 'compra',
+    issue_date: draft.issue_date || ed.issue_date || '',
+    due_date: draft.due_date || ed.due_date || null,
+    counterparty_name: draft.counterparty_name || ed.counterparty_name || '',
+    counterparty_nit: draft.counterparty_nit || ed.counterparty_nit || '',
+    seller_name: draft.seller_name || ed.seller_name || '',
+    seller_nit: draft.seller_nit || ed.seller_nit || '',
+    buyer_name: draft.buyer_name || ed.buyer_name || '',
+    buyer_nit: draft.buyer_nit || ed.buyer_nit || '',
+    city: draft.city || ed.city || null,
+    subtotal_base: draft.subtotal_base || ed.subtotal_base || 0,
+    iva_rate: draft.iva_rate ?? ed.iva_rate ?? 0.19,
+    iva_amount: draft.iva_amount || ed.iva_amount || 0,
+    total_amount: draft.total_amount || ed.total_amount || 0,
+    cufe: draft.cufe || ed.cufe || null,
+    payment_method: draft.payment_method || ed.payment_method || null,
+    items: ed.items || [],
+  };
+}
+
+function emptyExtracted(): ExtractedInvoiceData {
+  return {
+    invoice_number: '', prefix: '', number_int: null, type: 'compra',
+    issue_date: '', due_date: '', counterparty_name: '', counterparty_nit: '',
+    seller_name: '', seller_nit: '', buyer_name: '', buyer_nit: '',
+    city: '', subtotal_base: 0, iva_rate: 0.19, iva_amount: 0,
+    total_amount: 0, cufe: '', payment_method: '', items: [],
+  };
+}
 
 export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resumeDraft }: Props) {
   const { user } = useAuth();
@@ -36,20 +71,24 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
   const [pollProgress, setPollProgress] = useState(0);
   const fileRef = useRef<File | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const initRef = useRef<string | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
-  // Initialize from resumeDraft when modal opens
-  const prevOpenRef = useRef(false);
-  if (open && !prevOpenRef.current) {
-    if (resumeDraft) {
+  // Initialize from resumeDraft when modal opens — properly in useEffect
+  useEffect(() => {
+    if (!open) {
+      initRef.current = null;
+      return;
+    }
+    if (resumeDraft && resumeDraft.id !== initRef.current) {
+      initRef.current = resumeDraft.id;
       initFromDraft(resumeDraft);
     }
-  }
-  prevOpenRef.current = open;
+  }, [open, resumeDraft]);
 
   function initFromDraft(draft: Invoice) {
     setDraftId(draft.id);
@@ -57,20 +96,17 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     setOriginalFilename(draft.original_filename || '');
 
     if (draft.status === 'ready' && draft.extracted_data) {
-      // Data ready → go straight to review
       const ed = draft.extracted_data as any;
       setExtracted(mapExtracted(draft, ed));
       setRawExtracted(ed);
       setStep('review');
     } else if (draft.status === 'processing') {
-      // Already processing → start polling
       setStep('processing');
       startPolling(draft.id);
     } else if (draft.status === 'error') {
       setStep('error');
       setErrorMessage(draft.processing_error || 'La extracción anterior falló.');
     } else if (draft.extracted_data) {
-      // Draft with data (old flow)
       const ed = draft.extracted_data as any;
       setExtracted(mapExtracted(draft, ed));
       setRawExtracted(ed);
@@ -80,32 +116,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     }
   }
 
-  function mapExtracted(draft: Invoice, ed: any): ExtractedInvoiceData {
-    return {
-      invoice_number: draft.invoice_number || ed.invoice_number || '',
-      prefix: draft.prefix || ed.prefix || '',
-      number_int: draft.number_int ?? ed.number_int ?? null,
-      type: (draft.type as 'venta' | 'compra') || ed.type || 'compra',
-      issue_date: draft.issue_date || ed.issue_date || '',
-      due_date: draft.due_date || ed.due_date || null,
-      counterparty_name: draft.counterparty_name || ed.counterparty_name || '',
-      counterparty_nit: draft.counterparty_nit || ed.counterparty_nit || '',
-      seller_name: draft.seller_name || ed.seller_name || '',
-      seller_nit: draft.seller_nit || ed.seller_nit || '',
-      buyer_name: draft.buyer_name || ed.buyer_name || '',
-      buyer_nit: draft.buyer_nit || ed.buyer_nit || '',
-      city: draft.city || ed.city || null,
-      subtotal_base: draft.subtotal_base || ed.subtotal_base || 0,
-      iva_rate: draft.iva_rate ?? ed.iva_rate ?? 0.19,
-      iva_amount: draft.iva_amount || ed.iva_amount || 0,
-      total_amount: draft.total_amount || ed.total_amount || 0,
-      cufe: draft.cufe || ed.cufe || null,
-      payment_method: draft.payment_method || ed.payment_method || null,
-      items: ed.items || [],
-    };
-  }
-
-  const reset = () => {
+  const reset = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setStep('upload');
     setExtracted(null);
@@ -117,16 +128,17 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     setErrorMessage('');
     setPollProgress(0);
     fileRef.current = null;
-  };
+    initRef.current = null;
+  }, []);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     if (draftId) onInvoiceSaved();
     reset();
     onClose();
-  };
+  }, [draftId, onInvoiceSaved, reset, onClose]);
 
-  // ─── Step 1: Upload to storage + create draft ───
+  // ─── Upload + create draft ───
   const processFile = useCallback(async (file: File) => {
     if (!user) return;
     setErrorMessage('');
@@ -135,7 +147,6 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
       let path = storagePath;
       let id = draftId;
 
-      // Upload to storage if needed
       if (!path) {
         setStep('uploading');
         const uploadPath = `${user.id}/${Date.now()}_${file.name}`;
@@ -150,7 +161,6 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
         setStoragePath(path);
       }
 
-      // Create draft if needed
       if (!id && path) {
         const { data, error } = await supabase
           .from('invoices')
@@ -176,7 +186,6 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
         setDraftId(id);
       }
 
-      // ─── Step 2: Trigger async processing ───
       setStep('processing');
       setPollProgress(0);
       await triggerProcessing(id!);
@@ -192,7 +201,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
-      
+
       const resp = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/start-invoice-processing`,
         {
@@ -208,16 +217,14 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
         console.error('Processing trigger failed:', errData);
-        // Don't set error here — polling will pick up the status
       }
     } catch (err) {
       console.error('Failed to trigger processing:', err);
-      // Polling will catch the error status
     }
   };
 
-  // ─── Step 3: Poll for status ───
-  const startPolling = (invoiceId: string) => {
+  // ─── Polling ───
+  const startPolling = useCallback((invoiceId: string) => {
     if (pollRef.current) clearInterval(pollRef.current);
     let count = 0;
 
@@ -242,7 +249,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
 
         if (error) {
           console.error('Poll fetch error:', error);
-          return; // Keep polling
+          return;
         }
 
         const invoice = inv as any as Invoice;
@@ -266,58 +273,33 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           setStep('error');
           setErrorMessage(invoice.processing_error || 'Error al analizar la factura.');
         }
-        // If 'processing' or 'uploading', keep polling
       } catch (err) {
         console.error('Poll error:', err);
-        // Keep polling
       }
     }, POLL_INTERVAL_MS);
-  };
+  }, []);
 
-  const emptyExtracted = (): ExtractedInvoiceData => ({
-    invoice_number: '',
-    prefix: '',
-    number_int: null,
-    type: 'compra',
-    issue_date: '',
-    due_date: '',
-    counterparty_name: '',
-    counterparty_nit: '',
-    seller_name: '',
-    seller_nit: '',
-    buyer_name: '',
-    buyer_nit: '',
-    city: '',
-    subtotal_base: 0,
-    iva_rate: 0.19,
-    iva_amount: 0,
-    total_amount: 0,
-    cufe: '',
-    payment_method: '',
-    items: [],
-  });
-
-  const handleRetry = async () => {
+  const handleRetry = useCallback(async () => {
     if (!draftId) return;
     setErrorMessage('');
     setStep('processing');
     setPollProgress(0);
     await triggerProcessing(draftId);
     startPolling(draftId);
-  };
+  }, [draftId, startPolling]);
 
-  const handleSaveAsDraft = () => {
+  const handleSaveAsDraft = useCallback(() => {
     toast({ title: 'Factura guardada como borrador' });
     handleClose();
-  };
+  }, [toast, handleClose]);
 
-  const handleSkipToManual = () => {
+  const handleSkipToManual = useCallback(() => {
     setExtracted(emptyExtracted());
     setRawExtracted(null);
     setStep('review');
-  };
+  }, []);
 
-  const onDrop = async (files: File[]) => {
+  const onDrop = useCallback(async (files: File[]) => {
     if (!files.length || !user) return;
     const file = files[0];
     if (file.type !== 'application/pdf') {
@@ -327,9 +309,9 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     fileRef.current = file;
     setOriginalFilename(file.name);
     processFile(file);
-  };
+  }, [user, processFile, toast]);
 
-  const handleSave = async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; status: string; display_name: string }) => {
+  const handleSave = useCallback(async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; status: string; display_name: string }) => {
     if (!user) return;
     setSaving(true);
     try {
@@ -387,7 +369,6 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           if (itemsError) throw itemsError;
         }
       } else {
-        // Fallback INSERT (shouldn't happen in new flow)
         const { data: inv, error: invError } = await supabase
           .from('invoices')
           .insert({
@@ -459,7 +440,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     } finally {
       setSaving(false);
     }
-  };
+  }, [user, draftId, rawExtracted, storagePath, originalFilename, toast, onInvoiceSaved, reset, onClose]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
