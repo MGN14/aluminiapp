@@ -134,6 +134,185 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_items: {
+        Row: {
+          description: string | null
+          id: string
+          invoice_id: string
+          item_code: string | null
+          iva_amount: number
+          iva_rate: number
+          line_base: number
+          line_total: number
+          quantity: number
+          reference: string | null
+          unit_price: number
+          user_id: string
+        }
+        Insert: {
+          description?: string | null
+          id?: string
+          invoice_id: string
+          item_code?: string | null
+          iva_amount?: number
+          iva_rate?: number
+          line_base?: number
+          line_total?: number
+          quantity?: number
+          reference?: string | null
+          unit_price?: number
+          user_id: string
+        }
+        Update: {
+          description?: string | null
+          id?: string
+          invoice_id?: string
+          item_code?: string | null
+          iva_amount?: number
+          iva_rate?: number
+          line_base?: number
+          line_total?: number
+          quantity?: number
+          reference?: string | null
+          unit_price?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_transaction_matches: {
+        Row: {
+          created_at: string
+          id: string
+          invoice_id: string
+          match_type: string
+          matched_amount: number
+          transaction_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          invoice_id: string
+          match_type?: string
+          matched_amount?: number
+          transaction_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          invoice_id?: string
+          match_type?: string
+          matched_amount?: number
+          transaction_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_transaction_matches_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_transaction_matches_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoices: {
+        Row: {
+          buyer_name: string | null
+          buyer_nit: string | null
+          city: string | null
+          created_at: string
+          cufe: string | null
+          due_date: string | null
+          id: string
+          invoice_number: string
+          issue_date: string
+          iva_amount: number
+          iva_rate: number
+          notes: string | null
+          number_int: number | null
+          payment_method: string | null
+          prefix: string | null
+          seller_name: string | null
+          seller_nit: string | null
+          status: string
+          storage_path: string | null
+          subtotal_base: number
+          total_amount: number
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          buyer_name?: string | null
+          buyer_nit?: string | null
+          city?: string | null
+          created_at?: string
+          cufe?: string | null
+          due_date?: string | null
+          id?: string
+          invoice_number: string
+          issue_date: string
+          iva_amount?: number
+          iva_rate?: number
+          notes?: string | null
+          number_int?: number | null
+          payment_method?: string | null
+          prefix?: string | null
+          seller_name?: string | null
+          seller_nit?: string | null
+          status?: string
+          storage_path?: string | null
+          subtotal_base?: number
+          total_amount?: number
+          type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          buyer_name?: string | null
+          buyer_nit?: string | null
+          city?: string | null
+          created_at?: string
+          cufe?: string | null
+          due_date?: string | null
+          id?: string
+          invoice_number?: string
+          issue_date?: string
+          iva_amount?: number
+          iva_rate?: number
+          notes?: string | null
+          number_int?: number | null
+          payment_method?: string | null
+          prefix?: string | null
+          seller_name?: string | null
+          seller_nit?: string | null
+          status?: string
+          storage_path?: string | null
+          subtotal_base?: number
+          total_amount?: number
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       nico_messages: {
         Row: {
           content: string
@@ -217,6 +396,42 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      tax_settings: {
+        Row: {
+          autoretefuente_rate: number
+          created_at: string
+          id: string
+          is_autorretenedor: boolean
+          retefuente_compra_rate: number
+          reteica_city: string | null
+          reteica_rate: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          autoretefuente_rate?: number
+          created_at?: string
+          id?: string
+          is_autorretenedor?: boolean
+          retefuente_compra_rate?: number
+          reteica_city?: string | null
+          reteica_rate?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          autoretefuente_rate?: number
+          created_at?: string
+          id?: string
+          is_autorretenedor?: boolean
+          retefuente_compra_rate?: number
+          reteica_city?: string | null
+          reteica_rate?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
