@@ -19,7 +19,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle } from 'lucide-react';
+import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
@@ -292,6 +292,15 @@ export default function Invoices() {
                                       Continuar
                                     </Button>
                                   )}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    title="Editar"
+                                    onClick={() => handleResumeDraft(inv)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
                                   <Button
                                     variant="ghost"
                                     size="icon"
