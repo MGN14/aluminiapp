@@ -258,6 +258,7 @@ export type Database = {
           payment_method: string | null
           pdf_path: string | null
           prefix: string | null
+          processing_error: string | null
           reteica_amount: number | null
           reteica_rate: number | null
           seller_name: string | null
@@ -295,6 +296,7 @@ export type Database = {
           payment_method?: string | null
           pdf_path?: string | null
           prefix?: string | null
+          processing_error?: string | null
           reteica_amount?: number | null
           reteica_rate?: number | null
           seller_name?: string | null
@@ -332,6 +334,7 @@ export type Database = {
           payment_method?: string | null
           pdf_path?: string | null
           prefix?: string | null
+          processing_error?: string | null
           reteica_amount?: number | null
           reteica_rate?: number | null
           seller_name?: string | null

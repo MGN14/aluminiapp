@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.parse-invoice-pdf]
 verify_jwt = false
+
+[functions.start-invoice-processing]
+verify_jwt = false

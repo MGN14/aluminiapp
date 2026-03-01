@@ -30,6 +30,9 @@ const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
 const statusLabel: Record<string, { text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+  uploading: { text: 'Subiendo...', variant: 'outline' },
+  processing: { text: 'Analizando...', variant: 'secondary' },
+  ready: { text: 'Pendiente de validar', variant: 'outline' },
   draft: { text: 'Pendiente por confirmar', variant: 'outline' },
   error: { text: 'Error - Reintentar', variant: 'destructive' },
   confirmed: { text: 'Confirmada', variant: 'default' },
@@ -209,6 +212,8 @@ export default function Invoices() {
                   <SelectContent>
                     <SelectItem value="all">Todos</SelectItem>
                     <SelectItem value="draft">Pendiente</SelectItem>
+                    <SelectItem value="processing">Analizando</SelectItem>
+                    <SelectItem value="ready">Por validar</SelectItem>
                     <SelectItem value="error">Error</SelectItem>
                     <SelectItem value="confirmed">Confirmada</SelectItem>
                   </SelectContent>
@@ -256,7 +261,7 @@ export default function Invoices() {
                         {filtered.map((inv) => {
                           const s = statusLabel[inv.status] || statusLabel.draft;
                           const displayDate = inv.issue_date || inv.created_at;
-                          const isDraftOrError = inv.status === 'draft' || inv.status === 'error';
+                          const isDraftOrError = ['draft', 'error', 'uploading', 'processing', 'ready'].includes(inv.status);
                           return (
                             <TableRow key={inv.id} className={isDraftOrError ? 'bg-warning/5' : ''}>
                               <TableCell className="text-sm">
