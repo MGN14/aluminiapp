@@ -76,9 +76,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
 
       const data = result.data as any;
+      let effectivePlan = data.plan || 'demo';
+
+      // Excepción temporal: tratar como pro para acceso a módulos
+      const INVOICE_ACCESS_EMAILS = ['niko14_gomez@hotmail.com'];
+      if (user?.email && INVOICE_ACCESS_EMAILS.includes(user.email.toLowerCase()) && effectivePlan !== 'pro' && effectivePlan !== 'empresarial' && effectivePlan !== 'admin') {
+        effectivePlan = 'pro';
+      }
 
       setState({
-        plan: data.plan || 'demo',
+        plan: effectivePlan,
         status: data.status || 'active',
         subscribed: data.subscribed || false,
         subscriptionEnd: data.subscription_end || null,
