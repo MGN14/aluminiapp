@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ExtractedInvoiceData, ExtractedInvoiceItem } from '@/types/invoice';
+import { useState, useCallback } from 'react';
+import { ExtractedInvoiceData } from '@/types/invoice';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -10,23 +10,62 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Loader2, Save, X } from 'lucide-react';
+import { Loader2, Save, X, CheckCircle } from 'lucide-react';
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
 
+interface FormData extends ExtractedInvoiceData {
+  autoretefuente_rate: number;
+  autoretefuente_amount: number;
+  reteica_rate: number;
+  reteica_amount: number;
+  status: string;
+}
+
 interface Props {
   data: ExtractedInvoiceData;
-  onSave: (data: ExtractedInvoiceData) => void;
+  onSave: (data: FormData) => void;
   onCancel: () => void;
   saving: boolean;
 }
 
 export default function InvoiceValidationForm({ data, onSave, onCancel, saving }: Props) {
-  const [form, setForm] = useState<ExtractedInvoiceData>({ ...data });
+  const [form, setForm] = useState<FormData>({
+    ...data,
+    autoretefuente_rate: 0,
+    autoretefuente_amount: 0,
+    reteica_rate: 0,
+    reteica_amount: 0,
+    status: 'draft',
+  });
 
-  const update = (field: keyof ExtractedInvoiceData, value: any) => {
-    setForm(prev => ({ ...prev, [field]: value }));
+  const update = useCallback((field: keyof FormData, value: any) => {
+    setForm(prev => {
+      const next = { ...prev, [field]: value };
+
+      // Auto-recalc tax amounts when rates or base change
+      if (field === 'autoretefuente_rate' || field === 'subtotal_base') {
+        const rate = field === 'autoretefuente_rate' ? (value as number) : next.autoretefuente_rate;
+        const base = field === 'subtotal_base' ? (value as number) : next.subtotal_base;
+        next.autoretefuente_amount = Math.round(base * rate / 100);
+      }
+      if (field === 'reteica_rate' || field === 'subtotal_base') {
+        const rate = field === 'reteica_rate' ? (value as number) : next.reteica_rate;
+        const base = field === 'subtotal_base' ? (value as number) : next.subtotal_base;
+        next.reteica_amount = Math.round(base * rate / 100);
+      }
+
+      return next;
+    });
+  }, []);
+
+  const handleConfirm = () => {
+    onSave({ ...form, status: 'confirmed' });
+  };
+
+  const handleDraft = () => {
+    onSave({ ...form, status: 'draft' });
   };
 
   return (
@@ -48,46 +87,20 @@ export default function InvoiceValidationForm({ data, onSave, onCancel, saving }
           </Select>
         </div>
         <div>
-          <Label>Método de pago</Label>
-          <Input value={form.payment_method || ''} onChange={e => update('payment_method', e.target.value)} />
-        </div>
-        <div>
           <Label>Fecha emisión</Label>
           <Input type="date" value={form.issue_date} onChange={e => update('issue_date', e.target.value)} />
         </div>
-        <div>
-          <Label>Fecha vencimiento</Label>
-          <Input type="date" value={form.due_date || ''} onChange={e => update('due_date', e.target.value || null)} />
-        </div>
-        <div>
-          <Label>Ciudad</Label>
-          <Input value={form.city || ''} onChange={e => update('city', e.target.value)} />
-        </div>
       </div>
 
-      {/* Seller / Buyer */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-3 p-3 rounded-md border border-border">
-          <p className="text-sm font-medium text-muted-foreground">Vendedor</p>
-          <div>
-            <Label>Nombre</Label>
-            <Input value={form.seller_name || ''} onChange={e => update('seller_name', e.target.value)} />
-          </div>
-          <div>
-            <Label>NIT</Label>
-            <Input value={form.seller_nit || ''} onChange={e => update('seller_nit', e.target.value)} />
-          </div>
+      {/* Counterparty */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 rounded-md border border-border">
+        <div>
+          <Label>{form.type === 'venta' ? 'Cliente' : 'Proveedor'}</Label>
+          <Input value={form.counterparty_name} onChange={e => update('counterparty_name', e.target.value)} />
         </div>
-        <div className="space-y-3 p-3 rounded-md border border-border">
-          <p className="text-sm font-medium text-muted-foreground">Comprador</p>
-          <div>
-            <Label>Nombre</Label>
-            <Input value={form.buyer_name || ''} onChange={e => update('buyer_name', e.target.value)} />
-          </div>
-          <div>
-            <Label>NIT</Label>
-            <Input value={form.buyer_nit || ''} onChange={e => update('buyer_nit', e.target.value)} />
-          </div>
+        <div>
+          <Label>NIT</Label>
+          <Input value={form.counterparty_nit} onChange={e => update('counterparty_nit', e.target.value)} />
         </div>
       </div>
 
@@ -129,16 +142,53 @@ export default function InvoiceValidationForm({ data, onSave, onCancel, saving }
         </div>
       </div>
 
-      {/* CUFE */}
-      <div>
-        <Label>CUFE</Label>
-        <Input
-          value={form.cufe || ''}
-          onChange={e => update('cufe', e.target.value)}
-          className="text-xs font-mono"
-          placeholder="Código CUFE de la factura"
-        />
-      </div>
+      {/* Tax fields for VENTAS */}
+      {form.type === 'venta' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-md border border-warning/30 bg-warning/5">
+          <div className="sm:col-span-2 lg:col-span-4">
+            <p className="text-sm font-medium text-foreground mb-1">Retenciones (sobre base gravable)</p>
+            <p className="text-xs text-muted-foreground">Estos valores se usan para el resumen DIAN mensual</p>
+          </div>
+          <div>
+            <Label>% Autorretefuente</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={form.autoretefuente_rate}
+              onChange={e => update('autoretefuente_rate', parseFloat(e.target.value) || 0)}
+              placeholder="Ej: 0.4"
+            />
+          </div>
+          <div>
+            <Label>$ Autorretefuente</Label>
+            <Input
+              type="number"
+              value={form.autoretefuente_amount}
+              readOnly
+              className="bg-muted"
+            />
+          </div>
+          <div>
+            <Label>% ReteICA</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={form.reteica_rate}
+              onChange={e => update('reteica_rate', parseFloat(e.target.value) || 0)}
+              placeholder="Ej: 0.966"
+            />
+          </div>
+          <div>
+            <Label>$ ReteICA</Label>
+            <Input
+              type="number"
+              value={form.reteica_amount}
+              readOnly
+              className="bg-muted"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Items table */}
       {form.items.length > 0 && (
@@ -182,9 +232,13 @@ export default function InvoiceValidationForm({ data, onSave, onCancel, saving }
         <Button variant="outline" onClick={onCancel} disabled={saving}>
           <X className="h-4 w-4 mr-1" /> Cancelar
         </Button>
-        <Button onClick={() => onSave(form)} disabled={saving}>
+        <Button variant="secondary" onClick={handleDraft} disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-          Guardar factura
+          Guardar borrador
+        </Button>
+        <Button onClick={handleConfirm} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+          Confirmar factura
         </Button>
       </div>
     </div>

@@ -234,12 +234,18 @@ export type Database = {
       }
       invoices: {
         Row: {
+          autoretefuente_amount: number | null
+          autoretefuente_rate: number | null
           buyer_name: string | null
           buyer_nit: string | null
           city: string | null
+          confidence_score: number | null
+          counterparty_name: string | null
+          counterparty_nit: string | null
           created_at: string
           cufe: string | null
           due_date: string | null
+          extracted_data: Json | null
           id: string
           invoice_number: string
           issue_date: string
@@ -248,7 +254,10 @@ export type Database = {
           notes: string | null
           number_int: number | null
           payment_method: string | null
+          pdf_path: string | null
           prefix: string | null
+          reteica_amount: number | null
+          reteica_rate: number | null
           seller_name: string | null
           seller_nit: string | null
           status: string
@@ -260,12 +269,18 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          autoretefuente_amount?: number | null
+          autoretefuente_rate?: number | null
           buyer_name?: string | null
           buyer_nit?: string | null
           city?: string | null
+          confidence_score?: number | null
+          counterparty_name?: string | null
+          counterparty_nit?: string | null
           created_at?: string
           cufe?: string | null
           due_date?: string | null
+          extracted_data?: Json | null
           id?: string
           invoice_number: string
           issue_date: string
@@ -274,7 +289,10 @@ export type Database = {
           notes?: string | null
           number_int?: number | null
           payment_method?: string | null
+          pdf_path?: string | null
           prefix?: string | null
+          reteica_amount?: number | null
+          reteica_rate?: number | null
           seller_name?: string | null
           seller_nit?: string | null
           status?: string
@@ -286,12 +304,18 @@ export type Database = {
           user_id: string
         }
         Update: {
+          autoretefuente_amount?: number | null
+          autoretefuente_rate?: number | null
           buyer_name?: string | null
           buyer_nit?: string | null
           city?: string | null
+          confidence_score?: number | null
+          counterparty_name?: string | null
+          counterparty_nit?: string | null
           created_at?: string
           cufe?: string | null
           due_date?: string | null
+          extracted_data?: Json | null
           id?: string
           invoice_number?: string
           issue_date?: string
@@ -300,7 +324,10 @@ export type Database = {
           notes?: string | null
           number_int?: number | null
           payment_method?: string | null
+          pdf_path?: string | null
           prefix?: string | null
+          reteica_amount?: number | null
+          reteica_rate?: number | null
           seller_name?: string | null
           seller_nit?: string | null
           status?: string
@@ -453,6 +480,7 @@ export type Database = {
           has_retefuente: boolean
           has_reteica: boolean | null
           id: string
+          invoice_id: string | null
           iva_amount: number
           iva_rate: number
           iva_type: string | null
@@ -486,6 +514,7 @@ export type Database = {
           has_retefuente?: boolean
           has_reteica?: boolean | null
           id?: string
+          invoice_id?: string | null
           iva_amount?: number
           iva_rate?: number
           iva_type?: string | null
@@ -519,6 +548,7 @@ export type Database = {
           has_retefuente?: boolean
           has_reteica?: boolean | null
           id?: string
+          invoice_id?: string | null
           iva_amount?: number
           iva_rate?: number
           iva_type?: string | null
@@ -542,6 +572,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
             referencedColumns: ["id"]
           },
           {
@@ -653,7 +690,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
-      subscription_plan: "demo" | "basico" | "empresarial"
+      subscription_plan: "demo" | "basico" | "empresarial" | "pro"
       subscription_status:
         | "active"
         | "canceled"
@@ -789,7 +826,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
-      subscription_plan: ["demo", "basico", "empresarial"],
+      subscription_plan: ["demo", "basico", "empresarial", "pro"],
       subscription_status: [
         "active",
         "canceled",

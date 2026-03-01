@@ -12,7 +12,6 @@ serve(async (req) => {
   }
 
   try {
-    // Validate auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "No autorizado" }), {
@@ -32,7 +31,6 @@ serve(async (req) => {
       });
     }
 
-    // Get file from FormData
     const formData = await req.formData();
     const file = formData.get("file") as File;
     if (!file) {
@@ -53,7 +51,6 @@ serve(async (req) => {
       });
     }
 
-    // Call AI to extract invoice data
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -74,6 +71,8 @@ Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estruct
   "type": "venta",
   "issue_date": "2025-01-15",
   "due_date": "2025-02-15",
+  "counterparty_name": "Cliente o Proveedor SAS",
+  "counterparty_nit": "900123456-7",
   "seller_name": "Empresa SAS",
   "seller_nit": "900123456-7",
   "buyer_name": "Cliente SAS",
@@ -100,7 +99,8 @@ Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estruct
   ]
 }
 Reglas:
-- type debe ser "venta" si la empresa factura, o "compra" si la empresa recibe la factura como cliente.
+- type debe ser "venta" si la empresa emite la factura, o "compra" si la empresa la recibe.
+- counterparty_name: si es venta, es el comprador; si es compra, es el vendedor.
 - Fechas en formato YYYY-MM-DD.
 - Montos numéricos sin separadores de miles.
 - Si no encuentras un campo, usa null o string vacío.
@@ -139,6 +139,8 @@ Reglas:
                   type: { type: "string", enum: ["venta", "compra"] },
                   issue_date: { type: "string" },
                   due_date: { type: ["string", "null"] },
+                  counterparty_name: { type: "string" },
+                  counterparty_nit: { type: "string" },
                   seller_name: { type: "string" },
                   seller_nit: { type: "string" },
                   buyer_name: { type: "string" },
@@ -170,9 +172,8 @@ Reglas:
                   },
                 },
                 required: [
-                  "invoice_number", "type", "issue_date", "seller_name", "seller_nit",
-                  "buyer_name", "buyer_nit", "subtotal_base", "iva_rate", "iva_amount",
-                  "total_amount", "items",
+                  "invoice_number", "type", "issue_date", "counterparty_name",
+                  "subtotal_base", "iva_rate", "iva_amount", "total_amount", "items",
                 ],
               },
             },
@@ -194,16 +195,13 @@ Reglas:
           status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const errText = await aiResponse.text();
-      console.error("AI error:", status, errText);
+      console.error("AI error:", status);
       return new Response(JSON.stringify({ error: "Error procesando con IA" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const aiResult = await aiResponse.json();
-
-    // Extract from tool call response
     let extracted;
     const toolCall = aiResult.choices?.[0]?.message?.tool_calls?.[0];
     if (toolCall?.function?.arguments) {
@@ -211,7 +209,6 @@ Reglas:
         ? JSON.parse(toolCall.function.arguments)
         : toolCall.function.arguments;
     } else {
-      // Fallback: try to parse from content
       const content = aiResult.choices?.[0]?.message?.content || "";
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {

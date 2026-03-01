@@ -28,6 +28,12 @@ export default function PlanBadge({ plan: propPlan, size = 'sm', isFounder: prop
       variant: 'default' as const,
       className: 'bg-primary text-primary-foreground',
     },
+    pro: {
+      label: 'Pro',
+      icon: Crown,
+      variant: 'default' as const,
+      className: 'bg-warning text-warning-foreground',
+    },
     empresarial: {
       label: 'Empresarial',
       icon: Crown,

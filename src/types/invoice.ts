@@ -1,13 +1,14 @@
 export interface Invoice {
   id: string;
   user_id: string;
-  storage_path: string | null;
+  type: 'venta' | 'compra';
   invoice_number: string;
   prefix: string | null;
   number_int: number | null;
-  type: 'venta' | 'compra';
   issue_date: string;
   due_date: string | null;
+  counterparty_name: string | null;
+  counterparty_nit: string | null;
   seller_name: string | null;
   seller_nit: string | null;
   buyer_name: string | null;
@@ -17,10 +18,18 @@ export interface Invoice {
   iva_rate: number;
   iva_amount: number;
   total_amount: number;
+  autoretefuente_rate: number;
+  autoretefuente_amount: number;
+  reteica_rate: number;
+  reteica_amount: number;
   cufe: string | null;
   payment_method: string | null;
   notes: string | null;
-  status: 'sin_conciliar' | 'parcial' | 'conciliada';
+  status: 'draft' | 'confirmed';
+  storage_path: string | null;
+  pdf_path: string | null;
+  extracted_data: any | null;
+  confidence_score: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -70,6 +79,8 @@ export interface ExtractedInvoiceData {
   type: 'venta' | 'compra';
   issue_date: string;
   due_date: string | null;
+  counterparty_name: string;
+  counterparty_nit: string;
   seller_name: string;
   seller_nit: string;
   buyer_name: string;
