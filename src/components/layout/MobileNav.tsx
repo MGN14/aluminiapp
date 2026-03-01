@@ -26,6 +26,7 @@ const authNavItems: NavItem[] = [
   { path: '/dashboard', label: 'Dashboard' },
   { path: '/statement-upload', label: 'Subir Extracto' },
   { path: '/transactions', label: 'Transacciones' },
+  { path: '/invoices', label: 'Facturas' },
   { path: '/reports', label: 'Reportes' },
   { path: '/export', label: 'Exportar' },
 ];

@@ -30,6 +30,9 @@ const navItems = [{
   path: '/transactions',
   label: 'Transacciones'
 }, {
+  path: '/invoices',
+  label: 'Facturas'
+}, {
   path: '/reports',
   label: 'Reportes'
 }, {
