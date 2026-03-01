@@ -244,6 +244,7 @@ export type Database = {
           counterparty_nit: string | null
           created_at: string
           cufe: string | null
+          display_name: string | null
           due_date: string | null
           extracted_data: Json | null
           id: string
@@ -253,6 +254,7 @@ export type Database = {
           iva_rate: number
           notes: string | null
           number_int: number | null
+          original_filename: string | null
           payment_method: string | null
           pdf_path: string | null
           prefix: string | null
@@ -279,6 +281,7 @@ export type Database = {
           counterparty_nit?: string | null
           created_at?: string
           cufe?: string | null
+          display_name?: string | null
           due_date?: string | null
           extracted_data?: Json | null
           id?: string
@@ -288,6 +291,7 @@ export type Database = {
           iva_rate?: number
           notes?: string | null
           number_int?: number | null
+          original_filename?: string | null
           payment_method?: string | null
           pdf_path?: string | null
           prefix?: string | null
@@ -314,6 +318,7 @@ export type Database = {
           counterparty_nit?: string | null
           created_at?: string
           cufe?: string | null
+          display_name?: string | null
           due_date?: string | null
           extracted_data?: Json | null
           id?: string
@@ -323,6 +328,7 @@ export type Database = {
           iva_rate?: number
           notes?: string | null
           number_int?: number | null
+          original_filename?: string | null
           payment_method?: string | null
           pdf_path?: string | null
           prefix?: string | null

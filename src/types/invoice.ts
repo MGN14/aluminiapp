@@ -30,6 +30,8 @@ export interface Invoice {
   pdf_path: string | null;
   extracted_data: any | null;
   confidence_score: number | null;
+  display_name: string | null;
+  original_filename: string | null;
   created_at: string;
   updated_at: string;
 }
