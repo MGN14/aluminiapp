@@ -31,7 +31,8 @@ const navItems = [{
   label: 'Transacciones'
 }, {
   path: '/invoices',
-  label: 'Facturas'
+  label: 'Facturas',
+  pro: true,
 }, {
   path: '/reports',
   label: 'Reportes'
@@ -110,6 +111,9 @@ export default function AppHeader() {
                   <img src={nicoAvatar} alt="Nico" className="w-5 h-5 rounded-full object-cover object-top" />
                 )}
                 {item.label}
+                {(item as any).pro && (
+                  <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-warning/10 text-warning leading-none">PRO</span>
+                )}
               </Link>
             ))}
           </nav>

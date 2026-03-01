@@ -3,8 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { ExtractedInvoiceData } from '@/types/invoice';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Loader2, Upload, FileCheck } from 'lucide-react';
+import { Loader2, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useDropzone } from 'react-dropzone';
 import InvoiceValidationForm from './InvoiceValidationForm';
@@ -20,20 +19,19 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
   const { toast } = useToast();
   const [step, setStep] = useState<'upload' | 'validating' | 'review'>('upload');
   const [extracted, setExtracted] = useState<ExtractedInvoiceData | null>(null);
+  const [rawExtracted, setRawExtracted] = useState<any>(null);
   const [storagePath, setStoragePath] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const reset = () => {
     setStep('upload');
     setExtracted(null);
+    setRawExtracted(null);
     setStoragePath(null);
     setSaving(false);
   };
 
-  const handleClose = () => {
-    reset();
-    onClose();
-  };
+  const handleClose = () => { reset(); onClose(); };
 
   const onDrop = async (files: File[]) => {
     if (!files.length || !user) return;
@@ -44,17 +42,12 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
     }
 
     setStep('validating');
-
     try {
-      // 1. Upload PDF to storage
       const path = `${user.id}/${Date.now()}_${file.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('invoices')
-        .upload(path, file);
+      const { error: uploadError } = await supabase.storage.from('invoices').upload(path, file);
       if (uploadError) throw uploadError;
       setStoragePath(path);
 
-      // 2. Call AI edge function to extract data
       const formData = new FormData();
       formData.append('file', file);
 
@@ -63,11 +56,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
 
       const resp = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-invoice-pdf`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        }
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formData }
       );
 
       if (!resp.ok) {
@@ -75,8 +64,17 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
         throw new Error(errText || 'Error parsing invoice');
       }
 
-      const result: ExtractedInvoiceData = await resp.json();
-      setExtracted(result);
+      const result = await resp.json();
+      setRawExtracted(result);
+
+      // Map to ExtractedInvoiceData
+      const mapped: ExtractedInvoiceData = {
+        ...result,
+        counterparty_name: result.counterparty_name || (result.type === 'venta' ? result.buyer_name : result.seller_name) || '',
+        counterparty_nit: result.counterparty_nit || (result.type === 'venta' ? result.buyer_nit : result.seller_nit) || '',
+        items: result.items || [],
+      };
+      setExtracted(mapped);
       setStep('review');
     } catch (err: any) {
       console.error('Invoice upload error:', err);
@@ -85,22 +83,24 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
     }
   };
 
-  const handleSave = async (data: ExtractedInvoiceData) => {
+  const handleSave = async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; status: string }) => {
     if (!user) return;
     setSaving(true);
     try {
-      // Insert invoice
       const { data: inv, error: invError } = await supabase
         .from('invoices')
         .insert({
           user_id: user.id,
           storage_path: storagePath,
+          pdf_path: storagePath,
           invoice_number: data.invoice_number,
           prefix: data.prefix,
           number_int: data.number_int,
           type: data.type,
           issue_date: data.issue_date,
           due_date: data.due_date,
+          counterparty_name: data.counterparty_name,
+          counterparty_nit: data.counterparty_nit,
           seller_name: data.seller_name,
           seller_nit: data.seller_nit,
           buyer_name: data.buyer_name,
@@ -110,15 +110,20 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
           iva_rate: data.iva_rate,
           iva_amount: data.iva_amount,
           total_amount: data.total_amount,
+          autoretefuente_rate: data.autoretefuente_rate,
+          autoretefuente_amount: data.autoretefuente_amount,
+          reteica_rate: data.reteica_rate,
+          reteica_amount: data.reteica_amount,
           cufe: data.cufe,
           payment_method: data.payment_method,
-        })
+          status: data.status,
+          extracted_data: rawExtracted,
+        } as any)
         .select('id')
         .single();
 
       if (invError) throw invError;
 
-      // Insert items
       if (data.items.length > 0) {
         const items = data.items.map(item => ({
           invoice_id: inv.id,
@@ -170,7 +175,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
           <div
             {...getRootProps()}
             className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors ${
-              isDragActive ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50'
+              isDragActive ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
             }`}
           >
             <input {...getInputProps()} />
@@ -185,7 +190,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved }: Pr
 
         {step === 'validating' && (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
-            <Loader2 className="h-10 w-10 animate-spin text-accent" />
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
             <p className="text-muted-foreground">Extrayendo datos de la factura con IA...</p>
           </div>
         )}

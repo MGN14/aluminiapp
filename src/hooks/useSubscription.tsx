@@ -5,7 +5,7 @@ import { invokeFunctionWithAuthRetry } from '@/lib/authRetry';
 
 const isDev = import.meta.env.MODE === 'development';
 
-export type SubscriptionPlan = 'demo' | 'basico' | 'empresarial' | 'admin';
+export type SubscriptionPlan = 'demo' | 'basico' | 'pro' | 'empresarial' | 'admin';
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'inactive';
 
 interface SubscriptionState {
@@ -151,6 +151,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         return { pdfLimit: 1, bankAccounts: 1, historyMonths: null };
       case 'basico':
         return { pdfLimit: 10, bankAccounts: 1, historyMonths: 6 };
+      case 'pro':
+        return { pdfLimit: -1, bankAccounts: 2, historyMonths: null };
       case 'empresarial':
         return { pdfLimit: -1, bankAccounts: 3, historyMonths: null };
       case 'admin':

@@ -33,6 +33,12 @@ const planConfigs: Record<SubscriptionPlan, PlanConfig> = {
     icon: Crown,
     features: ['10 PDFs por mes', '1 cuenta bancaria', '6 meses de historial'],
   },
+  pro: {
+    name: 'Plan Pro',
+    description: 'Facturación DIAN y gestión avanzada',
+    icon: Crown,
+    features: ['PDFs ilimitados', 'Módulo Facturas DIAN', '2 cuentas bancarias'],
+  },
   empresarial: {
     name: 'Plan Empresarial',
     description: 'Solución completa para empresas',
