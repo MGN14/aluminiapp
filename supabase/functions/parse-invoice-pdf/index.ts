@@ -41,7 +41,14 @@ serve(async (req) => {
     }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const base64 = btoa(String.fromCharCode(...bytes));
+    // Chunk the conversion to avoid "Maximum call stack size exceeded"
+    let binary = "";
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+    const base64 = btoa(binary);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
