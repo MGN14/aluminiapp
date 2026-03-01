@@ -373,15 +373,15 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           const items = data.items.map(item => ({
             invoice_id: draftId,
             user_id: user.id,
-            item_code: item.item_code,
-            reference: item.reference,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            line_base: item.line_base,
-            iva_rate: item.iva_rate,
-            iva_amount: item.iva_amount,
-            line_total: item.line_total,
+            item_code: item.item_code || null,
+            reference: item.reference || null,
+            description: item.description || null,
+            quantity: item.quantity ?? 1,
+            unit_price: item.unit_price ?? 0,
+            line_base: item.line_base ?? 0,
+            iva_rate: item.iva_rate ?? 0.19,
+            iva_amount: item.iva_amount ?? 0,
+            line_total: item.line_total ?? 0,
           }));
           const { error: itemsError } = await supabase.from('invoice_items').insert(items);
           if (itemsError) throw itemsError;
@@ -430,15 +430,15 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           const items = data.items.map(item => ({
             invoice_id: inv.id,
             user_id: user.id,
-            item_code: item.item_code,
-            reference: item.reference,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            line_base: item.line_base,
-            iva_rate: item.iva_rate,
-            iva_amount: item.iva_amount,
-            line_total: item.line_total,
+            item_code: item.item_code || null,
+            reference: item.reference || null,
+            description: item.description || null,
+            quantity: item.quantity ?? 1,
+            unit_price: item.unit_price ?? 0,
+            line_base: item.line_base ?? 0,
+            iva_rate: item.iva_rate ?? 0.19,
+            iva_amount: item.iva_amount ?? 0,
+            line_total: item.line_total ?? 0,
           }));
           const { error: itemsError } = await supabase.from('invoice_items').insert(items);
           if (itemsError) throw itemsError;
