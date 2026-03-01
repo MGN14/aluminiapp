@@ -19,7 +19,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Pencil, Trash2 } from 'lucide-react';
+import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
@@ -30,7 +30,8 @@ const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
 const statusLabel: Record<string, { text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  draft: { text: 'Borrador', variant: 'secondary' },
+  draft: { text: 'Pendiente por confirmar', variant: 'outline' },
+  error: { text: 'Error - Reintentar', variant: 'destructive' },
   confirmed: { text: 'Confirmada', variant: 'default' },
 };
 
@@ -44,6 +45,7 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [resumeDraft, setResumeDraft] = useState<Invoice | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -93,17 +95,19 @@ export default function Invoices() {
     window.open(data.signedUrl, '_blank');
   };
 
+  const handleResumeDraft = (inv: Invoice) => {
+    setResumeDraft(inv);
+    setUploadOpen(true);
+  };
+
   const handleDelete = async () => {
     if (!deleteId) return;
     setDeleting(true);
     try {
       const inv = invoices.find(i => i.id === deleteId);
-      // Delete items first
       await supabase.from('invoice_items').delete().eq('invoice_id', deleteId);
-      // Delete invoice
       const { error } = await supabase.from('invoices').delete().eq('id', deleteId);
       if (error) throw error;
-      // Delete PDF from storage
       if (inv?.storage_path) {
         await supabase.storage.from('invoices').remove([inv.storage_path]);
       }
@@ -161,7 +165,7 @@ export default function Invoices() {
             </h1>
             <p className="text-muted-foreground">Gestiona tus facturas electrónicas colombianas</p>
           </div>
-          <Button onClick={() => setUploadOpen(true)} className="gap-2">
+          <Button onClick={() => { setResumeDraft(null); setUploadOpen(true); }} className="gap-2">
             <Upload className="h-4 w-4" />
             Subir factura PDF
           </Button>
@@ -204,7 +208,8 @@ export default function Invoices() {
                   <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="draft">Borrador</SelectItem>
+                    <SelectItem value="draft">Pendiente</SelectItem>
+                    <SelectItem value="error">Error</SelectItem>
                     <SelectItem value="confirmed">Confirmada</SelectItem>
                   </SelectContent>
                 </Select>
@@ -228,7 +233,7 @@ export default function Invoices() {
                     <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <p className="font-medium">No hay facturas</p>
                     <p className="text-sm mt-1">Sube tu primera factura electrónica</p>
-                    <Button variant="outline" className="mt-4 gap-2" onClick={() => setUploadOpen(true)}>
+                    <Button variant="outline" className="mt-4 gap-2" onClick={() => { setResumeDraft(null); setUploadOpen(true); }}>
                       <Upload className="h-4 w-4" />
                       Subir factura PDF
                     </Button>
@@ -243,16 +248,17 @@ export default function Invoices() {
                           <TableHead>Proveedor / Cliente</TableHead>
                           <TableHead className="w-[120px]">Número</TableHead>
                           <TableHead className="text-right w-[130px]">Total</TableHead>
-                          <TableHead className="w-[110px]">Estado</TableHead>
-                          <TableHead className="w-[130px] text-right">Acciones</TableHead>
+                          <TableHead className="w-[160px]">Estado</TableHead>
+                          <TableHead className="w-[150px] text-right">Acciones</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filtered.map((inv) => {
                           const s = statusLabel[inv.status] || statusLabel.draft;
                           const displayDate = inv.issue_date || inv.created_at;
+                          const isDraftOrError = inv.status === 'draft' || inv.status === 'error';
                           return (
-                            <TableRow key={inv.id}>
+                            <TableRow key={inv.id} className={isDraftOrError ? 'bg-warning/5' : ''}>
                               <TableCell className="text-sm">
                                 {format(new Date(displayDate), 'dd MMM yy', { locale: es })}
                               </TableCell>
@@ -269,6 +275,18 @@ export default function Invoices() {
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
+                                  {isDraftOrError && (
+                                    <Button
+                                      variant="default"
+                                      size="sm"
+                                      className="h-8 gap-1 text-xs"
+                                      title="Continuar configuración"
+                                      onClick={() => handleResumeDraft(inv)}
+                                    >
+                                      <PlayCircle className="h-3.5 w-3.5" />
+                                      Continuar
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -308,8 +326,9 @@ export default function Invoices() {
 
       <InvoiceUploadModal
         open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
+        onClose={() => { setUploadOpen(false); setResumeDraft(null); }}
         onInvoiceSaved={fetchInvoices}
+        resumeDraft={resumeDraft}
       />
 
       {/* Delete confirmation */}

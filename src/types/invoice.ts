@@ -25,7 +25,7 @@ export interface Invoice {
   cufe: string | null;
   payment_method: string | null;
   notes: string | null;
-  status: 'draft' | 'confirmed';
+  status: 'draft' | 'confirmed' | 'error';
   storage_path: string | null;
   pdf_path: string | null;
   extracted_data: any | null;
