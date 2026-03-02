@@ -23,7 +23,7 @@ export default function UpgradeLimitModal({
   open,
   onOpenChange,
   title = 'Límite alcanzado',
-  message = 'Ya usaste el extracto gratuito. Para seguir usando AluminIA, suscríbete al plan Básico.',
+  message = 'Tu prueba gratuita terminó. Activa un plan para continuar usando AluminIA.',
 }: UpgradeLimitModalProps) {
   const navigate = useNavigate();
   const { createWompiCheckout } = useSubscription();

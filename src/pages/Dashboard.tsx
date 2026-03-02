@@ -20,6 +20,7 @@ import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/Re
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
+import TrialChecklist from '@/components/subscription/TrialChecklist';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
@@ -661,6 +662,9 @@ export default function Dashboard() {
 
         {/* Onboarding Guide for new users */}
         <OnboardingGuide hasTransactions={transactions.length > 0} />
+
+        {/* Trial Checklist */}
+        <TrialChecklist />
 
         {metrics.transactionCount === 0 && transactions.length === 0 ? (
           <Card className="animate-fade-in">

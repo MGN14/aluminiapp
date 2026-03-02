@@ -8,6 +8,13 @@ const isDev = import.meta.env.MODE === 'development';
 export type SubscriptionPlan = 'demo' | 'basico' | 'pro' | 'empresarial' | 'admin';
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'inactive';
 
+export interface TrialChecklist {
+  statement_uploaded: boolean;
+  invoice_uploaded: boolean;
+  invoice_matched: boolean;
+  dian_reviewed: boolean;
+}
+
 interface SubscriptionState {
   plan: SubscriptionPlan;
   status: SubscriptionStatus;
@@ -20,20 +27,26 @@ interface SubscriptionState {
   planSource: 'founder' | 'admin' | 'database' | null;
   loading: boolean;
   error: string | null;
+  // Trial-specific
+  isTrialing: boolean;
+  trialExpired: boolean;
+  trialDaysLeft: number | null;
+  trialChecklist: TrialChecklist | null;
 }
 
 interface SubscriptionContextType extends SubscriptionState {
   checkSubscription: () => Promise<void>;
   checkUploadLimit: () => Promise<{ canUpload: boolean; message: string }>;
   createWompiCheckout: () => Promise<string | null>;
-  getPlanLimits: () => { pdfLimit: number; bankAccounts: number; historyMonths: number | null };
+  getPlanLimits: () => { pdfLimit: number; bankAccounts: number; historyMonths: number | null; invoiceLimit: number };
+  updateTrialChecklist: (key: keyof TrialChecklist) => Promise<void>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
 
 const defaultState: SubscriptionState = {
   plan: 'demo',
-  status: 'active',
+  status: 'trialing',
   subscribed: false,
   subscriptionEnd: null,
   pdfUploadsTotal: 0,
@@ -43,6 +56,10 @@ const defaultState: SubscriptionState = {
   planSource: null,
   loading: true,
   error: null,
+  isTrialing: false,
+  trialExpired: false,
+  trialDaysLeft: null,
+  trialChecklist: null,
 };
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
@@ -96,6 +113,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         planSource: data.plan_source || (data.is_admin ? 'admin' : 'database'),
         loading: false,
         error: null,
+        isTrialing: data.is_trialing || false,
+        trialExpired: data.trial_expired || false,
+        trialDaysLeft: data.trial_days_left ?? null,
+        trialChecklist: data.trial_checklist || null,
       });
     } catch (err) {
       if (isDev) console.error('[PLAN] Exception in checkSubscription:', err);
@@ -153,21 +174,34 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [user, sessionExpired]);
 
   const getPlanLimits = useCallback(() => {
+    // During trial, give full access with reasonable limits
+    if (state.isTrialing) {
+      return { pdfLimit: 3, bankAccounts: 1, historyMonths: null, invoiceLimit: 10 };
+    }
     switch (state.plan) {
       case 'demo':
-        return { pdfLimit: 1, bankAccounts: 1, historyMonths: null };
+        return { pdfLimit: 0, bankAccounts: 1, historyMonths: null, invoiceLimit: 0 }; // expired trial
       case 'basico':
-        return { pdfLimit: 10, bankAccounts: 1, historyMonths: 6 };
+        return { pdfLimit: 10, bankAccounts: 1, historyMonths: 6, invoiceLimit: -1 };
       case 'pro':
-        return { pdfLimit: -1, bankAccounts: 2, historyMonths: null };
+        return { pdfLimit: -1, bankAccounts: 2, historyMonths: null, invoiceLimit: -1 };
       case 'empresarial':
-        return { pdfLimit: -1, bankAccounts: 3, historyMonths: null };
+        return { pdfLimit: -1, bankAccounts: 3, historyMonths: null, invoiceLimit: -1 };
       case 'admin':
-        return { pdfLimit: -1, bankAccounts: -1, historyMonths: null };
+        return { pdfLimit: -1, bankAccounts: -1, historyMonths: null, invoiceLimit: -1 };
       default:
-        return { pdfLimit: 1, bankAccounts: 1, historyMonths: null };
+        return { pdfLimit: 0, bankAccounts: 1, historyMonths: null, invoiceLimit: 0 };
     }
-  }, [state.plan]);
+  }, [state.plan, state.isTrialing]);
+
+  const updateTrialChecklist = useCallback(async (key: keyof TrialChecklist) => {
+    if (!user || !state.trialChecklist) return;
+    const updated = { ...state.trialChecklist, [key]: true };
+    setState(prev => ({ ...prev, trialChecklist: updated }));
+    // We can't update directly due to RLS, but we can call an edge function or just track locally
+    // For now, update via localStorage as a lightweight approach
+    localStorage.setItem(`trial_checklist_${user.id}`, JSON.stringify(updated));
+  }, [user, state.trialChecklist]);
 
   useEffect(() => {
     if (user && session && !sessionExpired) {
@@ -183,6 +217,27 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return () => clearInterval(interval);
   }, [user, session, sessionExpired, checkSubscription]);
 
+  // Merge localStorage checklist with server data
+  useEffect(() => {
+    if (user && state.trialChecklist) {
+      const stored = localStorage.getItem(`trial_checklist_${user.id}`);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as TrialChecklist;
+          const merged = {
+            statement_uploaded: state.trialChecklist.statement_uploaded || parsed.statement_uploaded,
+            invoice_uploaded: state.trialChecklist.invoice_uploaded || parsed.invoice_uploaded,
+            invoice_matched: state.trialChecklist.invoice_matched || parsed.invoice_matched,
+            dian_reviewed: state.trialChecklist.dian_reviewed || parsed.dian_reviewed,
+          };
+          if (JSON.stringify(merged) !== JSON.stringify(state.trialChecklist)) {
+            setState(prev => ({ ...prev, trialChecklist: merged }));
+          }
+        } catch {}
+      }
+    }
+  }, [user, state.trialChecklist]);
+
   return (
     <SubscriptionContext.Provider
       value={{
@@ -191,6 +246,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         checkUploadLimit,
         createWompiCheckout,
         getPlanLimits,
+        updateTrialChecklist,
       }}
     >
       {children}

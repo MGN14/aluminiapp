@@ -39,7 +39,7 @@ const statusLabel: Record<string, { text: string; variant: 'default' | 'secondar
 };
 
 export default function Invoices() {
-  const { plan, loading: subLoading } = useSubscription();
+  const { plan, loading: subLoading, isTrialing, trialExpired } = useSubscription();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -52,7 +52,7 @@ export default function Invoices() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const isPro = plan === 'pro' || plan === 'empresarial' || plan === 'admin';
+  const isPro = plan === 'pro' || plan === 'empresarial' || plan === 'admin' || isTrialing || trialExpired;
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);

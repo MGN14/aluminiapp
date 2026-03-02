@@ -13,23 +13,23 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 const plans = [
   {
     id: 'demo',
-    name: 'Demo',
+    name: 'Empresarial Gratuito',
     price: '$0',
-    period: 'gratis',
-    description: 'Prueba AluminIA con un extracto real',
+    period: '14 días',
+    description: 'Prueba todas las funciones sin límites',
     features: [
-      '1 PDF único (para siempre)',
-      '1 cuenta bancaria',
-      'Parseo de extractos con IA',
-      'Conciliación manual',
-      'Cálculo de IVA y retenciones',
-      'Dashboard básico',
-      'Exportación a Excel',
+      'Acceso completo por 14 días',
+      'Hasta 3 extractos bancarios',
+      'Hasta 10 facturas DIAN',
+      'Dashboard fiscal real',
+      'Coach financiero con IA',
+      'Reportes avanzados',
+      'Sin tarjeta de crédito',
     ],
-    cta: 'Probar con un extracto',
+    cta: 'Empezar prueba gratuita',
     ctaAction: 'signup' as const,
     highlighted: false,
-    note: 'Este plan es solo para probar AluminIA con un extracto real',
+    note: 'Acceso completo para que pruebes AluminIA con datos reales',
   },
   {
     id: 'basico',
@@ -41,7 +41,7 @@ const plans = [
       'Hasta 10 PDFs por mes',
       'Hasta 2 cuentas bancarias',
       'Historial de hasta 2 años',
-      '2 usuarios incluidos (Administrador y Auxiliar)',
+      '2 usuarios incluidos',
       'Dashboard completo',
       'IVA y retenciones automáticas',
       'Exportación a Excel',
@@ -169,7 +169,7 @@ export default function Pricing() {
             Elige el plan perfecto para tu negocio
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Prueba gratis con un extracto real. Escala cuando estés listo. Sin sorpresas, sin costos ocultos.
+            Empieza con 14 días gratis de acceso completo. Escala cuando estés listo. Sin tarjeta, sin sorpresas.
           </p>
         </div>
       </section>
