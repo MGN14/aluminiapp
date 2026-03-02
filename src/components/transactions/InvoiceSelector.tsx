@@ -37,7 +37,7 @@ function formatCurrency(value: number) {
 const TAG_CONFIG: Record<InvoiceTag, { label: string; icon: typeof FileText; colorClass: string; description: string }> = {
   na: { label: 'N/A', icon: FileText, colorClass: 'text-muted-foreground', description: 'Sin factura asociada' },
   iva_favor: { label: 'IVA a favor', icon: ShieldCheck, colorClass: 'text-success', description: 'Pago impuesto DIAN' },
-  retefuente: { label: 'Retefuente', icon: Receipt, colorClass: 'text-accent', description: 'Sin factura, con retención' },
+  retefuente: { label: 'Retefuente', icon: Receipt, colorClass: 'text-primary', description: 'Sin factura, con retención' },
 };
 
 export default function InvoiceSelector({ invoiceId, tags, transactionType, onChange, className }: InvoiceSelectorProps) {
