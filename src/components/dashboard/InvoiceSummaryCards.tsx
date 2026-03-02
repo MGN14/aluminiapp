@@ -374,9 +374,9 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
       {/* Top Clientes (Ventas) - Ranked */}
       {metrics.topClients.length > 0 && (
-        <Card>
+        <Card className="sm:col-span-2 lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+            <CardTitle className="text-base font-semibold text-foreground">
               Top {metrics.topClients.length} Clientes
             </CardTitle>
             <div className="p-2 rounded-lg bg-primary/10">
@@ -384,18 +384,18 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {metrics.topClients.map(([name, total], index) => (
-                <div key={name} className="flex items-center gap-2 text-sm">
-                  <span className={`font-bold text-base w-5 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
+                <div key={name} className="flex items-center gap-3">
+                  <span className={`font-bold text-lg w-6 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
                     {index + 1}
                   </span>
-                  <span className="text-foreground truncate flex-1">{name}</span>
-                  <span className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
+                  <span className="text-sm text-foreground truncate flex-1">{name}</span>
+                  <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
                 </div>
               ))}
             </div>
-            <div className="text-xs text-muted-foreground mt-3 pt-2 border-t border-border">
+            <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
               {periodLabel}
             </div>
           </CardContent>
@@ -403,37 +403,43 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       )}
 
       {/* Top Referencias Vendidas */}
-      {topReferences.length > 0 && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Top {topReferences.length} Referencias
-            </CardTitle>
-            <div className="p-2 rounded-lg bg-success/10">
-              <Package className="h-4 w-4 text-success" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2.5">
+      <Card className="sm:col-span-2 lg:col-span-2">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-base font-semibold text-foreground">
+            Top {topReferences.length > 0 ? topReferences.length : 5} Referencias
+          </CardTitle>
+          <div className="p-2 rounded-lg bg-success/10">
+            <Package className="h-4 w-4 text-success" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {topReferences.length > 0 ? (
+            <div className="space-y-3">
               {topReferences.map(([name, { total, qty }], index) => (
-                <div key={name} className="flex items-center gap-2 text-sm">
-                  <span className={`font-bold text-base w-5 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
+                <div key={name} className="flex items-center gap-3">
+                  <span className={`font-bold text-lg w-6 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
                     {index + 1}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <span className="text-foreground truncate block">{name}</span>
+                    <span className="text-sm text-foreground truncate block">{name}</span>
                     <span className="text-xs text-muted-foreground">{qty} uds</span>
                   </div>
-                  <span className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
+                  <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
                 </div>
               ))}
             </div>
-            <div className="text-xs text-muted-foreground mt-3 pt-2 border-t border-border">
-              {periodLabel}
+          ) : (
+            <div className="flex flex-col items-center justify-center py-4 text-center">
+              <Package className="h-8 w-8 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground">Sin ítems desglosados</p>
+              <p className="text-xs text-muted-foreground mt-1">Las facturas aún no tienen líneas de detalle cargadas.</p>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+          <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
+            {periodLabel}
+          </div>
+        </CardContent>
+      </Card>
     </>
   );
 }
