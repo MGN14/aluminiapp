@@ -91,10 +91,13 @@ export default function TransactionRow({
       updateField({ invoice_id: null, notes: '[N/A - Sin factura]' });
     } else if (invoiceId === '__IVA_FAVOR__') {
       updateField({ invoice_id: null, notes: '[IVA a favor - Pago DIAN]' });
+    } else if (invoiceId === '__RETEFUENTE__') {
+      updateField({ invoice_id: null, notes: '[Retefuente - Sin factura]' });
     } else {
       const cleanedNotes = localTransaction.notes
         ?.replace('[N/A - Sin factura]', '')
         .replace('[IVA a favor - Pago DIAN]', '')
+        .replace('[Retefuente - Sin factura]', '')
         .trim() || null;
       updateField({ 
         invoice_id: invoiceId, 
@@ -154,7 +157,8 @@ export default function TransactionRow({
   // Determine invoice display value
   const invoiceValue = localTransaction.invoice_id || 
     (localTransaction.notes === '[N/A - Sin factura]' ? 'N/A' : 
-     localTransaction.notes === '[IVA a favor - Pago DIAN]' ? '__IVA_FAVOR__' : null);
+     localTransaction.notes === '[IVA a favor - Pago DIAN]' ? '__IVA_FAVOR__' :
+     localTransaction.notes === '[Retefuente - Sin factura]' ? '__RETEFUENTE__' : null);
 
   return (
     <TableRow className={cn(

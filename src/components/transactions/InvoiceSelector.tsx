@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { FileText, Search, X, ShieldCheck } from 'lucide-react';
+import { FileText, Search, X, ShieldCheck, Receipt } from 'lucide-react';
 
 interface InvoiceOption {
   id: string;
@@ -32,6 +32,7 @@ function formatCurrency(value: number) {
 }
 
 const IVA_FAVOR_VALUE = '__IVA_FAVOR__';
+const RETEFUENTE_VALUE = '__RETEFUENTE__';
 
 export default function InvoiceSelector({ value, transactionType, onChange, className }: InvoiceSelectorProps) {
   const [open, setOpen] = useState(false);
@@ -97,6 +98,8 @@ export default function InvoiceSelector({ value, transactionType, onChange, clas
     ? 'N/A'
     : value === IVA_FAVOR_VALUE
     ? 'IVA a favor'
+    : value === RETEFUENTE_VALUE
+    ? 'Retefuente'
     : null;
 
   return (
@@ -115,6 +118,8 @@ export default function InvoiceSelector({ value, transactionType, onChange, clas
             <span className="flex items-center gap-1 truncate">
               {value === IVA_FAVOR_VALUE ? (
                 <ShieldCheck className="h-3 w-3 shrink-0 text-success" />
+              ) : value === RETEFUENTE_VALUE ? (
+                <Receipt className="h-3 w-3 shrink-0 text-accent" />
               ) : (
                 <FileText className="h-3 w-3 shrink-0" />
               )}
@@ -164,6 +169,20 @@ export default function InvoiceSelector({ value, transactionType, onChange, clas
             >
               <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0" />
               <span className="text-foreground font-medium">IVA a favor — Pago impuesto DIAN</span>
+            </button>
+          )}
+
+          {/* Retefuente option - for egreso without invoice but with withholding (e.g. payroll) */}
+          {transactionType === 'egreso' && (
+            <button
+              className={cn(
+                "w-full text-left px-3 py-2 text-xs hover:bg-accent/10 border-b border-border flex items-center gap-2",
+                value === RETEFUENTE_VALUE && 'bg-accent/10'
+              )}
+              onClick={() => handleSelect(RETEFUENTE_VALUE)}
+            >
+              <Receipt className="h-3.5 w-3.5 text-accent shrink-0" />
+              <span className="text-foreground font-medium">Retefuente — Sin factura, con retención</span>
             </button>
           )}
           
