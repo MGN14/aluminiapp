@@ -639,9 +639,9 @@ export default function Dashboard() {
         <PlanStatusCard />
 
         {/* Nico Card */}
-        <div
-          onClick={openNico}
-          className="cursor-pointer group flex items-center gap-4 p-4 rounded-2xl border border-success/30 bg-success/5 hover:bg-success/10 hover:border-success/50 transition-all animate-fade-in"
+        <Link
+          to="/nico"
+          className="cursor-pointer group flex items-center gap-4 p-4 rounded-2xl border border-success/30 bg-success/5 hover:bg-success/10 hover:border-success/50 transition-all animate-fade-in no-underline"
         >
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-success/30 flex-shrink-0">
             <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
@@ -658,7 +658,7 @@ export default function Dashboard() {
           <span className="text-xs font-medium text-success group-hover:underline whitespace-nowrap flex-shrink-0">
             Abrir Nico →
           </span>
-        </div>
+        </Link>
 
         {/* Onboarding Guide for new users */}
         <OnboardingGuide hasTransactions={transactions.length > 0} />
