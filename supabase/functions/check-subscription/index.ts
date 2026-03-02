@@ -68,6 +68,16 @@ serve(async (req) => {
 
     logStep("User authenticated", { userId });
 
+    // Helper: count actual non-deleted statements for user
+    const countActiveStatements = async (uid: string) => {
+      const { count } = await supabaseClient
+        .from("bank_statements")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", uid)
+        .is("deleted_at", null);
+      return count ?? 0;
+    };
+
     // Check FOUNDER
     const founderEmail = Deno.env.get("FOUNDER_EMAIL");
     const isFounder = founderEmail && email.toLowerCase() === founderEmail.toLowerCase();
@@ -80,14 +90,12 @@ serve(async (req) => {
         await supabaseClient.from("user_roles")
           .upsert({ user_id: userId, role: "admin" }, { onConflict: "user_id,role" });
       }
-      const { data: sub } = await supabaseClient
-        .from("user_subscriptions").select("pdf_uploads_total, pdf_uploads_this_month")
-        .eq("user_id", userId).single();
+      const activeStatements = await countActiveStatements(userId);
       return new Response(JSON.stringify({
         subscribed: true, plan: "basico", plan_source: "founder", status: "active",
         is_admin: true, is_founder: true, subscription_end: null,
-        pdf_uploads_total: sub?.pdf_uploads_total || 0,
-        pdf_uploads_this_month: sub?.pdf_uploads_this_month || 0,
+        pdf_uploads_total: activeStatements,
+        pdf_uploads_this_month: activeStatements,
         is_trialing: false, trial_days_left: null, trial_expired: false,
         trial_checklist: null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
@@ -97,14 +105,12 @@ serve(async (req) => {
     const { data: isAdmin } = await supabaseClient.rpc("is_admin", { _user_id: userId });
     if (isAdmin) {
       logStep("User is admin");
-      const { data: sub } = await supabaseClient
-        .from("user_subscriptions").select("pdf_uploads_total, pdf_uploads_this_month")
-        .eq("user_id", userId).single();
+      const activeStatements = await countActiveStatements(userId);
       return new Response(JSON.stringify({
         subscribed: true, plan: "admin", status: "active",
         is_admin: true, is_founder: false, subscription_end: null,
-        pdf_uploads_total: sub?.pdf_uploads_total || 0,
-        pdf_uploads_this_month: sub?.pdf_uploads_this_month || 0,
+        pdf_uploads_total: activeStatements,
+        pdf_uploads_this_month: activeStatements,
         is_trialing: false, trial_days_left: null, trial_expired: false,
         trial_checklist: null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
@@ -180,11 +186,14 @@ serve(async (req) => {
 
     const subscribed = plan !== "demo" || isTrialing;
 
+    // Count actual active statements instead of cumulative counter
+    const activeStatements = await countActiveStatements(userId);
+
     return new Response(JSON.stringify({
       subscribed, plan, status,
       subscription_end: dbSub?.plan_expires_at || null,
-      pdf_uploads_total: dbSub?.pdf_uploads_total || 0,
-      pdf_uploads_this_month: dbSub?.pdf_uploads_this_month || 0,
+      pdf_uploads_total: activeStatements,
+      pdf_uploads_this_month: activeStatements,
       is_trialing: isTrialing,
       trial_days_left: trialDaysLeft,
       trial_expired: trialExpired,

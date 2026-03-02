@@ -46,11 +46,11 @@ export default function PlanStatusCard() {
   const Icon = info.icon;
 
   const getUsageText = () => {
-    if (isFounder) return `PDFs usados: ${pdfUploadsThisMonth}/10 este mes`;
-    if (isTrialing) return `Extractos usados: ${pdfUploadsTotal}/${limits.pdfLimit}`;
+    if (isFounder) return `Extractos guardados: ${pdfUploadsTotal}/10`;
+    if (isTrialing) return `Extractos guardados: ${pdfUploadsTotal}/${limits.pdfLimit}`;
     if (trialExpired) return 'Acceso de solo lectura';
-    if (plan === 'empresarial' || plan === 'admin') return `PDFs usados: ${pdfUploadsThisMonth} este mes`;
-    if (plan === 'basico') return `PDFs usados: ${pdfUploadsThisMonth}/${limits.pdfLimit} este mes`;
+    if (plan === 'empresarial' || plan === 'admin') return `Extractos guardados: ${pdfUploadsTotal}`;
+    if (plan === 'basico') return `Extractos guardados: ${pdfUploadsTotal}/${limits.pdfLimit}`;
     return '';
   };
 
