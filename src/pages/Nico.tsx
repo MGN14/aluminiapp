@@ -1,8 +1,48 @@
 import AppLayout from '@/components/layout/AppLayout';
 import NicoChat from '@/components/nico/NicoChat';
 import nicoAvatar from '@/assets/nico-avatar.png';
+import { useSubscription } from '@/hooks/useSubscription';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Lock, Loader2 } from 'lucide-react';
 
 export default function NicoPage() {
+  const { plan, trialExpired, loading: subLoading, isAdmin, isFounder, isTrialing } = useSubscription();
+  const navigate = useNavigate();
+
+  // Gate: block for demo with expired trial (not trialing, not paid)
+  const hasAccess = isAdmin || isFounder || isTrialing || ['basico', 'pro', 'empresarial', 'admin'].includes(plan);
+
+  if (subLoading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!hasAccess) {
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-6">
+            <Lock className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Coach Financiero con IA</h1>
+          <p className="text-muted-foreground max-w-md mb-6">
+            Nico está disponible en los planes Básico y Empresarial.
+            Activa tu plan para acceder a análisis financiero inteligente.
+          </p>
+          <Button onClick={() => navigate('/pricing')} className="gap-2">
+            Activar Plan
+          </Button>
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout>
       <div className="max-w-3xl mx-auto">

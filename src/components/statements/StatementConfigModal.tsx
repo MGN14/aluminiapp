@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { useSubscription } from '@/hooks/useSubscription';
 import {
   Dialog,
   DialogContent,
@@ -86,6 +88,9 @@ export default function StatementConfigModal({
   required = false,
 }: StatementConfigModalProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const { getPlanLimits, isAdmin, isFounder } = useSubscription();
+  const limits = getPlanLimits();
 
   const [bankName, setBankName] = useState(initialBankName || '');
   const [customBank, setCustomBank] = useState('');
@@ -124,6 +129,32 @@ export default function StatementConfigModal({
   const handleSave = async () => {
     if (!isValid) return;
     setSaving(true);
+
+    // Enforce bank account limit
+    const newAccount = accountNumber.trim() || null;
+    if (newAccount && limits.bankAccounts > 0 && !isAdmin && !isFounder && user) {
+      const { data: existingAccounts } = await supabase
+        .from('bank_statements')
+        .select('account_number')
+        .eq('user_id', user.id)
+        .is('deleted_at', null)
+        .not('account_number', 'is', null)
+        .neq('id', statementId); // Exclude current statement
+
+      const distinctAccounts = new Set(
+        (existingAccounts || []).map(s => s.account_number).filter(Boolean)
+      );
+      
+      if (!distinctAccounts.has(newAccount) && distinctAccounts.size >= limits.bankAccounts) {
+        toast({
+          title: 'Límite de cuentas bancarias',
+          description: `Tu plan permite hasta ${limits.bankAccounts} cuenta${limits.bankAccounts > 1 ? 's' : ''} bancaria${limits.bankAccounts > 1 ? 's' : ''}. Elimina un extracto de otra cuenta o actualiza tu plan.`,
+          variant: 'destructive',
+        });
+        setSaving(false);
+        return;
+      }
+    }
 
     const periodStart = `${yearNum}-${String(monthNum).padStart(2, '0')}-01`;
     const periodEnd = new Date(yearNum, monthNum, 0).toISOString().split('T')[0];

@@ -52,7 +52,7 @@ export default function Invoices() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const isPro = plan === 'pro' || plan === 'empresarial' || plan === 'admin' || isTrialing || trialExpired;
+  const isEmpresarial = plan === 'empresarial' || plan === 'pro' || plan === 'admin' || isTrialing;
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -65,8 +65,8 @@ export default function Invoices() {
   }, []);
 
   useEffect(() => {
-    if (isPro) fetchInvoices();
-  }, [isPro, fetchInvoices]);
+    if (isEmpresarial) fetchInvoices();
+  }, [isEmpresarial, fetchInvoices]);
 
   const filtered = useMemo(() => {
     let result = invoices;
@@ -134,7 +134,7 @@ export default function Invoices() {
     );
   }
 
-  if (!isPro) {
+  if (!isEmpresarial) {
     return (
       <AppLayout>
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
@@ -143,12 +143,12 @@ export default function Invoices() {
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Facturación DIAN</h1>
           <p className="text-muted-foreground max-w-md mb-6">
-            El módulo Facturación DIAN está disponible en el Plan Pro.
+            El módulo Facturación DIAN está disponible en el Plan Empresarial.
             Gestiona facturas electrónicas, calcula impuestos y genera resúmenes fiscales.
           </p>
           <Button onClick={() => navigate('/pricing')} className="gap-2">
             <Crown className="h-4 w-4" />
-            Actualizar plan
+            Activar Empresarial
           </Button>
         </div>
       </AppLayout>
@@ -163,7 +163,7 @@ export default function Invoices() {
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               Facturas (DIAN)
               <Badge variant="outline" className="text-xs font-medium gap-1 border-warning text-warning">
-                <Crown className="h-3 w-3" /> Pro
+                <Crown className="h-3 w-3" /> Empresarial
               </Badge>
             </h1>
             <p className="text-muted-foreground">Gestiona tus facturas electrónicas colombianas</p>

@@ -37,8 +37,7 @@ export default function PlanStatusCard() {
     if (isTrialing) return { name: 'Empresarial Gratuito', icon: Zap, description: 'Acceso completo por 14 días para que pruebes AluminIA sin límites' };
     if (trialExpired) return { name: 'Prueba Expirada', icon: Clock, description: 'Tu prueba gratuita terminó. Activa un plan para continuar.' };
     if (plan === 'basico') return { name: 'Plan Básico', icon: Crown, description: 'Gestión financiera para tu negocio' };
-    if (plan === 'pro') return { name: 'Plan Pro', icon: Crown, description: 'Facturación DIAN y gestión avanzada' };
-    if (plan === 'empresarial') return { name: 'Plan Empresarial', icon: Rocket, description: 'Solución completa para empresas' };
+    if (plan === 'pro' || plan === 'empresarial') return { name: 'Plan Empresarial', icon: Rocket, description: 'Solución completa para empresas' };
     return { name: 'Empresarial Gratuito', icon: Zap, description: 'Prueba gratuita' };
   };
 
@@ -49,7 +48,7 @@ export default function PlanStatusCard() {
     if (isFounder) return `Extractos guardados: ${pdfUploadsTotal}/10`;
     if (isTrialing) return `Extractos guardados: ${pdfUploadsTotal}/${limits.pdfLimit}`;
     if (trialExpired) return 'Acceso de solo lectura';
-    if (plan === 'empresarial' || plan === 'admin') return `Extractos guardados: ${pdfUploadsTotal}`;
+    if (plan === 'empresarial' || plan === 'pro' || plan === 'admin') return `Extractos guardados: ${pdfUploadsTotal}`;
     if (plan === 'basico') return `Extractos guardados: ${pdfUploadsTotal}/${limits.pdfLimit}`;
     return '';
   };
