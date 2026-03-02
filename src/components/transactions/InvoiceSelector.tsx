@@ -95,6 +95,8 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, onCh
     } else {
       onChange(invoiceId, newTags);
     }
+    setOpen(false);
+    setSearch('');
   };
 
   const removeTag = (tag: InvoiceTag) => {
