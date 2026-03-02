@@ -87,29 +87,13 @@ export default function TransactionRow({
   };
 
   const handleInvoiceChange = (invoiceId: string | null) => {
-    // Store 'N/A' as null with a notes marker, or store the actual invoice_id
     if (invoiceId === 'N/A') {
-      updateField({ notes: '[N/A - Sin factura]' } as any);
+      updateField({ invoice_id: null, notes: '[N/A - Sin factura]' });
     } else {
-      updateField({ notes: invoiceId ? null : localTransaction.notes } as any);
-    }
-    // We need to update invoice_id directly
-    if (invoiceId && invoiceId !== 'N/A') {
-      supabase
-        .from('transactions')
-        .update({ invoice_id: invoiceId })
-        .eq('id', localTransaction.id)
-        .then(() => {
-          onTransactionUpdated?.({ ...localTransaction, invoice_id: invoiceId } as any);
-        });
-    } else {
-      supabase
-        .from('transactions')
-        .update({ invoice_id: null })
-        .eq('id', localTransaction.id)
-        .then(() => {
-          onTransactionUpdated?.({ ...localTransaction, invoice_id: null } as any);
-        });
+      updateField({ 
+        invoice_id: invoiceId, 
+        notes: invoiceId ? localTransaction.notes?.replace('[N/A - Sin factura]', '').trim() || null : localTransaction.notes 
+      });
     }
   };
 
@@ -162,7 +146,7 @@ export default function TransactionRow({
     .map(r => ({ value: r.id, label: r.name }));
 
   // Determine invoice display value
-  const invoiceValue = (localTransaction as any).invoice_id || 
+  const invoiceValue = localTransaction.invoice_id || 
     (localTransaction.notes === '[N/A - Sin factura]' ? 'N/A' : null);
 
   return (
