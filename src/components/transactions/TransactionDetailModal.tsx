@@ -103,6 +103,8 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
                   <span className="text-success font-medium">✓ Conciliada por factura</span>
                 ) : transaction.notes === '[N/A - Sin factura]' ? (
                   <span className="text-muted-foreground">N/A</span>
+                ) : transaction.notes === '[IVA a favor - Pago DIAN]' ? (
+                  <span className="text-success font-medium">✓ IVA a favor (Pago DIAN)</span>
                 ) : (
                   <span className="text-warning font-medium">Pendiente de asociar</span>
                 )}
@@ -116,7 +118,7 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
             </div>
           </div>
 
-          {transaction.notes && transaction.notes !== '[N/A - Sin factura]' && (
+          {transaction.notes && transaction.notes !== '[N/A - Sin factura]' && transaction.notes !== '[IVA a favor - Pago DIAN]' && (
             <div>
               <label className="text-xs text-muted-foreground">Notas</label>
               <p className="text-sm bg-muted/50 p-3 rounded-lg">{transaction.notes}</p>

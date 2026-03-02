@@ -52,10 +52,6 @@ interface Metrics {
   totalIngresos: number;
   totalEgresos: number;
   burnRate: number;
-  ivaDebito: number;
-  ivaCredito: number;
-  ivaNeto: number;
-  retefuentePorPagar: number;
   pendingReconcile: number;
   transactionCount: number;
   cuatrimestreLabel: string;
@@ -308,53 +304,8 @@ export default function Dashboard() {
     };
   }, [transactions, periodSelection.year]);
 
-  // Calculate RETEICA metrics
-  const reteicaMetrics = useMemo(() => {
-    const yearStart = new Date(periodSelection.year, 0, 1);
-    const yearEnd = new Date(periodSelection.year, 11, 31, 23, 59, 59);
-    
-    // Monthly RETEICA - from period transactions
-    const monthlyTransactions = periodTransactions.filter(tx => tx.has_reteica);
-    const monthlyTotal = monthlyTransactions.reduce((sum, tx) => sum + (tx.reteica_amount ?? 0), 0);
-    
-    // Yearly RETEICA - all transactions with RETEICA in the year
-    const yearlyTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return txDate >= yearStart && txDate <= yearEnd && tx.has_reteica;
-    });
-    const yearlyTotal = yearlyTransactions.reduce((sum, tx) => sum + (tx.reteica_amount ?? 0), 0);
-    
-    return {
-      monthlyTotal,
-      monthlyCount: monthlyTransactions.length,
-      yearlyTotal,
-      yearlyCount: yearlyTransactions.length,
-    };
-  }, [transactions, periodTransactions, periodSelection.year]);
-
-  // Calculate Retefuente metrics
-  const retefuenteMetrics = useMemo(() => {
-    const yearStart = new Date(periodSelection.year, 0, 1);
-    const yearEnd = new Date(periodSelection.year, 11, 31, 23, 59, 59);
-    
-    // Monthly Retefuente - from period transactions
-    const monthlyTransactions = periodTransactions.filter(tx => tx.has_retefuente);
-    const monthlyTotal = monthlyTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
-    
-    // Yearly Retefuente - all transactions with Retefuente in the year
-    const yearlyTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return txDate >= yearStart && txDate <= yearEnd && tx.has_retefuente;
-    });
-    const yearlyTotal = yearlyTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
-    
-    return {
-      monthlyTotal,
-      monthlyCount: monthlyTransactions.length,
-      yearlyTotal,
-      yearlyCount: yearlyTransactions.length,
-    };
-  }, [transactions, periodTransactions, periodSelection.year]);
+  // RETEICA and Retefuente metrics now come from invoiceMetrics (InvoiceSummaryCards)
+  // No longer calculated from transactions
 
   const metrics = useMemo((): Metrics => {
     if (transactions.length === 0) {
@@ -363,10 +314,6 @@ export default function Dashboard() {
         totalIngresos: 0,
         totalEgresos: 0,
         burnRate: 0,
-        ivaDebito: 0,
-        ivaCredito: 0,
-        ivaNeto: 0,
-        retefuentePorPagar: 0,
         pendingReconcile: 0,
         transactionCount: 0,
         cuatrimestreLabel: cuatrimestre.label,
@@ -374,13 +321,11 @@ export default function Dashboard() {
       };
     }
 
-    // Get the last balance from the most recent transaction in the selected period
     const sortedByDate = [...periodTransactions].sort((a, b) => 
       new Date(b.date).getTime() - new Date(a.date).getTime()
     );
     const saldoActual = sortedByDate[0]?.balance ?? 0;
 
-    // Total income and expenses for selected period
     const totalIngresos = periodTransactions
       .filter(tx => (tx.amount ?? 0) > 0)
       .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
@@ -391,7 +336,6 @@ export default function Dashboard() {
         .reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
     );
 
-    // Burn rate (average monthly expenses based on available data in cuatrimestre)
     const cuatrimestreExpenses = cuatrimestreTransactions.filter(tx => (tx.amount ?? 0) < 0);
     const monthsWithData = new Set(
       cuatrimestreExpenses.map(tx => {
@@ -401,17 +345,6 @@ export default function Dashboard() {
     ).size || 1;
     const burnRate = Math.abs(cuatrimestreExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / monthsWithData;
 
-    // IVA Débito (ventas) y Crédito (compras) - now from invoices, kept for backward compat
-    const ivaDebito = 0;
-    const ivaCredito = 0;
-
-    // IVA Neto now comes from invoice metrics
-    const ivaNeto = invoiceMetrics ? invoiceMetrics.ivaNeto : 0;
-
-    // Retefuente por pagar (period-based) - only from compras
-    const retefuentePorPagar = periodTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
-
-    // Pending reconciliation = transactions without responsible (for selected period)
     const pendingReconcile = periodTransactions.filter(tx => !tx.responsible_id).length;
 
     return {
@@ -419,16 +352,12 @@ export default function Dashboard() {
       totalIngresos,
       totalEgresos,
       burnRate,
-      ivaDebito,
-      ivaCredito,
-      ivaNeto,
-      retefuentePorPagar,
       pendingReconcile,
       transactionCount: periodTransactions.length,
       cuatrimestreLabel: cuatrimestre.label,
       periodLabel: periodRange.label,
     };
-  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange, invoiceMetrics]);
+  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange]);
 
   const handleInvoiceMetrics = useCallback((m: InvoiceFiscalMetrics) => setInvoiceMetrics(m), []);
 
@@ -754,36 +683,43 @@ export default function Dashboard() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {metrics.ivaNeto >= 0 ? 'IVA por Pagar' : 'Saldo a Favor'}
+                    {(invoiceMetrics?.ivaNeto ?? 0) >= 0 ? 'IVA por Pagar' : 'IVA a Favor'}
                   </CardTitle>
-                  <div className={`p-2 rounded-lg ${metrics.ivaNeto >= 0 ? 'bg-destructive/10' : 'bg-success/10'}`}>
-                    <Receipt className={`h-4 w-4 ${metrics.ivaNeto >= 0 ? 'text-destructive' : 'text-success'}`} />
+                  <div className={`p-2 rounded-lg ${(invoiceMetrics?.ivaNeto ?? 0) >= 0 ? 'bg-destructive/10' : 'bg-success/10'}`}>
+                    <Receipt className={`h-4 w-4 ${(invoiceMetrics?.ivaNeto ?? 0) >= 0 ? 'text-destructive' : 'text-success'}`} />
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-xl font-bold ${metrics.ivaNeto >= 0 ? 'text-destructive' : 'text-success'}`}>
-                    {formatCurrency(Math.abs(metrics.ivaNeto))}
+                  <div className={`text-xl font-bold ${(invoiceMetrics?.ivaNeto ?? 0) >= 0 ? 'text-destructive' : 'text-success'}`}>
+                    {formatCurrency(Math.abs(invoiceMetrics?.ivaNeto ?? 0))}
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <Calendar className="h-3 w-3 mr-1" />
-                    {metrics.cuatrimestreLabel}
+                    {cuatrimestre.label}
                   </div>
                   {/* Mandatory Disclaimer */}
                   <div className="flex items-start gap-1 mt-3 p-2 bg-muted/50 rounded text-[10px] text-muted-foreground">
                     <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                    <span>Valor estimado. Puede variar según conciliaciones, ajustes contables y validación final.</span>
+                    <span>Valor estimado desde facturas confirmadas. Puede variar según conciliaciones y validación final.</span>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Retefuente por Pagar - from invoices */}
+              {/* Autorretefuente por Pagar (ventas) */}
               <RetefuenteMonthlyCard
-                total={invoiceMetrics?.retefuenteMonth ?? 0}
-                periodLabel={periodRange.label}
-                transactionCount={invoiceMetrics?.retefuenteMonthCount ?? 0}
+                total={invoiceMetrics?.autoretefuenteMonth ?? 0}
+                periodLabel={`Autorretefuente • ${periodRange.label}`}
+                transactionCount={invoiceMetrics?.autoretefuenteMonthCount ?? 0}
               />
 
-              {/* Retefuente Acumulada (Año) - from invoices */}
+              {/* Retefuente Compras (compras) */}
+              <RetefuenteMonthlyCard
+                total={invoiceMetrics?.retefuenteCompraMonth ?? 0}
+                periodLabel={`Rete. Compras • ${periodRange.label}`}
+                transactionCount={invoiceMetrics?.retefuenteCompraMonthCount ?? 0}
+              />
+
+              {/* Retefuente Acumulada (Año) - combined */}
               <RetefuenteYearlyCard
                 total={invoiceMetrics?.retefuenteYear ?? 0}
                 year={periodSelection.year}
@@ -841,6 +777,8 @@ export default function Dashboard() {
                 periodEnd={periodRange.end}
                 periodLabel={periodRange.label}
                 year={periodSelection.year}
+                cuatrimestreStart={cuatrimestre.start}
+                cuatrimestreEnd={cuatrimestre.end}
                 onMetrics={handleInvoiceMetrics}
               />
             </div>

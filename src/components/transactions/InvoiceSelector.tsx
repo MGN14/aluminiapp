@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { FileText, Search, X } from 'lucide-react';
+import { FileText, Search, X, ShieldCheck } from 'lucide-react';
 
 interface InvoiceOption {
   id: string;
@@ -30,6 +30,8 @@ function formatCurrency(value: number) {
     maximumFractionDigits: 0,
   }).format(value);
 }
+
+const IVA_FAVOR_VALUE = '__IVA_FAVOR__';
 
 export default function InvoiceSelector({ value, transactionType, onChange, className }: InvoiceSelectorProps) {
   const [open, setOpen] = useState(false);
@@ -60,7 +62,8 @@ export default function InvoiceSelector({ value, transactionType, onChange, clas
   const filtered = useMemo(() => {
     let result = invoices;
     
-    // Filter by type based on transaction type
+    // For egresos, show both compra invoices + all (for flexibility)
+    // For ingresos, show venta invoices
     if (invoiceTypeFilter) {
       result = result.filter(inv => inv.type === invoiceTypeFilter);
     }
@@ -85,10 +88,15 @@ export default function InvoiceSelector({ value, transactionType, onChange, clas
     setSearch('');
   };
 
+  const isIvaFavor = value === IVA_FAVOR_VALUE || 
+    (value === null && transactionType === 'egreso'); // Check notes marker
+  
   const label = selected
     ? `${selected.invoice_number}`
     : value === 'N/A'
     ? 'N/A'
+    : value === IVA_FAVOR_VALUE
+    ? 'IVA a favor'
     : null;
 
   return (
@@ -105,7 +113,11 @@ export default function InvoiceSelector({ value, transactionType, onChange, clas
         >
           {label ? (
             <span className="flex items-center gap-1 truncate">
-              <FileText className="h-3 w-3 shrink-0" />
+              {value === IVA_FAVOR_VALUE ? (
+                <ShieldCheck className="h-3 w-3 shrink-0 text-success" />
+              ) : (
+                <FileText className="h-3 w-3 shrink-0" />
+              )}
               <span className="truncate">{label}</span>
               <button
                 className="ml-auto shrink-0 hover:text-destructive"
@@ -140,6 +152,20 @@ export default function InvoiceSelector({ value, transactionType, onChange, clas
           >
             N/A — Sin factura asociada
           </button>
+
+          {/* IVA a favor option - for egreso (DIAN tax payments) */}
+          {transactionType === 'egreso' && (
+            <button
+              className={cn(
+                "w-full text-left px-3 py-2 text-xs hover:bg-success/10 border-b border-border flex items-center gap-2",
+                value === IVA_FAVOR_VALUE && 'bg-success/10'
+              )}
+              onClick={() => handleSelect(IVA_FAVOR_VALUE)}
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0" />
+              <span className="text-foreground font-medium">IVA a favor — Pago impuesto DIAN</span>
+            </button>
+          )}
           
           {filtered.length === 0 ? (
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
