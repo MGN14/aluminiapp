@@ -1,141 +1,97 @@
 
-# Plan de Lanzamiento: AluminIA
 
-## Estado Actual
+# Auditoria de Planes: Huecos Encontrados
 
-La aplicación tiene una base sólida con la mayoría de funcionalidades core implementadas:
-
-| Área | Estado |
-|------|--------|
-| Autenticación | ✅ Completo |
-| Páginas legales | ✅ Completo |
-| SEO y metadatos | ✅ Completo |
-| Flujo principal | ✅ Completo |
-| Suscripciones Stripe | ✅ Completo |
-| Página de ajustes | ✅ Completo |
-| Edge Functions | ✅ 5 desplegadas |
-| Formulario de contacto | ✅ Funcional |
-| OpenGraph Image | ✅ PNG generado |
-| Favicon | ✅ Actualizado |
-| **RETEICA** | ✅ **Implementado** |
+Tras revisar minuciosamente cada feature prometida contra la implementacion real, encontre los siguientes problemas:
 
 ---
 
-## Pendientes
+## HUECOS CRITICOS
 
-### Crítico
-- [ ] Dominio personalizado (`aluminia.app`)
+### 1. Coach financiero (Nico) NO esta restringido por plan
+- **Promesa**: Basico promete "Analisis financiero con IA" y Empresarial promete "Coach financiero con IA" y "Reportes avanzados con IA"
+- **Realidad**: Nico (`/nico`) esta disponible para TODOS los usuarios sin ninguna restriccion de plan. Un usuario Demo o con trial expirado puede usar Nico igual que uno Empresarial.
+- **Tu pedido**: Agregar "Coach financiero" al plan Basico tambien. Si ambos planes (Basico y Empresarial) lo incluyen, entonces se debe bloquear para Demo y trial expirado.
+- **Accion**: Agregar gate en `/nico` que bloquee acceso a usuarios Demo (trial expirado). Usuarios en trial activo, Basico y Empresarial si pueden acceder.
 
-### Recomendados
-- [ ] Email de bienvenida personalizado
-- [ ] Google Analytics / Plausible
+### 2. Reportes (`/reports`) NO esta restringido por plan
+- **Promesa**: Solo Empresarial promete "Reportes avanzados con IA"
+- **Realidad**: La pagina de Reportes (PyG) esta abierta para todos los planes sin restriccion.
+- **Accion**: Si Reportes es exclusivo de Empresarial, agregar gate. Si Basico tambien debe tener un reporte basico, definir la diferencia.
 
----
+### 3. Historial de 2 anos del plan Basico NO se aplica
+- **Promesa**: Basico tiene "Historial hasta 2 anos"
+- **Realidad**: `historyMonths` esta definido como `6` en `getPlanLimits()` para Basico (6 meses, no 24). Ademas, este valor **nunca se usa en ningun componente** para filtrar datos. Es un numero muerto.
+- **Accion**: Cambiar `historyMonths` a `24` para Basico y realmente implementar el filtro en las queries de transacciones/dashboard.
 
-## Funcionalidad RETEICA (Nuevo)
+### 4. Limite de PDFs del Basico: dice 2 pero aplica 10
+- **Promesa**: Basico promete "2 PDFs mensuales"
+- **Realidad**: `getPlanLimits()` retorna `pdfLimit: 10` para Basico.
+- **Accion**: Cambiar a `pdfLimit: 2` para alinear con lo prometido, o actualizar el texto del plan.
 
-### Configuración (Settings)
-- Ciudad de declaración RETEICA (texto libre)
-- Tasa de ReteICA (%) configurable
-- Botón para recalcular transacciones existentes
-- Mensaje informativo sobre responsabilidad del usuario
+### 5. Plan "pro" fantasma en el codigo
+- **Realidad**: El codigo tiene un plan `pro` con `pdfLimit: -1, bankAccounts: 2` que no existe en la pagina de pricing. El modulo de Facturas DIAN verifica `isPro = plan === 'pro'` como condicion de acceso.
+- **Problema**: Si un usuario tiene plan `basico` en la BD, NO puede ver Facturas DIAN porque `isPro` no incluye `basico`. Esto es correcto segun los planes (Facturas DIAN es solo Empresarial), pero el plan `pro` deberia limpiarse del codigo ya que no se vende.
+- **Accion**: Reemplazar la logica `isPro` por `isEmpresarial` que incluya `empresarial` y `admin`. El plan `basico` NO debe tener acceso a Facturas DIAN segun la promesa.
 
-### Transacciones
-- Checkbox "Aplica ReteICA" (solo para ingresos)
-- Columna "$ ICA" con valor calculado
-- Cálculo automático: `reteica_amount = amount * reteica_rate`
+### 6. Exportacion a Excel NO esta restringida
+- **Promesa**: Demo incluye "Exportacion a Excel", Basico tambien. Ambos la tienen.
+- **Realidad**: `/export` esta abierto para todos. Esto esta CORRECTO ya que ambos planes pagados y Demo la incluyen.
+- **Estado**: OK (no hay hueco).
 
-### Dashboard
-- Card "ReteICA por Pagar" (periodo seleccionado)
-- Card "ReteICA Acumulado" (año)
+### 7. Cuentas bancarias: Empresarial dice 2 pero codigo dice 3
+- **Promesa**: Empresarial promete "Hasta 2 cuentas bancarias"
+- **Realidad**: `getPlanLimits()` retorna `bankAccounts: 3` para Empresarial.
+- **Accion**: Cambiar a `bankAccounts: 2`, o ademas el limite nunca se verifica al subir extractos.
 
-## Estado Actual
-
-La aplicación tiene una base sólida con la mayoría de funcionalidades core implementadas:
-
-| Área | Estado |
-|------|--------|
-| Autenticación | ✅ Completo (login, registro, recuperación de contraseña) |
-| Páginas legales | ✅ Completo (términos, privacidad, contacto) |
-| SEO y metadatos | ✅ Completo (OpenGraph, Twitter Cards, robots.txt) |
-| Flujo principal | ✅ Completo (subir PDF → transacciones → dashboard → exportar) |
-| Suscripciones Stripe | ✅ Completo (checkout, portal, verificación) |
-| Página de ajustes | ✅ Completo (cuenta, empresa, seguridad) |
-| Edge Functions | ✅ 5 desplegadas y funcionando |
-
----
-
-## Pendientes Críticos
-
-### ✅ 1. Protección de Contraseñas Filtradas
-**Estado**: COMPLETADO
-La protección contra contraseñas comprometidas está habilitada.
-
-### ✅ 2. Formulario de Contacto Funcional
-**Estado**: COMPLETADO
-- Tabla `contact_messages` creada en la base de datos
-- Edge function `send-contact` desplegada
-- Formulario `/contact` conectado al backend real
-
-### ⏳ 3. Dominio Personalizado
-**Estado**: PENDIENTE (requiere acción del usuario)
-
-**Acción requerida**: 
-1. Registrar dominio `aluminia.app`
-2. Ir a Settings → Domains en Lovable
-3. Agregar el dominio y seguir instrucciones DNS:
-   - A record para `@` apuntando a `185.158.133.1`
-   - A record para `www` apuntando a `185.158.133.1`
-   - TXT record `_lovable` con el valor proporcionado
+### 8. Limite de cuentas bancarias NUNCA se verifica
+- **Promesa**: Demo = 1 cuenta, Basico = 1 cuenta, Empresarial = 2 cuentas
+- **Realidad**: El valor `bankAccounts` se define en `getPlanLimits()` pero **no se usa en ningun lugar** del codigo para bloquear uploads de diferentes cuentas.
+- **Accion**: Implementar verificacion real al subir extracto, contando cuentas bancarias distintas (`account_number`) del usuario.
 
 ---
 
-## Mejoras Completadas
+## RESUMEN DE ACCIONES
 
-### ✅ 4. Imagen OpenGraph en formato PNG
-- Nueva imagen `og-image.png` generada (1200×630px)
-- Referencias actualizadas en `index.html`
-
-### ✅ 5. Favicon Actualizado
-- Nuevo `favicon.png` con el logo de AluminIA
-- Referencia actualizada en `index.html`
-
----
-
-## Checklist de Publicación
-
-```text
-+----------------------------------------------------+
-|              ANTES DE PUBLICAR                     |
-+----------------------------------------------------+
-| [x] Rutas protegidas funcionando                   |
-| [x] Flujo de pago Stripe configurado               |
-| [x] Páginas legales (términos, privacidad)         |
-| [x] Página de contacto funcional                   |
-| [x] Página de precios                              |
-| [x] SEO básico configurado                         |
-| [x] robots.txt configurado                         |
-| [x] Protección de contraseñas filtradas            |
-| [x] Formulario de contacto funcional               |
-| [x] Imagen OG en PNG                               |
-| [x] Favicon actualizado                            |
-| [ ] Dominio personalizado (acción del usuario)     |
-+----------------------------------------------------+
-|              DESPUÉS DE PUBLICAR                   |
-+----------------------------------------------------+
-| [ ] Probar flujo completo en producción            |
-| [ ] Verificar emails de Stripe funcionando         |
-| [ ] Verificar OG image en redes sociales           |
-+----------------------------------------------------+
-```
+| # | Problema | Severidad | Accion |
+|---|---------|-----------|--------|
+| 1 | Nico sin restriccion de plan | Alta | Gate para Demo/trial expirado |
+| 2 | Reportes sin restriccion | Media | Gate para planes que no lo incluyen |
+| 3 | Historial Basico: 6 meses en vez de 24 | Alta | Corregir a 24 y aplicar filtro |
+| 4 | PDF limit Basico: 10 en vez de 2 | Alta | Corregir a 2 |
+| 5 | Plan "pro" fantasma | Media | Limpiar, usar solo demo/basico/empresarial |
+| 6 | Exportacion Excel | N/A | OK, sin hueco |
+| 7 | Cuentas bancarias Empresarial: 3 en vez de 2 | Media | Corregir a 2 |
+| 8 | Limite cuentas bancarias no verificado | Alta | Implementar verificacion real |
 
 ---
 
-## Próximo Paso
+## PLAN DE IMPLEMENTACION
 
-**El único pendiente crítico es configurar el dominio `aluminia.app`.**
+### Paso 1: Corregir `getPlanLimits()` en `useSubscription.tsx`
+- Basico: `pdfLimit: 2`, `historyMonths: 24`, `bankAccounts: 1`
+- Empresarial: `bankAccounts: 2`
+- Eliminar caso `pro` (o mapearlo a `empresarial`)
 
-Una vez configurado el dominio:
-1. Publicar la app
-2. Invitar usuarios beta
-3. Comenzar difusión
+### Paso 2: Agregar gate a Nico (`/nico`)
+- Bloquear acceso si `trialExpired` y plan es `demo`
+- Mostrar pantalla de upgrade similar a la de Facturas DIAN
+
+### Paso 3: Agregar gate a Reportes (`/reports`)
+- Si "Reportes avanzados con IA" es solo Empresarial, restringir
+- Si quieres un reporte basico para Basico, definir cuales
+
+### Paso 4: Limpiar referencia a plan "pro"
+- En `Invoices.tsx`: cambiar `isPro` a verificar `empresarial || admin`
+- En `PlanStatusCard.tsx`: eliminar caso `pro`
+- En `useSubscription.tsx`: eliminar o mapear `pro` a `empresarial`
+
+### Paso 5: Implementar historyMonths como filtro real
+- Aplicar filtro de fecha en queries de transacciones para plan Basico (ultimos 24 meses)
+
+### Paso 6: Implementar verificacion de cuentas bancarias
+- Al subir extracto, contar `account_number` distintos del usuario y comparar con limite
+
+### Paso 7: Agregar "Coach financiero con IA" al plan Basico
+- Actualizar `pricingPlans.ts` para incluir esta feature en el plan Basico
+
