@@ -13,11 +13,12 @@ import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/comp
 import { PendingTransactionsTable } from '@/components/dashboard/PendingTransactionsTable';
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
+import { BilledByMonthChart } from '@/components/dashboard/BilledByMonthChart';
+import { BilledByClientMonthChart } from '@/components/dashboard/BilledByClientMonthChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -82,6 +83,12 @@ interface ReteicaConfig {
   reteica_rate: number;
 }
 
+interface SalesInvoiceData {
+  issue_date: string;
+  total_amount: number;
+  counterparty_name: string | null;
+}
+
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -94,6 +101,7 @@ export default function Dashboard() {
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_city: null, reteica_rate: 0 });
   const [invoiceMetrics, setInvoiceMetrics] = useState<InvoiceFiscalMetrics | null>(null);
+  const [salesInvoices, setSalesInvoices] = useState<SalesInvoiceData[]>([]);
 
   // Unified period selection state
   const now = new Date();
@@ -148,6 +156,32 @@ export default function Dashboard() {
       console.error('Error fetching ReteICA config:', error);
     }
   }, []);
+
+  const fetchSalesInvoices = useCallback(async () => {
+    try {
+      const yearStart = `${periodSelection.year}-01-01`;
+      const yearEnd = `${periodSelection.year}-12-31`;
+
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('issue_date, total_amount, counterparty_name')
+        .eq('status', 'confirmed')
+        .eq('type', 'venta')
+        .gte('issue_date', yearStart)
+        .lte('issue_date', yearEnd)
+        .order('issue_date', { ascending: true });
+
+      if (error) throw error;
+      setSalesInvoices((data as SalesInvoiceData[]) || []);
+    } catch (error) {
+      console.error('Error fetching sales invoices for charts:', error);
+      setSalesInvoices([]);
+    }
+  }, [periodSelection.year]);
+
+  useEffect(() => {
+    fetchSalesInvoices();
+  }, [fetchSalesInvoices]);
 
   useEffect(() => {
     fetchTransactions();
@@ -408,6 +442,73 @@ export default function Dashboard() {
     // Show last 12 months max for clarity
     return sorted.slice(-12);
   }, [transactions, periodTransactions, periodSelection.type]);
+
+  // Chart data: Total billed by month (sales invoices)
+  const billedByMonthData = useMemo(() => {
+    const months = Array.from({ length: 12 }, (_, index) => ({
+      month: MONTH_NAMES[index].slice(0, 3),
+      monthKey: `${periodSelection.year}-${String(index + 1).padStart(2, '0')}`,
+      total: 0,
+    }));
+
+    salesInvoices.forEach((invoice) => {
+      const monthIndex = new Date(`${invoice.issue_date}T00:00:00`).getMonth();
+      if (monthIndex >= 0 && monthIndex < 12) {
+        months[monthIndex].total += invoice.total_amount || 0;
+      }
+    });
+
+    return months;
+  }, [salesInvoices, periodSelection.year]);
+
+  // Chart data: Total billed by client by month (top clients + otros)
+  const billedByClientMonth = useMemo(() => {
+    const totalsByClient = new Map<string, number>();
+
+    salesInvoices.forEach((invoice) => {
+      const client = invoice.counterparty_name?.trim() || 'Sin nombre';
+      totalsByClient.set(client, (totalsByClient.get(client) || 0) + (invoice.total_amount || 0));
+    });
+
+    const topClients = Array.from(totalsByClient.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name]) => name);
+
+    const data = Array.from({ length: 12 }, (_, index) => {
+      const row: Record<string, string | number> = {
+        month: MONTH_NAMES[index].slice(0, 3),
+        monthKey: `${periodSelection.year}-${String(index + 1).padStart(2, '0')}`,
+      };
+
+      topClients.forEach((client) => {
+        row[client] = 0;
+      });
+      row.Otros = 0;
+
+      return row;
+    });
+
+    let hasOthers = false;
+
+    salesInvoices.forEach((invoice) => {
+      const monthIndex = new Date(`${invoice.issue_date}T00:00:00`).getMonth();
+      if (monthIndex < 0 || monthIndex > 11) return;
+
+      const client = invoice.counterparty_name?.trim() || 'Sin nombre';
+      const isTopClient = topClients.includes(client);
+      const key = isTopClient ? client : 'Otros';
+
+      if (!isTopClient) hasOthers = true;
+
+      data[monthIndex][key] = (Number(data[monthIndex][key]) || 0) + (invoice.total_amount || 0);
+    });
+
+    return {
+      data,
+      clientKeys: hasOthers ? [...topClients, 'Otros'] : topClients,
+    };
+  }, [salesInvoices, periodSelection.year]);
 
   // Chart data: Expenses by category (selected period) - now using category_name from join
   const expensesByCategoryData = useMemo(() => {
@@ -707,9 +808,9 @@ export default function Dashboard() {
 
               {/* Retefuente por Pagar (combined: autorretefuente ventas + retefuente compras) */}
               <RetefuenteMonthlyCard
-                total={(invoiceMetrics?.autoretefuenteMonth ?? 0) + (invoiceMetrics?.retefuenteCompraMonth ?? 0)}
+                total={invoiceMetrics?.retefuenteMonth ?? 0}
                 periodLabel={periodRange.label}
-                transactionCount={(invoiceMetrics?.autoretefuenteMonthCount ?? 0) + (invoiceMetrics?.retefuenteCompraMonthCount ?? 0)}
+                transactionCount={invoiceMetrics?.retefuenteMonthCount ?? 0}
               />
 
               {/* Retefuente Acumulada (Año) - combined */}
@@ -786,6 +887,19 @@ export default function Dashboard() {
               <ExpensesByCategoryChart 
                 data={expensesByCategoryData} 
                 periodLabel={periodRange.label} 
+              />
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2 animate-slide-up">
+              <BilledByMonthChart
+                data={billedByMonthData}
+                year={periodSelection.year}
+              />
+
+              <BilledByClientMonthChart
+                data={billedByClientMonth.data}
+                clientKeys={billedByClientMonth.clientKeys}
+                year={periodSelection.year}
               />
             </div>
 

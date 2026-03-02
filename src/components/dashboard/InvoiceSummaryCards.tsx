@@ -26,6 +26,11 @@ interface InvoiceRow {
   status: string;
 }
 
+interface ManualTaxTransaction {
+  id: string;
+  amount: number | null;
+}
+
 export interface InvoiceFiscalMetrics {
   // IVA (cuatrimestre)
   ivaGenerado: number;
@@ -50,6 +55,11 @@ export interface InvoiceFiscalMetrics {
   retefuenteCompraYear: number;
   retefuenteCompraMonthCount: number;
   retefuenteCompraYearCount: number;
+  // Retefuente manual (egresos sin factura)
+  retefuenteManualMonth: number;
+  retefuenteManualYear: number;
+  retefuenteManualMonthCount: number;
+  retefuenteManualYearCount: number;
   // Legacy combined (for backward compat)
   retefuenteMonth: number;
   retefuenteYear: number;
@@ -77,6 +87,8 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [allYearInvoices, setAllYearInvoices] = useState<InvoiceRow[]>([]);
   const [cuatrimestreInvoices, setCuatrimestreInvoices] = useState<InvoiceRow[]>([]);
+  const [retefuenteManualPeriodTransactions, setRetefuenteManualPeriodTransactions] = useState<ManualTaxTransaction[]>([]);
+  const [retefuenteManualYearTransactions, setRetefuenteManualYearTransactions] = useState<ManualTaxTransaction[]>([]);
   const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
   const [dianPaymentsIva, setDianPaymentsIva] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -107,6 +119,22 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
       const settingsQuery = supabase.from('tax_settings').select('retefuente_compra_rate').limit(1).maybeSingle();
 
+      const retefuenteManualPeriodQuery = supabase
+        .from('transactions')
+        .select('id, amount')
+        .eq('notes', '[Retefuente - Sin factura]')
+        .is('deleted_at', null)
+        .gte('date', startStr)
+        .lte('date', endStr);
+
+      const retefuenteManualYearQuery = supabase
+        .from('transactions')
+        .select('id, amount')
+        .eq('notes', '[Retefuente - Sin factura]')
+        .is('deleted_at', null)
+        .gte('date', yearStartStr)
+        .lte('date', yearEndStr);
+
       // Query DIAN payments (IVA a favor) from transactions in the cuatrimestre
       const dianPaymentsQuery = cuatrimestreStart && cuatrimestreEnd
         ? supabase
@@ -129,12 +157,22 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
           .order('issue_date', { ascending: false });
       }
 
-      const [periodResult, yearResult, settingsResult, cuatrimestreResult, dianResult] = await Promise.all([
+      const [
+        periodResult,
+        yearResult,
+        settingsResult,
+        cuatrimestreResult,
+        dianResult,
+        retefuenteManualPeriodResult,
+        retefuenteManualYearResult,
+      ] = await Promise.all([
         periodQuery,
         yearQuery,
         settingsQuery,
         cuatrimestreQuery,
         dianPaymentsQuery,
+        retefuenteManualPeriodQuery,
+        retefuenteManualYearQuery,
       ]);
 
       if (!periodResult.error && periodResult.data) setInvoices(periodResult.data);
@@ -154,7 +192,19 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       } else {
         setCuatrimestreInvoices([]);
       }
-      
+
+      if (!retefuenteManualPeriodResult.error && retefuenteManualPeriodResult.data) {
+        setRetefuenteManualPeriodTransactions(retefuenteManualPeriodResult.data);
+      } else {
+        setRetefuenteManualPeriodTransactions([]);
+      }
+
+      if (!retefuenteManualYearResult.error && retefuenteManualYearResult.data) {
+        setRetefuenteManualYearTransactions(retefuenteManualYearResult.data);
+      } else {
+        setRetefuenteManualYearTransactions([]);
+      }
+
       setLoading(false);
     };
     fetchData();
@@ -201,6 +251,12 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const retefuenteCompraMonthCount = retefuenteCompraRate > 0 ? compras.length : 0;
     const retefuenteCompraYearCount = retefuenteCompraRate > 0 ? comprasYear.length : 0;
 
+    // Retefuente manual - transactions marked as without invoice but with withholding
+    const retefuenteManualMonth = retefuenteManualPeriodTransactions.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+    const retefuenteManualYear = retefuenteManualYearTransactions.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+    const retefuenteManualMonthCount = retefuenteManualPeriodTransactions.length;
+    const retefuenteManualYearCount = retefuenteManualYearTransactions.length;
+
     // Top Clients
     const byClient = new Map<string, number>();
     ventas.forEach(i => {
@@ -217,16 +273,17 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       reteicaMonth, reteicaYear, reteicaMonthCount, reteicaYearCount,
       autoretefuenteMonth, autoretefuenteYear, autoretefuenteMonthCount, autoretefuenteYearCount,
       retefuenteCompraMonth, retefuenteCompraYear, retefuenteCompraMonthCount, retefuenteCompraYearCount,
+      retefuenteManualMonth, retefuenteManualYear, retefuenteManualMonthCount, retefuenteManualYearCount,
       // Legacy combined
-      retefuenteMonth: autoretefuenteMonth + retefuenteCompraMonth,
-      retefuenteYear: autoretefuenteYear + retefuenteCompraYear,
-      retefuenteMonthCount: autoretefuenteMonthCount + retefuenteCompraMonthCount,
-      retefuenteYearCount: autoretefuenteYearCount + retefuenteCompraYearCount,
+      retefuenteMonth: autoretefuenteMonth + retefuenteCompraMonth + retefuenteManualMonth,
+      retefuenteYear: autoretefuenteYear + retefuenteCompraYear + retefuenteManualYear,
+      retefuenteMonthCount: autoretefuenteMonthCount + retefuenteCompraMonthCount + retefuenteManualMonthCount,
+      retefuenteYearCount: autoretefuenteYearCount + retefuenteCompraYearCount + retefuenteManualYearCount,
       totalFacturadoVentas, totalFacturadoCompras,
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
     };
-  }, [invoices, allYearInvoices, cuatrimestreInvoices, retefuenteCompraRate, dianPaymentsIva]);
+  }, [invoices, allYearInvoices, cuatrimestreInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions]);
 
   // Report metrics to parent
   useEffect(() => {

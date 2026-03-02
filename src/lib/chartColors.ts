@@ -35,6 +35,18 @@ export const CHART_COLORS = {
   expenseAvg: 'hsl(0, 72%, 61%)',       // Lighter red for average line
 };
 
+// Palette for invoice/client series charts
+export const INVOICE_SERIES_COLORS = [
+  'hsl(152, 69%, 40%)', // Green
+  'hsl(217, 91%, 60%)', // Blue
+  'hsl(24, 95%, 53%)',  // Orange
+  'hsl(280, 84%, 60%)', // Purple
+  'hsl(173, 58%, 39%)', // Teal
+  'hsl(0, 84%, 60%)',   // Red
+  'hsl(262, 52%, 47%)', // Violet
+  'hsl(220, 9%, 46%)',  // Slate
+];
+
 export function getCategoryColor(category: string): string {
   const normalized = category.toLowerCase().replace(/\s+/g, '_');
   return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.default;
