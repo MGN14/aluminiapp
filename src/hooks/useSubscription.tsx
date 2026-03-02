@@ -37,7 +37,7 @@ interface SubscriptionState {
 interface SubscriptionContextType extends SubscriptionState {
   checkSubscription: () => Promise<void>;
   checkUploadLimit: () => Promise<{ canUpload: boolean; message: string }>;
-  createWompiCheckout: () => Promise<string | null>;
+  createWompiCheckout: (planKey?: string) => Promise<string | null>;
   getPlanLimits: () => { pdfLimit: number; bankAccounts: number; historyMonths: number | null; invoiceLimit: number };
   updateTrialChecklist: (key: keyof TrialChecklist) => Promise<void>;
 }
@@ -151,13 +151,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [user]);
 
-  const createWompiCheckout = useCallback(async (): Promise<string | null> => {
+  const createWompiCheckout = useCallback(async (planKey?: string): Promise<string | null> => {
     if (!user || sessionExpired) return null;
 
     try {
       const result = await invokeFunctionWithAuthRetry<any>(
         'create-wompi-checkout',
-        {},
+        { body: { plan: planKey || 'basico' } },
         'create-wompi-checkout'
       );
 

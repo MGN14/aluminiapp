@@ -64,7 +64,8 @@ export default function Pricing() {
 
     setLoadingPlan(selectedPlan.id);
     try {
-      const url = await createWompiCheckout();
+      const planKey = selectedPlan.id + (isAnnual ? '-anual' : '');
+      const url = await createWompiCheckout(planKey);
       if (url) {
         window.location.href = url;
       } else {
