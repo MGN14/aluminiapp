@@ -31,6 +31,7 @@ export interface Transaction {
   retefuente_amount: number;
   has_reteica: boolean;
   reteica_amount: number;
+  invoice_id: string | null;
   notes: string | null;
   sucursal: string | null;
   dcto: string | null;
