@@ -236,10 +236,12 @@ export default function Dashboard() {
     }
   };
 
+  const { getPlanLimits } = useSubscription();
+  const dashLimits = getPlanLimits();
+
   const fetchTransactions = useCallback(async () => {
     try {
-      // Join with categories table to get category names
-      const { data, error } = await supabase
+      let query = supabase
         .from('transactions')
         .select(`
           id, date, description, amount, balance, category, category_id,
@@ -249,6 +251,15 @@ export default function Dashboard() {
         `)
         .is('deleted_at', null)
         .order('date', { ascending: true });
+
+      // Apply historyMonths filter for plans with limited history
+      if (dashLimits.historyMonths && dashLimits.historyMonths > 0) {
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - dashLimits.historyMonths);
+        query = query.gte('date', cutoff.toISOString().split('T')[0]);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       
@@ -265,7 +276,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dashLimits.historyMonths]);
 
   const fetchCategories = useCallback(async () => {
     try {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useSubscription } from '@/hooks/useSubscription';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible } from '@/types/transaction';
 import TransactionRow from '@/components/transactions/TransactionRow';
@@ -103,6 +104,9 @@ export default function Transactions() {
     setResponsibles((data as Responsible[]) || []);
   };
 
+  const { getPlanLimits } = useSubscription();
+  const limits = getPlanLimits();
+
   const fetchTransactions = async () => {
     setLoading(true);
     try {
@@ -115,6 +119,13 @@ export default function Transactions() {
 
       if (selectedStatement !== 'all') {
         query = query.eq('statement_id', selectedStatement);
+      }
+
+      // Apply historyMonths filter for plans with limited history
+      if (limits.historyMonths && limits.historyMonths > 0) {
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - limits.historyMonths);
+        query = query.gte('date', cutoff.toISOString().split('T')[0]);
       }
 
       const { data, error } = await query;

@@ -35,6 +35,27 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
       return;
     }
 
+    // Check bank account limit before uploading
+    const bankAccountLimit = limits.bankAccounts;
+    if (bankAccountLimit > 0) {
+      const { data: existingAccounts } = await supabase
+        .from('bank_statements')
+        .select('account_number')
+        .eq('user_id', user.id)
+        .is('deleted_at', null)
+        .not('account_number', 'is', null);
+
+      const distinctAccounts = new Set(
+        (existingAccounts || []).map(s => s.account_number).filter(Boolean)
+      );
+      // We can't check the new file's account number before processing,
+      // but we enforce after config. This is a soft pre-check.
+      if (distinctAccounts.size >= bankAccountLimit) {
+        // Only warn - the real enforcement happens in StatementConfigModal
+        // For now, let it through since we don't know the account number yet
+      }
+    }
+
     // Check upload limits BEFORE uploading
     const limitCheck = await checkUploadLimit();
     if (!limitCheck.canUpload) {

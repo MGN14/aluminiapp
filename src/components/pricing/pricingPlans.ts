@@ -37,6 +37,7 @@ export const plans: PlanData[] = [
       'Historial hasta 2 años',
       'Exportación a Excel',
       'Análisis financiero con IA',
+      'Coach financiero con IA',
     ],
     cta: 'Suscribirme al plan Básico',
     ctaAction: 'wompi-basico',

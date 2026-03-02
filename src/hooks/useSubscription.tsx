@@ -178,15 +178,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (state.isTrialing) {
       return { pdfLimit: 3, bankAccounts: 1, historyMonths: null, invoiceLimit: 10 };
     }
-    switch (state.plan) {
+    // Map legacy 'pro' to 'empresarial'
+    const effectivePlan = state.plan === 'pro' ? 'empresarial' : state.plan;
+    switch (effectivePlan) {
       case 'demo':
         return { pdfLimit: 0, bankAccounts: 1, historyMonths: null, invoiceLimit: 0 }; // expired trial
       case 'basico':
-        return { pdfLimit: 10, bankAccounts: 1, historyMonths: 6, invoiceLimit: -1 };
-      case 'pro':
-        return { pdfLimit: -1, bankAccounts: 2, historyMonths: null, invoiceLimit: -1 };
+        return { pdfLimit: 2, bankAccounts: 1, historyMonths: 24, invoiceLimit: 0 };
       case 'empresarial':
-        return { pdfLimit: -1, bankAccounts: 3, historyMonths: null, invoiceLimit: -1 };
+        return { pdfLimit: -1, bankAccounts: 2, historyMonths: null, invoiceLimit: -1 };
       case 'admin':
         return { pdfLimit: -1, bankAccounts: -1, historyMonths: null, invoiceLimit: -1 };
       default:
