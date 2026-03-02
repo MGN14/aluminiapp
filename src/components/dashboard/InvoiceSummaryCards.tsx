@@ -78,6 +78,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
   const [allYearInvoices, setAllYearInvoices] = useState<InvoiceRow[]>([]);
   const [cuatrimestreInvoices, setCuatrimestreInvoices] = useState<InvoiceRow[]>([]);
   const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
+  const [dianPaymentsIva, setDianPaymentsIva] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -106,6 +107,17 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
       const settingsQuery = supabase.from('tax_settings').select('retefuente_compra_rate').limit(1).maybeSingle();
 
+      // Query DIAN payments (IVA a favor) from transactions in the cuatrimestre
+      const dianPaymentsQuery = cuatrimestreStart && cuatrimestreEnd
+        ? supabase
+            .from('transactions')
+            .select('amount')
+            .eq('notes', '[IVA a favor - Pago DIAN]')
+            .is('deleted_at', null)
+            .gte('date', cuatrimestreStart.toISOString().split('T')[0])
+            .lte('date', cuatrimestreEnd.toISOString().split('T')[0])
+        : null;
+
       let cuatrimestreQuery = null;
       if (cuatrimestreStart && cuatrimestreEnd) {
         cuatrimestreQuery = supabase
@@ -117,16 +129,25 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
           .order('issue_date', { ascending: false });
       }
 
-      const [periodResult, yearResult, settingsResult, cuatrimestreResult] = await Promise.all([
+      const [periodResult, yearResult, settingsResult, cuatrimestreResult, dianResult] = await Promise.all([
         periodQuery,
         yearQuery,
         settingsQuery,
         cuatrimestreQuery,
+        dianPaymentsQuery,
       ]);
 
       if (!periodResult.error && periodResult.data) setInvoices(periodResult.data);
       if (!yearResult.error && yearResult.data) setAllYearInvoices(yearResult.data);
       if (settingsResult?.data) setRetefuenteCompraRate(settingsResult.data.retefuente_compra_rate || 0);
+      
+      // Sum DIAN payments (these are negative amounts = egresos, we take abs value)
+      if (dianResult && !dianResult.error && dianResult.data) {
+        const total = dianResult.data.reduce((s: number, t: { amount: number | null }) => s + Math.abs(t.amount ?? 0), 0);
+        setDianPaymentsIva(total);
+      } else {
+        setDianPaymentsIva(0);
+      }
       
       if (cuatrimestreResult && !cuatrimestreResult.error && cuatrimestreResult.data) {
         setCuatrimestreInvoices(cuatrimestreResult.data);
@@ -151,7 +172,8 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const ivaCompras = ivaSource.filter(i => i.type === 'compra');
     const ivaGenerado = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
     const ivaDescontable = ivaCompras.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaNeto = ivaGenerado - ivaDescontable;
+    // IVA neto = generado - descontable - pagos DIAN (IVA a favor)
+    const ivaNeto = ivaGenerado - ivaDescontable - dianPaymentsIva;
 
     // IVA YTD
     const ivaGeneradoYtd = ventasYear.reduce((s, i) => s + i.iva_amount, 0);
@@ -204,7 +226,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
     };
-  }, [invoices, allYearInvoices, cuatrimestreInvoices, retefuenteCompraRate]);
+  }, [invoices, allYearInvoices, cuatrimestreInvoices, retefuenteCompraRate, dianPaymentsIva]);
 
   // Report metrics to parent
   useEffect(() => {

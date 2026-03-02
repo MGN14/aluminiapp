@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Invoice } from '@/types/invoice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +8,7 @@ import {
 import { FileText } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { supabase } from '@/integrations/supabase/client';
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
@@ -25,9 +26,18 @@ interface MonthSummary {
   ventasAutoretefuente: number;
   comprasBase: number;
   comprasIva: number;
+  comprasRetefuente: number;
 }
 
 export default function DIANSummary({ invoices }: Props) {
+  const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
+
+  useEffect(() => {
+    supabase.from('tax_settings').select('retefuente_compra_rate').limit(1).maybeSingle()
+      .then(({ data }) => {
+        if (data) setRetefuenteCompraRate(data.retefuente_compra_rate || 0);
+      });
+  }, []);
   const summaryByMonth = useMemo(() => {
     const map = new Map<string, MonthSummary>();
 
@@ -46,6 +56,7 @@ export default function DIANSummary({ invoices }: Props) {
           ventasAutoretefuente: 0,
           comprasBase: 0,
           comprasIva: 0,
+          comprasRetefuente: 0,
         });
       }
 
@@ -58,11 +69,12 @@ export default function DIANSummary({ invoices }: Props) {
       } else {
         s.comprasBase += inv.subtotal_base;
         s.comprasIva += inv.iva_amount;
+        s.comprasRetefuente += Math.round(inv.subtotal_base * retefuenteCompraRate);
       }
     }
 
     return Array.from(map.values()).sort((a, b) => b.month.localeCompare(a.month));
-  }, [invoices]);
+  }, [invoices, retefuenteCompraRate]);
 
   if (invoices.length === 0) {
     return (
@@ -134,6 +146,14 @@ export default function DIANSummary({ invoices }: Props) {
                     <TableRow>
                       <TableCell className="text-sm text-muted-foreground">IVA descontable</TableCell>
                       <TableCell className="text-right font-medium">{formatCurrency(s.comprasIva)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-sm text-muted-foreground">Retefuente en compras</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {s.comprasRetefuente > 0 ? formatCurrency(s.comprasRetefuente) : (
+                          <span className="text-xs text-muted-foreground">Configurar en Ajustes</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
