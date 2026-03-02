@@ -28,6 +28,7 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
   if (!transaction) return null;
 
   const isReconciled = !!transaction.responsible_id;
+  const hasInvoice = !!(transaction as any).invoice_id;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -96,39 +97,26 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
 
           <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
             <div>
-              <label className="text-xs text-muted-foreground">IVA</label>
+              <label className="text-xs text-muted-foreground">Factura Asociada</label>
               <p className="text-sm">
-                {transaction.has_iva ? (
-                  <span className="text-accent font-medium">
-                    {formatCurrency(transaction.iva_amount)} ({(transaction.iva_rate * 100).toFixed(0)}%)
-                  </span>
+                {hasInvoice ? (
+                  <span className="text-success font-medium">✓ Conciliada por factura</span>
+                ) : transaction.notes === '[N/A - Sin factura]' ? (
+                  <span className="text-muted-foreground">N/A</span>
                 ) : (
-                  <span className="text-muted-foreground">No aplica</span>
+                  <span className="text-warning font-medium">Pendiente de asociar</span>
                 )}
               </p>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Retefuente</label>
-              <p className="text-sm">
-                {transaction.has_retefuente ? (
-                  <span className="text-accent font-medium">
-                    {formatCurrency(transaction.retefuente_amount)} ({(transaction.retefuente_rate * 100).toFixed(1)}%)
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">No aplica</span>
-                )}
+              <label className="text-xs text-muted-foreground">Estado de Conciliación</label>
+              <p className={`text-sm font-medium ${isReconciled ? 'text-success' : 'text-destructive'}`}>
+                {isReconciled ? '✓ Conciliada' : '⏳ Pendiente'}
               </p>
             </div>
           </div>
 
-          <div className="pt-2 border-t border-border">
-            <label className="text-xs text-muted-foreground">Estado de Conciliación</label>
-            <p className={`text-sm font-medium ${isReconciled ? 'text-success' : 'text-destructive'}`}>
-              {isReconciled ? '✓ Conciliada' : '⏳ Pendiente'}
-            </p>
-          </div>
-
-          {transaction.notes && (
+          {transaction.notes && transaction.notes !== '[N/A - Sin factura]' && (
             <div>
               <label className="text-xs text-muted-foreground">Notas</label>
               <p className="text-sm bg-muted/50 p-3 rounded-lg">{transaction.notes}</p>

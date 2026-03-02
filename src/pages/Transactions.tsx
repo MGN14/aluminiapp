@@ -322,12 +322,7 @@ export default function Transactions() {
                         <TableHead className="w-[110px]">Tipo</TableHead>
                         <TableHead className="w-[140px]">Categoría</TableHead>
                         <TableHead className="w-[140px]">Responsable</TableHead>
-                        <TableHead className="text-center w-[45px]">IVA</TableHead>
-                        <TableHead className="text-right w-[90px]">$ IVA</TableHead>
-                        <TableHead className="text-center w-[45px]">Rete</TableHead>
-                        <TableHead className="text-right w-[90px]">$ Rete</TableHead>
-                        <TableHead className="text-center w-[45px]">ICA</TableHead>
-                        <TableHead className="text-right w-[90px]">$ ICA</TableHead>
+                        <TableHead className="w-[160px]">#Factura</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -337,7 +332,6 @@ export default function Transactions() {
                           transaction={transaction}
                           categories={categories}
                           responsibles={responsibles}
-                          reteicaRate={reteicaConfig.reteica_rate}
                           onViewDetail={setSelectedTransaction}
                           onCategoryAdded={fetchCategories}
                           onResponsibleAdded={fetchResponsibles}

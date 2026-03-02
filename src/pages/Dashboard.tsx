@@ -16,7 +16,7 @@ import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCatego
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
-import InvoiceSummaryCards from '@/components/dashboard/InvoiceSummaryCards';
+import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
@@ -97,7 +97,7 @@ export default function Dashboard() {
   const { openNico } = useNico();
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_city: null, reteica_rate: 0 });
-  const [invoiceIva, setInvoiceIva] = useState({ ventasIva: 0, comprasIva: 0 });
+  const [invoiceMetrics, setInvoiceMetrics] = useState<InvoiceFiscalMetrics | null>(null);
 
   // Unified period selection state
   const now = new Date();
@@ -401,21 +401,12 @@ export default function Dashboard() {
     ).size || 1;
     const burnRate = Math.abs(cuatrimestreExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / monthsWithData;
 
-    // IVA Débito (ventas) y Crédito (compras) - cuatrimestral
-    const ivaDebito = cuatrimestreTransactions
-      .filter(tx => tx.iva_type === 'debito')
-      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
-    
-    const ivaCredito = cuatrimestreTransactions
-      .filter(tx => tx.iva_type === 'credito')
-      .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
+    // IVA Débito (ventas) y Crédito (compras) - now from invoices, kept for backward compat
+    const ivaDebito = 0;
+    const ivaCredito = 0;
 
-    // Detect DIAN payments and subtract from IVA
-    const dianPayments = cuatrimestreTransactions.filter(tx => isDIANPayment(tx.description));
-    const totalDianPayments = Math.abs(dianPayments.reduce((sum, tx) => sum + (tx.amount ?? 0), 0));
-
-    // IVA Neto = Débito - Crédito - Pagos DIAN + IVA facturas ventas - IVA facturas compras
-    const ivaNeto = ivaDebito - ivaCredito - totalDianPayments + invoiceIva.ventasIva - invoiceIva.comprasIva;
+    // IVA Neto now comes from invoice metrics
+    const ivaNeto = invoiceMetrics ? invoiceMetrics.ivaNeto : 0;
 
     // Retefuente por pagar (period-based) - only from compras
     const retefuentePorPagar = periodTransactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
@@ -437,11 +428,9 @@ export default function Dashboard() {
       cuatrimestreLabel: cuatrimestre.label,
       periodLabel: periodRange.label,
     };
-  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange, invoiceIva]);
+  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange, invoiceMetrics]);
 
-  const handleInvoiceIva = useCallback((ventasIva: number, comprasIva: number) => {
-    setInvoiceIva({ ventasIva, comprasIva });
-  }, []);
+  const handleInvoiceMetrics = useCallback((m: InvoiceFiscalMetrics) => setInvoiceMetrics(m), []);
 
   // Chart data: Income vs Expenses - grouped by month within the period
   const incomeVsExpenseData = useMemo(() => {
@@ -787,18 +776,18 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Retefuente por Pagar */}
+              {/* Retefuente por Pagar - from invoices */}
               <RetefuenteMonthlyCard
-                total={retefuenteMetrics.monthlyTotal}
+                total={invoiceMetrics?.retefuenteMonth ?? 0}
                 periodLabel={periodRange.label}
-                transactionCount={retefuenteMetrics.monthlyCount}
+                transactionCount={invoiceMetrics?.retefuenteMonthCount ?? 0}
               />
 
-              {/* Retefuente Acumulada (Año) */}
+              {/* Retefuente Acumulada (Año) - from invoices */}
               <RetefuenteYearlyCard
-                total={retefuenteMetrics.yearlyTotal}
+                total={invoiceMetrics?.retefuenteYear ?? 0}
                 year={periodSelection.year}
-                transactionCount={retefuenteMetrics.yearlyCount}
+                transactionCount={invoiceMetrics?.retefuenteYearCount ?? 0}
               />
 
               {/* 4x1000 (GMF) Accumulated */}
@@ -828,21 +817,21 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* RETEICA Metrics - inline when configured */}
-              {reteicaConfig.reteica_rate > 0 && (
+              {/* RETEICA Metrics - from invoices */}
+              {(invoiceMetrics?.reteicaMonth ?? 0) > 0 && (
                 <ReteicaMonthlyCard
-                  total={reteicaMetrics.monthlyTotal}
+                  total={invoiceMetrics?.reteicaMonth ?? 0}
                   periodLabel={periodRange.label}
-                  transactionCount={reteicaMetrics.monthlyCount}
+                  transactionCount={invoiceMetrics?.reteicaMonthCount ?? 0}
                   city={reteicaConfig.reteica_city || undefined}
                   rate={reteicaConfig.reteica_rate}
                 />
               )}
-              {reteicaConfig.reteica_rate > 0 && (
+              {(invoiceMetrics?.reteicaYear ?? 0) > 0 && (
                 <ReteicaYearlyCard
-                  total={reteicaMetrics.yearlyTotal}
+                  total={invoiceMetrics?.reteicaYear ?? 0}
                   year={periodSelection.year}
-                  transactionCount={reteicaMetrics.yearlyCount}
+                  transactionCount={invoiceMetrics?.reteicaYearCount ?? 0}
                 />
               )}
 
@@ -852,7 +841,7 @@ export default function Dashboard() {
                 periodEnd={periodRange.end}
                 periodLabel={periodRange.label}
                 year={periodSelection.year}
-                onIvaInvoices={handleInvoiceIva}
+                onMetrics={handleInvoiceMetrics}
               />
             </div>
             <div className="grid gap-6 lg:grid-cols-2 animate-slide-up">
