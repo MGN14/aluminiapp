@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { FileText, Users, Package } from 'lucide-react';
+import { FileText, Users, Package, Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -35,6 +36,7 @@ interface InvoiceItemRow {
   description: string | null;
   reference: string | null;
   quantity: number;
+  line_base: number;
   line_total: number;
 }
 
@@ -74,6 +76,7 @@ export interface InvoiceFiscalMetrics {
   retefuenteYearCount: number;
   // Facturación
   totalFacturadoVentas: number;
+  totalBaseVentas: number;
   totalFacturadoCompras: number;
   ventasCount: number;
   comprasCount: number;
@@ -218,7 +221,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       if (salesIds.length > 0) {
         const { data: items } = await supabase
           .from('invoice_items')
-          .select('description, reference, quantity, line_total')
+          .select('description, reference, quantity, line_base, line_total')
           .in('invoice_id', salesIds);
         setInvoiceItems((items as InvoiceItemRow[]) || []);
       } else {
@@ -251,6 +254,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const ivaNetoYtd = ivaGeneradoYtd - ivaDescontableYtd;
 
     const totalFacturadoVentas = ventas.reduce((s, i) => s + i.total_amount, 0);
+    const totalBaseVentas = ventas.reduce((s, i) => s + i.subtotal_base, 0);
     const totalFacturadoCompras = compras.reduce((s, i) => s + i.total_amount, 0);
 
     // ReteICA - from sales invoices
@@ -277,15 +281,15 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const retefuenteManualMonthCount = retefuenteManualPeriodTransactions.length;
     const retefuenteManualYearCount = retefuenteManualYearTransactions.length;
 
-    // Top Clients
+    // Top Clients by subtotal_base
     const byClient = new Map<string, number>();
     ventas.forEach(i => {
       const name = i.counterparty_name || 'Sin nombre';
-      byClient.set(name, (byClient.get(name) || 0) + i.total_amount);
+      byClient.set(name, (byClient.get(name) || 0) + i.subtotal_base);
     });
     const topClients = Array.from(byClient.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 5) as [string, number][];
+      .slice(0, 3) as [string, number][];
 
     return {
       ivaGenerado, ivaDescontable, ivaNeto,
@@ -299,7 +303,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       retefuenteYear: autoretefuenteYear + retefuenteCompraYear + retefuenteManualYear,
       retefuenteMonthCount: autoretefuenteMonthCount + retefuenteCompraMonthCount + retefuenteManualMonthCount,
       retefuenteYearCount: autoretefuenteYearCount + retefuenteCompraYearCount + retefuenteManualYearCount,
-      totalFacturadoVentas, totalFacturadoCompras,
+      totalFacturadoVentas, totalBaseVentas, totalFacturadoCompras,
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
     };
@@ -312,13 +316,13 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       const name = item.description || item.reference || 'Sin descripción';
       const existing = byRef.get(name) || { total: 0, qty: 0 };
       byRef.set(name, {
-        total: existing.total + item.line_total,
+        total: existing.total + item.line_base,
         qty: existing.qty + item.quantity,
       });
     });
     return Array.from(byRef.entries())
       .sort((a, b) => b[1].total - a[1].total)
-      .slice(0, 5);
+      .slice(0, 3);
   }, [invoiceItems]);
 
   // Report metrics to parent
@@ -330,8 +334,10 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
   const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
 
+  const totalBaseRef = invoiceItems.reduce((s, item) => s + item.line_base, 0);
+
   return (
-    <>
+    <TooltipProvider>
       {/* Total Facturado Ventas */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -372,42 +378,73 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         </CardContent>
       </Card>
 
-      {/* Top Clientes (Ventas) - Ranked */}
-      {metrics.topClients.length > 0 && (
-        <Card className="sm:col-span-2 lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-base font-semibold text-foreground">
-              Top {metrics.topClients.length} Clientes
-            </CardTitle>
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Users className="h-4 w-4 text-primary" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {metrics.topClients.map(([name, total], index) => (
-                <div key={name} className="flex items-center gap-3">
-                  <span className={`font-bold text-lg w-6 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
-                    {index + 1}
-                  </span>
-                  <span className="text-sm text-foreground truncate flex-1">{name}</span>
-                  <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
-                </div>
-              ))}
-            </div>
-            <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
-              {periodLabel}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Top Referencias Vendidas */}
+      {/* Top 3 Clientes (Ventas) */}
       <Card className="sm:col-span-2 lg:col-span-2">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-base font-semibold text-foreground">
-            Top {topReferences.length > 0 ? topReferences.length : 5} Referencias
-          </CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base font-semibold text-foreground">
+              Top 3 Clientes
+            </CardTitle>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Datos calculados desde facturación confirmada (base, sin IVA).</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="p-2 rounded-lg bg-primary/10">
+            <Users className="h-4 w-4 text-primary" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {metrics.topClients.length > 0 ? (
+            <div className="space-y-3">
+              {metrics.topClients.map(([name, total], index) => {
+                const pct = metrics.totalBaseVentas > 0 ? ((total / metrics.totalBaseVentas) * 100).toFixed(0) : '0';
+                return (
+                  <div key={name} className="flex items-center gap-3">
+                    <span className={`font-bold text-lg w-6 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
+                      {index + 1}
+                    </span>
+                    <span className="text-sm text-foreground truncate flex-1">{name}</span>
+                    <div className="text-right shrink-0">
+                      <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
+                      <span className="text-xs text-muted-foreground ml-1">({pct}%)</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-4 text-center">
+              <Users className="h-8 w-8 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground">Aún no hay suficiente información para mostrar rankings.</p>
+            </div>
+          )}
+          <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
+            {periodLabel}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Top 3 Referencias Vendidas */}
+      <Card className="sm:col-span-2 lg:col-span-2">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base font-semibold text-foreground">
+              Top 3 Referencias
+            </CardTitle>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Datos calculados desde facturación confirmada (base, sin IVA).</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <div className="p-2 rounded-lg bg-success/10">
             <Package className="h-4 w-4 text-success" />
           </div>
@@ -415,23 +452,29 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         <CardContent>
           {topReferences.length > 0 ? (
             <div className="space-y-3">
-              {topReferences.map(([name, { total, qty }], index) => (
-                <div key={name} className="flex items-center gap-3">
-                  <span className={`font-bold text-lg w-6 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
-                    {index + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm text-foreground truncate block">{name}</span>
-                    <span className="text-xs text-muted-foreground">{qty} uds</span>
+              {topReferences.map(([name, { total, qty }], index) => {
+                const pct = totalBaseRef > 0 ? ((total / totalBaseRef) * 100).toFixed(0) : '0';
+                return (
+                  <div key={name} className="flex items-center gap-3">
+                    <span className={`font-bold text-lg w-6 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
+                      {index + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-foreground truncate block">{name}</span>
+                      <span className="text-xs text-muted-foreground">{qty} uds</span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
+                      <span className="text-xs text-muted-foreground ml-1">({pct}%)</span>
+                    </div>
                   </div>
-                  <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-4 text-center">
               <Package className="h-8 w-8 text-muted-foreground/40 mb-2" />
-              <p className="text-sm text-muted-foreground">Sin ítems desglosados</p>
+              <p className="text-sm text-muted-foreground">Aún no hay suficiente información para mostrar rankings.</p>
               <p className="text-xs text-muted-foreground mt-1">Las facturas aún no tienen líneas de detalle cargadas.</p>
             </div>
           )}
@@ -440,6 +483,6 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
           </div>
         </CardContent>
       </Card>
-    </>
+    </TooltipProvider>
   );
 }
