@@ -21,8 +21,9 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [limitMessage, setLimitMessage] = useState('');
 
+  const { trialExpired, isTrialing } = useSubscription();
   const limits = getPlanLimits();
-  const isAtLimit = plan === 'demo' && pdfUploadsTotal >= 1;
+  const isAtLimit = trialExpired || (isTrialing && pdfUploadsTotal >= limits.pdfLimit);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -91,7 +92,11 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
   });
 
   const handleUpgradeClick = () => {
-    setLimitMessage('Ya usaste el extracto gratuito. Para seguir usando AluminIA, suscríbete al plan Básico.');
+    setLimitMessage(
+      trialExpired
+        ? 'Tu prueba gratuita terminó. Activa tu plan para seguir subiendo extractos.'
+        : 'Alcanzaste el límite de extractos en tu prueba gratuita. Activa tu plan para subir más.'
+    );
     setShowUpgradeModal(true);
   };
 
@@ -107,13 +112,17 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
                   <Lock className="h-8 w-8 text-warning" />
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">Límite alcanzado</p>
+                  <p className="font-medium text-foreground">
+                    {trialExpired ? 'Prueba expirada' : 'Límite alcanzado'}
+                  </p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Ya usaste tu extracto gratuito del plan Demo
+                    {trialExpired
+                      ? 'Tu prueba gratuita terminó. Activa un plan para continuar.'
+                      : `Alcanzaste el límite de ${limits.pdfLimit} extractos en tu prueba gratuita`}
                   </p>
                 </div>
                 <Button onClick={handleUpgradeClick} className="mt-2">
-                  Suscribirme al plan Básico
+                  Activar Plan
                 </Button>
               </div>
             </div>
@@ -189,9 +198,9 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
                       o haz clic para seleccionar · compatible con múltiples bancos
                     </p>
                   </div>
-                  {plan === 'demo' && (
+                  {isTrialing && (
                     <p className="text-xs text-muted-foreground bg-muted px-3 py-1 rounded-full">
-                      Plan Demo: {pdfUploadsTotal}/{limits.pdfLimit} PDF usado
+                      Empresarial Gratuito: {pdfUploadsTotal}/{limits.pdfLimit} extractos usados
                     </p>
                   )}
                   <Button variant="outline" size="sm" className="mt-2">

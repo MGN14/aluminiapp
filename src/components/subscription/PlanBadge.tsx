@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badge';
-import { Crown, Sparkles, Star, Shield, Loader2 } from 'lucide-react';
+import { Crown, Sparkles, Star, Shield, Loader2, Zap } from 'lucide-react';
 import { SubscriptionPlan, useSubscription } from '@/hooks/useSubscription';
 
 interface PlanBadgeProps {
@@ -9,46 +9,39 @@ interface PlanBadgeProps {
 }
 
 export default function PlanBadge({ plan: propPlan, size = 'sm', isFounder: propIsFounder }: PlanBadgeProps) {
-  const { plan: contextPlan, isFounder: contextIsFounder, loading } = useSubscription();
+  const { plan: contextPlan, isFounder: contextIsFounder, isTrialing, trialExpired, trialDaysLeft, loading } = useSubscription();
   
-  // Use props if provided, otherwise use context
   const plan = propPlan ?? contextPlan;
   const isFounder = propIsFounder ?? contextIsFounder;
   
   const config = {
     demo: {
-      label: 'Demo',
-      icon: Star,
-      variant: 'secondary' as const,
-      className: 'bg-muted text-muted-foreground',
+      label: isTrialing ? 'Empresarial Gratuito' : 'Prueba Expirada',
+      icon: isTrialing ? Zap : Star,
+      className: isTrialing ? 'bg-accent text-accent-foreground' : 'bg-muted text-muted-foreground',
     },
     basico: {
       label: 'Básico',
       icon: Sparkles,
-      variant: 'default' as const,
       className: 'bg-primary text-primary-foreground',
     },
     pro: {
       label: 'Pro',
       icon: Crown,
-      variant: 'default' as const,
       className: 'bg-warning text-warning-foreground',
     },
     empresarial: {
       label: 'Empresarial',
       icon: Crown,
-      variant: 'default' as const,
       className: 'bg-success text-success-foreground',
     },
     admin: {
       label: 'Enterprise (Internal)',
       icon: Shield,
-      variant: 'default' as const,
       className: 'bg-purple-600 text-white',
     },
   };
 
-  // While loading, show a loading badge instead of "Demo"
   if (loading) {
     return (
       <Badge className="bg-muted text-muted-foreground text-xs gap-1">
@@ -58,7 +51,6 @@ export default function PlanBadge({ plan: propPlan, size = 'sm', isFounder: prop
     );
   }
 
-  // For founder, show basico plan with (Admin) suffix
   const displayPlan = isFounder ? 'basico' : plan;
   const { label: baseLabel, icon: Icon, className } = config[displayPlan];
   const label = isFounder ? 'Básico (Admin)' : baseLabel;
@@ -66,13 +58,15 @@ export default function PlanBadge({ plan: propPlan, size = 'sm', isFounder: prop
   const iconSize = size === 'sm' ? 'h-3 w-3' : 'h-4 w-4';
   const textSize = size === 'sm' ? 'text-xs' : 'text-sm';
   
-  // Founder gets purple styling
   const finalClassName = isFounder ? 'bg-purple-600 text-white' : className;
+
+  // Show days left during trial
+  const trialSuffix = isTrialing && trialDaysLeft !== null && !isFounder ? ` · ${trialDaysLeft}d` : '';
 
   return (
     <Badge className={`${finalClassName} ${textSize} gap-1`}>
       <Icon className={iconSize} />
-      {label}
+      {label}{trialSuffix}
     </Badge>
   );
 }

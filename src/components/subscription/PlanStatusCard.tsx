@@ -1,57 +1,18 @@
-import { useSubscription, SubscriptionPlan } from '@/hooks/useSubscription';
+import { useSubscription } from '@/hooks/useSubscription';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
 import { 
-  Sparkles, 
+  Zap, 
   Crown, 
   Rocket, 
   ArrowRight, 
   Shield,
   FileText,
-  Calendar
+  Calendar,
+  Clock
 } from 'lucide-react';
-
-interface PlanConfig {
-  name: string;
-  description: string;
-  icon: React.ComponentType<{ className?: string }>;
-  features: string[];
-}
-
-const planConfigs: Record<SubscriptionPlan, PlanConfig> = {
-  demo: {
-    name: 'Plan Demo',
-    description: 'Estás usando la versión gratuita',
-    icon: Sparkles,
-    features: ['1 PDF en total', '1 cuenta bancaria'],
-  },
-  basico: {
-    name: 'Plan Básico',
-    description: 'Gestión financiera para tu negocio',
-    icon: Crown,
-    features: ['10 PDFs por mes', '1 cuenta bancaria', '6 meses de historial'],
-  },
-  pro: {
-    name: 'Plan Pro',
-    description: 'Facturación DIAN y gestión avanzada',
-    icon: Crown,
-    features: ['PDFs ilimitados', 'Módulo Facturas DIAN', '2 cuentas bancarias'],
-  },
-  empresarial: {
-    name: 'Plan Empresarial',
-    description: 'Solución completa para empresas',
-    icon: Rocket,
-    features: ['PDFs ilimitados', 'Hasta 3 cuentas', 'Historial ilimitado'],
-  },
-  admin: {
-    name: 'Enterprise (Internal)',
-    description: 'Acceso completo sin límites',
-    icon: Shield,
-    features: ['PDFs ilimitados', 'Todas las funcionalidades', 'Sin restricciones'],
-  },
-};
 
 export default function PlanStatusCard() {
   const { 
@@ -62,25 +23,42 @@ export default function PlanStatusCard() {
     getPlanLimits,
     isAdmin,
     isFounder,
-    loading
+    loading,
+    isTrialing,
+    trialExpired,
+    trialDaysLeft,
   } = useSubscription();
   
-  const displayPlan = isFounder ? 'basico' : plan;
-  const config = planConfigs[displayPlan];
-  const Icon = config.icon;
   const limits = getPlanLimits();
-  const displayName = isFounder ? 'Plan Básico (Admin)' : config.name;
+
+  const getDisplayInfo = () => {
+    if (isFounder) return { name: 'Plan Básico (Admin)', icon: Crown, description: 'Acceso administrativo' };
+    if (plan === 'admin') return { name: 'Enterprise (Internal)', icon: Shield, description: 'Acceso completo sin límites' };
+    if (isTrialing) return { name: 'Empresarial Gratuito', icon: Zap, description: 'Acceso completo por 14 días para que pruebes AluminIA sin límites' };
+    if (trialExpired) return { name: 'Prueba Expirada', icon: Clock, description: 'Tu prueba gratuita terminó. Activa un plan para continuar.' };
+    if (plan === 'basico') return { name: 'Plan Básico', icon: Crown, description: 'Gestión financiera para tu negocio' };
+    if (plan === 'pro') return { name: 'Plan Pro', icon: Crown, description: 'Facturación DIAN y gestión avanzada' };
+    if (plan === 'empresarial') return { name: 'Plan Empresarial', icon: Rocket, description: 'Solución completa para empresas' };
+    return { name: 'Empresarial Gratuito', icon: Zap, description: 'Prueba gratuita' };
+  };
+
+  const info = getDisplayInfo();
+  const Icon = info.icon;
 
   const getUsageText = () => {
     if (isFounder) return `PDFs usados: ${pdfUploadsThisMonth}/10 este mes`;
-    if (plan === 'demo') return `PDFs usados: ${pdfUploadsTotal}/1`;
+    if (isTrialing) return `Extractos usados: ${pdfUploadsTotal}/${limits.pdfLimit}`;
+    if (trialExpired) return 'Acceso de solo lectura';
     if (plan === 'empresarial' || plan === 'admin') return `PDFs usados: ${pdfUploadsThisMonth} este mes`;
-    return `PDFs usados: ${pdfUploadsThisMonth}/${limits.pdfLimit} este mes`;
+    if (plan === 'basico') return `PDFs usados: ${pdfUploadsThisMonth}/${limits.pdfLimit} este mes`;
+    return '';
   };
-  
-  const usageText = getUsageText();
 
   const getExpirationText = () => {
+    if (isTrialing && trialDaysLeft !== null) {
+      return `${trialDaysLeft} día${trialDaysLeft !== 1 ? 's' : ''} restante${trialDaysLeft !== 1 ? 's' : ''}`;
+    }
+    if (trialExpired) return 'Expirado';
     if (!subscriptionEnd) return null;
     const expiresAt = new Date(subscriptionEnd);
     const now = new Date();
@@ -89,6 +67,7 @@ export default function PlanStatusCard() {
     return `Vence en ${daysLeft} día${daysLeft !== 1 ? 's' : ''}`;
   };
 
+  const usageText = getUsageText();
   const expirationText = getExpirationText();
 
   if (loading) {
@@ -107,22 +86,49 @@ export default function PlanStatusCard() {
     );
   }
 
+  const cardColor = trialExpired 
+    ? 'border-destructive/30 bg-destructive/5' 
+    : isTrialing 
+      ? 'border-accent/30 bg-accent/5'
+      : plan === 'admin' 
+        ? 'border-purple-500/30 bg-purple-500/5' 
+        : 'border-accent/30 bg-accent/5';
+
+  const iconColor = trialExpired 
+    ? 'bg-destructive/10' 
+    : isTrialing 
+      ? 'bg-accent/10' 
+      : plan === 'admin' 
+        ? 'bg-purple-500/10' 
+        : 'bg-accent/10';
+
+  const iconTextColor = trialExpired 
+    ? 'text-destructive' 
+    : isTrialing 
+      ? 'text-accent' 
+      : plan === 'admin' 
+        ? 'text-purple-500' 
+        : 'text-accent';
+
   return (
-    <Card className={plan === 'demo' ? 'border-warning/30 bg-warning/5' : plan === 'admin' ? 'border-purple-500/30 bg-purple-500/5' : 'border-accent/30 bg-accent/5'}>
+    <Card className={cardColor}>
       <CardContent className="p-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-              plan === 'demo' ? 'bg-warning/10' : plan === 'admin' ? 'bg-purple-500/10' : 'bg-accent/10'
-            }`}>
-              <Icon className={`h-5 w-5 ${plan === 'demo' ? 'text-warning' : plan === 'admin' ? 'text-purple-500' : 'text-accent'}`} />
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${iconColor}`}>
+              <Icon className={`h-5 w-5 ${iconTextColor}`} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground">{displayName}</span>
-                {(plan !== 'demo' || isFounder) && (
+                <span className="font-semibold text-foreground">{info.name}</span>
+                {(isTrialing || (plan !== 'demo' && !trialExpired)) && (
                   <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
                     Activo
+                  </Badge>
+                )}
+                {trialExpired && (
+                  <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">
+                    Expirado
                   </Badge>
                 )}
                 {isFounder && (
@@ -131,16 +137,18 @@ export default function PlanStatusCard() {
                   </Badge>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground">{config.description}</p>
+              <p className="text-sm text-muted-foreground">{info.description}</p>
             </div>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <FileText className="h-4 w-4" />
-                {usageText}
-              </span>
+              {usageText && (
+                <span className="flex items-center gap-1">
+                  <FileText className="h-4 w-4" />
+                  {usageText}
+                </span>
+              )}
               {expirationText && (
                 <span className="flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
@@ -149,10 +157,10 @@ export default function PlanStatusCard() {
               )}
             </div>
 
-            {!isAdmin && plan === 'demo' && (
+            {(trialExpired || isTrialing) && !isAdmin && (
               <Link to="/pricing">
                 <Button size="sm" className="gap-1">
-                  Ver planes
+                  {trialExpired ? 'Activar Plan' : 'Ver planes'}
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
