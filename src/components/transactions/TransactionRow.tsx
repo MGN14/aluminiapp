@@ -89,10 +89,16 @@ export default function TransactionRow({
   const handleInvoiceChange = (invoiceId: string | null) => {
     if (invoiceId === 'N/A') {
       updateField({ invoice_id: null, notes: '[N/A - Sin factura]' });
+    } else if (invoiceId === '__IVA_FAVOR__') {
+      updateField({ invoice_id: null, notes: '[IVA a favor - Pago DIAN]' });
     } else {
+      const cleanedNotes = localTransaction.notes
+        ?.replace('[N/A - Sin factura]', '')
+        .replace('[IVA a favor - Pago DIAN]', '')
+        .trim() || null;
       updateField({ 
         invoice_id: invoiceId, 
-        notes: invoiceId ? localTransaction.notes?.replace('[N/A - Sin factura]', '').trim() || null : localTransaction.notes 
+        notes: invoiceId ? cleanedNotes : localTransaction.notes 
       });
     }
   };
@@ -147,7 +153,8 @@ export default function TransactionRow({
 
   // Determine invoice display value
   const invoiceValue = localTransaction.invoice_id || 
-    (localTransaction.notes === '[N/A - Sin factura]' ? 'N/A' : null);
+    (localTransaction.notes === '[N/A - Sin factura]' ? 'N/A' : 
+     localTransaction.notes === '[IVA a favor - Pago DIAN]' ? '__IVA_FAVOR__' : null);
 
   return (
     <TableRow className={cn(

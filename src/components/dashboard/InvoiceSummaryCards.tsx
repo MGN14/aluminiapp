@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { FileText, Users, Receipt, Calendar, Info } from 'lucide-react';
+import { FileText, Users } from 'lucide-react';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -27,10 +27,10 @@ interface InvoiceRow {
 }
 
 export interface InvoiceFiscalMetrics {
-  // IVA
-  ivaGenerado: number; // IVA from sales invoices
-  ivaDescontable: number; // IVA from purchase invoices
-  ivaNeto: number; // ivaGenerado - ivaDescontable (positive = por pagar, negative = a favor)
+  // IVA (cuatrimestre)
+  ivaGenerado: number;
+  ivaDescontable: number;
+  ivaNeto: number;
   // IVA YTD
   ivaGeneradoYtd: number;
   ivaDescontableYtd: number;
@@ -40,7 +40,17 @@ export interface InvoiceFiscalMetrics {
   reteicaYear: number;
   reteicaMonthCount: number;
   reteicaYearCount: number;
-  // Retefuente
+  // Autorretefuente (ventas)
+  autoretefuenteMonth: number;
+  autoretefuenteYear: number;
+  autoretefuenteMonthCount: number;
+  autoretefuenteYearCount: number;
+  // Retefuente compras (calculated from settings)
+  retefuenteCompraMonth: number;
+  retefuenteCompraYear: number;
+  retefuenteCompraMonthCount: number;
+  retefuenteCompraYearCount: number;
+  // Legacy combined (for backward compat)
   retefuenteMonth: number;
   retefuenteYear: number;
   retefuenteMonthCount: number;
@@ -58,45 +68,76 @@ interface Props {
   periodEnd: Date;
   periodLabel: string;
   year: number;
+  cuatrimestreStart?: Date;
+  cuatrimestreEnd?: Date;
   onMetrics?: (metrics: InvoiceFiscalMetrics) => void;
 }
 
-export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabel, year, onMetrics }: Props) {
+export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabel, year, cuatrimestreStart, cuatrimestreEnd, onMetrics }: Props) {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [allYearInvoices, setAllYearInvoices] = useState<InvoiceRow[]>([]);
+  const [cuatrimestreInvoices, setCuatrimestreInvoices] = useState<InvoiceRow[]>([]);
+  const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchInvoices = async () => {
+    const fetchData = async () => {
       const startStr = periodStart.toISOString().split('T')[0];
       const endStr = periodEnd.toISOString().split('T')[0];
       const yearStartStr = `${year}-01-01`;
       const yearEndStr = `${year}-12-31`;
 
-      // Fetch period invoices and year invoices in parallel
-      const [periodResult, yearResult] = await Promise.all([
-        supabase
+      // Fetch all queries in parallel
+      const periodQuery = supabase
+        .from('invoices')
+        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
+        .eq('status', 'confirmed')
+        .gte('issue_date', startStr)
+        .lte('issue_date', endStr)
+        .order('issue_date', { ascending: false });
+
+      const yearQuery = supabase
+        .from('invoices')
+        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
+        .eq('status', 'confirmed')
+        .gte('issue_date', yearStartStr)
+        .lte('issue_date', yearEndStr)
+        .order('issue_date', { ascending: false });
+
+      const settingsQuery = supabase.from('tax_settings').select('retefuente_compra_rate').limit(1).maybeSingle();
+
+      let cuatrimestreQuery = null;
+      if (cuatrimestreStart && cuatrimestreEnd) {
+        cuatrimestreQuery = supabase
           .from('invoices')
           .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
           .eq('status', 'confirmed')
-          .gte('issue_date', startStr)
-          .lte('issue_date', endStr)
-          .order('issue_date', { ascending: false }),
-        supabase
-          .from('invoices')
-          .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
-          .eq('status', 'confirmed')
-          .gte('issue_date', yearStartStr)
-          .lte('issue_date', yearEndStr)
-          .order('issue_date', { ascending: false }),
+          .gte('issue_date', cuatrimestreStart.toISOString().split('T')[0])
+          .lte('issue_date', cuatrimestreEnd.toISOString().split('T')[0])
+          .order('issue_date', { ascending: false });
+      }
+
+      const [periodResult, yearResult, settingsResult, cuatrimestreResult] = await Promise.all([
+        periodQuery,
+        yearQuery,
+        settingsQuery,
+        cuatrimestreQuery,
       ]);
 
       if (!periodResult.error && periodResult.data) setInvoices(periodResult.data);
       if (!yearResult.error && yearResult.data) setAllYearInvoices(yearResult.data);
+      if (settingsResult?.data) setRetefuenteCompraRate(settingsResult.data.retefuente_compra_rate || 0);
+      
+      if (cuatrimestreResult && !cuatrimestreResult.error && cuatrimestreResult.data) {
+        setCuatrimestreInvoices(cuatrimestreResult.data);
+      } else {
+        setCuatrimestreInvoices([]);
+      }
+      
       setLoading(false);
     };
-    fetchInvoices();
-  }, [periodStart, periodEnd, year]);
+    fetchData();
+  }, [periodStart, periodEnd, year, cuatrimestreStart, cuatrimestreEnd]);
 
   const metrics = useMemo((): InvoiceFiscalMetrics => {
     const ventas = invoices.filter(i => i.type === 'venta');
@@ -104,12 +145,12 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const ventasYear = allYearInvoices.filter(i => i.type === 'venta');
     const comprasYear = allYearInvoices.filter(i => i.type === 'compra');
 
-    const totalFacturadoVentas = ventas.reduce((s, i) => s + i.total_amount, 0);
-    const totalFacturadoCompras = compras.reduce((s, i) => s + i.total_amount, 0);
-    
-    // IVA period
-    const ivaGenerado = ventas.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaDescontable = compras.reduce((s, i) => s + i.iva_amount, 0);
+    // IVA from cuatrimestre (or fallback to period)
+    const ivaSource = cuatrimestreInvoices.length > 0 ? cuatrimestreInvoices : invoices;
+    const ivaVentas = ivaSource.filter(i => i.type === 'venta');
+    const ivaCompras = ivaSource.filter(i => i.type === 'compra');
+    const ivaGenerado = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
+    const ivaDescontable = ivaCompras.reduce((s, i) => s + i.iva_amount, 0);
     const ivaNeto = ivaGenerado - ivaDescontable;
 
     // IVA YTD
@@ -117,17 +158,26 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const ivaDescontableYtd = comprasYear.reduce((s, i) => s + i.iva_amount, 0);
     const ivaNetoYtd = ivaGeneradoYtd - ivaDescontableYtd;
 
-    // ReteICA - from sales invoices (sobre base gravable)
+    const totalFacturadoVentas = ventas.reduce((s, i) => s + i.total_amount, 0);
+    const totalFacturadoCompras = compras.reduce((s, i) => s + i.total_amount, 0);
+
+    // ReteICA - from sales invoices
     const reteicaMonth = ventas.reduce((s, i) => s + (i.reteica_amount ?? 0), 0);
     const reteicaYear = ventasYear.reduce((s, i) => s + (i.reteica_amount ?? 0), 0);
     const reteicaMonthCount = ventas.filter(i => (i.reteica_amount ?? 0) > 0).length;
     const reteicaYearCount = ventasYear.filter(i => (i.reteica_amount ?? 0) > 0).length;
 
-    // Retefuente - autoretefuente from sales + retefuente from purchases
-    const retefuenteMonth = ventas.reduce((s, i) => s + (i.autoretefuente_amount ?? 0), 0);
-    const retefuenteYear = ventasYear.reduce((s, i) => s + (i.autoretefuente_amount ?? 0), 0);
-    const retefuenteMonthCount = ventas.filter(i => (i.autoretefuente_amount ?? 0) > 0).length;
-    const retefuenteYearCount = ventasYear.filter(i => (i.autoretefuente_amount ?? 0) > 0).length;
+    // Autorretefuente - from sales invoices
+    const autoretefuenteMonth = ventas.reduce((s, i) => s + (i.autoretefuente_amount ?? 0), 0);
+    const autoretefuenteYear = ventasYear.reduce((s, i) => s + (i.autoretefuente_amount ?? 0), 0);
+    const autoretefuenteMonthCount = ventas.filter(i => (i.autoretefuente_amount ?? 0) > 0).length;
+    const autoretefuenteYearCount = ventasYear.filter(i => (i.autoretefuente_amount ?? 0) > 0).length;
+
+    // Retefuente compras - calculated from purchase invoice base * rate from settings
+    const retefuenteCompraMonth = compras.reduce((s, i) => s + Math.round(i.subtotal_base * retefuenteCompraRate), 0);
+    const retefuenteCompraYear = comprasYear.reduce((s, i) => s + Math.round(i.subtotal_base * retefuenteCompraRate), 0);
+    const retefuenteCompraMonthCount = retefuenteCompraRate > 0 ? compras.length : 0;
+    const retefuenteCompraYearCount = retefuenteCompraRate > 0 ? comprasYear.length : 0;
 
     // Top Clients
     const byClient = new Map<string, number>();
@@ -143,12 +193,18 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       ivaGenerado, ivaDescontable, ivaNeto,
       ivaGeneradoYtd, ivaDescontableYtd, ivaNetoYtd,
       reteicaMonth, reteicaYear, reteicaMonthCount, reteicaYearCount,
-      retefuenteMonth, retefuenteYear, retefuenteMonthCount, retefuenteYearCount,
+      autoretefuenteMonth, autoretefuenteYear, autoretefuenteMonthCount, autoretefuenteYearCount,
+      retefuenteCompraMonth, retefuenteCompraYear, retefuenteCompraMonthCount, retefuenteCompraYearCount,
+      // Legacy combined
+      retefuenteMonth: autoretefuenteMonth + retefuenteCompraMonth,
+      retefuenteYear: autoretefuenteYear + retefuenteCompraYear,
+      retefuenteMonthCount: autoretefuenteMonthCount + retefuenteCompraMonthCount,
+      retefuenteYearCount: autoretefuenteYearCount + retefuenteCompraYearCount,
       totalFacturadoVentas, totalFacturadoCompras,
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
     };
-  }, [invoices, allYearInvoices]);
+  }, [invoices, allYearInvoices, cuatrimestreInvoices, retefuenteCompraRate]);
 
   // Report metrics to parent
   useEffect(() => {
