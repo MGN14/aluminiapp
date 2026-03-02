@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,7 +10,35 @@ const logStep = (step: string, details?: Record<string, unknown>) => {
 };
 
 const WOMPI_SANDBOX_URL = "https://sandbox.wompi.co/v1";
-const PLAN_AMOUNT_CENTS = 39900000; // $399,000 COP in cents
+
+interface PlanConfig {
+  name: string;
+  description: string;
+  amount_in_cents: number;
+}
+
+const PLAN_CONFIGS: Record<string, PlanConfig> = {
+  basico: {
+    name: "Plan Básico - AluminIA",
+    description: "Acceso por 30 días al plan Básico de AluminIA",
+    amount_in_cents: 39900000, // $399,000 COP
+  },
+  "basico-anual": {
+    name: "Plan Básico Anual - AluminIA",
+    description: "Acceso por 12 meses al plan Básico de AluminIA",
+    amount_in_cents: 383040000, // $399,000 * 12 * 0.8 = $3,830,400 COP
+  },
+  empresarial: {
+    name: "Plan Empresarial - AluminIA",
+    description: "Acceso por 30 días al plan Empresarial de AluminIA",
+    amount_in_cents: 69900000, // $699,000 COP
+  },
+  "empresarial-anual": {
+    name: "Plan Empresarial Anual - AluminIA",
+    description: "Acceso por 12 meses al plan Empresarial de AluminIA",
+    amount_in_cents: 671040000, // $699,000 * 12 * 0.8 = $6,710,400 COP
+  },
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -23,6 +50,27 @@ serve(async (req) => {
 
   try {
     logStep("Function started");
+
+    // Parse request body for plan selection
+    let planKey = "basico";
+    try {
+      const body = await req.json();
+      if (body?.plan && typeof body.plan === "string") {
+        planKey = body.plan;
+      }
+    } catch {
+      // No body or invalid JSON, default to basico
+    }
+
+    const planConfig = PLAN_CONFIGS[planKey];
+    if (!planConfig) {
+      return new Response(JSON.stringify({ error: `Plan no válido: ${planKey}` }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+      });
+    }
+
+    logStep("Plan selected", { planKey, amount: planConfig.amount_in_cents });
 
     // Authenticate user
     const authHeader = req.headers.get("Authorization");
@@ -58,9 +106,9 @@ serve(async (req) => {
     const wompiPrivateKey = Deno.env.get("WOMPI_PRIVATE_KEY");
     if (!wompiPrivateKey) throw new Error("WOMPI_PRIVATE_KEY is not set");
 
-    // Create a single-use payment link via Wompi API
     const origin = req.headers.get("origin") || "https://aluminia.app";
-    const reference = `aluminia-basico-${userJson.id}-${Date.now()}`;
+    const basePlan = planKey.replace("-anual", "");
+    const reference = `aluminia-${basePlan}-${userJson.id}-${Date.now()}`;
 
     const linkRes = await fetch(`${WOMPI_SANDBOX_URL}/payment_links`, {
       method: "POST",
@@ -69,12 +117,12 @@ serve(async (req) => {
         Authorization: `Bearer ${wompiPrivateKey}`,
       },
       body: JSON.stringify({
-        name: "Plan Básico - AluminIA",
-        description: "Acceso por 30 días al plan Básico de AluminIA",
+        name: planConfig.name,
+        description: planConfig.description,
         single_use: true,
         collect_shipping: false,
         currency: "COP",
-        amount_in_cents: PLAN_AMOUNT_CENTS,
+        amount_in_cents: planConfig.amount_in_cents,
         redirect_url: `${origin}/dashboard?payment=success`,
         customer_data: {
           customer_references: [
@@ -106,7 +154,7 @@ serve(async (req) => {
     }
 
     const checkoutUrl = `https://checkout.wompi.co/l/${paymentLinkId}`;
-    logStep("Payment link created", { paymentLinkId, checkoutUrl });
+    logStep("Payment link created", { paymentLinkId, checkoutUrl, planKey });
 
     return new Response(JSON.stringify({ url: checkoutUrl, reference }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
