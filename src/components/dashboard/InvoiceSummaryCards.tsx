@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { FileText, Users } from 'lucide-react';
+import { FileText, Users, Package } from 'lucide-react';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -29,6 +29,13 @@ interface InvoiceRow {
 interface ManualTaxTransaction {
   id: string;
   amount: number | null;
+}
+
+interface InvoiceItemRow {
+  description: string | null;
+  reference: string | null;
+  quantity: number;
+  line_total: number;
 }
 
 export interface InvoiceFiscalMetrics {
@@ -91,6 +98,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
   const [retefuenteManualYearTransactions, setRetefuenteManualYearTransactions] = useState<ManualTaxTransaction[]>([]);
   const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
   const [dianPaymentsIva, setDianPaymentsIva] = useState(0);
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceItemRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -205,6 +213,18 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         setRetefuenteManualYearTransactions([]);
       }
 
+      // Fetch invoice items for sales invoices in the period (for top references)
+      const salesIds = (periodResult.data || []).filter(i => i.type === 'venta').map(i => i.id);
+      if (salesIds.length > 0) {
+        const { data: items } = await supabase
+          .from('invoice_items')
+          .select('description, reference, quantity, line_total')
+          .in('invoice_id', salesIds);
+        setInvoiceItems((items as InvoiceItemRow[]) || []);
+      } else {
+        setInvoiceItems([]);
+      }
+
       setLoading(false);
     };
     fetchData();
@@ -251,8 +271,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const retefuenteCompraMonthCount = retefuenteCompraRate > 0 ? compras.length : 0;
     const retefuenteCompraYearCount = retefuenteCompraRate > 0 ? comprasYear.length : 0;
 
-    // Retefuente manual - transactions marked as without invoice but with withholding
-    // Apply retefuente rate to manual transactions (they store the full egreso amount, not the withholding)
+    // Retefuente manual
     const retefuenteManualMonth = retefuenteManualPeriodTransactions.reduce((s, t) => s + Math.round(Math.abs(t.amount ?? 0) * retefuenteCompraRate), 0);
     const retefuenteManualYear = retefuenteManualYearTransactions.reduce((s, t) => s + Math.round(Math.abs(t.amount ?? 0) * retefuenteCompraRate), 0);
     const retefuenteManualMonthCount = retefuenteManualPeriodTransactions.length;
@@ -286,12 +305,30 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     };
   }, [invoices, allYearInvoices, cuatrimestreInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions]);
 
+  // Top references from invoice items
+  const topReferences = useMemo(() => {
+    const byRef = new Map<string, { total: number; qty: number }>();
+    invoiceItems.forEach(item => {
+      const name = item.description || item.reference || 'Sin descripción';
+      const existing = byRef.get(name) || { total: 0, qty: 0 };
+      byRef.set(name, {
+        total: existing.total + item.line_total,
+        qty: existing.qty + item.quantity,
+      });
+    });
+    return Array.from(byRef.entries())
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 5);
+  }, [invoiceItems]);
+
   // Report metrics to parent
   useEffect(() => {
     if (onMetrics) onMetrics(metrics);
   }, [metrics, onMetrics]);
 
   if (loading || invoices.length === 0) return null;
+
+  const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
 
   return (
     <>
@@ -335,25 +372,64 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         </CardContent>
       </Card>
 
-      {/* Top Clientes */}
+      {/* Top Clientes (Ventas) - Ranked */}
       {metrics.topClients.length > 0 && (
-        <Card className="sm:col-span-2">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Top Clientes (Ventas)
+              Top {metrics.topClients.length} Clientes
             </CardTitle>
-            <div className="p-2 rounded-lg bg-accent/10">
-              <Users className="h-4 w-4 text-accent" />
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Users className="h-4 w-4 text-primary" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {metrics.topClients.map(([name, total]) => (
-                <div key={name} className="flex items-center justify-between text-sm">
-                  <span className="text-foreground truncate mr-2">{name}</span>
-                  <span className="font-medium text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
+            <div className="space-y-2.5">
+              {metrics.topClients.map(([name, total], index) => (
+                <div key={name} className="flex items-center gap-2 text-sm">
+                  <span className={`font-bold text-base w-5 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
+                    {index + 1}
+                  </span>
+                  <span className="text-foreground truncate flex-1">{name}</span>
+                  <span className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
                 </div>
               ))}
+            </div>
+            <div className="text-xs text-muted-foreground mt-3 pt-2 border-t border-border">
+              {periodLabel}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Top Referencias Vendidas */}
+      {topReferences.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Top {topReferences.length} Referencias
+            </CardTitle>
+            <div className="p-2 rounded-lg bg-success/10">
+              <Package className="h-4 w-4 text-success" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2.5">
+              {topReferences.map(([name, { total, qty }], index) => (
+                <div key={name} className="flex items-center gap-2 text-sm">
+                  <span className={`font-bold text-base w-5 text-center shrink-0 ${index < 3 ? RANK_COLORS[index] : 'text-muted-foreground'}`}>
+                    {index + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-foreground truncate block">{name}</span>
+                    <span className="text-xs text-muted-foreground">{qty} uds</span>
+                  </div>
+                  <span className="font-semibold text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="text-xs text-muted-foreground mt-3 pt-2 border-t border-border">
+              {periodLabel}
             </div>
           </CardContent>
         </Card>
