@@ -1,77 +1,17 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { FileSpreadsheet, Check, ArrowRight, Sparkles, Shield, Lock, Loader2, MessageCircle } from 'lucide-react';
+import { FileSpreadsheet, Shield, Lock, MessageCircle, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import Footer from '@/components/layout/Footer';
 import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-
-const plans = [
-  {
-    id: 'demo',
-    name: 'Empresarial Gratuito',
-    price: '$0',
-    period: '14 días',
-    description: 'Prueba todas las funciones sin límites',
-    features: [
-      'Acceso completo por 14 días',
-      'Hasta 3 extractos bancarios',
-      'Hasta 10 facturas DIAN',
-      'Dashboard fiscal real',
-      'Coach financiero con IA',
-      'Reportes avanzados',
-      'Sin tarjeta de crédito',
-    ],
-    cta: 'Empezar prueba gratuita',
-    ctaAction: 'signup' as const,
-    highlighted: false,
-    note: 'Acceso completo para que pruebes AluminIA con datos reales',
-  },
-  {
-    id: 'basico',
-    name: 'Básico',
-    price: '$399.000',
-    period: 'COP / 30 días',
-    description: 'Para negocios en crecimiento',
-    features: [
-      'Hasta 10 PDFs por mes',
-      'Hasta 2 cuentas bancarias',
-      'Historial de hasta 2 años',
-      '2 usuarios incluidos',
-      'Dashboard completo',
-      'IVA y retenciones automáticas',
-      'Exportación a Excel',
-      'Soporte por email',
-    ],
-    cta: 'Suscribirme al plan Básico',
-    ctaAction: 'wompi-basico' as const,
-    highlighted: true,
-    note: null,
-  },
-  {
-    id: 'empresarial',
-    name: 'Empresarial',
-    price: '$699.000',
-    period: 'COP/mes',
-    description: 'Para PyMEs establecidas',
-    features: [
-      'PDFs ilimitados',
-      'Hasta 3 cuentas bancarias',
-      'Historial ilimitado',
-      'Reportes avanzados',
-      'Soporte prioritario',
-      'Acceso temprano a módulo de inventario',
-    ],
-    cta: 'Contactar para suscribirme',
-    ctaAction: 'contact' as const,
-    highlighted: false,
-    note: null,
-  },
-];
+import PricingToggle from '@/components/pricing/PricingToggle';
+import PricingCard from '@/components/pricing/PricingCard';
+import SubscriptionConfirmModal from '@/components/pricing/SubscriptionConfirmModal';
+import { plans } from '@/components/pricing/pricingPlans';
 
 export default function Pricing() {
   const { user } = useAuth();
@@ -80,10 +20,15 @@ export default function Pricing() {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [isAnnual, setIsAnnual] = useState(false);
+
+  // Confirm modal state
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<typeof plans[0] | null>(null);
 
   const paymentSuccess = searchParams.get('payment') === 'success';
 
-  const handlePlanAction = async (action: string) => {
+  const handlePlanAction = (action: string) => {
     if (action === 'signup') {
       navigate(user ? '/upload' : '/signup');
       return;
@@ -94,7 +39,8 @@ export default function Pricing() {
       return;
     }
 
-    if (action === 'wompi-basico') {
+    // For paid plans, open confirmation modal
+    if (action.startsWith('wompi-')) {
       if (!user) {
         toast({
           title: 'Inicia sesión primero',
@@ -104,27 +50,39 @@ export default function Pricing() {
         return;
       }
 
-      setLoadingPlan('basico');
-      try {
-        const url = await createWompiCheckout();
-        if (url) {
-          window.location.href = url;
-        } else {
-          toast({
-            title: 'Error',
-            description: 'No pudimos crear el enlace de pago. Intenta de nuevo.',
-            variant: 'destructive',
-          });
-        }
-      } catch (error) {
+      const planId = action.replace('wompi-', '');
+      const plan = plans.find((p) => p.id === planId);
+      if (plan) {
+        setSelectedPlan(plan);
+        setConfirmOpen(true);
+      }
+    }
+  };
+
+  const handleConfirmSubscription = async () => {
+    if (!selectedPlan) return;
+
+    setLoadingPlan(selectedPlan.id);
+    try {
+      const url = await createWompiCheckout();
+      if (url) {
+        window.location.href = url;
+      } else {
         toast({
           title: 'Error',
-          description: 'Hubo un problema al procesar tu solicitud.',
+          description: 'No pudimos crear el enlace de pago. Intenta de nuevo.',
           variant: 'destructive',
         });
-      } finally {
-        setLoadingPlan(null);
       }
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Hubo un problema al procesar tu solicitud.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingPlan(null);
+      setConfirmOpen(false);
     }
   };
 
@@ -159,7 +117,7 @@ export default function Pricing() {
       </header>
 
       {/* Hero */}
-      <section className="py-16 md:py-24">
+      <section className="pt-16 pb-10 md:pt-24 md:pb-14">
         <div className="container mx-auto px-4 text-center">
           <Badge variant="secondary" className="mb-4">
             <Sparkles className="w-3 h-3 mr-1" />
@@ -168,9 +126,12 @@ export default function Pricing() {
           <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-4">
             Elige el plan perfecto para tu negocio
           </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Empieza con 14 días gratis de acceso completo. Escala cuando estés listo. Sin tarjeta, sin sorpresas.
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
+            Empieza gratis. Escala cuando estés listo. Sin tarjeta, sin sorpresas.
           </p>
+
+          {/* Toggle */}
+          <PricingToggle isAnnual={isAnnual} onToggle={setIsAnnual} />
         </div>
       </section>
 
@@ -187,84 +148,32 @@ export default function Pricing() {
       {/* Pricing Cards */}
       <section className="pb-12">
         <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+          <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto items-start">
             {plans.map((plan) => {
-              const isCurrentPlan = user && currentPlan === plan.id;
+              const isCurrentPlan = !!(user && currentPlan === plan.id);
               const isLoading = loadingPlan === plan.id;
 
               return (
-                <Card 
+                <PricingCard
                   key={plan.id}
-                  className={`relative flex flex-col ${
-                    plan.highlighted 
-                      ? 'border-primary shadow-lg shadow-primary/10 scale-105' 
-                      : 'border-border'
-                  } ${isCurrentPlan ? 'ring-2 ring-success' : ''}`}
-                >
-                  {plan.highlighted && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <Badge className="bg-primary text-primary-foreground">
-                        Recomendado
-                      </Badge>
-                    </div>
-                  )}
-                  {isCurrentPlan && (
-                    <div className="absolute -top-3 right-4">
-                      <Badge className="bg-success text-success-foreground">
-                        Tu plan actual
-                      </Badge>
-                    </div>
-                  )}
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-xl">{plan.name}</CardTitle>
-                    <CardDescription>{plan.description}</CardDescription>
-                    <div className="pt-4">
-                      <span className="text-4xl font-bold text-foreground">{plan.price}</span>
-                      <span className="text-muted-foreground ml-1">{plan.period}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex-1 flex flex-col">
-                    <ul className="space-y-3 flex-1">
-                      {plan.features.map((feature, i) => (
-                        <li key={i} className="flex items-start gap-2">
-                          <Check className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
-                          <span className="text-sm text-muted-foreground">{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    {plan.note && (
-                      <p className="text-xs text-muted-foreground mt-4 italic">
-                        💡 {plan.note}
-                      </p>
-                    )}
-                    <div className="mt-6">
-                      <Button 
-                        className="w-full" 
-                        size="lg"
-                        variant={plan.highlighted ? 'default' : 'outline'}
-                        disabled={!!isCurrentPlan || isLoading}
-                        onClick={() => handlePlanAction(plan.ctaAction)}
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Redirigiendo...
-                          </>
-                        ) : isCurrentPlan ? (
-                          'Plan actual'
-                        ) : (
-                          <>
-                            {plan.cta}
-                            <ArrowRight className="w-4 h-4 ml-2" />
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                  plan={plan}
+                  isAnnual={isAnnual}
+                  isCurrentPlan={isCurrentPlan}
+                  isLoading={isLoading}
+                  onAction={handlePlanAction}
+                />
               );
             })}
           </div>
+        </div>
+      </section>
+
+      {/* Strategic message */}
+      <section className="pb-10">
+        <div className="container mx-auto px-4 text-center">
+          <p className="text-base text-muted-foreground font-medium max-w-xl mx-auto">
+            Empieza con orden financiero. Escala a control fiscal y de inventario.
+          </p>
         </div>
       </section>
 
@@ -291,47 +200,37 @@ export default function Pricing() {
             Preguntas frecuentes
           </h2>
           <div className="space-y-6">
-            <div>
-              <h3 className="font-semibold text-foreground mb-2">
-                ¿Cómo funciona el pago?
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                Al suscribirte, serás redirigido a Wompi para realizar un pago único. Tu plan se activará automáticamente por 30 días una vez el pago sea aprobado.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-foreground mb-2">
-                ¿Se renueva automáticamente?
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                No. Al vencer los 30 días, puedes renovar manualmente realizando un nuevo pago. No hay cargos automáticos.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-foreground mb-2">
-                ¿Qué bancos soportan?
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                Soportamos distintos formatos de extractos bancarios colombianos. Algunos formatos pueden requerir ajuste de plantilla.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-foreground mb-2">
-                ¿Mis datos están seguros?
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                Absolutamente. Utilizamos cifrado de nivel bancario y nunca compartimos tu información con terceros.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-foreground mb-2">
-                ¿AluminIA reemplaza a mi contador?
-              </h3>
-              <p className="text-muted-foreground text-sm">
-                No. AluminIA es una herramienta de organización financiera que complementa el trabajo de tu contador, 
-                no lo reemplaza.
-              </p>
-            </div>
+            {[
+              {
+                q: '¿Cómo funciona el pago?',
+                a: 'Al suscribirte, serás redirigido a Wompi para realizar un pago único. Tu plan se activará automáticamente por 30 días una vez el pago sea aprobado.',
+              },
+              {
+                q: '¿Se renueva automáticamente?',
+                a: 'No. Al vencer los 30 días, puedes renovar manualmente realizando un nuevo pago. No hay cargos automáticos.',
+              },
+              {
+                q: '¿Qué bancos soportan?',
+                a: 'Soportamos distintos formatos de extractos bancarios colombianos. Algunos formatos pueden requerir ajuste de plantilla.',
+              },
+              {
+                q: '¿Mis datos están seguros?',
+                a: 'Absolutamente. Utilizamos cifrado de nivel bancario y nunca compartimos tu información con terceros.',
+              },
+              {
+                q: '¿AluminIA reemplaza a mi contador?',
+                a: 'No. AluminIA es una herramienta de organización financiera que complementa el trabajo de tu contador, no lo reemplaza.',
+              },
+              {
+                q: '¿Qué incluye el módulo de Inventario?',
+                a: 'El plan Empresarial incluye un área de inventario integrada que descuenta automáticamente productos desde tu facturación DIAN. Próximamente se añadirá fabricación inteligente.',
+              },
+            ].map((faq, i) => (
+              <div key={i}>
+                <h3 className="font-semibold text-foreground mb-2">{faq.q}</h3>
+                <p className="text-muted-foreground text-sm">{faq.a}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -355,6 +254,19 @@ export default function Pricing() {
       </section>
 
       <Footer />
+
+      {/* Confirm modal */}
+      {selectedPlan && (
+        <SubscriptionConfirmModal
+          open={confirmOpen}
+          onOpenChange={setConfirmOpen}
+          planName={selectedPlan.name}
+          monthlyPrice={selectedPlan.monthlyPrice}
+          isAnnual={isAnnual}
+          loading={!!loadingPlan}
+          onConfirm={handleConfirmSubscription}
+        />
+      )}
     </div>
   );
 }
