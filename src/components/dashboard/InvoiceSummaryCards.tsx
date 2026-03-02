@@ -252,8 +252,9 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const retefuenteCompraYearCount = retefuenteCompraRate > 0 ? comprasYear.length : 0;
 
     // Retefuente manual - transactions marked as without invoice but with withholding
-    const retefuenteManualMonth = retefuenteManualPeriodTransactions.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
-    const retefuenteManualYear = retefuenteManualYearTransactions.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+    // Apply retefuente rate to manual transactions (they store the full egreso amount, not the withholding)
+    const retefuenteManualMonth = retefuenteManualPeriodTransactions.reduce((s, t) => s + Math.round(Math.abs(t.amount ?? 0) * retefuenteCompraRate), 0);
+    const retefuenteManualYear = retefuenteManualYearTransactions.reduce((s, t) => s + Math.round(Math.abs(t.amount ?? 0) * retefuenteCompraRate), 0);
     const retefuenteManualMonthCount = retefuenteManualPeriodTransactions.length;
     const retefuenteManualYearCount = retefuenteManualYearTransactions.length;
 
