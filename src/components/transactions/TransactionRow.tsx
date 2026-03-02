@@ -105,7 +105,11 @@ export default function TransactionRow({
     const markers = newTags.map(t => tagMarkers[t]).join('');
     const finalNotes = [markers, cleanNotes].filter(Boolean).join('') || null;
 
-    updateField({ invoice_id: newInvoiceId, notes: finalNotes });
+    updateField({
+      invoice_id: newInvoiceId,
+      notes: finalNotes,
+      has_retefuente: newTags.includes('retefuente'),
+    });
   };
 
   const handleAddCategory = async (name: string): Promise<string | null> => {
@@ -163,9 +167,9 @@ export default function TransactionRow({
     const notes = localTransaction.notes || '';
     if (notes.includes('[N/A - Sin factura]')) t.push('na');
     if (notes.includes('[IVA a favor - Pago DIAN]')) t.push('iva_favor');
-    if (notes.includes('[Retefuente - Sin factura]')) t.push('retefuente');
+    if (notes.includes('[Retefuente - Sin factura]') || localTransaction.has_retefuente) t.push('retefuente');
     return t;
-  }, [localTransaction.notes]);
+  }, [localTransaction.notes, localTransaction.has_retefuente]);
 
   return (
     <TableRow className={cn(
