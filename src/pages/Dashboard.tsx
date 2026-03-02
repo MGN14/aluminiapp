@@ -705,18 +705,11 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Autorretefuente por Pagar (ventas) */}
+              {/* Retefuente por Pagar (combined: autorretefuente ventas + retefuente compras) */}
               <RetefuenteMonthlyCard
-                total={invoiceMetrics?.autoretefuenteMonth ?? 0}
-                periodLabel={`Autorretefuente • ${periodRange.label}`}
-                transactionCount={invoiceMetrics?.autoretefuenteMonthCount ?? 0}
-              />
-
-              {/* Retefuente Compras (compras) */}
-              <RetefuenteMonthlyCard
-                total={invoiceMetrics?.retefuenteCompraMonth ?? 0}
-                periodLabel={`Rete. Compras • ${periodRange.label}`}
-                transactionCount={invoiceMetrics?.retefuenteCompraMonthCount ?? 0}
+                total={(invoiceMetrics?.autoretefuenteMonth ?? 0) + (invoiceMetrics?.retefuenteCompraMonth ?? 0)}
+                periodLabel={periodRange.label}
+                transactionCount={(invoiceMetrics?.autoretefuenteMonthCount ?? 0) + (invoiceMetrics?.retefuenteCompraMonthCount ?? 0)}
               />
 
               {/* Retefuente Acumulada (Año) - combined */}

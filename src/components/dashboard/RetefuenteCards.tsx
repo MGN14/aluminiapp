@@ -14,18 +14,20 @@ interface RetefuenteMonthlyCardProps {
   total: number;
   periodLabel: string;
   transactionCount: number;
+  title?: string;
 }
 
 export function RetefuenteMonthlyCard({ 
   total, 
   periodLabel, 
   transactionCount,
+  title = 'Retefuente por Pagar',
 }: RetefuenteMonthlyCardProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
-          Retefuente por Pagar
+          {title}
         </CardTitle>
         <div className="p-2 rounded-lg bg-accent/10">
           <Receipt className="h-4 w-4 text-accent" />
