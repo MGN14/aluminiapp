@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { Transaction, Category, Responsible, SimpleTransactionType, SIMPLE_TYPES } from '@/types/transaction';
 import { cn } from '@/lib/utils';
 import { TableCell, TableRow } from '@/components/ui/table';
@@ -20,7 +20,7 @@ import { Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTransactionEdit } from '@/hooks/useTransactionEdit';
 import { SearchableSelect } from './SearchableSelect';
-import InvoiceSelector from './InvoiceSelector';
+import InvoiceSelector, { InvoiceTag } from './InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -86,24 +86,26 @@ export default function TransactionRow({
     updateField({ type });
   };
 
-  const handleInvoiceChange = (invoiceId: string | null) => {
-    if (invoiceId === 'N/A') {
-      updateField({ invoice_id: null, notes: '[N/A - Sin factura]' });
-    } else if (invoiceId === '__IVA_FAVOR__') {
-      updateField({ invoice_id: null, notes: '[IVA a favor - Pago DIAN]' });
-    } else if (invoiceId === '__RETEFUENTE__') {
-      updateField({ invoice_id: null, notes: '[Retefuente - Sin factura]' });
-    } else {
-      const cleanedNotes = localTransaction.notes
-        ?.replace('[N/A - Sin factura]', '')
-        .replace('[IVA a favor - Pago DIAN]', '')
-        .replace('[Retefuente - Sin factura]', '')
-        .trim() || null;
-      updateField({ 
-        invoice_id: invoiceId, 
-        notes: invoiceId ? cleanedNotes : localTransaction.notes 
-      });
-    }
+  const handleInvoiceChange = (newInvoiceId: string | null, newTags: InvoiceTag[]) => {
+    // Build notes from tags
+    const tagMarkers: Record<InvoiceTag, string> = {
+      na: '[N/A - Sin factura]',
+      iva_favor: '[IVA a favor - Pago DIAN]',
+      retefuente: '[Retefuente - Sin factura]',
+    };
+
+    // Clean existing markers from notes
+    let cleanNotes = (localTransaction.notes || '')
+      .replace(/\[N\/A - Sin factura\]/g, '')
+      .replace(/\[IVA a favor - Pago DIAN\]/g, '')
+      .replace(/\[Retefuente - Sin factura\]/g, '')
+      .trim();
+
+    // Add new markers
+    const markers = newTags.map(t => tagMarkers[t]).join('');
+    const finalNotes = [markers, cleanNotes].filter(Boolean).join('') || null;
+
+    updateField({ invoice_id: newInvoiceId, notes: finalNotes });
   };
 
   const handleAddCategory = async (name: string): Promise<string | null> => {
@@ -154,11 +156,16 @@ export default function TransactionRow({
     .filter(r => r.active)
     .map(r => ({ value: r.id, label: r.name }));
 
-  // Determine invoice display value
-  const invoiceValue = localTransaction.invoice_id || 
-    (localTransaction.notes === '[N/A - Sin factura]' ? 'N/A' : 
-     localTransaction.notes === '[IVA a favor - Pago DIAN]' ? '__IVA_FAVOR__' :
-     localTransaction.notes === '[Retefuente - Sin factura]' ? '__RETEFUENTE__' : null);
+  // Derive invoiceId and tags from transaction data
+  const derivedInvoiceId = localTransaction.invoice_id || null;
+  const derivedTags = useMemo((): InvoiceTag[] => {
+    const t: InvoiceTag[] = [];
+    const notes = localTransaction.notes || '';
+    if (notes.includes('[N/A - Sin factura]')) t.push('na');
+    if (notes.includes('[IVA a favor - Pago DIAN]')) t.push('iva_favor');
+    if (notes.includes('[Retefuente - Sin factura]')) t.push('retefuente');
+    return t;
+  }, [localTransaction.notes]);
 
   return (
     <TableRow className={cn(
@@ -251,7 +258,8 @@ export default function TransactionRow({
       {/* #Factura - Invoice Selector */}
       <TableCell className="w-[160px]">
         <InvoiceSelector
-          value={invoiceValue}
+          invoiceId={derivedInvoiceId}
+          tags={derivedTags}
           transactionType={localTransaction.type || 'egreso'}
           onChange={handleInvoiceChange}
         />
