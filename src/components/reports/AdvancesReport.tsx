@@ -50,11 +50,12 @@ export default function AdvancesReport() {
 
       if (error) throw error;
 
-      // Filter: only sales category with assigned responsible
+      // Filter: must have responsible AND category must NOT be "otros"
       const filtered = (transactions || []).filter((t) => {
         const normalizedCategory = (t.category || '').trim().toLowerCase();
         const hasResponsible = Boolean(t.responsible_id);
-        return normalizedCategory === 'ventas' && hasResponsible;
+        const isExcludedCategory = normalizedCategory === 'otros';
+        return hasResponsible && !isExcludedCategory;
       });
 
       // Get statement names for bank account display
