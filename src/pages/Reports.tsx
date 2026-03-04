@@ -75,6 +75,8 @@ export default function Reports() {
         </div>
 
         {selectedReport === 'pyg' && <PYGReport />}
+        {selectedReport === 'anticipos' && <AdvancesReport />}
+        {selectedReport === 'cuentas_por_cobrar' && <AccountsReceivableReport />}
       </div>
     </AppLayout>
   );
