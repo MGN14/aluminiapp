@@ -50,12 +50,15 @@ export default function AdvancesReport() {
 
       if (error) throw error;
 
-      // Filter: must have responsible AND category must NOT be "otros"
+      // Filter: must have responsible AND exclude category "otros" AND exclude "Banco" responsible
       const filtered = (transactions || []).filter((t) => {
         const normalizedCategory = (t.category || '').trim().toLowerCase();
         const hasResponsible = Boolean(t.responsible_id);
         const isExcludedCategory = normalizedCategory === 'otros';
-        return hasResponsible && !isExcludedCategory;
+        // Get responsible name to exclude "Banco"
+        const respName = t.responsible_id ? data_respMap?.get(t.responsible_id) : null;
+        const isBanco = respName?.toLowerCase() === 'banco';
+        return hasResponsible && !isExcludedCategory && !isBanco;
       });
 
       // Get statement names for bank account display
