@@ -28,13 +28,12 @@ const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 export default function AdvancesReport() {
   const { user } = useAuth();
   const [year, setYear] = useState(currentYear);
-  const [month, setMonth] = useState(currentMonth);
 
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-  const endDate = new Date(year, month, 0).toISOString().split('T')[0]; // last day
+  const startDate = `${year}-01-01`;
+  const endDate = `${year}-12-31`;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['advances-report', user?.id, year, month],
+    queryKey: ['advances-report', user?.id, year],
     queryFn: async () => {
       if (!user) return null;
 
@@ -113,28 +112,16 @@ export default function AdvancesReport() {
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <div className="flex items-center gap-2">
-                <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
-                  <SelectTrigger className="w-28">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTH_NAMES.map((m, i) => (
-                      <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-                  <SelectTrigger className="w-24">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableYears.map((y) => (
-                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+                <SelectTrigger className="w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableYears.map((y) => (
+                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </CardHeader>
         </Card>
@@ -150,7 +137,7 @@ export default function AdvancesReport() {
           <CardContent>
             <div className="text-2xl font-bold text-warning">{formatCurrency(totalAdvances)}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {data?.transactions.length ?? 0} transacción{(data?.transactions.length ?? 0) !== 1 ? 'es' : ''} • {MONTH_NAMES[month - 1]} {year}
+              {data?.transactions.length ?? 0} transacción{(data?.transactions.length ?? 0) !== 1 ? 'es' : ''} • {year}
             </p>
           </CardContent>
         </Card>
