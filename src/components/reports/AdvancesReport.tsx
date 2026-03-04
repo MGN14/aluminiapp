@@ -50,9 +50,9 @@ export default function AdvancesReport() {
 
       if (error) throw error;
 
-      // Filter: must have owner or responsible, and category must be "venta"
+      // Filter: must have owner or responsible
       const filtered = (transactions || []).filter(
-        t => (t.owner || t.responsible_id) && t.category?.toLowerCase() === 'venta'
+        t => (t.owner || t.responsible_id)
       );
 
       // Get statement names for bank account display
