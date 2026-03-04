@@ -42,6 +42,7 @@ export default function AdvancesReport() {
         .select('id, date, description, amount, owner, responsible_id, notes, statement_id')
         .eq('user_id', user.id)
         .eq('type', 'ingreso')
+        .eq('category', 'venta')
         .is('invoice_id', null)
         .is('deleted_at', null)
         .gte('date', startDate)
