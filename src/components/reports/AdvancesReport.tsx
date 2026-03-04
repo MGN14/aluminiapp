@@ -50,10 +50,12 @@ export default function AdvancesReport() {
 
       if (error) throw error;
 
-      // Filter: must have owner or responsible
-      const filtered = (transactions || []).filter(
-        t => (t.owner || t.responsible_id)
-      );
+      // Filter: only sales category with assigned responsible
+      const filtered = (transactions || []).filter((t) => {
+        const normalizedCategory = (t.category || '').trim().toLowerCase();
+        const hasResponsible = Boolean(t.responsible_id);
+        return normalizedCategory === 'ventas' && hasResponsible;
+      });
 
       // Get statement names for bank account display
       const statementIds = [...new Set(filtered.map(t => t.statement_id))];
