@@ -39,10 +39,9 @@ export default function AdvancesReport() {
       // Get income transactions without invoice_id
       const { data: transactions, error } = await supabase
         .from('transactions')
-        .select('id, date, description, amount, owner, responsible_id, notes, statement_id')
+        .select('id, date, description, amount, owner, responsible_id, notes, statement_id, category')
         .eq('user_id', user.id)
         .eq('type', 'ingreso')
-        .eq('category', 'venta')
         .is('invoice_id', null)
         .is('deleted_at', null)
         .gte('date', startDate)
@@ -51,9 +50,9 @@ export default function AdvancesReport() {
 
       if (error) throw error;
 
-      // Filter: must have owner or responsible
+      // Filter: must have owner or responsible, and category must be "venta"
       const filtered = (transactions || []).filter(
-        t => t.owner || t.responsible_id
+        t => (t.owner || t.responsible_id) && t.category?.toLowerCase() === 'venta'
       );
 
       // Get statement names for bank account display
