@@ -50,13 +50,25 @@ export default function AdvancesReport() {
 
       if (error) throw error;
 
-      // Filter: must have responsible AND exclude category "otros" AND exclude "Banco" responsible
+      // Get responsible names first (needed for filtering)
+      const allRespIds = [...new Set((transactions || []).filter(t => t.responsible_id).map(t => t.responsible_id!))];
+      let respMap = new Map<string, string>();
+      if (allRespIds.length > 0) {
+        const { data: resps } = await supabase
+          .from('responsibles')
+          .select('id, name')
+          .in('id', allRespIds);
+        if (resps) {
+          resps.forEach(r => respMap.set(r.id, r.name));
+        }
+      }
+
+      // Filter: must have responsible, exclude category "otros", exclude "Banco" responsible
       const filtered = (transactions || []).filter((t) => {
         const normalizedCategory = (t.category || '').trim().toLowerCase();
         const hasResponsible = Boolean(t.responsible_id);
         const isExcludedCategory = normalizedCategory === 'otros';
-        // Get responsible name to exclude "Banco"
-        const respName = t.responsible_id ? data_respMap?.get(t.responsible_id) : null;
+        const respName = t.responsible_id ? respMap.get(t.responsible_id) : null;
         const isBanco = respName?.toLowerCase() === 'banco';
         return hasResponsible && !isExcludedCategory && !isBanco;
       });
@@ -73,19 +85,6 @@ export default function AdvancesReport() {
           statements.forEach(s => {
             statementsMap.set(s.id, s.display_name || s.bank_name);
           });
-        }
-      }
-
-      // Get responsible names
-      const respIds = [...new Set(filtered.filter(t => t.responsible_id).map(t => t.responsible_id!))];
-      let respMap = new Map<string, string>();
-      if (respIds.length > 0) {
-        const { data: resps } = await supabase
-          .from('responsibles')
-          .select('id, name')
-          .in('id', respIds);
-        if (resps) {
-          resps.forEach(r => respMap.set(r.id, r.name));
         }
       }
 
