@@ -2,6 +2,8 @@ import AppLayout from '@/components/layout/AppLayout';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useState } from 'react';
 import PYGReport from '@/components/reports/PYGReport';
+import AdvancesReport from '@/components/reports/AdvancesReport';
+import AccountsReceivableReport from '@/components/reports/AccountsReceivableReport';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -9,6 +11,8 @@ import { Lock, Loader2, Crown } from 'lucide-react';
 
 const reportOptions = [
   { value: 'pyg', label: 'Estado de Resultados (PyG)' },
+  { value: 'anticipos', label: 'Anticipos' },
+  { value: 'cuentas_por_cobrar', label: 'Cuentas por Cobrar' },
 ];
 
 export default function Reports() {
