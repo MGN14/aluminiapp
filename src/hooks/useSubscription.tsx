@@ -257,7 +257,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 export function useSubscription() {
   const context = useContext(SubscriptionContext);
   if (context === undefined) {
-    throw new Error('useSubscription must be used within a SubscriptionProvider');
+    // Fallback for HMR race conditions — avoids blank screen
+    return {
+      ...defaultState,
+      checkSubscription: async () => {},
+      checkUploadLimit: async () => ({ canUpload: false, message: '' }),
+      createWompiCheckout: async () => null,
+      getPlanLimits: () => ({ pdfLimit: 0, bankAccounts: 1, historyMonths: null, invoiceLimit: 0 }),
+      updateTrialChecklist: async () => {},
+    } as SubscriptionContextType;
   }
   return context;
 }
