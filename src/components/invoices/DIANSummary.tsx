@@ -95,8 +95,8 @@ export default function DIANSummary({ invoices }: Props) {
 
   const totals = useMemo(() => {
     return summaryByMonth.reduce((acc, s) => ({
-      ventas: acc.ventas + s.ventasBase,
-      compras: acc.compras + s.comprasBase,
+      ventas: acc.ventas + s.ventasBase + s.ventasIva,
+      compras: acc.compras + s.comprasBase + s.comprasIva,
       ivaGenerado: acc.ivaGenerado + s.ventasIva,
       ivaDescontable: acc.ivaDescontable + s.comprasIva,
       reteica: acc.reteica + s.ventasReteica,
