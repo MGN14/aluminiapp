@@ -65,6 +65,20 @@ export default function NicoDrawer() {
 
   const suggestions = PAGE_SUGGESTIONS[pageContext.page] ?? PAGE_SUGGESTIONS.default;
 
+  // Listen for prefill events from CFO Insights
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.message) {
+        setInput(detail.message);
+        // Auto-send after a brief delay to let the drawer render
+        setTimeout(() => send(detail.message), 500);
+      }
+    };
+    window.addEventListener('nico-prefill', handler);
+    return () => window.removeEventListener('nico-prefill', handler);
+  }, [messages, isLoading]);
+
   // Load history when drawer opens
   useEffect(() => {
     if (!isOpen || historyLoaded) return;
