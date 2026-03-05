@@ -4,6 +4,7 @@ import { useState } from 'react';
 import PYGReport from '@/components/reports/PYGReport';
 import AdvancesReport from '@/components/reports/AdvancesReport';
 import AccountsReceivableReport from '@/components/reports/AccountsReceivableReport';
+import AccountsPayableReport from '@/components/reports/AccountsPayableReport';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ const reportOptions = [
   { value: 'pyg', label: 'Estado de Resultados (PyG)' },
   { value: 'anticipos', label: 'Anticipos' },
   { value: 'cuentas_por_cobrar', label: 'Cuentas por Cobrar' },
+  { value: 'cuentas_por_pagar', label: 'Cuentas por Pagar' },
 ];
 
 export default function Reports() {
@@ -77,6 +79,7 @@ export default function Reports() {
         {selectedReport === 'pyg' && <PYGReport />}
         {selectedReport === 'anticipos' && <AdvancesReport />}
         {selectedReport === 'cuentas_por_cobrar' && <AccountsReceivableReport />}
+        {selectedReport === 'cuentas_por_pagar' && <AccountsPayableReport />}
       </div>
     </AppLayout>
   );
