@@ -123,18 +123,22 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
 
   // Attempt 1 with current token (if any)
   const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
+  const session = sessionData.session;
+  let tokenToUse = session?.access_token;
 
-  // If no token available, try to refresh once before giving up
-  let tokenToUse = accessToken;
-  if (!tokenToUse) {
-    authLog('invoke_no_token', { label, reason: 'refreshing before first attempt' });
-    const refreshed = await refreshAccessTokenOnce(`${label}:no_token`);
-    if (!refreshed) {
+  // Proactively refresh if token is missing or about to expire (within 60s)
+  const needsRefresh = !tokenToUse || (session?.expires_at && session.expires_at * 1000 - Date.now() < 60_000);
+
+  if (needsRefresh) {
+    authLog('invoke_proactive_refresh', { label, reason: tokenToUse ? 'token_expiring_soon' : 'no_token' });
+    const refreshed = await refreshAccessTokenOnce(`${label}:proactive`);
+    if (refreshed) {
+      tokenToUse = refreshed;
+    } else if (!tokenToUse) {
       authError('invoke_no_token_after_refresh', { label });
       return { data: null, error: new Error('No active session') };
     }
-    tokenToUse = refreshed;
+    // If refresh failed but we still have a token, try with it anyway
   }
 
   const attempt1 = await invoke(tokenToUse);
