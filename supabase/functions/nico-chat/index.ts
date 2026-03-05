@@ -397,6 +397,26 @@ serve(async (req) => {
       return { ivaVentas, ivaCompras, neto: ivaVentas - ivaCompras };
     })();
 
+    // Saldo a favor from previous cuatrimestre
+    const ivaSaldoFavorAnterior = (() => {
+      const cuatStart = thisMonth <= 4 ? 1 : thisMonth <= 8 ? 5 : 9;
+      // Previous cuatrimestre
+      let prevStart: number, prevEnd: number, prevYear: number;
+      if (cuatStart === 1) { prevStart = 9; prevEnd = 12; prevYear = thisYear - 1; }
+      else if (cuatStart === 5) { prevStart = 1; prevEnd = 4; prevYear = thisYear; }
+      else { prevStart = 5; prevEnd = 8; prevYear = thisYear; }
+      let ivaV = 0, ivaC = 0;
+      for (let m = prevStart; m <= prevEnd; m++) {
+        const k = `${prevYear}-${String(m).padStart(2, "0")}`;
+        const inv = invByMonth[k];
+        if (inv) { ivaV += inv.ventas_iva; ivaC += inv.compras_iva; }
+      }
+      const neto = ivaV - ivaC;
+      return neto < 0 ? Math.abs(neto) : 0; // saldo a favor only if negative (compras > ventas)
+    })();
+
+    const ivaNeto = ivaNetoCuatrimestre.neto - ivaSaldoFavorAnterior;
+
     if (ivaNetoCuatrimestre.neto > 5000000) {
       inconsistencias.push(`Tienes ${fmt(ivaNetoCuatrimestre.neto)} de IVA neto acumulado por pagar en este cuatrimestre. Conviene provisionar.`);
     }
