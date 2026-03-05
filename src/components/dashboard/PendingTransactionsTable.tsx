@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ExternalLink, PartyPopper, Clock } from 'lucide-react';
 import { SearchableSelect } from '@/components/transactions/SearchableSelect';
+import InvoiceSelector, { InvoiceTag } from '@/components/transactions/InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -19,6 +20,9 @@ interface PendingTransaction {
   category_id: string | null;
   category_name: string | null;
   responsible_id: string | null;
+  invoice_id: string | null;
+  notes: string | null;
+  type: string | null;
 }
 
 interface PendingTransactionsTableProps {
