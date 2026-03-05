@@ -9,12 +9,12 @@ import nicoAvatar from '@/assets/nico-avatar.png';
 type Msg = { role: 'user' | 'assistant'; content: string };
 
 const SUGGESTIONS = [
-  '¿Cuánto gasté este mes?',
-  '¿Cuál fue mi proveedor más costoso?',
-  '¿Estoy creciendo frente al año pasado?',
-  '¿Cuánto debo provisionar para impuestos?',
-  '¿Cómo cambiaron mis gastos este año?',
-  '¿Cuál es mi utilidad neta del mes?',
+  '¿Cómo va mi negocio este mes?',
+  '¿Tengo inconsistencias fiscales?',
+  '¿Cuánto debo provisionar de IVA?',
+  '¿Quién me debe plata?',
+  '¿Tengo anticipos sin facturar?',
+  '¿Cómo puedo optimizar mis impuestos?',
 ];
 
 export default function NicoChat() {
