@@ -529,7 +529,10 @@ ${taxCtx}
 IVA CUATRIMESTRE ACTUAL:
 IVA generado (ventas): ${fmt(ivaNetoCuatrimestre.ivaVentas)}
 IVA descontable (compras): ${fmt(ivaNetoCuatrimestre.ivaCompras)}
-IVA neto a pagar: ${fmt(ivaNetoCuatrimestre.neto)}
+IVA neto cuatrimestre (antes de saldo a favor): ${fmt(ivaNetoCuatrimestre.neto)}
+Saldo a favor del cuatrimestre anterior: ${fmt(ivaSaldoFavorAnterior)}
+IVA neto a pagar (después de saldo a favor): ${fmt(ivaNeto)}
+${ivaSaldoFavorAnterior > 0 ? `NOTA: El saldo a favor de ${fmt(ivaSaldoFavorAnterior)} proviene del cuatrimestre anterior donde las compras generaron más IVA descontable que el IVA de ventas.` : ""}
 
 ═══════════════════════════════════════════
 MÓDULO 4 — CONCILIACIÓN Y CARTERA
