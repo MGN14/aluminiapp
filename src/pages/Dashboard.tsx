@@ -693,19 +693,6 @@ export default function Dashboard() {
               </Link>
             </CardContent>
           </Card>
-        ) : metrics.transactionCount === 0 ? (
-          <Card className="animate-fade-in">
-            <CardContent className="py-12 text-center">
-              <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-foreground mb-2">
-                Sin transacciones en este periodo
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                No hay transacciones para {periodRange.label}. 
-                Selecciona otro periodo o sube un extracto.
-              </p>
-            </CardContent>
-          </Card>
         ) : (
           <>
             {/* Main Metrics Grid */}
