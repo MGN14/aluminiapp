@@ -3,9 +3,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
-import { Brain, ArrowRight, TrendingUp, TrendingDown, FileWarning, Upload } from 'lucide-react';
+import { Brain, ArrowRight, TrendingUp, TrendingDown, Upload, MessageCircle, AlertTriangle, Info, Zap, ShieldCheck } from 'lucide-react';
 import { PeriodSelection } from './UnifiedPeriodFilter';
 import { supabase } from '@/integrations/supabase/client';
+import { useNico } from '@/hooks/useNicoContext';
+import nicoAvatar from '@/assets/nico-avatar.png';
 
 interface Insight {
   key: string;
@@ -23,19 +25,108 @@ interface CFOInsightsProps {
   hasTransactions: boolean;
 }
 
-const INSIGHT_ICONS: Record<string, string> = {
-  flujo: '💰',
-  impuestos: '🧾',
-  anticipos: '📋',
-  cxc: '🔔',
-  concentracion: '📊',
-  outlier: '🔍',
+type InsightColor = 'red' | 'orange' | 'blue' | 'green' | 'gray';
+
+function getInsightColor(insight: Insight): InsightColor {
+  // Alerts: negative flow, overdue CxC, high concentration
+  if (insight.key === 'flujo' && insight.trend === 'down') return 'red';
+  if (insight.key === 'cxc') return 'red';
+  if (insight.key === 'concentracion' && insight.impact >= 8) return 'red';
+
+  // Risks: concentration moderate, outliers, advances
+  if (insight.key === 'concentracion') return 'orange';
+  if (insight.key === 'outlier') return 'orange';
+  if (insight.key === 'anticipos') return 'orange';
+
+  // Positive: flow up
+  if (insight.key === 'flujo' && insight.trend === 'up') return 'green';
+
+  // Opportunity: taxes
+  if (insight.key === 'impuestos') return 'blue';
+
+  return 'gray';
+}
+
+const COLOR_STYLES: Record<InsightColor, { border: string; bg: string; iconBg: string; iconColor: string; badge: string }> = {
+  red: {
+    border: 'border-l-destructive',
+    bg: 'bg-destructive/5',
+    iconBg: 'bg-destructive/10',
+    iconColor: 'text-destructive',
+    badge: 'bg-destructive/10 text-destructive',
+  },
+  orange: {
+    border: 'border-l-warning',
+    bg: 'bg-warning/5',
+    iconBg: 'bg-warning/10',
+    iconColor: 'text-warning',
+    badge: 'bg-warning/10 text-warning',
+  },
+  blue: {
+    border: 'border-l-primary',
+    bg: 'bg-primary/5',
+    iconBg: 'bg-primary/10',
+    iconColor: 'text-primary',
+    badge: 'bg-primary/10 text-primary',
+  },
+  green: {
+    border: 'border-l-success',
+    bg: 'bg-success/5',
+    iconBg: 'bg-success/10',
+    iconColor: 'text-success',
+    badge: 'bg-success/10 text-success',
+  },
+  gray: {
+    border: 'border-l-muted-foreground',
+    bg: 'bg-muted/30',
+    iconBg: 'bg-muted',
+    iconColor: 'text-muted-foreground',
+    badge: 'bg-muted text-muted-foreground',
+  },
 };
+
+function getInsightIcon(color: InsightColor) {
+  switch (color) {
+    case 'red': return AlertTriangle;
+    case 'orange': return AlertTriangle;
+    case 'green': return ShieldCheck;
+    case 'blue': return Zap;
+    default: return Info;
+  }
+}
+
+const BADGE_LABELS: Record<InsightColor, string> = {
+  red: 'Alerta',
+  orange: 'Riesgo',
+  blue: 'Oportunidad',
+  green: 'Positivo',
+  gray: 'Info',
+};
+
+function buildNicoQuestion(insight: Insight): string {
+  switch (insight.key) {
+    case 'flujo':
+      return `Explícame en detalle el flujo de caja de este periodo. ${insight.text}`;
+    case 'impuestos':
+      return `Dame un resumen de mis obligaciones tributarias de este periodo. ${insight.text}`;
+    case 'anticipos':
+      return `Explícame qué anticipos tengo sin facturar y cómo los resuelvo. ${insight.text}`;
+    case 'cxc':
+      return `¿Cuáles son mis cuentas por cobrar más urgentes? ${insight.text}`;
+    case 'concentracion':
+      return `Explícame el riesgo de concentración de clientes. ${insight.text}`;
+    case 'outlier':
+      return `Analiza este gasto inusual que detectaste. ${insight.text}`;
+    default:
+      return `Explícame más sobre esto: ${insight.text}`;
+  }
+}
 
 export default function CFOInsights({ periodSelection, hasTransactions }: CFOInsightsProps) {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { openNico, setPageContext } = useNico();
 
   useEffect(() => {
     if (!hasTransactions) {
@@ -62,7 +153,9 @@ export default function CFOInsights({ periodSelection, hasTransactions }: CFOIns
       if (fnError) throw fnError;
 
       console.log('[CFOInsights] Received', data?.insights?.length, 'insights');
-      setInsights(data?.insights || []);
+      // Sort by impact descending
+      const sorted = (data?.insights || []).sort((a: Insight, b: Insight) => b.impact - a.impact);
+      setInsights(sorted);
     } catch (err: any) {
       console.error('[CFOInsights] Error fetching insights:', err);
       setError(err.message || 'Error al cargar insights');
@@ -71,42 +164,70 @@ export default function CFOInsights({ periodSelection, hasTransactions }: CFOIns
     }
   };
 
+  const handleAskNico = (insight: Insight) => {
+    const question = buildNicoQuestion(insight);
+    setPageContext({
+      page: 'dashboard',
+      filters: {
+        period: periodSelection.type,
+        month: periodSelection.month,
+        year: periodSelection.year,
+      },
+    });
+    // Open Nico and pre-fill the question via a custom event
+    openNico();
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('nico-prefill', { detail: { message: question } }));
+    }, 300);
+  };
+
   if (!hasTransactions) {
     return (
-      <Card className="border-dashed border-2 border-muted-foreground/20 bg-muted/5">
-        <CardContent className="flex items-center gap-4 py-6">
-          <div className="p-3 rounded-full bg-muted">
-            <Upload className="h-6 w-6 text-muted-foreground" />
+      <div className="rounded-2xl border-2 border-dashed border-muted-foreground/15 bg-muted/5 p-6">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-muted flex-shrink-0">
+            <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold text-foreground mb-1">Tu CFO hoy</h3>
+            <h3 className="font-semibold text-foreground mb-1">Nico analizó tu negocio hoy</h3>
             <p className="text-sm text-muted-foreground">
               Aún no tengo suficiente información para darte insights. Sube un extracto y una factura para arrancar.
             </p>
           </div>
           <Link to="/statement-upload">
-            <Button variant="outline" size="sm">Subir extracto</Button>
+            <Button variant="outline" size="sm" className="gap-2">
+              <Upload className="h-4 w-4" />
+              Subir extracto
+            </Button>
           </Link>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <Brain className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-bold text-foreground">Tu CFO hoy</h2>
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-success/30 flex-shrink-0">
+            <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Nico analizó tu negocio hoy</h2>
+            <p className="text-sm text-muted-foreground">Analizando tus números...</p>
+          </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map(i => (
-            <Card key={i}>
-              <CardContent className="py-5">
-                <Skeleton className="h-5 w-32 mb-3" />
-                <Skeleton className="h-4 w-full mb-2" />
-                <Skeleton className="h-4 w-3/4 mb-4" />
-                <Skeleton className="h-8 w-24" />
+            <Card key={i} className="border-l-4 border-l-muted">
+              <CardContent className="py-5 space-y-3">
+                <Skeleton className="h-5 w-20" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+                <div className="flex gap-2 pt-2">
+                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-8 w-28" />
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -116,75 +237,123 @@ export default function CFOInsights({ periodSelection, hasTransactions }: CFOIns
   }
 
   if (error || insights.length === 0) {
-    return null; // Don't show anything if no insights
+    return null;
   }
 
+  const [heroInsight, ...secondaryInsights] = insights;
+
   return (
-    <div className="space-y-3 animate-fade-in">
-      <div className="flex items-center gap-2 mb-1">
-        <Brain className="h-5 w-5 text-primary" />
-        <h2 className="text-lg font-bold text-foreground">Tu CFO hoy</h2>
+    <div className="space-y-4 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-success/30 flex-shrink-0">
+          <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-foreground">Nico analizó tu negocio hoy</h2>
+          <p className="text-sm text-muted-foreground">Esto es lo más importante que encontró en tus números.</p>
+        </div>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {insights.map((insight) => (
-          <Card
-            key={insight.key}
-            className="group hover:shadow-md transition-shadow border-l-4"
-            style={{
-              borderLeftColor: insight.key === 'flujo' && insight.trend === 'up'
-                ? 'hsl(var(--success))'
-                : insight.key === 'flujo' && insight.trend === 'down'
-                ? 'hsl(var(--destructive))'
-                : insight.key === 'concentracion'
-                ? 'hsl(var(--warning, 40 96% 53%))'
-                : insight.key === 'cxc' || insight.key === 'outlier'
-                ? 'hsl(var(--destructive))'
-                : 'hsl(var(--primary))',
-            }}
-          >
-            <CardContent className="py-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-foreground text-sm">
-                  {insight.title}
-                </h3>
-                {insight.trend && (
-                  <div className={`flex items-center gap-1 text-xs font-medium ${
-                    insight.trend === 'up' ? 'text-success' : 'text-destructive'
-                  }`}>
-                    {insight.trend === 'up' ? (
-                      <TrendingUp className="h-3.5 w-3.5" />
-                    ) : (
-                      <TrendingDown className="h-3.5 w-3.5" />
-                    )}
-                    {insight.changePercent !== null && insight.changePercent !== undefined && (
-                      <span>{insight.changePercent > 0 ? '+' : ''}{insight.changePercent}%</span>
-                    )}
-                  </div>
-                )}
-              </div>
 
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {insight.text}
-              </p>
+      {/* Hero Insight - Larger card */}
+      {heroInsight && <InsightCard insight={heroInsight} isHero onAskNico={handleAskNico} />}
 
-              <p className="text-xs text-foreground/80 italic leading-relaxed">
-                {insight.recommendation}
-              </p>
-
-              <Link to={insight.action.path}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-primary hover:text-primary/80 p-0 h-auto text-xs font-medium group-hover:underline"
-                >
-                  {insight.action.label}
-                  <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Secondary Insights Grid */}
+      {secondaryInsights.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {secondaryInsights.map((insight) => (
+            <InsightCard key={insight.key} insight={insight} onAskNico={handleAskNico} />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function InsightCard({
+  insight,
+  isHero = false,
+  onAskNico,
+}: {
+  insight: Insight;
+  isHero?: boolean;
+  onAskNico: (insight: Insight) => void;
+}) {
+  const color = getInsightColor(insight);
+  const styles = COLOR_STYLES[color];
+  const Icon = getInsightIcon(color);
+
+  return (
+    <Card
+      className={`group border-l-4 ${styles.border} ${styles.bg} hover:shadow-md transition-all duration-200 ${
+        isHero ? 'md:col-span-2 lg:col-span-3' : ''
+      }`}
+    >
+      <CardContent className={`${isHero ? 'py-6 px-6' : 'py-5 px-5'} space-y-3`}>
+        {/* Badge + Trend */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={`p-1.5 rounded-lg ${styles.iconBg}`}>
+              <Icon className={`h-4 w-4 ${styles.iconColor}`} />
+            </div>
+            <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${styles.badge}`}>
+              {BADGE_LABELS[color]}
+            </span>
+          </div>
+          {insight.trend && (
+            <div className={`flex items-center gap-1 text-xs font-medium ${
+              insight.trend === 'up' ? 'text-success' : 'text-destructive'
+            }`}>
+              {insight.trend === 'up' ? (
+                <TrendingUp className="h-3.5 w-3.5" />
+              ) : (
+                <TrendingDown className="h-3.5 w-3.5" />
+              )}
+              {insight.changePercent != null && (
+                <span>{insight.changePercent > 0 ? '+' : ''}{insight.changePercent}%</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Title */}
+        <h3 className={`font-semibold text-foreground ${isHero ? 'text-base' : 'text-sm'}`}>
+          {insight.title}
+        </h3>
+
+        {/* Body text */}
+        <p className={`text-muted-foreground leading-relaxed ${isHero ? 'text-sm' : 'text-xs'}`}>
+          {insight.text}
+        </p>
+
+        {/* Recommendation */}
+        <p className={`text-foreground/80 italic leading-relaxed ${isHero ? 'text-sm' : 'text-xs'}`}>
+          {insight.recommendation}
+        </p>
+
+        {/* Dual action buttons */}
+        <div className="flex items-center gap-2 pt-1 flex-wrap">
+          <Link to={insight.action.path}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-8 gap-1.5"
+            >
+              {insight.action.label}
+              <ArrowRight className="h-3 w-3" />
+            </Button>
+          </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs h-8 gap-1.5 text-success hover:text-success hover:bg-success/10"
+            onClick={() => onAskNico(insight)}
+          >
+            <MessageCircle className="h-3.5 w-3.5" />
+            Preguntar a Nico
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
