@@ -106,7 +106,7 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
 
       if (statement?.statement_month && statement?.statement_year) {
         onSelectionChange({
-          type: 'month',
+          type: 'quarter',
           month: statement.statement_month,
           quarter: Math.ceil(statement.statement_month / 3),
           year: statement.statement_year,
@@ -123,7 +123,7 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
           const date = new Date(transaction.date);
           const month = date.getMonth() + 1;
           onSelectionChange({
-            type: 'month',
+            type: 'quarter',
             month,
             quarter: Math.ceil(month / 3),
             year: date.getFullYear(),
