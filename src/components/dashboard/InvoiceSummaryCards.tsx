@@ -325,10 +325,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       .slice(0, 3);
   }, [invoiceItems]);
 
-  // Report metrics to parent
-  useEffect(() => {
-    if (onMetrics) onMetrics(metrics);
-  }, [metrics, onMetrics]);
+  // onMetrics reporting moved to render guard below
 
   // Always report metrics to parent even when loading or no invoices
   useEffect(() => {
