@@ -40,6 +40,8 @@ interface TransactionData {
   category_id: string | null;
   category_name: string | null;
   responsible_id: string | null;
+  invoice_id: string | null;
+  notes: string | null;
   transaction_type: 'compra' | 'venta';
   type: 'ingreso' | 'egreso' | 'transferencia';
   has_iva: boolean;
@@ -247,7 +249,7 @@ export default function Dashboard() {
         .from('transactions')
         .select(`
           id, date, description, amount, balance, category, category_id,
-          responsible_id, transaction_type, type, has_iva, has_retefuente, has_reteica,
+          responsible_id, invoice_id, notes, transaction_type, type, has_iva, has_retefuente, has_reteica,
           iva_amount, iva_type, retefuente_amount, reteica_amount,
           categories!transactions_category_id_fkey(name)
         `)
@@ -952,6 +954,9 @@ export default function Dashboard() {
                 category_id: tx.category_id,
                 category_name: tx.category_name,
                 responsible_id: tx.responsible_id,
+                invoice_id: tx.invoice_id,
+                notes: tx.notes,
+                type: tx.type,
               }))}
               categories={categories}
               responsibles={responsibles}
