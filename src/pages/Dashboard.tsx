@@ -686,6 +686,12 @@ export default function Dashboard() {
         {/* Trial Checklist */}
         <TrialChecklist />
 
+        {/* CFO Automático - Insights */}
+        <CFOInsights 
+          periodSelection={periodSelection} 
+          hasTransactions={transactions.length > 0} 
+        />
+
         {metrics.transactionCount === 0 && transactions.length === 0 ? (
           <Card className="animate-fade-in">
             <CardContent className="py-12 text-center">
