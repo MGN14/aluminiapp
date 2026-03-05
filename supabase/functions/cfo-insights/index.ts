@@ -452,8 +452,8 @@ Deno.serve(async (req) => {
     // Sort by impact
     insights.sort((a, b) => (b.impact || 0) - (a.impact || 0));
 
-    // Limit to 6
-    const result = insights.slice(0, 6);
+    // Limit to 7
+    const result = insights.slice(0, 7);
 
     console.log(`[cfo-insights] generated ${result.length} insights`);
 
