@@ -28,6 +28,10 @@ interface CFOInsightsProps {
 type InsightColor = 'red' | 'orange' | 'blue' | 'green' | 'gray';
 
 function getInsightColor(insight: Insight): InsightColor {
+  // Conciliación
+  if (insight.key === 'conciliacion' && insight.trend === 'up') return 'green';
+  if (insight.key === 'conciliacion' && insight.trend === 'down') return 'red';
+
   // Alerts: negative flow, overdue CxC, high concentration
   if (insight.key === 'flujo' && insight.trend === 'down') return 'red';
   if (insight.key === 'cxc') return 'red';
@@ -104,7 +108,7 @@ const BADGE_LABELS: Record<InsightColor, string> = {
 };
 
 function buildNicoQuestion(insight: Insight): string {
-  switch (insight.key) {
+    switch (insight.key) {
     case 'flujo':
       return `Explícame en detalle el flujo de caja de este periodo. ${insight.text}`;
     case 'impuestos':
@@ -117,6 +121,8 @@ function buildNicoQuestion(insight: Insight): string {
       return `Explícame el riesgo de concentración de clientes. ${insight.text}`;
     case 'outlier':
       return `Analiza este gasto inusual que detectaste. ${insight.text}`;
+    case 'conciliacion':
+      return `Analiza el estado de mi conciliación bancaria. ${insight.text}`;
     default:
       return `Explícame más sobre esto: ${insight.text}`;
   }

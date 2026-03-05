@@ -416,6 +416,39 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─── INSIGHT G: Conciliación bancaria ───
+    const totalTx = txCurrent.length;
+    if (totalTx > 0) {
+      const pendientes = txCurrent.filter((t: any) => !t.responsible_id);
+      const conciliadas = totalTx - pendientes.length;
+      const pctConciliado = (conciliadas / totalTx) * 100;
+      const montoPendiente = pendientes.reduce((s: number, t: any) => s + Math.abs(t.amount ?? 0), 0);
+
+      if (pctConciliado >= 100) {
+        insights.push({
+          key: "conciliacion",
+          title: "Conciliación al día ✅",
+          text: `Todas tus ${totalTx} transacciones del periodo tienen responsable asignado. Tu conciliación bancaria está completa.`,
+          recommendation: "Excelente trabajo. Mantén este hábito para tener siempre claridad sobre tu flujo de caja.",
+          action: { label: "Ver transacciones", path: "/transactions" },
+          impact: 1,
+          trend: "up" as const,
+        });
+      } else {
+        insights.push({
+          key: "conciliacion",
+          title: pendientes.length > 10 ? "Conciliación atrasada ⚠️" : "Pendientes por conciliar 📌",
+          text: `Tienes ${pendientes.length} de ${totalTx} transacciones sin responsable asignado (${fmt(montoPendiente)}). Eso es el ${(100 - pctConciliado).toFixed(0)}% de tus movimientos del periodo.`,
+          recommendation: pendientes.length > 10
+            ? "Tienes bastantes movimientos sin clasificar. Dedica unos minutos a asignar responsables para tener claridad real de tu flujo."
+            : "Asigna responsable a estas transacciones para completar tu conciliación y tener reportes más precisos.",
+          action: { label: "Conciliar", path: "/transactions" },
+          impact: montoPendiente > 0 ? montoPendiente : pendientes.length * 1000,
+          trend: "down" as const,
+        });
+      }
+    }
+
     // Sort by impact
     insights.sort((a, b) => (b.impact || 0) - (a.impact || 0));
 
