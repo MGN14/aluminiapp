@@ -185,14 +185,62 @@ export function PendingTransactionsTable({
   );
 
   const pendingCount = pendingTransactions.length;
+  const pendingTotal = useMemo(() => 
+    pendingTransactions.reduce((sum, tx) => sum + Math.abs(tx.amount ?? 0), 0),
+    [pendingTransactions]
+  );
+
+  // Parse tags from notes field
+  const parseTagsFromNotes = (notes: string | null): InvoiceTag[] => {
+    const tags: InvoiceTag[] = [];
+    if (!notes) return tags;
+    if (notes.includes('[N/A]')) tags.push('na');
+    if (notes.includes('[IVA a favor - Pago DIAN]')) tags.push('iva_favor');
+    if (notes.includes('[Retefuente - Sin factura]')) tags.push('retefuente');
+    return tags;
+  };
+
+  // Handle invoice/tag changes
+  const handleInvoiceChange = async (transactionId: string, invoiceId: string | null, tags: InvoiceTag[], currentNotes: string | null) => {
+    setUpdatingId(transactionId);
+    try {
+      // Build notes with tags
+      let cleanNotes = (currentNotes || '').replace(/\[N\/A\]/g, '').replace(/\[IVA a favor - Pago DIAN\]/g, '').replace(/\[Retefuente - Sin factura\]/g, '').trim();
+      const tagMarkers: string[] = [];
+      if (tags.includes('na')) tagMarkers.push('[N/A]');
+      if (tags.includes('iva_favor')) tagMarkers.push('[IVA a favor - Pago DIAN]');
+      if (tags.includes('retefuente')) tagMarkers.push('[Retefuente - Sin factura]');
+      const newNotes = [...tagMarkers, cleanNotes].filter(Boolean).join(' ').trim() || null;
+
+      const { error } = await supabase
+        .from('transactions')
+        .update({ invoice_id: invoiceId, notes: newNotes })
+        .eq('id', transactionId);
+
+      if (error) throw error;
+      onTransactionUpdated();
+    } catch (error) {
+      console.error('Error updating invoice:', error);
+      toast({ title: 'Error', description: 'No se pudo actualizar la factura', variant: 'destructive' });
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <Clock className="h-5 w-5" />
-          Total Pendientes ({pendingCount})
-        </CardTitle>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Total Pendientes ({pendingCount})
+          </CardTitle>
+          {pendingCount > 0 && (
+            <p className="text-sm text-muted-foreground mt-1">
+              Monto total: <span className="font-semibold text-foreground">{formatCurrency(pendingTotal)}</span>
+            </p>
+          )}
+        </div>
         <Link to="/transactions">
           <Button variant="outline" size="sm">
             Ver Todas <ExternalLink className="h-4 w-4 ml-2" />
