@@ -330,7 +330,12 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     if (onMetrics) onMetrics(metrics);
   }, [metrics, onMetrics]);
 
-  if (loading || invoices.length === 0) return null;
+  // Always report metrics to parent even when loading or no invoices
+  useEffect(() => {
+    if (!loading && onMetrics) onMetrics(metrics);
+  }, [loading, metrics, onMetrics]);
+
+  if (loading) return null;
 
   const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
 
