@@ -284,10 +284,11 @@ Deno.serve(async (req) => {
     const filteredAnticipos = anticiposTx.filter((t: any) => {
       const catName = (t.categories?.name || t.category || "").toLowerCase();
       const hasResp = Boolean(t.responsible_id);
-      const isExcluded = catName === "otros";
       const respName = t.responsible_id ? respMap[t.responsible_id] : null;
-      const isBanco = respName?.toLowerCase() === "banco";
-      return hasResp && !isExcluded && !isBanco;
+      // New rule: must be Ingreso + Category "Ventas" + Responsible != "Otros"
+      const isVentas = catName === "ventas";
+      const isRespOtros = respName?.toLowerCase() === "otros";
+      return hasResp && isVentas && !isRespOtros;
     });
 
     const totalAnticipos = filteredAnticipos.reduce((s: number, t: any) => s + Math.abs(t.amount ?? 0), 0);
