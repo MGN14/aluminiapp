@@ -54,11 +54,11 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         .gte('date', startDate)
         .lte('date', endDate);
 
-      // 3. Top compradores - purchase invoices
+      // 3. Top clientes - sales invoices
       const comprasPromise = supabase
         .from('invoices')
         .select('counterparty_name, subtotal_base')
-        .eq('type', 'compra')
+        .eq('type', 'venta')
         .eq('status', 'confirmed')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);
@@ -216,24 +216,24 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         </CardContent>
       </Card>
 
-      {/* Top 3 Proveedores (Compras) */}
+      {/* Top 3 Clientes (Ventas) */}
       <Card className="sm:col-span-2 lg:col-span-2">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <div className="flex items-center gap-2">
             <CardTitle className="text-base font-semibold text-foreground">
-              Top 3 Proveedores
+              Top 3 Clientes
             </CardTitle>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
               </TooltipTrigger>
               <TooltipContent>
-                <p>Proveedores con mayor facturación de compra confirmada (base, sin IVA) en {year}.</p>
+                <p>Clientes con mayor facturación de venta confirmada (base, sin IVA) en {year}.</p>
               </TooltipContent>
             </Tooltip>
           </div>
-          <div className="p-2 rounded-lg bg-destructive/10">
-            <ShoppingCart className="h-4 w-4 text-destructive" />
+          <div className="p-2 rounded-lg bg-success/10">
+            <ShoppingCart className="h-4 w-4 text-success" />
           </div>
         </CardHeader>
         <CardContent>
@@ -258,7 +258,7 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
           ) : (
             <div className="flex flex-col items-center justify-center py-4 text-center">
               <ShoppingCart className="h-8 w-8 text-muted-foreground/40 mb-2" />
-              <p className="text-sm text-muted-foreground">Aún no hay facturas de compra confirmadas.</p>
+              <p className="text-sm text-muted-foreground">Aún no hay facturas de venta confirmadas.</p>
             </div>
           )}
           <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
