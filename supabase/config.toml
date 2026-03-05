@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.start-invoice-processing]
 verify_jwt = false
+
+[functions.cfo-insights]
+verify_jwt = false
