@@ -37,10 +37,6 @@ const navItems = [{
   path: '/reports',
   label: 'Reportes'
 }, {
-  path: '/nico',
-  label: 'Nico',
-  highlight: true,
-}, {
   path: '/export',
   label: 'Exportar'
 }];
@@ -102,14 +98,9 @@ export default function AppHeader() {
                   "px-3 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-1.5",
                   location.pathname === item.path
                     ? "bg-accent text-accent-foreground font-semibold shadow-sm"
-                    : item.highlight
-                      ? "text-success hover:bg-success/10 font-semibold"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 )}
               >
-                {item.highlight && (
-                  <img src={nicoAvatar} alt="Nico" className="w-5 h-5 rounded-full object-cover object-top" />
-                )}
                 {item.label}
                 {(item as any).pro && (
                   <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-warning/10 text-warning leading-none">PRO</span>
