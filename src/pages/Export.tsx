@@ -11,9 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, FileSpreadsheet, Loader2, Receipt } from 'lucide-react';
+import { Download, FileSpreadsheet, Loader2, ShieldAlert, CheckCircle2, Send, ArrowRight, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import writeXlsxFile from 'write-excel-file';
+import NicoChat from '@/components/nico/NicoChat';
+import nicoAvatar from '@/assets/nico-avatar.png';
 
 interface Statement {
   id: string;
@@ -87,12 +89,10 @@ export default function Export() {
     return tx.owner || '';
   };
 
-  // Calculate tax summaries using server-calculated values
   const taxSummary = useMemo(() => {
     const cuatrimestre = getCurrentCuatrimestre();
     const currentMonth = getCurrentMonth();
 
-    // Cuatrimestre IVA - sum iva_amount for transactions in period
     const cuatrimestreIVA = transactions
       .filter(tx => {
         const txDate = new Date(tx.date);
@@ -100,11 +100,9 @@ export default function Export() {
       })
       .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
 
-    // Total IVA
     const totalIVA = transactions.reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
     const ivaCount = transactions.filter(tx => tx.has_iva).length;
 
-    // Monthly retefuente - sum retefuente_amount for transactions in period
     const monthlyRetefuente = transactions
       .filter(tx => {
         const txDate = new Date(tx.date);
@@ -112,7 +110,6 @@ export default function Export() {
       })
       .reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
 
-    // Total retefuente
     const totalRetefuente = transactions.reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);
     const retefuenteCount = transactions.filter(tx => tx.has_retefuente).length;
 
@@ -140,7 +137,6 @@ export default function Export() {
         return;
       }
 
-      // Sheet 1: Transactions
       const txHeader = [
         { value: 'Fecha', fontWeight: 'bold' as const },
         { value: 'Descripción', fontWeight: 'bold' as const },
@@ -177,7 +173,6 @@ export default function Export() {
 
       const sheet1Data = [txHeader, ...txRows];
 
-      // Sheet 2: DIAN Summary
       const dianHeader = [
         { value: 'Concepto', fontWeight: 'bold' as const },
         { value: 'Período', fontWeight: 'bold' as const },
@@ -200,7 +195,6 @@ export default function Export() {
         [{ type: String, value: 'OBLIGACIÓN DIAN ESTIMADA' }, { type: String, value: taxSummary.cuatrimestreLabel }, { type: Number, value: taxSummary.cuatrimestreIVA + taxSummary.monthlyRetefuente }, { type: Number, value: 0 }],
       ] as any;
 
-      // Sheet 3: Summary
       const summaryHeader = [
         { value: 'Métrica', fontWeight: 'bold' as const },
         { value: 'Valor', fontWeight: 'bold' as const },
@@ -222,23 +216,20 @@ export default function Export() {
         sheets: ['Transacciones', 'Resumen DIAN', 'Resumen General'],
         fileName,
         columns: [
-          // Sheet 1 columns
           [
             { width: 12 }, { width: 50 }, { width: 15 }, { width: 12 },
             { width: 18 }, { width: 15 }, { width: 10 }, { width: 10 },
             { width: 15 }, { width: 10 }, { width: 12 }, { width: 15 },
             { width: 10 }, { width: 25 },
           ],
-          // Sheet 2 columns
           [{ width: 30 }, { width: 15 }, { width: 18 }, { width: 15 }],
-          // Sheet 3 columns
           [{ width: 25 }, { width: 18 }],
         ],
       });
 
       toast({
         title: 'Exportación exitosa',
-        description: `Se exportaron ${transactions.length} transacciones con resumen DIAN.`,
+        description: `Se exportaron ${transactions.length} transacciones.`,
       });
     } catch (error) {
       console.error('Export error:', error);
@@ -252,14 +243,11 @@ export default function Export() {
     }
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
+  const steps = [
+    { number: 1, label: 'Exporta tu archivo', desc: 'Descarga el Excel con todas tus transacciones conciliadas.' },
+    { number: 2, label: 'Envíalo a tu contadora', desc: 'Comparte el archivo con tu contador(a) para registro contable.' },
+    { number: 3, label: 'Verifica la conciliación', desc: 'Confirma que todo quede cuadrado en el sistema contable.' },
+  ];
 
   return (
     <AppLayout>
@@ -267,37 +255,60 @@ export default function Export() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Exportar Datos</h1>
           <p className="text-muted-foreground">
-            Descarga tus transacciones con cálculos de impuestos en Excel.
+            Descarga tus transacciones organizadas para tu contadora.
           </p>
         </div>
 
-        {/* Tax Summary Preview */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Receipt className="h-5 w-5" />
-              Resumen de Obligaciones DIAN
-            </CardTitle>
-            <CardDescription>
-              Estos valores se incluirán en la hoja "Resumen DIAN" del Excel
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="p-4 rounded-lg bg-muted/50 border border-border">
-                <p className="text-sm text-muted-foreground">IVA por Pagar</p>
-                <p className="text-xl font-bold text-accent">{formatCurrency(taxSummary.cuatrimestreIVA)}</p>
-                <p className="text-xs text-muted-foreground mt-1">{taxSummary.cuatrimestreLabel} • {taxSummary.ivaCount} transacciones</p>
-              </div>
-              <div className="p-4 rounded-lg bg-muted/50 border border-border">
-                <p className="text-sm text-muted-foreground">Retefuente por Pagar</p>
-                <p className="text-xl font-bold text-accent">{formatCurrency(taxSummary.monthlyRetefuente)}</p>
-                <p className="text-xs text-muted-foreground mt-1">{taxSummary.monthLabel} (2.5%)</p>
-              </div>
+        {/* Workflow Steps */}
+        <Card className="border-accent/20 bg-accent/5">
+          <CardContent className="pt-6">
+            <div className="flex flex-col sm:flex-row gap-4 sm:gap-2 items-stretch">
+              {steps.map((step, i) => (
+                <div key={step.number} className="flex-1 flex items-start gap-3 sm:flex-col sm:items-center sm:text-center">
+                  <div className="flex items-center gap-2 sm:flex-col">
+                    <div className="w-8 h-8 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-bold shrink-0">
+                      {step.number}
+                    </div>
+                    {i < steps.length - 1 && (
+                      <ArrowRight className="h-4 w-4 text-muted-foreground hidden sm:block mt-2" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{step.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{step.desc}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
 
+        {/* Nico Assistant */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-success/30 shrink-0">
+                <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+              </div>
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  Pregúntale a Nico
+                  <Sparkles className="h-4 w-4 text-success" />
+                </CardTitle>
+                <CardDescription>
+                  ¿Dudas sobre tus datos antes de exportar? Nico te ayuda.
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[350px] rounded-lg border border-border overflow-hidden">
+              <NicoChat />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Export Card */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -305,7 +316,7 @@ export default function Export() {
               Exportar a Excel
             </CardTitle>
             <CardDescription>
-              El archivo incluye: Transacciones, Resumen DIAN y Resumen General
+              Incluye: Transacciones, Resumen DIAN y Resumen General
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -361,6 +372,21 @@ export default function Export() {
                 </>
               )}
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Disclaimer */}
+        <Card className="border-muted bg-muted/30">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p className="font-semibold text-foreground text-sm">Aviso de responsabilidad</p>
+                <p>
+                  AluminIA es una herramienta de apoyo para la organización financiera. Los datos exportados son de carácter informativo y no reemplazan la asesoría de un contador público certificado. AluminIA no se hace responsable por decisiones tributarias, declaraciones fiscales ni errores contables derivados del uso de esta información. Siempre valida los datos con tu profesional contable antes de presentar declaraciones ante la DIAN u otras entidades.
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
