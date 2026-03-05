@@ -325,12 +325,14 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       .slice(0, 3);
   }, [invoiceItems]);
 
-  // Report metrics to parent
-  useEffect(() => {
-    if (onMetrics) onMetrics(metrics);
-  }, [metrics, onMetrics]);
+  // onMetrics reporting moved to render guard below
 
-  if (loading || invoices.length === 0) return null;
+  // Always report metrics to parent even when loading or no invoices
+  useEffect(() => {
+    if (!loading && onMetrics) onMetrics(metrics);
+  }, [loading, metrics, onMetrics]);
+
+  if (loading) return null;
 
   const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
 
