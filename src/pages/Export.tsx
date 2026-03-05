@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible, getCurrentCuatrimestre, getCurrentMonth } from '@/types/transaction';
@@ -11,25 +11,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, FileSpreadsheet, Loader2, ShieldAlert, CheckCircle2, Send, ArrowRight, Sparkles } from 'lucide-react';
+import { Download, FileSpreadsheet, Loader2, ShieldAlert, ArrowRight, Sparkles, AlertTriangle, FileDown, Mail, CheckCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import writeXlsxFile from 'write-excel-file';
 import NicoChat from '@/components/nico/NicoChat';
 import nicoAvatar from '@/assets/nico-avatar.png';
 
-interface Statement {
+interface StatementOption {
   id: string;
-  file_name: string;
+  display_name: string | null;
+  bank_name: string;
+  statement_month: number | null;
+  statement_year: number | null;
 }
 
 export default function Export() {
   const { toast } = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [statements, setStatements] = useState<Statement[]>([]);
+  const [statements, setStatements] = useState<StatementOption[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
   const [selectedStatement, setSelectedStatement] = useState<string>('all');
   const [loading, setLoading] = useState(false);
+  const [lastExportedAt, setLastExportedAt] = useState<Date | null>(null);
+  const [hasEditsAfterExport, setHasEditsAfterExport] = useState(false);
 
   useEffect(() => {
     fetchStatements();
@@ -41,12 +46,25 @@ export default function Export() {
     fetchTransactions();
   }, [selectedStatement]);
 
+  // Track if transactions were edited after last export
+  useEffect(() => {
+    if (!lastExportedAt || transactions.length === 0) return;
+    // Check if any transaction was updated after export
+    const hasEdits = transactions.some(tx => {
+      const updatedAt = new Date(tx.created_at);
+      return updatedAt > lastExportedAt;
+    });
+    setHasEditsAfterExport(hasEdits);
+  }, [transactions, lastExportedAt]);
+
   const fetchStatements = async () => {
     const { data } = await supabase
       .from('bank_statements')
-      .select('id, file_name')
-      .order('uploaded_at', { ascending: false });
-    setStatements(data || []);
+      .select('id, display_name, bank_name, statement_month, statement_year')
+      .is('deleted_at', null)
+      .order('statement_year', { ascending: false })
+      .order('statement_month', { ascending: false });
+    setStatements((data as StatementOption[]) || []);
   };
 
   const fetchCategories = async () => {
@@ -63,6 +81,7 @@ export default function Export() {
     let query = supabase
       .from('transactions')
       .select('*')
+      .is('deleted_at', null)
       .order('date', { ascending: false });
 
     if (selectedStatement !== 'all') {
@@ -129,11 +148,7 @@ export default function Export() {
     setLoading(true);
     try {
       if (!transactions || transactions.length === 0) {
-        toast({
-          title: 'Sin datos',
-          description: 'No hay transacciones para exportar.',
-          variant: 'destructive',
-        });
+        toast({ title: 'Sin datos', description: 'No hay transacciones para exportar.', variant: 'destructive' });
         return;
       }
 
@@ -227,26 +242,30 @@ export default function Export() {
         ],
       });
 
+      setLastExportedAt(new Date());
+      setHasEditsAfterExport(false);
+
       toast({
         title: 'Exportación exitosa',
         description: `Se exportaron ${transactions.length} transacciones.`,
       });
     } catch (error) {
       console.error('Export error:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo exportar el archivo.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'No se pudo exportar el archivo.', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
+  const getStatementLabel = (stmt: StatementOption) => {
+    if (stmt.display_name) return stmt.display_name;
+    return `${stmt.bank_name} ${stmt.statement_month ?? ''}/${stmt.statement_year ?? ''}`;
+  };
+
   const steps = [
-    { number: 1, label: 'Exporta tu archivo', desc: 'Descarga el Excel con todas tus transacciones conciliadas.' },
-    { number: 2, label: 'Envíalo a tu contadora', desc: 'Comparte el archivo con tu contador(a) para registro contable.' },
-    { number: 3, label: 'Verifica la conciliación', desc: 'Confirma que todo quede cuadrado en el sistema contable.' },
+    { icon: FileDown, label: 'Exporta tu archivo', desc: 'Descarga el Excel con tus transacciones conciliadas.' },
+    { icon: Mail, label: 'Envíalo a tu contadora', desc: 'Comparte el archivo para registro contable.' },
+    { icon: CheckCircle, label: 'Verifica la conciliación', desc: 'Confirma que todo quede cuadrado en el sistema contable.' },
   ];
 
   return (
@@ -259,29 +278,47 @@ export default function Export() {
           </p>
         </div>
 
-        {/* Workflow Steps */}
-        <Card className="border-accent/20 bg-accent/5">
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4 sm:gap-2 items-stretch">
-              {steps.map((step, i) => (
-                <div key={step.number} className="flex-1 flex items-start gap-3 sm:flex-col sm:items-center sm:text-center">
-                  <div className="flex items-center gap-2 sm:flex-col">
-                    <div className="w-8 h-8 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-bold shrink-0">
-                      {step.number}
-                    </div>
-                    {i < steps.length - 1 && (
-                      <ArrowRight className="h-4 w-4 text-muted-foreground hidden sm:block mt-2" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{step.label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{step.desc}</p>
-                  </div>
+        {/* Workflow Steps - Startup style */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {steps.map((step, i) => {
+            const Icon = step.icon;
+            return (
+              <div
+                key={i}
+                className="relative flex flex-col items-center text-center p-5 rounded-2xl border border-border bg-card hover:shadow-md transition-shadow group"
+              >
+                {/* Step number badge */}
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-success text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                  {i + 1}
                 </div>
-              ))}
+                <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center mb-3 group-hover:bg-success/20 transition-colors">
+                  <Icon className="h-5 w-5 text-success" />
+                </div>
+                <p className="text-sm font-semibold text-foreground leading-tight">{step.label}</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{step.desc}</p>
+                {/* Arrow connector (desktop only) */}
+                {i < steps.length - 1 && (
+                  <ArrowRight className="hidden sm:block absolute -right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/40 z-10" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Update Alert */}
+        {hasEditsAfterExport && lastExportedAt && (
+          <div className="flex items-center gap-3 p-4 rounded-xl border border-warning/40 bg-warning/5 animate-fade-in">
+            <AlertTriangle className="h-5 w-5 text-warning shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-foreground">Datos actualizados desde la última descarga</p>
+              <p className="text-xs text-muted-foreground">Se editaron transacciones después de exportar. Descarga de nuevo para tener la versión más reciente.</p>
             </div>
-          </CardContent>
-        </Card>
+            <Button size="sm" variant="outline" className="shrink-0 gap-1.5 border-warning/40 text-warning hover:bg-warning/10" onClick={handleExport}>
+              <Download className="h-3.5 w-3.5" />
+              Actualizar
+            </Button>
+          </div>
+        )}
 
         {/* Nico Assistant */}
         <Card>
@@ -332,7 +369,7 @@ export default function Export() {
                   <SelectItem value="all">Todos los extractos</SelectItem>
                   {statements.map((stmt) => (
                     <SelectItem key={stmt.id} value={stmt.id}>
-                      {stmt.file_name}
+                      {getStatementLabel(stmt)}
                     </SelectItem>
                   ))}
                 </SelectContent>
