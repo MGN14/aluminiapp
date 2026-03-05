@@ -316,6 +316,15 @@ export function PendingTransactionsTable({
                         allowEmpty={false}
                       />
                     </TableCell>
+                    <TableCell>
+                      <InvoiceSelector
+                        invoiceId={tx.invoice_id}
+                        tags={parseTagsFromNotes(tx.notes)}
+                        transactionType={tx.type || 'egreso'}
+                        onChange={(invId, tags) => handleInvoiceChange(tx.id, invId, tags, tx.notes)}
+                        className="min-w-[120px]"
+                      />
+                    </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="destructive">
                         Pendiente
