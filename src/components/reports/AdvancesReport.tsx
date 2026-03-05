@@ -39,7 +39,7 @@ export default function AdvancesReport() {
       // Get income transactions without invoice_id
       const { data: transactions, error } = await supabase
         .from('transactions')
-        .select('id, date, description, amount, owner, responsible_id, notes, statement_id, category')
+        .select('id, date, description, amount, owner, responsible_id, notes, statement_id, category, category_id, categories!transactions_category_id_fkey(name)')
         .eq('user_id', user.id)
         .eq('type', 'ingreso')
         .is('invoice_id', null)
@@ -63,14 +63,14 @@ export default function AdvancesReport() {
         }
       }
 
-      // Filter: must have responsible, exclude category "otros", exclude "Banco" responsible
-      const filtered = (transactions || []).filter((t) => {
-        const normalizedCategory = (t.category || '').trim().toLowerCase();
+      // Filter: must be Ingreso + Category "Ventas" + Responsible != "Otros"
+      const filtered = (transactions || []).filter((t: any) => {
+        const catName = (t.categories?.name || t.category || '').trim().toLowerCase();
         const hasResponsible = Boolean(t.responsible_id);
-        const isExcludedCategory = normalizedCategory === 'otros';
+        const isVentas = catName === 'ventas';
         const respName = t.responsible_id ? respMap.get(t.responsible_id) : null;
-        const isBanco = respName?.toLowerCase() === 'banco';
-        return hasResponsible && !isExcludedCategory && !isBanco;
+        const isRespOtros = respName?.toLowerCase() === 'otros';
+        return hasResponsible && isVentas && !isRespOtros;
       });
 
       // Get statement names for bank account display
