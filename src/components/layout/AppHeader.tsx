@@ -4,7 +4,7 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { LogOut, Settings } from 'lucide-react';
-import nicoAvatar from '@/assets/nico-avatar.png';
+import { LogOut, Settings } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import MobileNav from './MobileNav';
