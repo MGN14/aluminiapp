@@ -16,6 +16,7 @@ import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCatego
 import { BilledByMonthChart } from '@/components/dashboard/BilledByMonthChart';
 import { BilledByClientMonthChart } from '@/components/dashboard/BilledByClientMonthChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
+import CFOInsights from '@/components/dashboard/CFOInsights';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
@@ -684,6 +685,12 @@ export default function Dashboard() {
 
         {/* Trial Checklist */}
         <TrialChecklist />
+
+        {/* CFO Automático - Insights */}
+        <CFOInsights 
+          periodSelection={periodSelection} 
+          hasTransactions={transactions.length > 0} 
+        />
 
         {metrics.transactionCount === 0 && transactions.length === 0 ? (
           <Card className="animate-fade-in">
