@@ -54,7 +54,7 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         .gte('date', startDate)
         .lte('date', endDate);
 
-      // 3. Top compradores - purchase invoices
+      // 3. Top compradores - purchase invoices by client
       const comprasPromise = supabase
         .from('invoices')
         .select('counterparty_name, subtotal_base')
