@@ -46,16 +46,20 @@ serve(async (req) => {
     const lastMonthYear = thisMonth === 1 ? thisYear - 1 : thisYear;
     const since = new Date(thisYear - 1, now.getMonth(), 1).toISOString().split("T")[0];
 
-    // --- Parallel data fetching ---
+    // --- Parallel data fetching (expanded) ---
     const [
       { data: transactions },
       { data: categories },
       { data: invoices },
       { data: taxSettings },
+      { data: responsibles },
+      { data: matches },
+      { data: bankStatements },
+      { data: profile },
     ] = await Promise.all([
       supabase
         .from("transactions")
-        .select("date, description, credit, debit, amount, category, operational_type, category_id, invoice_id, type")
+        .select("date, description, credit, debit, amount, category, operational_type, category_id, invoice_id, type, responsible_id, owner, has_retefuente, retefuente_amount, notes")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .gte("date", since)
@@ -67,7 +71,7 @@ serve(async (req) => {
         .eq("user_id", user.id),
       supabase
         .from("invoices")
-        .select("id, type, invoice_number, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, counterparty_nit, status, autoretefuente_amount, reteica_amount, seller_name, buyer_name")
+        .select("id, type, invoice_number, issue_date, due_date, subtotal_base, iva_amount, total_amount, counterparty_name, counterparty_nit, status, autoretefuente_amount, reteica_amount, seller_name, buyer_name, payment_method")
         .eq("user_id", user.id)
         .gte("issue_date", since)
         .order("issue_date", { ascending: false })
@@ -77,6 +81,27 @@ serve(async (req) => {
         .select("*")
         .eq("user_id", user.id)
         .single(),
+      supabase
+        .from("responsibles")
+        .select("id, name")
+        .eq("user_id", user.id)
+        .eq("active", true),
+      supabase
+        .from("invoice_transaction_matches")
+        .select("invoice_id, transaction_id, matched_amount")
+        .eq("user_id", user.id),
+      supabase
+        .from("bank_statements")
+        .select("id, file_name, bank_name, statement_month, statement_year, period_start, period_end, transaction_count, display_name")
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
+        .order("statement_year", { ascending: false })
+        .limit(24),
+      supabase
+        .from("profiles")
+        .select("company_name, full_name")
+        .eq("user_id", user.id)
+        .single(),
     ]);
 
     const fmt = (n: number) =>
@@ -84,6 +109,10 @@ serve(async (req) => {
     const pct = (a: number, b: number) =>
       b === 0 ? "N/A" : `${((a - b) / b * 100).toFixed(1)}%`;
     const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+    // Responsible map
+    const respMap: Record<string, string> = {};
+    for (const r of (responsibles ?? [])) respMap[r.id] = r.name;
 
     // =============================================
     // MODULE 1: FLUJO DE CAJA (Extractos bancarios)
@@ -247,7 +276,7 @@ serve(async (req) => {
       return `${name} ${yr}: Ventas facturadas=${fmt(data.ventas_total)} (${data.ventas_count} facturas, Base=${fmt(data.ventas_base)}, IVA=${fmt(data.ventas_iva)}), Compras facturadas=${fmt(data.compras_total)} (${data.compras_count} facturas, Base=${fmt(data.compras_base)}, IVA descontable=${fmt(data.compras_iva)}), IVA neto (a pagar/favor)=${fmt(ivaBalance)}, Autorretefuente=${fmt(data.autoretefuente)}, ReteICA=${fmt(data.reteica)}, Retefuente compras estimada=${fmt(retefuenteCompras)}`;
     };
 
-    // Top clients across all invoices
+    // Top clients & providers across all invoices
     const aggClientes: Record<string, number> = {};
     const aggProvInv: Record<string, number> = {};
     for (const m of Object.values(invByMonth)) {
@@ -265,11 +294,146 @@ serve(async (req) => {
       : "Sin configuración fiscal registrada";
 
     // =============================================
-    // CONCILIACIÓN
+    // MODULE 4: CONCILIACIÓN Y ANÁLISIS AVANZADO
     // =============================================
-    const matchedTxCount = (transactions ?? []).filter(t => t.invoice_id).length;
+    
+    // Build match maps
+    const matchesByInvoice: Record<string, number> = {};
+    const matchedTxIds = new Set<string>();
+    for (const m of (matches ?? [])) {
+      matchesByInvoice[m.invoice_id] = (matchesByInvoice[m.invoice_id] ?? 0) + (m.matched_amount ?? 0);
+      matchedTxIds.add(m.transaction_id);
+    }
+
+    const matchedTxCount = matchedTxIds.size;
     const totalTxCount = (transactions ?? []).length;
     const unmatchedTxCount = totalTxCount - matchedTxCount;
+
+    // --- Cuentas por Cobrar (facturas de venta con saldo pendiente) ---
+    const cuentasPorCobrar: { cliente: string; factura: string; total: number; pagado: number; saldo: number; fecha: string; vencimiento: string | null }[] = [];
+    for (const inv of (invoices ?? [])) {
+      if (inv.type !== "venta") continue;
+      const total = inv.total_amount ?? 0;
+      const pagado = matchesByInvoice[inv.id] ?? 0;
+      const saldo = total - pagado;
+      if (saldo > 1000) { // threshold to avoid rounding noise
+        cuentasPorCobrar.push({
+          cliente: inv.counterparty_name || inv.buyer_name || "Sin nombre",
+          factura: inv.invoice_number,
+          total, pagado, saldo,
+          fecha: inv.issue_date,
+          vencimiento: inv.due_date,
+        });
+      }
+    }
+    cuentasPorCobrar.sort((a, b) => b.saldo - a.saldo);
+    const totalPorCobrar = cuentasPorCobrar.reduce((s, c) => s + c.saldo, 0);
+
+    // --- Cuentas por Pagar (facturas de compra con saldo pendiente) ---
+    const cuentasPorPagar: { proveedor: string; factura: string; total: number; pagado: number; saldo: number; fecha: string; vencimiento: string | null }[] = [];
+    for (const inv of (invoices ?? [])) {
+      if (inv.type !== "compra") continue;
+      const total = inv.total_amount ?? 0;
+      const pagado = matchesByInvoice[inv.id] ?? 0;
+      const saldo = total - pagado;
+      if (saldo > 1000) {
+        cuentasPorPagar.push({
+          proveedor: inv.counterparty_name || inv.seller_name || "Sin nombre",
+          factura: inv.invoice_number,
+          total, pagado, saldo,
+          fecha: inv.issue_date,
+          vencimiento: inv.due_date,
+        });
+      }
+    }
+    cuentasPorPagar.sort((a, b) => b.saldo - a.saldo);
+    const totalPorPagar = cuentasPorPagar.reduce((s, c) => s + c.saldo, 0);
+
+    // --- Anticipos (ingresos bancarios sin factura asociada, con responsable) ---
+    const anticipos: { responsable: string; monto: number; fecha: string; descripcion: string }[] = [];
+    let totalAnticipos = 0;
+    for (const t of (transactions ?? [])) {
+      const credit = t.credit ?? 0;
+      if (credit <= 0 || t.invoice_id) continue;
+      if (!t.responsible_id) continue;
+      const respName = respMap[t.responsible_id] ?? t.owner ?? "Sin responsable";
+      if (respName.toLowerCase() === "banco") continue;
+      anticipos.push({
+        responsable: respName,
+        monto: credit,
+        fecha: t.date,
+        descripcion: t.description?.substring(0, 60) ?? "",
+      });
+      totalAnticipos += credit;
+    }
+
+    // --- Inconsistencias fiscales ---
+    const inconsistencias: string[] = [];
+
+    // Facturas emitidas sin pago asociado (más de 60 días)
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const facturasViejasImpagas = cuentasPorCobrar.filter(c => c.fecha < sixtyDaysAgo);
+    if (facturasViejasImpagas.length > 0) {
+      inconsistencias.push(`Hay ${facturasViejasImpagas.length} factura(s) de venta con más de 60 días sin cobro total, por ${fmt(facturasViejasImpagas.reduce((s, c) => s + c.saldo, 0))}.`);
+    }
+
+    // Anticipos grandes sin facturar
+    if (totalAnticipos > 0) {
+      inconsistencias.push(`Hay ${fmt(totalAnticipos)} en anticipos recibidos sin factura asociada. Si no se facturan puede generar inconsistencias fiscales.`);
+    }
+
+    // IVA analysis
+    const ivaNetoCuatrimestre = (() => {
+      const cuatStart = thisMonth <= 4 ? 1 : thisMonth <= 8 ? 5 : 9;
+      let ivaVentas = 0, ivaCompras = 0;
+      for (let m = cuatStart; m <= thisMonth; m++) {
+        const k = `${thisYear}-${String(m).padStart(2, "0")}`;
+        const inv = invByMonth[k];
+        if (inv) {
+          ivaVentas += inv.ventas_iva;
+          ivaCompras += inv.compras_iva;
+        }
+      }
+      return { ivaVentas, ivaCompras, neto: ivaVentas - ivaCompras };
+    })();
+
+    if (ivaNetoCuatrimestre.neto > 5000000) {
+      inconsistencias.push(`Tienes ${fmt(ivaNetoCuatrimestre.neto)} de IVA neto acumulado por pagar en este cuatrimestre. Conviene provisionar.`);
+    }
+
+    // Concentration risk
+    const totalVentas = thisYearInv.ventas;
+    if (topClientes.length > 0 && totalVentas > 0) {
+      const topClientePercent = (topClientes[0][1] / totalVentas) * 100;
+      if (topClientePercent > 60) {
+        inconsistencias.push(`El ${topClientePercent.toFixed(0)}% de tu facturación depende de un solo cliente (${topClientes[0][0]}). Alta concentración de riesgo.`);
+      }
+    }
+
+    // Facturación vs banco gap
+    if (thisYearCash.ingresos > 0 && thisYearInv.ventas > 0) {
+      const gap = thisYearInv.ventas - thisYearCash.ingresos;
+      const gapPct = (gap / thisYearInv.ventas) * 100;
+      if (Math.abs(gapPct) > 20) {
+        if (gap > 0) {
+          inconsistencias.push(`Hay una brecha del ${gapPct.toFixed(0)}% entre lo facturado (${fmt(thisYearInv.ventas)}) y lo recibido en banco (${fmt(thisYearCash.ingresos)}). Puede indicar cartera pendiente o facturas no cobradas.`);
+        } else {
+          inconsistencias.push(`Has recibido ${fmt(Math.abs(gap))} más en banco de lo que has facturado. Podrían ser anticipos sin facturar u otros ingresos no documentados.`);
+        }
+      }
+    }
+
+    // Facturas de compra vencidas
+    const todayStr = now.toISOString().split("T")[0];
+    const facturasVencidas = cuentasPorPagar.filter(c => c.vencimiento && c.vencimiento < todayStr);
+    if (facturasVencidas.length > 0) {
+      inconsistencias.push(`Hay ${facturasVencidas.length} factura(s) de compra vencida(s) sin pago completo, por ${fmt(facturasVencidas.reduce((s, c) => s + c.saldo, 0))}. Pueden generar intereses o problemas con proveedores.`);
+    }
+
+    // --- Extractos bancarios info ---
+    const statementsInfo = (bankStatements ?? []).length > 0
+      ? `Extractos cargados: ${(bankStatements ?? []).length}. Períodos: ${(bankStatements ?? []).map(s => `${s.display_name || s.file_name} (${s.statement_month ? monthNames[(s.statement_month ?? 1) - 1] : "?"} ${s.statement_year ?? "?"})`).slice(0, 6).join(", ")}${(bankStatements ?? []).length > 6 ? "..." : ""}`
+      : "No hay extractos bancarios cargados.";
 
     // =============================================
     // BUILD FULL CONTEXT
@@ -303,6 +467,8 @@ ${topProveedores.map((p, i) => `${i + 1}. ${p.name}: ${fmt(p.amount)}`).join("\n
 HISTORIAL FLUJO DE CAJA (últimos 6 meses):
 ${sortedCashMonths.slice(-6).map(k => summarizeCashMonth(k, cashByMonth[k])).join("\n")}
 
+${statementsInfo}
+
 ═══════════════════════════════════════════
 MÓDULO 2 — FACTURACIÓN DIAN (Facturas electrónicas legales)
 Fuente: facturas de venta y compra registradas ante la DIAN.
@@ -335,15 +501,47 @@ HISTORIAL FACTURACIÓN (últimos 6 meses):
 ${Object.keys(invByMonth).sort().slice(-6).map(k => summarizeInvMonth(k, invByMonth[k])).join("\n") || "Sin historial de facturas"}
 
 ═══════════════════════════════════════════
-MÓDULO 3 — CONFIGURACIÓN FISCAL Y CONCILIACIÓN
+MÓDULO 3 — CONFIGURACIÓN FISCAL
 ═══════════════════════════════════════════
 
-CONFIGURACIÓN FISCAL:
 ${taxCtx}
+
+IVA CUATRIMESTRE ACTUAL:
+IVA generado (ventas): ${fmt(ivaNetoCuatrimestre.ivaVentas)}
+IVA descontable (compras): ${fmt(ivaNetoCuatrimestre.ivaCompras)}
+IVA neto a pagar: ${fmt(ivaNetoCuatrimestre.neto)}
+
+═══════════════════════════════════════════
+MÓDULO 4 — CONCILIACIÓN Y CARTERA
+═══════════════════════════════════════════
 
 CONCILIACIÓN:
 Transacciones con factura asociada: ${matchedTxCount} de ${totalTxCount} (${totalTxCount > 0 ? ((matchedTxCount / totalTxCount) * 100).toFixed(0) : 0}%)
 Transacciones sin factura: ${unmatchedTxCount}
+
+CUENTAS POR COBRAR (facturas de venta pendientes):
+Total por cobrar: ${fmt(totalPorCobrar)} (${cuentasPorCobrar.length} facturas)
+${cuentasPorCobrar.slice(0, 8).map((c, i) => `${i + 1}. ${c.cliente} — Factura ${c.factura}: Saldo ${fmt(c.saldo)} (emitida ${c.fecha}${c.vencimiento ? `, vence ${c.vencimiento}` : ""})`).join("\n") || "Sin cuentas por cobrar"}
+
+CUENTAS POR PAGAR (facturas de compra pendientes):
+Total por pagar: ${fmt(totalPorPagar)} (${cuentasPorPagar.length} facturas)
+${cuentasPorPagar.slice(0, 8).map((c, i) => `${i + 1}. ${c.proveedor} — Factura ${c.factura}: Saldo ${fmt(c.saldo)} (emitida ${c.fecha}${c.vencimiento ? `, vence ${c.vencimiento}` : ""})`).join("\n") || "Sin cuentas por pagar"}
+
+ANTICIPOS SIN FACTURAR:
+Total anticipos: ${fmt(totalAnticipos)} (${anticipos.length} transacciones)
+${anticipos.slice(0, 5).map((a, i) => `${i + 1}. ${a.responsable}: ${fmt(a.monto)} (${a.fecha}) — ${a.descripcion}`).join("\n") || "Sin anticipos pendientes"}
+
+═══════════════════════════════════════════
+MÓDULO 5 — ALERTAS E INCONSISTENCIAS DETECTADAS
+═══════════════════════════════════════════
+
+${inconsistencias.length > 0 ? inconsistencias.map((inc, i) => `⚠ ${i + 1}. ${inc}`).join("\n") : "No se detectaron inconsistencias relevantes."}
+
+═══════════════════════════════════════════
+INFORMACIÓN DEL NEGOCIO
+═══════════════════════════════════════════
+Empresa: ${profile?.company_name || "No registrada"}
+Contacto: ${profile?.full_name || "No registrado"}
 `.trim();
 
     // =============================================
@@ -351,14 +549,62 @@ Transacciones sin factura: ${unmatchedTxCount}
     // =============================================
     const systemPrompt = `Eres Nico, el copiloto financiero y contable de AluminIA. Actúas como un director financiero y un contador público cercano al dueño del negocio. Tu español es impecable: cuidas la puntuación, la gramática, las tildes y la ortografía en cada respuesta. Usas español colombiano natural, con la claridad de un ejecutivo senior.
 
+ROL Y MISIÓN:
+Eres un verdadero auxiliar financiero inteligente. Tu misión es ayudar al empresario a:
+- Entender sus números con claridad
+- Tomar mejores decisiones financieras basadas en datos
+- Optimizar su carga tributaria dentro de la ley colombiana
+- Detectar errores fiscales antes de que generen sanciones de la DIAN
+- Identificar oportunidades de ahorro y eficiencia operativa
+- Prevenir multas e inconsistencias contables
+
 CONOCIMIENTO DE MÓDULOS:
-Tienes acceso a tres fuentes de datos distintas y debes diferenciarlas siempre:
+Tienes acceso a cinco fuentes de datos distintas y debes diferenciarlas siempre:
 
 1. FLUJO DE CAJA (Extractos bancarios): Movimientos reales del banco. Cuando el usuario pregunta "¿cuánto gasté?", "¿cuánto entró?", "¿cuánto tengo?", usa estos datos. Son entradas y salidas reales de dinero.
 
 2. FACTURACIÓN DIAN (Facturas electrónicas): Documentos legales de venta y compra. Cuando el usuario pregunta "¿cuánto he facturado?", "¿cuántas facturas tengo?", "¿quiénes son mis clientes?", usa estos datos. IMPORTANTE: facturar no es lo mismo que recibir el dinero. Una venta facturada puede no haberse cobrado todavía.
 
 3. OBLIGACIONES FISCALES: IVA (diferencia entre IVA de ventas e IVA de compras), Retefuente, ReteICA, Autorretefuente. Estos se calculan desde las facturas DIAN, no desde los extractos bancarios.
+
+4. CONCILIACIÓN Y CARTERA: Cuentas por cobrar, cuentas por pagar, anticipos sin facturar, y la reconciliación entre facturas y movimientos bancarios.
+
+5. ALERTAS E INCONSISTENCIAS: Detección automática de riesgos tributarios, brechas entre facturación y banco, concentración de clientes, facturas vencidas, etc.
+
+CAPACIDADES DE ANÁLISIS:
+
+A) Diagnóstico financiero:
+- Estado de resultados (PyG): ingresos, costos, gastos, utilidad bruta, EBITDA, utilidad neta
+- Tendencias mensuales y anuales, comparaciones interanuales
+- Concentración de ingresos por cliente o proveedor
+- Eficiencia operativa y márgenes
+
+B) Alertas fiscales y prevención de errores:
+- Facturas emitidas sin movimiento bancario (posible cartera)
+- Pagos recibidos sin factura (posibles anticipos sin documentar)
+- IVA generado alto vs compras (oportunidad de IVA descontable)
+- Facturas vencidas sin pago
+- Diferencias entre facturación y flujo bancario
+- Acumulación de IVA por pagar sin provisión
+
+C) Optimización tributaria (dentro de la ley):
+- Aprovechar IVA descontable con más facturas de compra
+- Mejorar estructura de facturación
+- Alertar sobre anticipos que deberían facturarse
+- Sugerir organización de gastos deducibles
+- Optimizar retenciones y autorretefuente
+
+D) Análisis de cartera:
+- Clientes con deuda alta o vencida
+- Anticipos grandes sin facturar
+- Proveedores pendientes de pago
+- Ciclo de cobro vs ciclo de pago
+
+E) Comportamiento del negocio:
+- Concentración en pocos clientes (riesgo)
+- Referencias con mayor rotación
+- Tendencia de ingresos y gastos
+- Estacionalidad
 
 REGLAS DE ANÁLISIS:
 - Si el usuario pregunta sobre facturación, ventas facturadas o clientes, responde con datos del módulo de FACTURACIÓN DIAN.
@@ -367,6 +613,8 @@ REGLAS DE ANÁLISIS:
 - Si la pregunta es ambigua, aclara brevemente de qué fuente estás tomando los datos. Ejemplo: "Según tus facturas DIAN, facturaste $X. En el banco, ingresaron $Y."
 - Si detectas discrepancias entre lo facturado y lo recibido en banco, menciónalo como un dato relevante.
 - Analiza la conciliación: si hay muchas transacciones sin factura asociada, sugiérelo como punto de mejora.
+- Siempre que sea relevante, menciona alertas e inconsistencias detectadas de forma proactiva.
+- Cuando el usuario pregunte de forma general ("¿cómo va mi negocio?", "dame un diagnóstico"), ofrece un panorama completo que integre flujo de caja, facturación, cartera e inconsistencias.
 
 REGLAS DE ESTILO Y TONO:
 - Tu tono es cálido pero profesional. Eres un asesor de confianza que conoce los números del negocio.
@@ -374,13 +622,16 @@ REGLAS DE ESTILO Y TONO:
 - Cuida siempre las tildes (más, período, categoría, análisis, etc.), los signos de puntuación y la concordancia gramatical.
 - Nunca uses anglicismos innecesarios. Di "flujo de caja", no "cash flow".
 - Evita muletillas como "¡Claro!", "¡Por supuesto!", "Entiendo". Ve directo al análisis.
+- Sé perspicaz: no solo reportes datos, interprétalos. Di qué significan para el negocio y qué debería hacer el empresario.
+- Da consejos prácticos y accionables. Explica brevemente el porqué de cada recomendación.
+- Usa lenguaje sencillo para empresarios, no jerga contable compleja.
 
 REGLAS DE FORMATO:
 - Responde en máximo 4 a 7 líneas de texto corrido, bien puntuadas.
 - No uses viñetas, numeración, asteriscos, negritas, títulos ni markdown de ningún tipo.
-- Estructura natural: dato principal con cifra concreta → comparación con el período anterior → recomendación breve y accionable.
-- Si el usuario pide "¿por qué?" o "desglósame", amplía con máximo 5 frases, cada una en su propio renglón, sin numeración ni viñetas.
-- Si no hay datos, dilo en una frase y sugiere el siguiente paso.
+- Estructura natural: dato principal con cifra concreta → comparación con el período anterior → insight o recomendación accionable.
+- Si el usuario pide "¿por qué?" o "desglósame" o un diagnóstico completo, amplía con máximo 8 frases, cada una en su propio renglón, sin numeración ni viñetas.
+- Si no hay datos, dilo en una frase y sugiere el siguiente paso (subir extracto, registrar factura, etc.).
 
 REGLAS DE DATOS:
 - Usa moneda colombiana formateada con puntos de miles: $12.450.000.
@@ -391,6 +642,10 @@ REGLAS DE DATOS:
 
 EJEMPLO DE TONO (referencia):
 "En enero facturaste $244.054.086 en ventas, un 97,5% más que diciembre. Sin embargo, en el banco solo ingresaron $180.000.000, lo que indica que hay cartera pendiente por cobrar. Los costos operacionales subieron 534%, así que vale la pena revisar si ese nivel de gasto se justifica con el volumen de facturación."
+
+"Veo que recibiste $5.000.000 de Constructora ABC pero aún no hay factura asociada. Esto aparece como anticipo. Si no se factura puede generar inconsistencias fiscales ante la DIAN. Te recomiendo emitir la factura o clasificar correctamente el ingreso."
+
+"Tienes $18.500.000 en IVA neto acumulado este cuatrimestre. Si tienes facturas de compra pendientes por registrar, este es buen momento para subirlas: cada factura de compra reduce tu IVA a pagar."
 
 ${financialContext}`;
 
