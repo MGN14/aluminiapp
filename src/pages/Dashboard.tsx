@@ -108,7 +108,7 @@ export default function Dashboard() {
   // Unified period selection state
   const now = new Date();
   const [periodSelection, setPeriodSelection] = useState<PeriodSelection>({
-    type: 'month',
+    type: 'quarter',
     month: now.getMonth() + 1,
     quarter: Math.ceil((now.getMonth() + 1) / 3),
     year: now.getFullYear(),
@@ -204,7 +204,7 @@ export default function Dashboard() {
 
       if (statement?.statement_month && statement?.statement_year) {
         setPeriodSelection({
-          type: 'month',
+          type: 'quarter',
           month: statement.statement_month,
           quarter: Math.ceil(statement.statement_month / 3),
           year: statement.statement_year,
@@ -224,7 +224,7 @@ export default function Dashboard() {
         const date = new Date(transaction.date);
         const month = date.getMonth() + 1;
         setPeriodSelection({
-          type: 'month',
+          type: 'quarter',
           month,
           quarter: Math.ceil(month / 3),
           year: date.getFullYear(),
@@ -383,14 +383,21 @@ export default function Dashboard() {
         .reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
     );
 
-    const cuatrimestreExpenses = cuatrimestreTransactions.filter(tx => (tx.amount ?? 0) < 0);
+    // Burn rate: quarterly (trimestre) based on selected quarter
+    const quarterStartMonth = (periodSelection.quarter - 1) * 3;
+    const quarterStart = new Date(periodSelection.year, quarterStartMonth, 1);
+    const quarterEnd = new Date(periodSelection.year, quarterStartMonth + 3, 0, 23, 59, 59);
+    const quarterExpenses = transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= quarterStart && txDate <= quarterEnd && (tx.amount ?? 0) < 0;
+    });
     const monthsWithData = new Set(
-      cuatrimestreExpenses.map(tx => {
+      quarterExpenses.map(tx => {
         const d = new Date(tx.date);
         return `${d.getFullYear()}-${d.getMonth()}`;
       })
     ).size || 1;
-    const burnRate = Math.abs(cuatrimestreExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / monthsWithData;
+    const burnRate = Math.abs(quarterExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / monthsWithData;
 
     const pendingReconcile = periodTransactions.filter(tx => !tx.responsible_id).length;
 
@@ -401,10 +408,10 @@ export default function Dashboard() {
       burnRate,
       pendingReconcile,
       transactionCount: periodTransactions.length,
-      cuatrimestreLabel: cuatrimestre.label,
+      cuatrimestreLabel: `Q${periodSelection.quarter} ${periodSelection.year}`,
       periodLabel: periodRange.label,
     };
-  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange]);
+  }, [transactions, periodTransactions, cuatrimestreTransactions, cuatrimestre, periodRange, periodSelection]);
 
   const handleInvoiceMetrics = useCallback((m: InvoiceFiscalMetrics) => setInvoiceMetrics(m), []);
 
@@ -786,6 +793,9 @@ export default function Dashboard() {
                   <div className="text-xs text-muted-foreground mt-1">
                     Promedio mensual ({metrics.cuatrimestreLabel})
                   </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    Basado en trimestre
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -853,6 +863,9 @@ export default function Dashboard() {
                 <CardContent>
                   <div className={`text-xl font-bold ${metrics.pendingReconcile > 0 ? 'text-destructive' : 'text-success'}`}>
                     {metrics.pendingReconcile}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {periodRange.label}
                   </div>
                   <Link to="/transactions" className="text-xs hover:underline mt-1 inline-block text-primary">
                     Ver transacciones →
