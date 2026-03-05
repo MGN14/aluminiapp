@@ -397,6 +397,26 @@ serve(async (req) => {
       return { ivaVentas, ivaCompras, neto: ivaVentas - ivaCompras };
     })();
 
+    // Saldo a favor from previous cuatrimestre
+    const ivaSaldoFavorAnterior = (() => {
+      const cuatStart = thisMonth <= 4 ? 1 : thisMonth <= 8 ? 5 : 9;
+      // Previous cuatrimestre
+      let prevStart: number, prevEnd: number, prevYear: number;
+      if (cuatStart === 1) { prevStart = 9; prevEnd = 12; prevYear = thisYear - 1; }
+      else if (cuatStart === 5) { prevStart = 1; prevEnd = 4; prevYear = thisYear; }
+      else { prevStart = 5; prevEnd = 8; prevYear = thisYear; }
+      let ivaV = 0, ivaC = 0;
+      for (let m = prevStart; m <= prevEnd; m++) {
+        const k = `${prevYear}-${String(m).padStart(2, "0")}`;
+        const inv = invByMonth[k];
+        if (inv) { ivaV += inv.ventas_iva; ivaC += inv.compras_iva; }
+      }
+      const neto = ivaV - ivaC;
+      return neto < 0 ? Math.abs(neto) : 0; // saldo a favor only if negative (compras > ventas)
+    })();
+
+    const ivaNeto = ivaNetoCuatrimestre.neto - ivaSaldoFavorAnterior;
+
     if (ivaNetoCuatrimestre.neto > 5000000) {
       inconsistencias.push(`Tienes ${fmt(ivaNetoCuatrimestre.neto)} de IVA neto acumulado por pagar en este cuatrimestre. Conviene provisionar.`);
     }
@@ -509,7 +529,10 @@ ${taxCtx}
 IVA CUATRIMESTRE ACTUAL:
 IVA generado (ventas): ${fmt(ivaNetoCuatrimestre.ivaVentas)}
 IVA descontable (compras): ${fmt(ivaNetoCuatrimestre.ivaCompras)}
-IVA neto a pagar: ${fmt(ivaNetoCuatrimestre.neto)}
+IVA neto cuatrimestre (antes de saldo a favor): ${fmt(ivaNetoCuatrimestre.neto)}
+Saldo a favor del cuatrimestre anterior: ${fmt(ivaSaldoFavorAnterior)}
+IVA neto a pagar (después de saldo a favor): ${fmt(ivaNeto)}
+${ivaSaldoFavorAnterior > 0 ? `NOTA: El saldo a favor de ${fmt(ivaSaldoFavorAnterior)} proviene del cuatrimestre anterior donde las compras generaron más IVA descontable que el IVA de ventas.` : ""}
 
 ═══════════════════════════════════════════
 MÓDULO 4 — CONCILIACIÓN Y CARTERA
@@ -615,6 +638,29 @@ REGLAS DE ANÁLISIS:
 - Analiza la conciliación: si hay muchas transacciones sin factura asociada, sugiérelo como punto de mejora.
 - Siempre que sea relevante, menciona alertas e inconsistencias detectadas de forma proactiva.
 - Cuando el usuario pregunte de forma general ("¿cómo va mi negocio?", "dame un diagnóstico"), ofrece un panorama completo que integre flujo de caja, facturación, cartera e inconsistencias.
+
+REGLAS ESPECIALES PARA CÁLCULOS DE IVA Y SALDO A FAVOR:
+
+Cuando el usuario pregunte "¿cuánto debo facturar para pagar X de IVA?", "¿cómo uso mi saldo a favor?", o cualquier variación sobre planificación de IVA:
+
+Fórmula base: IVA_NETO_POR_PAGAR = IVA_VENTAS (débito) - IVA_COMPRAS (descontable) - SALDO_A_FAVOR_ANTERIOR
+
+1) Si existe saldo a favor o el usuario lo menciona, DEBES:
+   - Re-expresar el objetivo: "Tienes saldo a favor de A y quieres terminar pagando B, entonces necesitas generar IVA neto por (A + B)."
+   - Preguntar o asumir explícitamente si el cálculo es sobre base gravable (sin IVA) o total facturado (con IVA).
+   - Preguntar si se incluye el IVA descontable del periodo actual (compras ya registradas) o se ignora.
+
+2) SIEMPRE entregar en la respuesta:
+   - Base gravable requerida (sin IVA)
+   - Total facturado (con IVA)
+   - Supuestos usados (en 1-2 líneas, lenguaje natural)
+
+3) Ejemplo de razonamiento:
+   Si tiene saldo a favor de $62M y quiere terminar pagando $10M de IVA => necesita IVA neto de +$72M.
+   Base = $72M / 0.19 = $378.947.368
+   Total con IVA = $378.947.368 + $72.000.000 = $450.947.368
+
+4) Si falta información para hacer el cálculo (tasa IVA diferente, si incluir compras del periodo, etc.), haz UNA sola pregunta corta antes de calcular. No hagas múltiples preguntas.
 
 REGLAS DE ESTILO Y TONO:
 - Tu tono es cálido pero profesional. Eres un asesor de confianza que conoce los números del negocio.
