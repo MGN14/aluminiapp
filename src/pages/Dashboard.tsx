@@ -693,21 +693,18 @@ export default function Dashboard() {
               </Link>
             </CardContent>
           </Card>
-        ) : metrics.transactionCount === 0 ? (
-          <Card className="animate-fade-in">
-            <CardContent className="py-12 text-center">
-              <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-foreground mb-2">
-                Sin transacciones en este periodo
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                No hay transacciones para {periodRange.label}. 
-                Selecciona otro periodo o sube un extracto.
-              </p>
-            </CardContent>
-          </Card>
         ) : (
           <>
+            {/* Notice when no bank transactions for the period */}
+            {metrics.transactionCount === 0 && (
+              <Alert className="border-muted bg-muted/30 animate-fade-in">
+                <Calendar className="h-4 w-4" />
+                <AlertDescription>
+                  No hay transacciones bancarias para {periodRange.label}. Las métricas de facturación se muestran si hay facturas confirmadas en este periodo.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Main Metrics Grid */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
               {/* Saldo Actual */}
