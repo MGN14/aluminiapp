@@ -695,6 +695,16 @@ export default function Dashboard() {
           </Card>
         ) : (
           <>
+            {/* Notice when no bank transactions for the period */}
+            {metrics.transactionCount === 0 && (
+              <Alert className="border-muted bg-muted/30 animate-fade-in">
+                <Calendar className="h-4 w-4" />
+                <AlertDescription>
+                  No hay transacciones bancarias para {periodRange.label}. Las métricas de facturación se muestran si hay facturas confirmadas en este periodo.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Main Metrics Grid */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
               {/* Saldo Actual */}
