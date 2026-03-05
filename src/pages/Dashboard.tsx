@@ -19,6 +19,7 @@ import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMF
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
+import OperationalSummaryCards from '@/components/dashboard/OperationalSummaryCards';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
@@ -889,6 +890,12 @@ export default function Dashboard() {
                 cuatrimestreStart={cuatrimestre.start}
                 cuatrimestreEnd={cuatrimestre.end}
                 onMetrics={handleInvoiceMetrics}
+              />
+
+              {/* Operational Summary: CxC, Anticipos, Top Proveedores */}
+              <OperationalSummaryCards
+                year={periodSelection.year}
+                periodLabel={periodRange.label}
               />
             </div>
             <div className="grid gap-6 lg:grid-cols-2 animate-slide-up">
