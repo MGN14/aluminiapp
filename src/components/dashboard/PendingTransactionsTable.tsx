@@ -268,6 +268,7 @@ export function PendingTransactionsTable({
                   <TableHead className="text-right w-32">Monto</TableHead>
                   <TableHead className="w-40">Categoría</TableHead>
                   <TableHead className="w-40">Responsable</TableHead>
+                  <TableHead className="w-40">#Factura</TableHead>
                   <TableHead className="text-center w-24">Estado</TableHead>
                 </TableRow>
               </TableHeader>
