@@ -13,6 +13,7 @@ const reportOptions = [
   { value: 'pyg', label: 'Estado de Resultados (PyG)' },
   { value: 'anticipos', label: 'Anticipos' },
   { value: 'cuentas_por_cobrar', label: 'Cuentas por Cobrar' },
+  { value: 'cuentas_por_pagar', label: 'Cuentas por Pagar' },
 ];
 
 export default function Reports() {
