@@ -59,22 +59,13 @@ export function PendingTransactionsTable({
   // Track removed transaction IDs for optimistic removal
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
-  // Filter pending transactions: missing responsible OR missing invoice/tags
+  // Filter pending transactions: missing responsible only
   // Also exclude optimistically removed transactions
   const pendingTransactions = useMemo(() => {
     return transactions
       .filter(tx => {
         if (removedIds.has(tx.id)) return false;
-        const hasResponsible = !!tx.responsible_id;
-        const hasInvoice = !!tx.invoice_id;
-        const hasTags = tx.notes && (
-          tx.notes.includes('[N/A]') ||
-          tx.notes.includes('[IVA a favor - Pago DIAN]') ||
-          tx.notes.includes('[Retefuente - Sin factura]') ||
-          tx.notes.includes('[Anticipo]')
-        );
-        // Pending if missing responsible OR missing invoice/tags
-        return !hasResponsible || (!hasInvoice && !hasTags);
+        return !tx.responsible_id;
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [transactions, removedIds]);
@@ -133,18 +124,8 @@ export function PendingTransactionsTable({
 
       if (error) throw error;
       
-      // Only optimistically remove if transaction also has invoice or tags
-      const hasInvoice = !!tx?.invoice_id;
-      const hasTags = tx?.notes && (
-        tx.notes.includes('[N/A]') ||
-        tx.notes.includes('[IVA a favor - Pago DIAN]') ||
-        tx.notes.includes('[Retefuente - Sin factura]') ||
-        tx.notes.includes('[Anticipo]')
-      );
-      // If we just added [N/A] via isBanco, that counts as having a tag
-      if (hasInvoice || hasTags || isBanco) {
-        setRemovedIds(prev => new Set([...prev, transactionId]));
-      }
+      // Optimistically remove since responsible is now assigned
+      setRemovedIds(prev => new Set([...prev, transactionId]));
       
       toast({
         title: isBanco ? 'Asignado ✅' : 'Responsable asignado',
@@ -369,15 +350,9 @@ export function PendingTransactionsTable({
                       />
                     </TableCell>
                     <TableCell className="text-center">
-                      {tx.responsible_id ? (
-                        <Badge variant="outline" className="border-warning text-warning">
-                          Falta Factura
-                        </Badge>
-                      ) : (
-                        <Badge variant="destructive">
-                          Pendiente
-                        </Badge>
-                      )}
+                      <Badge variant="destructive">
+                        Pendiente
+                      </Badge>
                     </TableCell>
                   </TableRow>
                 ))}
