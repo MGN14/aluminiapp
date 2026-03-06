@@ -264,7 +264,14 @@ export default function TransactionRow({
           <SearchableSelect
             options={responsibleOptions}
             value={localTransaction.responsible_id}
-            onChange={(value) => updateField({ responsible_id: value })}
+            onChange={(value) => {
+              updateField({ responsible_id: value });
+              // Auto-assign N/A tag when responsible is "Banco"
+              const selectedResp = responsibles.find(r => r.id === value);
+              if (selectedResp && selectedResp.name.toLowerCase() === 'banco' && !derivedTags.includes('na') && !derivedInvoiceId) {
+                handleInvoiceChange(null, [...derivedTags, 'na']);
+              }
+            }}
             placeholder="Pendiente"
             emptyLabel="Pendiente"
             addLabel="+ Agregar responsable"
