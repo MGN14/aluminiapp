@@ -86,12 +86,13 @@ export default function TransactionRow({
     updateField({ type });
   };
 
-  const handleInvoiceChange = (newInvoiceId: string | null, newTags: InvoiceTag[]) => {
+  const handleInvoiceChange = async (newInvoiceId: string | null, newTags: InvoiceTag[], autoMatches?: import('./InvoiceSelector').AutoMatchResult[]) => {
     // Build notes from tags
     const tagMarkers: Record<InvoiceTag, string> = {
       na: '[N/A - Sin factura]',
       iva_favor: '[IVA a favor - Pago DIAN]',
       retefuente: '[Retefuente - Sin factura]',
+      anticipo: '[Anticipo]',
     };
 
     // Clean existing markers from notes
@@ -99,6 +100,7 @@ export default function TransactionRow({
       .replace(/\[N\/A - Sin factura\]/g, '')
       .replace(/\[IVA a favor - Pago DIAN\]/g, '')
       .replace(/\[Retefuente - Sin factura\]/g, '')
+      .replace(/\[Anticipo\]/g, '')
       .trim();
 
     // Add new markers
@@ -110,6 +112,21 @@ export default function TransactionRow({
       notes: finalNotes,
       has_retefuente: newTags.includes('retefuente'),
     });
+
+    // Create auto-match records for excess distribution
+    if (autoMatches?.length && user) {
+      for (const match of autoMatches) {
+        await supabase
+          .from('invoice_transaction_matches')
+          .insert({
+            invoice_id: match.invoiceId,
+            transaction_id: localTransaction.id,
+            user_id: user.id,
+            matched_amount: match.matchedAmount,
+            match_type: 'manual',
+          });
+      }
+    }
   };
 
   const handleAddCategory = async (name: string): Promise<string | null> => {
@@ -168,6 +185,7 @@ export default function TransactionRow({
     if (notes.includes('[N/A - Sin factura]')) t.push('na');
     if (notes.includes('[IVA a favor - Pago DIAN]')) t.push('iva_favor');
     if (notes.includes('[Retefuente - Sin factura]') || localTransaction.has_retefuente) t.push('retefuente');
+    if (notes.includes('[Anticipo]')) t.push('anticipo');
     return t;
   }, [localTransaction.notes, localTransaction.has_retefuente]);
 
@@ -265,6 +283,8 @@ export default function TransactionRow({
           invoiceId={derivedInvoiceId}
           tags={derivedTags}
           transactionType={localTransaction.type || 'egreso'}
+          transactionAmount={localTransaction.amount}
+          transactionId={localTransaction.id}
           onChange={handleInvoiceChange}
         />
       </TableCell>

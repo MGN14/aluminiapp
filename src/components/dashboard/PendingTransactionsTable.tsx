@@ -197,6 +197,7 @@ export function PendingTransactionsTable({
     if (notes.includes('[N/A]')) tags.push('na');
     if (notes.includes('[IVA a favor - Pago DIAN]')) tags.push('iva_favor');
     if (notes.includes('[Retefuente - Sin factura]')) tags.push('retefuente');
+    if (notes.includes('[Anticipo]')) tags.push('anticipo');
     return tags;
   };
 
@@ -205,11 +206,17 @@ export function PendingTransactionsTable({
     setUpdatingId(transactionId);
     try {
       // Build notes with tags
-      let cleanNotes = (currentNotes || '').replace(/\[N\/A\]/g, '').replace(/\[IVA a favor - Pago DIAN\]/g, '').replace(/\[Retefuente - Sin factura\]/g, '').trim();
+      let cleanNotes = (currentNotes || '')
+        .replace(/\[N\/A\]/g, '')
+        .replace(/\[IVA a favor - Pago DIAN\]/g, '')
+        .replace(/\[Retefuente - Sin factura\]/g, '')
+        .replace(/\[Anticipo\]/g, '')
+        .trim();
       const tagMarkers: string[] = [];
       if (tags.includes('na')) tagMarkers.push('[N/A]');
       if (tags.includes('iva_favor')) tagMarkers.push('[IVA a favor - Pago DIAN]');
       if (tags.includes('retefuente')) tagMarkers.push('[Retefuente - Sin factura]');
+      if (tags.includes('anticipo')) tagMarkers.push('[Anticipo]');
       const newNotes = [...tagMarkers, cleanNotes].filter(Boolean).join(' ').trim() || null;
 
       const { error } = await supabase
@@ -321,6 +328,8 @@ export function PendingTransactionsTable({
                         invoiceId={tx.invoice_id}
                         tags={parseTagsFromNotes(tx.notes)}
                         transactionType={tx.type || 'egreso'}
+                        transactionAmount={tx.amount}
+                        transactionId={tx.id}
                         onChange={(invId, tags) => handleInvoiceChange(tx.id, invId, tags, tx.notes)}
                         className="min-w-[120px]"
                       />
