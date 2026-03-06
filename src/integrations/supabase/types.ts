@@ -182,6 +182,69 @@ export type Database = {
         }
         Relationships: []
       }
+      initial_financial_state: {
+        Row: {
+          anticipos_a_proveedores: number
+          anticipos_de_clientes: number
+          created_at: string
+          cuentas_por_cobrar: number
+          cuentas_por_pagar: number
+          fecha_inicio: string
+          ica_por_pagar: number
+          id: string
+          impuestos_por_pagar: number
+          inventario: number
+          iva_a_favor: number
+          iva_por_pagar: number
+          otros_activos: number
+          prestamos: number
+          retefuente_por_pagar: number
+          saldo_bancos: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          anticipos_a_proveedores?: number
+          anticipos_de_clientes?: number
+          created_at?: string
+          cuentas_por_cobrar?: number
+          cuentas_por_pagar?: number
+          fecha_inicio: string
+          ica_por_pagar?: number
+          id?: string
+          impuestos_por_pagar?: number
+          inventario?: number
+          iva_a_favor?: number
+          iva_por_pagar?: number
+          otros_activos?: number
+          prestamos?: number
+          retefuente_por_pagar?: number
+          saldo_bancos?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          anticipos_a_proveedores?: number
+          anticipos_de_clientes?: number
+          created_at?: string
+          cuentas_por_cobrar?: number
+          cuentas_por_pagar?: number
+          fecha_inicio?: string
+          ica_por_pagar?: number
+          id?: string
+          impuestos_por_pagar?: number
+          inventario?: number
+          iva_a_favor?: number
+          iva_por_pagar?: number
+          otros_activos?: number
+          prestamos?: number
+          retefuente_por_pagar?: number
+          saldo_bancos?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       invoice_items: {
         Row: {
           description: string | null

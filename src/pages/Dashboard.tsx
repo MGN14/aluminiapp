@@ -22,6 +22,7 @@ import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashbo
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
 import OperationalSummaryCards from '@/components/dashboard/OperationalSummaryCards';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
+import InitialStateWarning from '@/components/dashboard/InitialStateWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
@@ -661,6 +662,9 @@ export default function Dashboard() {
         {/* Plan Status Card */}
         <PlanStatusCard />
 
+
+        {/* Initial state warning */}
+        <InitialStateWarning />
 
         {/* Onboarding Guide for new users */}
         <OnboardingGuide hasTransactions={transactions.length > 0} />
