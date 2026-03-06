@@ -99,6 +99,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
   };
 
   const activeCategories = categories.filter(c => c.active);
+  const activeResponsibles = responsibles.filter(r => r.active);
 
   return (
     <div className="space-y-3">
@@ -189,6 +190,32 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
                 {activeCategories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Separator orientation="vertical" className="h-5" />
+          </>
+        )}
+
+        {/* Responsible filter */}
+        {activeResponsibles.length > 0 && (
+          <>
+            <Select
+              value={filters.responsibleId ?? '_all'}
+              onValueChange={(val) => update({ responsibleId: val === '_all' ? null : val })}
+            >
+              <SelectTrigger className={cn(
+                'h-7 w-[150px] text-xs',
+                filters.responsibleId && 'border-primary text-primary'
+              )}>
+                <SelectValue placeholder="Responsable" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">Todos los responsables</SelectItem>
+                {activeResponsibles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
                   </SelectItem>
                 ))}
               </SelectContent>
