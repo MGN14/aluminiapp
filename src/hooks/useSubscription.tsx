@@ -215,15 +215,17 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (user && session && !sessionExpired) {
-      checkSubscription();
-    } else {
-      setState(defaultState);
+      void checkSubscription(false);
+    } else if (!user || sessionExpired) {
+      setState({ ...defaultState, loading: false });
     }
   }, [user, session, sessionExpired, checkSubscription]);
 
   useEffect(() => {
     if (!user || !session || sessionExpired) return;
-    const interval = setInterval(checkSubscription, 60000);
+    const interval = setInterval(() => {
+      void checkSubscription(true);
+    }, 60000);
     return () => clearInterval(interval);
   }, [user, session, sessionExpired, checkSubscription]);
 
