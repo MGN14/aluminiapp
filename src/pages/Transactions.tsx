@@ -36,6 +36,7 @@ interface Statement {
   file_name: string;
   display_name: string | null;
   transaction_count: number;
+  statement_year: number | null;
 }
 
 interface ReteicaConfig {
@@ -80,10 +81,12 @@ export default function Transactions() {
   }, [selectedStatement]);
 
   const fetchStatements = async () => {
+    const currentYear = new Date().getFullYear();
     const { data } = await supabase
       .from('bank_statements')
-      .select('id, file_name, display_name, transaction_count')
+      .select('id, file_name, display_name, transaction_count, statement_year')
       .is('deleted_at', null)
+      .eq('statement_year', currentYear)
       .order('uploaded_at', { ascending: false });
     setStatements((data || []) as Statement[]);
   };
