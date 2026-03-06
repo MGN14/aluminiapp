@@ -245,6 +245,44 @@ export type Database = {
         }
         Relationships: []
       }
+      initial_state_details: {
+        Row: {
+          amount: number
+          created_at: string
+          field_type: string
+          id: string
+          responsible_id: string | null
+          responsible_name: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          field_type: string
+          id?: string
+          responsible_id?: string | null
+          responsible_name?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          field_type?: string
+          id?: string
+          responsible_id?: string | null
+          responsible_name?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "initial_state_details_responsible_id_fkey"
+            columns: ["responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoice_items: {
         Row: {
           description: string | null
