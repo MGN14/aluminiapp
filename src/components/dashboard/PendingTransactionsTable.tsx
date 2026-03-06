@@ -133,11 +133,22 @@ export function PendingTransactionsTable({
 
       if (error) throw error;
       
-      setRemovedIds(prev => new Set([...prev, transactionId]));
+      // Only optimistically remove if transaction also has invoice or tags
+      const hasInvoice = !!tx?.invoice_id;
+      const hasTags = tx?.notes && (
+        tx.notes.includes('[N/A]') ||
+        tx.notes.includes('[IVA a favor - Pago DIAN]') ||
+        tx.notes.includes('[Retefuente - Sin factura]') ||
+        tx.notes.includes('[Anticipo]')
+      );
+      // If we just added [N/A] via isBanco, that counts as having a tag
+      if (hasInvoice || hasTags || isBanco) {
+        setRemovedIds(prev => new Set([...prev, transactionId]));
+      }
       
       toast({
-        title: 'Conciliado ✅',
-        description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Transacción asignada correctamente',
+        title: isBanco ? 'Asignado ✅' : 'Responsable asignado',
+        description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Responsable asignado. Asigna #Factura para completar.',
       });
       
       onTransactionUpdated();
