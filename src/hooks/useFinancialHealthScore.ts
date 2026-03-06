@@ -101,6 +101,7 @@ export function useFinancialHealthScore(year: number, month: number) {
   const [details, setDetails] = useState<ScoreDetails | null>(null);
   const [history, setHistory] = useState<HistoricalScore[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(true);
 
   const calculate = useCallback(async () => {
     try {
@@ -121,22 +122,25 @@ export function useFinancialHealthScore(year: number, month: number) {
 
       const transactions = txs || [];
       const totalTx = transactions.length;
+      const hasTransactions = totalTx > 0;
+      setHasData(hasTransactions);
 
       // ========== 1. CONCILIACIÓN BANCARIA (amount-based) ==========
       const totalMovimientos = transactions.reduce((s, tx) => s + Math.abs(tx.amount ?? 0), 0);
       const montoPendiente = transactions
         .filter(tx => !tx.responsible_id && !tx.invoice_id && !(tx.notes && (tx.notes.includes('[N/A]') || tx.notes.includes('[Anticipo]'))))
         .reduce((s, tx) => s + Math.abs(tx.amount ?? 0), 0);
-      const pctConciliado = totalMovimientos > 0 ? 1 - (montoPendiente / totalMovimientos) : 1;
-      const scoreConciliacion = sixTierScore(pctConciliado);
+      // If no transactions, score 0 (no data to evaluate)
+      const pctConciliado = totalMovimientos > 0 ? 1 - (montoPendiente / totalMovimientos) : 0;
+      const scoreConciliacion = hasTransactions ? sixTierScore(pctConciliado) : 0;
 
       // ========== 2. FACTURACIÓN SOPORTADA ==========
       const ingresosTx = transactions.filter(tx => (tx.amount ?? 0) > 0);
       const totalIngresosMonto = ingresosTx.reduce((s, tx) => s + (tx.amount ?? 0), 0);
       const ingresosConFacturaMonto = ingresosTx.filter(tx => !!tx.invoice_id).reduce((s, tx) => s + (tx.amount ?? 0), 0);
       const ingresosAnticipoMonto = ingresosTx.filter(tx => !tx.invoice_id && tx.notes && tx.notes.includes('[Anticipo]')).reduce((s, tx) => s + (tx.amount ?? 0), 0);
-      const pctSoportado = totalIngresosMonto > 0 ? (ingresosConFacturaMonto + ingresosAnticipoMonto) / totalIngresosMonto : 1;
-      const scoreFacturacion = sixTierScore(pctSoportado);
+      const pctSoportado = totalIngresosMonto > 0 ? (ingresosConFacturaMonto + ingresosAnticipoMonto) / totalIngresosMonto : 0;
+      const scoreFacturacion = hasTransactions ? sixTierScore(pctSoportado) : 0;
 
       // ========== 3. CONTROL DE IMPUESTOS ==========
       const { data: invoices } = await supabase
@@ -161,10 +165,11 @@ export function useFinancialHealthScore(year: number, month: number) {
       // % movimientos relevantes con factura o N/A
       const relevantes = transactions.filter(tx => (tx.amount ?? 0) !== 0);
       const vinculados = relevantes.filter(tx => !!tx.invoice_id || (tx.notes && (tx.notes.includes('[N/A]') || tx.notes.includes('[Anticipo]')))).length;
-      const pctVinculados = relevantes.length > 0 ? vinculados / relevantes.length : 1;
+      const pctVinculados = relevantes.length > 0 ? vinculados / relevantes.length : (hasTransactions ? 0 : 0);
 
-      const completitudFiscal = (pctVentas + pctCompras + pctVinculados) / 3;
-      const scoreImpuestos = fiveTierScore(completitudFiscal);
+      const hasAnyFiscalData = hasTransactions || allInvoices.length > 0;
+      const completitudFiscal = hasAnyFiscalData ? (pctVentas + pctCompras + pctVinculados) / 3 : 0;
+      const scoreImpuestos = hasAnyFiscalData ? fiveTierScore(completitudFiscal) : 0;
 
       // ========== 4. CARTERA Y ANTICIPOS ==========
       const { data: ventaInvoices } = await supabase
@@ -208,8 +213,8 @@ export function useFinancialHealthScore(year: number, month: number) {
         const hasInvoice = !!tx.invoice_id || (tx.notes && (tx.notes.includes('[N/A]') || tx.notes.includes('[Anticipo]')));
         return hasCat && hasResp && hasInvoice;
       }).length;
-      const pctClasificado = totalTx > 0 ? completas / totalTx : 1;
-      const scoreClasificacion = sixTierScore(pctClasificado);
+      const pctClasificado = totalTx > 0 ? completas / totalTx : 0;
+      const scoreClasificacion = hasTransactions ? sixTierScore(pctClasificado) : 0;
 
       const total = scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion;
 
@@ -277,5 +282,5 @@ export function useFinancialHealthScore(year: number, month: number) {
   const interpretation = useMemo(() => scores ? getScoreInterpretation(scores.total) : null, [scores]);
   const recommendations = useMemo(() => scores ? getRecommendations(scores) : [], [scores]);
 
-  return { scores, details, history, loading, interpretation, recommendations, recalculate: calculate };
+  return { scores, details, history, loading, interpretation, recommendations, recalculate: calculate, hasData };
 }
