@@ -360,15 +360,9 @@ export function PendingTransactionsTable({
                       />
                     </TableCell>
                     <TableCell className="text-center">
-                      {tx.responsible_id ? (
-                        <Badge variant="outline" className="border-warning text-warning">
-                          Falta Factura
-                        </Badge>
-                      ) : (
-                        <Badge variant="destructive">
-                          Pendiente
-                        </Badge>
-                      )}
+                      <Badge variant="destructive">
+                        Pendiente
+                      </Badge>
                     </TableCell>
                   </TableRow>
                 ))}
