@@ -185,6 +185,17 @@ export default function FinancialHealth() {
           </div>
         </div>
 
+        {!hasData && (
+          <Card className="border-warning/50 bg-warning/5">
+            <CardContent className="pt-4 pb-4 flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-warning shrink-0" />
+              <p className="text-sm text-muted-foreground">
+                No hay extractos bancarios cargados para {MONTH_NAMES[month - 1]} {year}. Sube un extracto para calcular el score con datos reales.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Score Card */}
         {scores && interpretation && (
           <Card>
