@@ -66,15 +66,25 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const { user, session, sessionExpired } = useAuth();
   const [state, setState] = useState<SubscriptionState>(defaultState);
 
-  const checkSubscription = useCallback(async () => {
-    if (!user || !session || sessionExpired) {
-      if (isDev) console.log('[PLAN] checkSubscription skipped - no user/session');
+  const checkSubscription = useCallback(async (silent = false) => {
+    if (!user || sessionExpired) {
+      if (isDev) console.log('[PLAN] checkSubscription skipped - no user or expired session');
       setState({ ...defaultState, loading: false });
       return;
     }
 
+    // Session can be transiently null during auth refresh cycles; avoid resetting the whole app state.
+    if (!session) {
+      if (isDev) console.log('[PLAN] checkSubscription waiting for session');
+      return;
+    }
+
     try {
-      setState((prev) => ({ ...prev, loading: true, error: null }));
+      setState((prev) => ({
+        ...prev,
+        loading: silent ? prev.loading : true,
+        error: null,
+      }));
 
       const result = await invokeFunctionWithAuthRetry<any>(
         'check-subscription',
@@ -205,15 +215,17 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (user && session && !sessionExpired) {
-      checkSubscription();
-    } else {
-      setState(defaultState);
+      void checkSubscription(false);
+    } else if (!user || sessionExpired) {
+      setState({ ...defaultState, loading: false });
     }
   }, [user, session, sessionExpired, checkSubscription]);
 
   useEffect(() => {
     if (!user || !session || sessionExpired) return;
-    const interval = setInterval(checkSubscription, 60000);
+    const interval = setInterval(() => {
+      void checkSubscription(true);
+    }, 60000);
     return () => clearInterval(interval);
   }, [user, session, sessionExpired, checkSubscription]);
 
