@@ -138,7 +138,8 @@ export function calculateFinancialHealthMetrics(
   transactions: HealthTransaction[],
   confirmedInvoices: HealthInvoice[],
   salesInvoices: HealthInvoice[],
-  matchedByInvoice: Map<string, number>
+  matchedByInvoice: Map<string, number>,
+  initialState?: { cuentas_por_cobrar?: number; anticipos_de_clientes?: number } | null
 ): { scores: ScoreBreakdown; details: ScoreDetails } {
   const totalTx = transactions.length;
 
@@ -180,19 +181,26 @@ export function calculateFinancialHealthMetrics(
   const scoreImpuestos = hasAnyFiscalData ? fiveTierScore(completitudFiscal) : 0;
 
   // ========== 4. CARTERA Y ANTICIPOS ==========
+  const initialCxC = initialState?.cuentas_por_cobrar ?? 0;
+  const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
+
   const facturacionTotal = salesInvoices.reduce((sum, invoice) => sum + (invoice.total_amount ?? 0), 0);
-  const cuentasPorCobrar = salesInvoices.reduce((sum, invoice) => {
+  const cuentasPorCobrarFacturas = salesInvoices.reduce((sum, invoice) => {
     const paid = matchedByInvoice.get(invoice.id) ?? 0;
     return sum + Math.max(0, (invoice.total_amount ?? 0) - paid);
   }, 0);
-  const pctCartera = safePct(cuentasPorCobrar, facturacionTotal);
+  const cuentasPorCobrar = cuentasPorCobrarFacturas + initialCxC;
+  const baseCartera = facturacionTotal + initialCxC;
+  const pctCartera = safePct(cuentasPorCobrar, baseCartera);
 
   const anticiposSinFactura = ingresosTx
     .filter((tx) => !tx.invoice_id && isAnticipo(tx.notes))
     .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-  const pctAnticipos = safePct(anticiposSinFactura, totalIngresosMonto);
+  const totalAnticipos = anticiposSinFactura + initialAnticiposClientes;
+  const baseAnticipos = totalIngresosMonto + initialAnticiposClientes;
+  const pctAnticipos = safePct(totalAnticipos, baseAnticipos);
 
-  const hasAnyCarteraData = facturacionTotal > 0 || totalIngresosMonto > 0;
+  const hasAnyCarteraData = baseCartera > 0 || baseAnticipos > 0;
   const riesgoTotal = hasAnyCarteraData ? (pctCartera + pctAnticipos) / 2 : 0;
   const scoreCartera = hasAnyCarteraData ? carteraScore(riesgoTotal) : 0;
 
