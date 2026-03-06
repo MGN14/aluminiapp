@@ -86,7 +86,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       const yearStart = `${year}-01-01`;
       const nextYearStart = `${year + 1}-01-01`;
 
-      const [txResult, invoiceResult, matchesResult] = await Promise.all([
+      const [txResult, invoiceResult, matchesResult, initialStateResult] = await Promise.all([
         supabase
           .from('transactions')
           .select('id, date, responsible_id, invoice_id, notes, category_id, amount')
@@ -105,11 +105,18 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .from('invoice_transaction_matches')
           .select('invoice_id, matched_amount, transaction_id')
           .eq('user_id', user.id),
+        supabase
+          .from('initial_financial_state' as any)
+          .select('cuentas_por_cobrar, anticipos_de_clientes')
+          .eq('user_id', user.id)
+          .maybeSingle(),
       ]);
 
       if (txResult.error) throw txResult.error;
       if (invoiceResult.error) throw invoiceResult.error;
       if (matchesResult.error) throw matchesResult.error;
+
+      const initialState = (initialStateResult.data as any) ?? null;
 
       const transactions = (txResult.data ?? []) as TransactionRow[];
       const invoices = (invoiceResult.data ?? []) as InvoiceRow[];
@@ -181,7 +188,8 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           transactionsToDate,
           invoicesToDate,
           salesInvoicesToDate,
-          matchedByInvoice
+          matchedByInvoice,
+          initialState
         );
 
         monthlyResults.push({ month, scores: monthScores, details: monthDetails });
