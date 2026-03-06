@@ -206,11 +206,17 @@ export function PendingTransactionsTable({
     setUpdatingId(transactionId);
     try {
       // Build notes with tags
-      let cleanNotes = (currentNotes || '').replace(/\[N\/A\]/g, '').replace(/\[IVA a favor - Pago DIAN\]/g, '').replace(/\[Retefuente - Sin factura\]/g, '').trim();
+      let cleanNotes = (currentNotes || '')
+        .replace(/\[N\/A\]/g, '')
+        .replace(/\[IVA a favor - Pago DIAN\]/g, '')
+        .replace(/\[Retefuente - Sin factura\]/g, '')
+        .replace(/\[Anticipo\]/g, '')
+        .trim();
       const tagMarkers: string[] = [];
       if (tags.includes('na')) tagMarkers.push('[N/A]');
       if (tags.includes('iva_favor')) tagMarkers.push('[IVA a favor - Pago DIAN]');
       if (tags.includes('retefuente')) tagMarkers.push('[Retefuente - Sin factura]');
+      if (tags.includes('anticipo')) tagMarkers.push('[Anticipo]');
       const newNotes = [...tagMarkers, cleanNotes].filter(Boolean).join(' ').trim() || null;
 
       const { error } = await supabase
