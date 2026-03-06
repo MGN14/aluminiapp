@@ -95,28 +95,39 @@ export function PendingTransactionsTable({
 
   // Handle responsible change (marks as reconciled when set)
   const handleResponsibleChange = async (transactionId: string, responsibleId: string | null) => {
-    if (!responsibleId) return; // Only process when setting a responsible
+    if (!responsibleId) return;
     
     setUpdatingId(transactionId);
     
     try {
+      // Check if responsible is "Banco" to auto-assign N/A tag
+      const selectedResp = responsibles.find(r => r.id === responsibleId);
+      const isBanco = selectedResp && selectedResp.name.toLowerCase() === 'banco';
+      const tx = pendingTransactions.find(t => t.id === transactionId);
+      
+      const updateData: Record<string, any> = { responsible_id: responsibleId };
+      
+      if (isBanco && tx && !tx.invoice_id) {
+        const currentNotes = tx.notes || '';
+        if (!currentNotes.includes('[N/A]')) {
+          updateData.notes = ('[N/A]' + (currentNotes ? ' ' + currentNotes : '')).trim();
+        }
+      }
+      
       const { error } = await supabase
         .from('transactions')
-        .update({ responsible_id: responsibleId })
+        .update(updateData)
         .eq('id', transactionId);
 
       if (error) throw error;
       
-      // Optimistic removal - remove from local view immediately
       setRemovedIds(prev => new Set([...prev, transactionId]));
       
-      // Show success toast
       toast({
         title: 'Conciliado ✅',
-        description: 'Transacción asignada correctamente',
+        description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Transacción asignada correctamente',
       });
       
-      // Trigger refetch to update metrics
       onTransactionUpdated();
     } catch (error) {
       console.error('Error updating responsible:', error);
