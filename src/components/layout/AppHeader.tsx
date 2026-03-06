@@ -36,6 +36,9 @@ const navItems = [{
   path: '/reports',
   label: 'Reportes'
 }, {
+  path: '/financial-health',
+  label: 'Orden',
+}, {
   path: '/export',
   label: 'Exportar'
 }];

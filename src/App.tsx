@@ -25,6 +25,7 @@ import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
 import Nico from "./pages/Nico";
 import Invoices from "./pages/Invoices";
+import FinancialHealth from "./pages/FinancialHealth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -118,6 +119,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Invoices />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/financial-health"
+                element={
+                  <ProtectedRoute>
+                    <FinancialHealth />
                   </ProtectedRoute>
                 }
               />
