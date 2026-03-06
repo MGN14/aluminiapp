@@ -178,6 +178,11 @@ export default function Transactions() {
       result = result.filter(tx => tx.category_id === filters.categoryId);
     }
 
+    // Responsible filter
+    if (filters.responsibleId) {
+      result = result.filter(tx => tx.responsible_id === filters.responsibleId);
+    }
+
     // Date range filter
     if (filters.dateFrom) {
       const from = new Date(filters.dateFrom);
@@ -287,6 +292,7 @@ export default function Transactions() {
             onFiltersChange={setFilters}
             counts={filterCounts}
             categories={categories}
+            responsibles={responsibles}
           />
 
           <Card>

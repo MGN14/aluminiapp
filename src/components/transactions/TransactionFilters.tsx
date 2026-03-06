@@ -24,7 +24,7 @@ import {
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { Category } from '@/types/transaction';
+import { Category, Responsible } from '@/types/transaction';
 
 export type EstadoFilter = 'todas' | 'pendientes' | 'conciliadas';
 export type TipoFilter = 'todos' | 'ingresos' | 'egresos';
@@ -34,6 +34,7 @@ export interface TransactionFilterState {
   estado: EstadoFilter;
   tipo: TipoFilter;
   categoryId: string | null;
+  responsibleId: string | null;
   dateFrom: Date | undefined;
   dateTo: Date | undefined;
   sortOrder: SortOrder;
@@ -49,19 +50,21 @@ interface TransactionFiltersProps {
     conciliadas: number;
   };
   categories: Category[];
+  responsibles: Responsible[];
 }
 
 export const defaultFilters: TransactionFilterState = {
   estado: 'todas',
   tipo: 'todos',
   categoryId: null,
+  responsibleId: null,
   dateFrom: undefined,
   dateTo: undefined,
   sortOrder: 'asc',
   amountSortOrder: null,
 };
 
-export default function TransactionFilters({ filters, onFiltersChange, counts, categories }: TransactionFiltersProps) {
+export default function TransactionFilters({ filters, onFiltersChange, counts, categories, responsibles }: TransactionFiltersProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   const update = (partial: Partial<TransactionFilterState>) => {
@@ -72,6 +75,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
     filters.estado !== 'todas' ||
     filters.tipo !== 'todos' ||
     filters.categoryId !== null ||
+    filters.responsibleId !== null ||
     filters.dateFrom !== undefined ||
     filters.dateTo !== undefined;
 
@@ -95,6 +99,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
   };
 
   const activeCategories = categories.filter(c => c.active);
+  const activeResponsibles = responsibles.filter(r => r.active);
 
   return (
     <div className="space-y-3">
@@ -185,6 +190,32 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
                 {activeCategories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Separator orientation="vertical" className="h-5" />
+          </>
+        )}
+
+        {/* Responsible filter */}
+        {activeResponsibles.length > 0 && (
+          <>
+            <Select
+              value={filters.responsibleId ?? '_all'}
+              onValueChange={(val) => update({ responsibleId: val === '_all' ? null : val })}
+            >
+              <SelectTrigger className={cn(
+                'h-7 w-[150px] text-xs',
+                filters.responsibleId && 'border-primary text-primary'
+              )}>
+                <SelectValue placeholder="Responsable" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">Todos los responsables</SelectItem>
+                {activeResponsibles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
                   </SelectItem>
                 ))}
               </SelectContent>
