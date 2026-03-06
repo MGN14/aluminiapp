@@ -59,12 +59,24 @@ export function PendingTransactionsTable({
   // Track removed transaction IDs for optimistic removal
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
-  // Filter only pending transactions (no responsible assigned)
+  // Filter pending transactions: missing responsible OR missing invoice/tags
   // Also exclude optimistically removed transactions
   const pendingTransactions = useMemo(() => {
     return transactions
-      .filter(tx => !tx.responsible_id && !removedIds.has(tx.id))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // ASC by date (oldest first)
+      .filter(tx => {
+        if (removedIds.has(tx.id)) return false;
+        const hasResponsible = !!tx.responsible_id;
+        const hasInvoice = !!tx.invoice_id;
+        const hasTags = tx.notes && (
+          tx.notes.includes('[N/A]') ||
+          tx.notes.includes('[IVA a favor - Pago DIAN]') ||
+          tx.notes.includes('[Retefuente - Sin factura]') ||
+          tx.notes.includes('[Anticipo]')
+        );
+        // Pending if missing responsible OR missing invoice/tags
+        return !hasResponsible || (!hasInvoice && !hasTags);
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [transactions, removedIds]);
 
   // Handle category change (does NOT mark as reconciled)
