@@ -28,6 +28,7 @@ const authNavItems: NavItem[] = [
   { path: '/transactions', label: 'Transacciones' },
   { path: '/invoices', label: 'Facturas (Pro)' },
   { path: '/reports', label: 'Reportes' },
+  { path: '/financial-health', label: 'Orden Financiero' },
   { path: '/export', label: 'Exportar' },
 ];
 

@@ -134,6 +134,54 @@ export type Database = {
         }
         Relationships: []
       }
+      financial_health_scores: {
+        Row: {
+          created_at: string
+          details: Json | null
+          id: string
+          month: number
+          score_cartera: number
+          score_clasificacion: number
+          score_conciliacion: number
+          score_facturacion: number
+          score_impuestos: number
+          score_total: number
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          details?: Json | null
+          id?: string
+          month: number
+          score_cartera?: number
+          score_clasificacion?: number
+          score_conciliacion?: number
+          score_facturacion?: number
+          score_impuestos?: number
+          score_total?: number
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          details?: Json | null
+          id?: string
+          month?: number
+          score_cartera?: number
+          score_clasificacion?: number
+          score_conciliacion?: number
+          score_facturacion?: number
+          score_impuestos?: number
+          score_total?: number
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
       invoice_items: {
         Row: {
           description: string | null
