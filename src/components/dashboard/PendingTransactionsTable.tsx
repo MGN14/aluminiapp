@@ -59,12 +59,24 @@ export function PendingTransactionsTable({
   // Track removed transaction IDs for optimistic removal
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
-  // Filter only pending transactions (no responsible assigned)
+  // Filter pending transactions: missing responsible OR missing invoice/tags
   // Also exclude optimistically removed transactions
   const pendingTransactions = useMemo(() => {
     return transactions
-      .filter(tx => !tx.responsible_id && !removedIds.has(tx.id))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // ASC by date (oldest first)
+      .filter(tx => {
+        if (removedIds.has(tx.id)) return false;
+        const hasResponsible = !!tx.responsible_id;
+        const hasInvoice = !!tx.invoice_id;
+        const hasTags = tx.notes && (
+          tx.notes.includes('[N/A]') ||
+          tx.notes.includes('[IVA a favor - Pago DIAN]') ||
+          tx.notes.includes('[Retefuente - Sin factura]') ||
+          tx.notes.includes('[Anticipo]')
+        );
+        // Pending if missing responsible OR missing invoice/tags
+        return !hasResponsible || (!hasInvoice && !hasTags);
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [transactions, removedIds]);
 
   // Handle category change (does NOT mark as reconciled)
@@ -121,11 +133,22 @@ export function PendingTransactionsTable({
 
       if (error) throw error;
       
-      setRemovedIds(prev => new Set([...prev, transactionId]));
+      // Only optimistically remove if transaction also has invoice or tags
+      const hasInvoice = !!tx?.invoice_id;
+      const hasTags = tx?.notes && (
+        tx.notes.includes('[N/A]') ||
+        tx.notes.includes('[IVA a favor - Pago DIAN]') ||
+        tx.notes.includes('[Retefuente - Sin factura]') ||
+        tx.notes.includes('[Anticipo]')
+      );
+      // If we just added [N/A] via isBanco, that counts as having a tag
+      if (hasInvoice || hasTags || isBanco) {
+        setRemovedIds(prev => new Set([...prev, transactionId]));
+      }
       
       toast({
-        title: 'Conciliado ✅',
-        description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Transacción asignada correctamente',
+        title: isBanco ? 'Asignado ✅' : 'Responsable asignado',
+        description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Responsable asignado. Asigna #Factura para completar.',
       });
       
       onTransactionUpdated();
@@ -346,9 +369,15 @@ export function PendingTransactionsTable({
                       />
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge variant="destructive">
-                        Pendiente
-                      </Badge>
+                      {tx.responsible_id ? (
+                        <Badge variant="outline" className="border-warning text-warning">
+                          Falta Factura
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive">
+                          Pendiente
+                        </Badge>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
