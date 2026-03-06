@@ -217,7 +217,11 @@ Deno.serve(async (req) => {
       });
       const topCat = Object.entries(catExpenses).sort((a, b) => b[1] - a[1])[0];
 
+      const saldoInicial = initialState?.saldo_bancos || 0;
       let text = `Tus ingresos suman ${fmt(ingresos)} y tus egresos ${fmt(egresos)}, dejándote un neto de ${fmt(neto)}.`;
+      if (saldoInicial > 0) {
+        text += ` Partiendo de un saldo inicial de ${fmt(saldoInicial)}, tu posición de caja estimada es ${fmt(saldoInicial + neto)}.`;
+      }
       if (changePercent !== null) {
         const sign = changePercent >= 0 ? "+" : "";
         text += ` Eso es ${sign}${changePercent.toFixed(0)}% frente al periodo anterior.`;
