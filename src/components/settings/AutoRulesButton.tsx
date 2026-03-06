@@ -92,21 +92,34 @@ export default function AutoRulesButton() {
             ? Math.round(absAmount * (reteicaRate / 100)) 
             : 0;
 
+          // Build invoice tag notes
+          const tagMarkers: string[] = [];
+          if (rule.invoiceTag === 'na') tagMarkers.push('[N/A]');
+          if (rule.invoiceTag === 'iva_favor') tagMarkers.push('[IVA a favor - Pago DIAN]');
+          if (rule.invoiceTag === 'retefuente') tagMarkers.push('[Retefuente - Sin factura]');
+          const notesWithTags = tagMarkers.length > 0 ? tagMarkers.join(' ') : undefined;
+
           // Update the transaction
+          const updateData: Record<string, any> = {
+            type: rule.type,
+            category_id: categoryId,
+            category: rule.categoryName.toLowerCase(),
+            responsible_id: responsibleId,
+            has_iva: rule.hasIva,
+            has_retefuente: rule.hasRetefuente,
+            has_reteica: rule.hasReteica && reteicaRate > 0,
+            iva_amount: ivaAmount,
+            retefuente_amount: retefuenteAmount,
+            reteica_amount: reteicaAmount,
+          };
+          
+          if (notesWithTags) {
+            updateData.notes = notesWithTags;
+          }
+
           const { error: updateError } = await supabase
             .from('transactions')
-            .update({
-              type: rule.type,
-              category_id: categoryId,
-              category: rule.categoryName.toLowerCase(),
-              responsible_id: responsibleId,
-              has_iva: rule.hasIva,
-              has_retefuente: rule.hasRetefuente,
-              has_reteica: rule.hasReteica && reteicaRate > 0,
-              iva_amount: ivaAmount,
-              retefuente_amount: retefuenteAmount,
-              reteica_amount: reteicaAmount,
-            })
+            .update(updateData)
             .eq('id', tx.id);
 
           if (updateError) {
