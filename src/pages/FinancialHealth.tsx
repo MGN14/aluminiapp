@@ -2,8 +2,8 @@ import { useState, useMemo } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Shield, TrendingUp, AlertTriangle, CheckCircle, Info } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line } from 'recharts';
-import { useFinancialHealthScore, getScoreInterpretation, getRecommendations } from '@/hooks/useFinancialHealthScore';
+import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { useFinancialHealthScore, getScoreInterpretation, getRecommendations, type ScoreDetails } from '@/hooks/useFinancialHealthScore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import nicoAvatar from '@/assets/nico-avatar.png';
@@ -17,19 +17,73 @@ const SCORE_COLORS = {
 };
 
 const VARIABLES = [
-  { key: 'conciliacion', label: 'Conciliación Bancaria', color: SCORE_COLORS.conciliacion, icon: CheckCircle,
-    desc: 'Mide qué porcentaje de las transacciones bancarias tienen soporte o están correctamente conciliadas.' },
-  { key: 'facturacion', label: 'Facturación Soportada', color: SCORE_COLORS.facturacion, icon: CheckCircle,
-    desc: 'Mide si los ingresos bancarios están respaldados por facturación.' },
-  { key: 'impuestos', label: 'Control de Impuestos', color: SCORE_COLORS.impuestos, icon: AlertTriangle,
-    desc: 'Mide si el negocio tiene claridad sobre el IVA y las retenciones.' },
-  { key: 'cartera', label: 'Cartera y Anticipos', color: SCORE_COLORS.cartera, icon: AlertTriangle,
-    desc: 'Mide riesgo financiero y orden en ingresos.' },
-  { key: 'clasificacion', label: 'Clasificación Financiera', color: SCORE_COLORS.clasificacion, icon: Info,
-    desc: 'Mide qué tan organizada está la información financiera.' },
+  { key: 'conciliacion', label: 'Conciliación Bancaria', color: SCORE_COLORS.conciliacion, icon: CheckCircle },
+  { key: 'facturacion', label: 'Facturación Soportada', color: SCORE_COLORS.facturacion, icon: CheckCircle },
+  { key: 'impuestos', label: 'Control de Impuestos', color: SCORE_COLORS.impuestos, icon: AlertTriangle },
+  { key: 'cartera', label: 'Cartera y Anticipos', color: SCORE_COLORS.cartera, icon: AlertTriangle },
+  { key: 'clasificacion', label: 'Clasificación Financiera', color: SCORE_COLORS.clasificacion, icon: Info },
 ] as const;
 
 const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+function fmt(n: number): string {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+}
+
+function pct(n: number): string {
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+function getVariableExplanation(key: string, details: ScoreDetails): { formula: string; explanation: string } {
+  switch (key) {
+    case 'conciliacion': {
+      const d = details.conciliacion;
+      return {
+        formula: `${pct(d.pct)} conciliado`,
+        explanation: `Del total de movimientos bancarios (${fmt(d.totalMovimientos)}), quedan ${fmt(d.montoPendiente)} sin identificar. Se calcula sobre montos, no conteo de filas.`,
+      };
+    }
+    case 'facturacion': {
+      const d = details.facturacion;
+      return {
+        formula: `${pct(d.pct)} soportado`,
+        explanation: `De ${fmt(d.totalIngresos)} en ingresos, ${fmt(d.ingresosConFactura)} tienen factura y ${fmt(d.ingresosAnticipo)} están marcados como anticipo.`,
+      };
+    }
+    case 'impuestos': {
+      const d = details.impuestos;
+      return {
+        formula: `${pct(d.pct)} completitud fiscal`,
+        explanation: `Promedio de: facturas de venta registradas (${pct(d.pctVentas)}), facturas de compra (${pct(d.pctCompras)}) y movimientos vinculados (${pct(d.pctVinculados)}).`,
+      };
+    }
+    case 'cartera': {
+      const d = details.cartera;
+      return {
+        formula: `${pct(d.pct)} riesgo promedio`,
+        explanation: `Cartera pendiente: ${fmt(d.cuentasPorCobrar)} de ${fmt(d.facturacionTotal)} facturado (${pct(d.pctCartera)}). Anticipos sin factura: ${fmt(d.anticiposSinFactura)} de ${fmt(d.ingresosTotal)} ingresos (${pct(d.pctAnticipos)}).`,
+      };
+    }
+    case 'clasificacion': {
+      const d = details.clasificacion;
+      return {
+        formula: `${pct(d.pct)} completas`,
+        explanation: `${d.completas} de ${d.total} transacciones tienen categoría, responsable (o N/A) y factura (o N/A) asignados.`,
+      };
+    }
+    default:
+      return { formula: '', explanation: '' };
+  }
+}
+
+function getVariableRecommendation(key: string, score: number): string | null {
+  if (key === 'conciliacion' && score < 18) return 'Existen movimientos bancarios sin soporte. Revisa y vincula facturas, asigna responsables o clasifícalos correctamente.';
+  if (key === 'facturacion' && score < 18) return 'Hay ingresos sin factura asociada ni marcados como anticipo. Esto puede generar inconsistencias frente a la DIAN.';
+  if (key === 'impuestos' && score < 16) return 'La base fiscal del periodo está incompleta. Faltan facturas de compra o venta que afectan el cálculo del IVA y retenciones.';
+  if (key === 'cartera' && score < 18) return 'Una parte importante de tu facturación no ha sido cobrada o tienes anticipos sin factura asociada.';
+  if (key === 'clasificacion' && score < 18) return 'Varias transacciones no tienen categoría, responsable o factura asignada. Completa la información para mejorar tu orden.';
+  return null;
+}
 
 export default function FinancialHealth() {
   const now = new Date();
@@ -157,33 +211,44 @@ export default function FinancialHealth() {
         )}
 
         {/* Variable Breakdown */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {scores && VARIABLES.map(v => {
-            const value = scores[v.key as keyof typeof scores] as number;
-            const pct = Math.round((value / 20) * 100);
-            const barColor = value >= 16 ? 'bg-success' : value >= 12 ? 'bg-warning' : 'bg-destructive';
-            return (
-              <Card key={v.key}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: v.color }} />
-                    {v.label}
-                  </CardTitle>
-                  <CardDescription className="text-xs">{v.desc}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-end gap-2 mb-2">
-                    <span className="text-2xl font-bold">{value}</span>
-                    <span className="text-sm text-muted-foreground">/20</span>
-                  </div>
-                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+        {scores && details && (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {VARIABLES.map(v => {
+              const value = scores[v.key as keyof typeof scores] as number;
+              const pctBar = Math.round((value / 20) * 100);
+              const barColor = value >= 18 ? 'bg-success' : value >= 15 ? 'bg-success/70' : value >= 10 ? 'bg-warning' : 'bg-destructive';
+              const info = getVariableExplanation(v.key, details);
+              const rec = getVariableRecommendation(v.key, value);
+              return (
+                <Card key={v.key}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: v.color }} />
+                      {v.label}
+                    </CardTitle>
+                    <CardDescription className="text-xs font-semibold">{info.formula}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex items-end gap-2">
+                      <span className="text-2xl font-bold">{value}</span>
+                      <span className="text-sm text-muted-foreground">/20</span>
+                    </div>
+                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pctBar}%` }} />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug">{info.explanation}</p>
+                    {rec && (
+                      <div className="flex items-start gap-1.5 pt-1">
+                        <AlertTriangle className="h-3 w-3 text-warning shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-warning leading-snug">{rec}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
 
         {/* Recommendations */}
         {recommendations.length > 0 && (
