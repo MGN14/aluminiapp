@@ -388,6 +388,29 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─── INSIGHT D2: Cuentas por pagar (from initial state + purchase invoices) ───
+    const purchaseInvoices = invYear.filter((i: any) => i.type === "compra");
+    const totalCxPInvoices = purchaseInvoices.reduce((s: number, i: any) => s + (i.total_amount || 0), 0);
+    const initialCxP = initialState?.cuentas_por_pagar || 0;
+    const totalCxP = totalCxPInvoices + initialCxP;
+
+    if (totalCxP > 0) {
+      let text = `Tienes ${fmt(totalCxP)} en cuentas por pagar`;
+      if (initialCxP > 0) {
+        text += ` (incluye ${fmt(initialCxP)} del saldo inicial)`;
+      }
+      text += `.`;
+
+      insights.push({
+        key: "cxp",
+        title: "Cuentas por pagar 💳",
+        text,
+        recommendation: "Revisa los plazos de pago de tus proveedores y prioriza las obligaciones más urgentes.",
+        action: { label: "Ver CxP", path: "/reports" },
+        impact: totalCxP,
+      });
+    }
+
     // ─── INSIGHT E: Concentración de clientes ───
     const salesPeriod = invPeriod.filter((i: any) => i.type === "venta");
     if (salesPeriod.length >= 2) {
