@@ -1,5 +1,6 @@
 import { useNico } from '@/hooks/useNicoContext';
 import { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import nicoAvatar from '@/assets/nico-avatar.png';
 
 const CTA_MESSAGES = [
@@ -34,15 +35,21 @@ export default function NicoFAB() {
     <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
       {/* CTA tooltip */}
       {showTooltip && (
-        <button
-          onClick={openNico}
-          className="animate-fade-in flex items-center gap-2 px-4 py-2.5 rounded-2xl rounded-br-sm bg-card border border-border shadow-lg hover:shadow-xl transition-all cursor-pointer group"
-        >
-          <span className="text-xs text-muted-foreground">Pregúntale a Nico:</span>
-          <span className="text-xs font-medium text-foreground group-hover:text-success transition-colors">
-            "{CTA_MESSAGES[ctaIndex]}"
-          </span>
-        </button>
+        <div className="animate-fade-in flex items-center gap-2 px-4 py-2.5 rounded-2xl rounded-br-sm bg-card border border-border shadow-lg hover:shadow-xl transition-all cursor-pointer group">
+          <button onClick={openNico} className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Pregúntale a Nico:</span>
+            <span className="text-xs font-medium text-foreground group-hover:text-success transition-colors">
+              "{CTA_MESSAGES[ctaIndex]}"
+            </span>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowTooltip(false); }}
+            className="ml-1 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Cerrar"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
       {/* FAB */}
       <button
