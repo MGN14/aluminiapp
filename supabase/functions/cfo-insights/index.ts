@@ -109,6 +109,7 @@ Deno.serve(async (req) => {
       matchesRes,
       anticiposTxRes,
       taxSettingsRes,
+      initialStateRes,
     ] = await Promise.all([
       // Current period transactions
       admin
@@ -171,6 +172,12 @@ Deno.serve(async (req) => {
         .select("retefuente_compra_rate")
         .eq("user_id", userId)
         .maybeSingle(),
+      // Initial financial state
+      admin
+        .from("initial_financial_state")
+        .select("saldo_bancos, cuentas_por_cobrar, cuentas_por_pagar, anticipos_de_clientes, iva_a_favor, iva_por_pagar, retefuente_por_pagar, ica_por_pagar")
+        .eq("user_id", userId)
+        .maybeSingle(),
     ]);
 
     const txCurrent = txCurrentRes.data || [];
@@ -181,6 +188,7 @@ Deno.serve(async (req) => {
     const matches = matchesRes.data || [];
     const anticiposTx = anticiposTxRes.data || [];
     const retefuenteCompraRate = taxSettingsRes.data?.retefuente_compra_rate || 0;
+    const initialState = initialStateRes.data || null;
 
     console.log(`[cfo-insights] txCurrent=${txCurrent.length} txPrev=${txPrev.length} invPeriod=${invPeriod.length} invIva=${invIva.length}`);
 
@@ -209,7 +217,11 @@ Deno.serve(async (req) => {
       });
       const topCat = Object.entries(catExpenses).sort((a, b) => b[1] - a[1])[0];
 
+      const saldoInicial = initialState?.saldo_bancos || 0;
       let text = `Tus ingresos suman ${fmt(ingresos)} y tus egresos ${fmt(egresos)}, dejándote un neto de ${fmt(neto)}.`;
+      if (saldoInicial > 0) {
+        text += ` Partiendo de un saldo inicial de ${fmt(saldoInicial)}, tu posición de caja estimada es ${fmt(saldoInicial + neto)}.`;
+      }
       if (changePercent !== null) {
         const sign = changePercent >= 0 ? "+" : "";
         text += ` Eso es ${sign}${changePercent.toFixed(0)}% frente al periodo anterior.`;
@@ -345,9 +357,17 @@ Deno.serve(async (req) => {
         }
       });
 
+      // Add initial CxC if configured
+      const initialCxC = initialState?.cuentas_por_cobrar || 0;
+      totalCxC += initialCxC;
+
       if (totalCxC > 0) {
         const topDebtor = Array.from(clientDebt.entries()).sort((a, b) => b[1] - a[1])[0];
-        let text = `Tienes ${fmt(totalCxC)} pendientes de cobro en ${cxcCount} factura${cxcCount > 1 ? "s" : ""}.`;
+        let text = `Tienes ${fmt(totalCxC)} pendientes de cobro`;
+        if (initialCxC > 0) {
+          text += ` (incluye ${fmt(initialCxC)} del saldo inicial)`;
+        }
+        text += ` en ${cxcCount} factura${cxcCount > 1 ? "s" : ""}.`;
         if (overdue30 > 0) {
           text += ` De eso, ${fmt(overdue30)} tiene más de 30 días.`;
         }
@@ -366,6 +386,29 @@ Deno.serve(async (req) => {
           impact: totalCxC,
         });
       }
+    }
+
+    // ─── INSIGHT D2: Cuentas por pagar (from initial state + purchase invoices) ───
+    const purchaseInvoices = invYear.filter((i: any) => i.type === "compra");
+    const totalCxPInvoices = purchaseInvoices.reduce((s: number, i: any) => s + (i.total_amount || 0), 0);
+    const initialCxP = initialState?.cuentas_por_pagar || 0;
+    const totalCxP = totalCxPInvoices + initialCxP;
+
+    if (totalCxP > 0) {
+      let text = `Tienes ${fmt(totalCxP)} en cuentas por pagar`;
+      if (initialCxP > 0) {
+        text += ` (incluye ${fmt(initialCxP)} del saldo inicial)`;
+      }
+      text += `.`;
+
+      insights.push({
+        key: "cxp",
+        title: "Cuentas por pagar 💳",
+        text,
+        recommendation: "Revisa los plazos de pago de tus proveedores y prioriza las obligaciones más urgentes.",
+        action: { label: "Ver CxP", path: "/reports" },
+        impact: totalCxP,
+      });
     }
 
     // ─── INSIGHT E: Concentración de clientes ───
