@@ -44,10 +44,14 @@ interface ReteicaConfig {
 }
 
 export default function Transactions() {
+  const currentYear = new Date().getFullYear();
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
   const [statements, setStatements] = useState<Statement[]>([]);
+  const [selectedYear, setSelectedYear] = useState<string>(String(currentYear));
+  const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedStatement, setSelectedStatement] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
@@ -78,17 +82,32 @@ export default function Transactions() {
 
   useEffect(() => {
     fetchTransactions();
-  }, [selectedStatement]);
+  }, [selectedStatement, selectedYear]);
 
   const fetchStatements = async () => {
-    const currentYear = new Date().getFullYear();
     const { data } = await supabase
       .from('bank_statements')
       .select('id, file_name, display_name, transaction_count, statement_year')
       .is('deleted_at', null)
-      .eq('statement_year', currentYear)
+      .order('statement_year', { ascending: false })
       .order('uploaded_at', { ascending: false });
-    setStatements((data || []) as Statement[]);
+
+    const nextStatements = (data || []) as Statement[];
+    setStatements(nextStatements);
+
+    const years = Array.from(
+      new Set(
+        nextStatements
+          .map((stmt) => stmt.statement_year)
+          .filter((year): year is number => typeof year === 'number')
+      )
+    ).sort((a, b) => b - a);
+
+    if (!years.includes(currentYear)) {
+      years.unshift(currentYear);
+    }
+
+    setAvailableYears(years);
   };
 
   const fetchCategories = async () => {
@@ -119,6 +138,13 @@ export default function Transactions() {
         .is('deleted_at', null)
         .order('date', { ascending: true })
         .order('created_at', { ascending: true }); // Stable secondary sort
+
+      if (selectedYear !== 'all') {
+        const year = Number(selectedYear);
+        query = query
+          .gte('date', `${year}-01-01`)
+          .lt('date', `${year + 1}-01-01`);
+      }
 
       if (selectedStatement !== 'all') {
         query = query.eq('statement_id', selectedStatement);
@@ -157,6 +183,20 @@ export default function Transactions() {
     const conciliadas = total - pendientes;
     return { total, pendientes, conciliadas };
   }, [transactions]);
+
+  const filteredStatements = useMemo(() => {
+    if (selectedYear === 'all') return statements;
+    const year = Number(selectedYear);
+    return statements.filter((stmt) => stmt.statement_year === year);
+  }, [statements, selectedYear]);
+
+  useEffect(() => {
+    if (selectedStatement === 'all') return;
+    const existsInSelectedYear = filteredStatements.some((stmt) => stmt.id === selectedStatement);
+    if (!existsInSelectedYear) {
+      setSelectedStatement('all');
+    }
+  }, [filteredStatements, selectedStatement]);
 
   // Apply client-side filters and sorting
   const filteredTransactions = useMemo(() => {
@@ -258,6 +298,23 @@ export default function Transactions() {
               )}
               
               <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Año:</span>
+                <Select value={selectedYear} onValueChange={setSelectedYear}>
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue placeholder="Año" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    {availableYears.map((year) => (
+                      <SelectItem key={year} value={String(year)}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Extracto:</span>
                 <Select value={selectedStatement} onValueChange={setSelectedStatement}>
                   <SelectTrigger className="w-[220px]">
@@ -265,7 +322,7 @@ export default function Transactions() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos los extractos</SelectItem>
-                    {statements.map((stmt) => (
+                    {filteredStatements.map((stmt) => (
                       <SelectItem key={stmt.id} value={stmt.id}>
                         {stmt.display_name || stmt.file_name}
                         {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
