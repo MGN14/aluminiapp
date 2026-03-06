@@ -188,7 +188,8 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           transactionsToDate,
           invoicesToDate,
           salesInvoicesToDate,
-          matchedByInvoice
+          matchedByInvoice,
+          initialState
         );
 
         monthlyResults.push({ month, scores: monthScores, details: monthDetails });
