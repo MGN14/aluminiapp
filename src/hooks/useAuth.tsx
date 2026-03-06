@@ -108,12 +108,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, onSessionExpired as EventListener);
     }
 
+    const debugTelemetryEnabled =
+      isDev &&
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('debug') === '1';
+
     const handleAuthChange = (event: AuthChangeEvent, newSession: Session | null) => {
       if (!isMounted.current) return;
 
       authEventReceived.current = true;
-      setLastAuthEvent(event);
-      setLastAuthEventAt(Date.now());
+
+      // Avoid global re-renders on frequent TOKEN_REFRESHED events unless debug UI is enabled
+      if (debugTelemetryEnabled || event !== 'TOKEN_REFRESHED') {
+        setLastAuthEvent(event);
+        setLastAuthEventAt(Date.now());
+      }
 
       authLog('onAuthStateChange', {
         event,
@@ -122,8 +131,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       switch (event) {
+        case 'TOKEN_REFRESHED': {
+          const nextUser = newSession?.user ?? null;
+
+          // Keep stable references for same logged user to prevent app-wide refresh feeling
+          setUser((prev) => (prev?.id && nextUser?.id && prev.id === nextUser.id ? prev : nextUser));
+          setSession((prev) => {
+            if (!newSession) return null;
+            return prev?.user?.id === newSession.user?.id ? prev ?? newSession : newSession;
+          });
+
+          setSessionExpired(false);
+          setSessionExpiredReason(null);
+          setLoading(false);
+          prevUserId.current = nextUser?.id ?? null;
+          break;
+        }
+
         case 'SIGNED_IN':
-        case 'TOKEN_REFRESHED':
         case 'USER_UPDATED': {
           setSession(newSession);
           setUser(newSession?.user ?? null);
