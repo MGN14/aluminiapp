@@ -357,9 +357,17 @@ Deno.serve(async (req) => {
         }
       });
 
+      // Add initial CxC if configured
+      const initialCxC = initialState?.cuentas_por_cobrar || 0;
+      totalCxC += initialCxC;
+
       if (totalCxC > 0) {
         const topDebtor = Array.from(clientDebt.entries()).sort((a, b) => b[1] - a[1])[0];
-        let text = `Tienes ${fmt(totalCxC)} pendientes de cobro en ${cxcCount} factura${cxcCount > 1 ? "s" : ""}.`;
+        let text = `Tienes ${fmt(totalCxC)} pendientes de cobro`;
+        if (initialCxC > 0) {
+          text += ` (incluye ${fmt(initialCxC)} del saldo inicial)`;
+        }
+        text += ` en ${cxcCount} factura${cxcCount > 1 ? "s" : ""}.`;
         if (overdue30 > 0) {
           text += ` De eso, ${fmt(overdue30)} tiene más de 30 días.`;
         }
