@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,7 @@ import {
   sumDetailsByType,
   type InitialStateFormData,
   type InitialStateDetail,
+  type SaveStatus,
 } from '@/hooks/useInitialFinancialState';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -40,6 +41,8 @@ import {
   Plus,
   Trash2,
   Info,
+  Cloud,
+  CloudOff,
 } from 'lucide-react';
 
 const DEFAULT_FORM: InitialStateFormData = {
@@ -86,6 +89,32 @@ function CurrencyInput({
 
 function formatCurrency(v: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
+}
+
+function SaveStatusIndicator({ status }: { status: SaveStatus }) {
+  if (status === 'idle') return null;
+  return (
+    <div className="flex items-center gap-1.5 text-xs">
+      {status === 'saving' && (
+        <>
+          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+          <span className="text-muted-foreground">Guardando...</span>
+        </>
+      )}
+      {status === 'saved' && (
+        <>
+          <Cloud className="h-3 w-3 text-emerald-500" />
+          <span className="text-emerald-600">Guardado</span>
+        </>
+      )}
+      {status === 'error' && (
+        <>
+          <CloudOff className="h-3 w-3 text-destructive" />
+          <span className="text-destructive">Error al guardar</span>
+        </>
+      )}
+    </div>
+  );
 }
 
 function DetailSection({
@@ -150,7 +179,7 @@ function DetailSection({
 }
 
 export default function InitialFinancialStateCard() {
-  const { data, details: savedDetails, loading, isConfigured, save } = useInitialFinancialState();
+  const { data, details: savedDetails, loading, isConfigured, save, autoSave, saveStatus } = useInitialFinancialState();
   const { user } = useAuth();
   const { toast } = useToast();
   const [form, setForm] = useState<InitialStateFormData>(DEFAULT_FORM);
@@ -159,6 +188,7 @@ export default function InitialFinancialStateCard() {
   const [editing, setEditing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
+  const initializedRef = useRef(false);
 
   const isReadOnly = isConfigured && !editing;
 
@@ -182,31 +212,57 @@ export default function InitialFinancialStateCard() {
       });
     }
     setDetails(savedDetails.map(d => ({ ...d })));
+    initializedRef.current = true;
   }, [data, savedDetails]);
 
+  // Trigger auto-save on form/details change (skip initial load)
+  const changeCountRef = useRef(0);
+  const triggerAutoSave = useCallback((newForm: InitialStateFormData, newDetails: InitialStateDetail[]) => {
+    if (!initializedRef.current) return;
+    if (isReadOnly) return;
+    // Only auto-save if fecha_inicio is set
+    if (!newForm.fecha_inicio) return;
+    autoSave(newForm, newDetails);
+  }, [autoSave, isReadOnly]);
+
   const update = (field: keyof InitialStateFormData, value: number | string) => {
-    setForm(prev => ({ ...prev, [field]: value }));
+    setForm(prev => {
+      const next = { ...prev, [field]: value };
+      triggerAutoSave(next, details);
+      return next;
+    });
   };
 
   const addDetail = (fieldType: DetailFieldType) => {
-    setDetails(prev => [...prev, { field_type: fieldType, responsible_id: null, responsible_name: '', amount: 0 }]);
+    setDetails(prev => {
+      const next = [...prev, { field_type: fieldType, responsible_id: null, responsible_name: '', amount: 0 }];
+      // Don't auto-save empty row, wait for user to fill it
+      return next;
+    });
   };
 
   const removeDetail = (index: number) => {
-    setDetails(prev => prev.filter((_, i) => i !== index));
+    setDetails(prev => {
+      const next = prev.filter((_, i) => i !== index);
+      triggerAutoSave(form, next);
+      return next;
+    });
   };
 
   const updateDetail = (index: number, field: 'responsible_name' | 'amount', value: string | number) => {
-    setDetails(prev => prev.map((d, i) => {
-      if (i !== index) return d;
-      const updated = { ...d, [field]: value };
-      // Try to match responsible_id by name
-      if (field === 'responsible_name') {
-        const match = responsibles.find(r => r.name.toLowerCase() === (value as string).toLowerCase());
-        updated.responsible_id = match?.id || null;
-      }
-      return updated;
-    }));
+    setDetails(prev => {
+      const next = prev.map((d, i) => {
+        if (i !== index) return d;
+        const updated = { ...d, [field]: value };
+        if (field === 'responsible_name') {
+          const match = responsibles.find(r => r.name.toLowerCase() === (value as string).toLowerCase());
+          updated.responsible_id = match?.id || null;
+        }
+        return updated;
+      });
+      triggerAutoSave(form, next);
+      return next;
+    });
   };
 
   const getItemsForType = (type: DetailFieldType) => details.filter(d => d.field_type === type);
@@ -253,15 +309,20 @@ export default function InitialFinancialStateCard() {
     <>
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Landmark className="h-5 w-5 text-muted-foreground" />
-            Estado inicial financiero
-          </CardTitle>
-          <CardDescription>
-            {isConfigured
-              ? 'Saldos con los que comenzaste a usar AluminIA. Estos son el punto de partida de tus reportes.'
-              : 'Configura el punto de partida financiero de tu negocio. Usa los valores declarados en tus estados financieros o balance del contador.'}
-          </CardDescription>
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Landmark className="h-5 w-5 text-muted-foreground" />
+                Estado inicial financiero
+              </CardTitle>
+              <CardDescription>
+                {isConfigured
+                  ? 'Saldos con los que comenzaste a usar AluminIA. Estos son el punto de partida de tus reportes.'
+                  : 'Configura el punto de partida financiero de tu negocio. Usa los valores declarados en tus estados financieros o balance del contador.'}
+              </CardDescription>
+            </div>
+            {!isReadOnly && <SaveStatusIndicator status={saveStatus} />}
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Fecha inicio */}
@@ -426,13 +487,6 @@ export default function InitialFinancialStateCard() {
               </Button>
             ) : (
               <>
-                <Button onClick={handleSave} disabled={saving || !form.fecha_inicio}>
-                  {saving ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Guardando...</>
-                  ) : (
-                    <><Save className="h-4 w-4 mr-2" />{isConfigured ? 'Guardar cambios' : 'Guardar estado inicial'}</>
-                  )}
-                </Button>
                 {editing && (
                   <Button variant="ghost" onClick={() => {
                     setEditing(false);
