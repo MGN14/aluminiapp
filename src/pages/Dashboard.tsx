@@ -668,6 +668,9 @@ export default function Dashboard() {
         {/* Trial Checklist */}
         <TrialChecklist />
 
+        {/* Financial Health Score */}
+        <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
+
         {/* CFO Automático - Insights */}
         <CFOInsights 
           periodSelection={periodSelection} 
@@ -924,8 +927,6 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* Financial Health Score */}
-            <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
 
             {/* Pending Transactions Table - Annual, not tied to period filters */}
             <PendingTransactionsTable
