@@ -36,6 +36,7 @@ export const AUTO_RULES: AutoRule[] = [
     hasIva: false,
     hasRetefuente: false,
     hasReteica: false,
+    invoiceTag: 'na',
   },
   // Rule B: GMF / 4x1000 tax
   {
@@ -48,6 +49,7 @@ export const AUTO_RULES: AutoRule[] = [
     hasIva: false,
     hasRetefuente: false,
     hasReteica: false,
+    invoiceTag: 'na',
   },
   // Rule E: IVA automatic payments
   {
@@ -60,6 +62,7 @@ export const AUTO_RULES: AutoRule[] = [
     hasIva: false,
     hasRetefuente: false,
     hasReteica: false,
+    invoiceTag: 'na',
   },
   // Rule F: Virtual transfer service fee
   {
@@ -72,6 +75,7 @@ export const AUTO_RULES: AutoRule[] = [
     hasIva: false,
     hasRetefuente: false,
     hasReteica: false,
+    invoiceTag: 'na',
   },
   // Rule C: National cash deposits (Sales, needs human review)
   {
