@@ -116,6 +116,8 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       if (invoiceResult.error) throw invoiceResult.error;
       if (matchesResult.error) throw matchesResult.error;
 
+      const initialState = (initialStateResult.data as any) ?? null;
+
       const transactions = (txResult.data ?? []) as TransactionRow[];
       const invoices = (invoiceResult.data ?? []) as InvoiceRow[];
       const matches = (matchesResult.data ?? []) as MatchRow[];
