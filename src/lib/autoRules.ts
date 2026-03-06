@@ -16,6 +16,8 @@ export interface AutoRule {
   hasIva: boolean;
   hasRetefuente: boolean;
   hasReteica: boolean;
+  // Invoice tag to auto-assign (e.g. 'na' for N/A - sin factura asociada)
+  invoiceTag?: 'na' | 'iva_favor' | 'retefuente' | null;
 }
 
 /**
