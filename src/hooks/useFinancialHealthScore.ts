@@ -1,286 +1,256 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  calculateFinancialHealthMetrics,
+  getRecommendations,
+  getScoreInterpretation,
+  type HealthInvoice,
+  type HealthTransaction,
+  type HistoricalScore,
+  type ScoreBreakdown,
+  type ScoreDetails,
+} from './financialHealthScoreUtils';
 
-export interface ScoreBreakdown {
-  conciliacion: number;
-  facturacion: number;
-  impuestos: number;
-  cartera: number;
-  clasificacion: number;
-  total: number;
+export type { HistoricalScore, ScoreBreakdown, ScoreDetails } from './financialHealthScoreUtils';
+export { getRecommendations, getScoreInterpretation } from './financialHealthScoreUtils';
+
+interface TransactionRow extends HealthTransaction {
+  date: string;
 }
 
-export interface ScoreDetails {
-  conciliacion: { pct: number; montoPendiente: number; totalMovimientos: number };
-  facturacion: { pct: number; ingresosConFactura: number; ingresosAnticipo: number; totalIngresos: number };
-  impuestos: { pct: number; pctVentas: number; pctCompras: number; pctVinculados: number };
-  cartera: { pct: number; pctCartera: number; pctAnticipos: number; cuentasPorCobrar: number; anticiposSinFactura: number; facturacionTotal: number; ingresosTotal: number };
-  clasificacion: { pct: number; completas: number; total: number };
+interface InvoiceRow extends HealthInvoice {
+  issue_date: string;
+  status: string;
 }
 
-export interface HistoricalScore {
-  month: number;
-  year: number;
-  score_total: number;
-  score_conciliacion: number;
-  score_facturacion: number;
-  score_impuestos: number;
-  score_cartera: number;
-  score_clasificacion: number;
+interface MatchRow {
+  invoice_id: string;
+  matched_amount: number;
+  transaction_id: string;
 }
 
-// 6-tier scale used for conciliacion, facturacion, clasificacion
-function sixTierScore(pct: number): number {
-  if (pct >= 0.98) return 20;
-  if (pct >= 0.95) return 18;
-  if (pct >= 0.90) return 15;
-  if (pct >= 0.80) return 10;
-  if (pct >= 0.70) return 5;
-  return 0;
+const EMPTY_SCORES: ScoreBreakdown = {
+  conciliacion: 0,
+  facturacion: 0,
+  impuestos: 0,
+  cartera: 0,
+  clasificacion: 0,
+  total: 0,
+};
+
+const EMPTY_DETAILS: ScoreDetails = {
+  conciliacion: { pct: 0, montoPendiente: 0, totalMovimientos: 0 },
+  facturacion: { pct: 0, ingresosConFactura: 0, ingresosAnticipo: 0, totalIngresos: 0 },
+  impuestos: { pct: 0, pctVentas: 0, pctCompras: 0, pctVinculados: 0 },
+  cartera: {
+    pct: 0,
+    pctCartera: 0,
+    pctAnticipos: 0,
+    cuentasPorCobrar: 0,
+    anticiposSinFactura: 0,
+    facturacionTotal: 0,
+    ingresosTotal: 0,
+  },
+  clasificacion: { pct: 0, completas: 0, total: 0 },
+};
+
+function getMonthFromDate(dateValue: string): number {
+  return new Date(`${dateValue}T00:00:00`).getMonth() + 1;
 }
 
-// 5-tier scale used for impuestos
-function fiveTierScore(pct: number): number {
-  if (pct >= 0.95) return 20;
-  if (pct >= 0.85) return 16;
-  if (pct >= 0.70) return 12;
-  if (pct >= 0.50) return 6;
-  return 0;
-}
-
-// Cartera risk scale (lower is better)
-function carteraScore(riesgo: number): number {
-  if (riesgo <= 0.05) return 20;
-  if (riesgo <= 0.10) return 18;
-  if (riesgo <= 0.20) return 15;
-  if (riesgo <= 0.30) return 10;
-  if (riesgo <= 0.40) return 5;
-  return 0;
-}
-
-export function getScoreInterpretation(score: number): { level: string; message: string; color: string } {
-  if (score >= 90) return {
-    level: 'Muy ordenado',
-    message: 'Tu negocio tiene un alto nivel de organización financiera. La información disponible permitiría enfrentar una revisión tributaria con tranquilidad.',
-    color: 'text-success',
-  };
-  if (score >= 75) return {
-    level: 'Orden saludable',
-    message: 'Tus finanzas están relativamente organizadas, pero aún existen algunos puntos que podrían generar inconsistencias si la información fuera revisada.',
-    color: 'text-success',
-  };
-  if (score >= 60) return {
-    level: 'Orden aceptable con riesgos',
-    message: 'Tu negocio muestra desorden financiero en algunos aspectos. Es recomendable organizar tu información antes de que esto genere problemas fiscales o de control.',
-    color: 'text-warning',
-  };
-  if (score >= 45) return {
-    level: 'Riesgo alto',
-    message: 'Tu negocio tiene un nivel de desorden financiero considerable. Si hoy recibieras una revisión de la DIAN, probablemente tendrías dificultades para soportar varias operaciones.',
-    color: 'text-destructive',
-  };
-  return {
-    level: 'Riesgo crítico',
-    message: 'Tu negocio presenta un nivel de desorden financiero muy alto. En el estado actual sería difícil soportar adecuadamente los movimientos financieros ante una revisión de la DIAN. Es urgente organizar la información.',
-    color: 'text-destructive',
-  };
-}
-
-export function getRecommendations(scores: ScoreBreakdown): string[] {
-  const recs: string[] = [];
-  if (scores.conciliacion < 18) recs.push('Existen movimientos bancarios sin soporte. Revisa y vincula facturas, asigna responsables o clasifícalos correctamente.');
-  if (scores.facturacion < 18) recs.push('Hay ingresos sin factura asociada ni marcados como anticipo. Esto puede generar inconsistencias frente a la DIAN.');
-  if (scores.impuestos < 16) recs.push('La base fiscal del periodo está incompleta. Faltan facturas de compra o venta que afectan el cálculo del IVA y retenciones.');
-  if (scores.cartera < 18) recs.push('Una parte importante de tu facturación no ha sido cobrada o tienes anticipos sin factura asociada.');
-  if (scores.clasificacion < 18) recs.push('Varias transacciones no tienen categoría, responsable o factura asignada. Completa la información para mejorar tu orden.');
-  return recs;
-}
-
-export function useFinancialHealthScore(year: number, month: number) {
+export function useFinancialHealthScore(year: number, _month?: number) {
   const [scores, setScores] = useState<ScoreBreakdown | null>(null);
   const [details, setDetails] = useState<ScoreDetails | null>(null);
   const [history, setHistory] = useState<HistoricalScore[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(true);
+  const [lastMonthWithData, setLastMonthWithData] = useState<number | null>(null);
 
   const calculate = useCallback(async () => {
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
 
-      const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
-      const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      // Fetch transactions
-      const { data: txs } = await supabase
-        .from('transactions')
-        .select('id, responsible_id, invoice_id, notes, category_id, amount, type, has_iva')
-        .is('deleted_at', null)
-        .gte('date', monthStart)
-        .lt('date', nextMonth);
+      if (!user) {
+        setScores(null);
+        setDetails(null);
+        setHistory([]);
+        setHasData(false);
+        setLastMonthWithData(null);
+        return;
+      }
 
-      const transactions = txs || [];
-      const totalTx = transactions.length;
-      const hasTransactions = totalTx > 0;
-      setHasData(hasTransactions);
+      const yearStart = `${year}-01-01`;
+      const nextYearStart = `${year + 1}-01-01`;
 
-      // ========== 1. CONCILIACIÓN BANCARIA (amount-based) ==========
-      const totalMovimientos = transactions.reduce((s, tx) => s + Math.abs(tx.amount ?? 0), 0);
-      const montoPendiente = transactions
-        .filter(tx => !tx.responsible_id && !tx.invoice_id && !(tx.notes && (tx.notes.includes('[N/A]') || tx.notes.includes('[Anticipo]'))))
-        .reduce((s, tx) => s + Math.abs(tx.amount ?? 0), 0);
-      // If no transactions, score 0 (no data to evaluate)
-      const pctConciliado = totalMovimientos > 0 ? 1 - (montoPendiente / totalMovimientos) : 0;
-      const scoreConciliacion = hasTransactions ? sixTierScore(pctConciliado) : 0;
+      const [txResult, invoiceResult, matchesResult] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('id, date, responsible_id, invoice_id, notes, category_id, amount')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .gte('date', yearStart)
+          .lt('date', nextYearStart),
+        supabase
+          .from('invoices')
+          .select('id, type, status, issue_date, total_amount')
+          .eq('user_id', user.id)
+          .eq('status', 'confirmed')
+          .gte('issue_date', yearStart)
+          .lt('issue_date', nextYearStart),
+        supabase
+          .from('invoice_transaction_matches')
+          .select('invoice_id, matched_amount, transaction_id')
+          .eq('user_id', user.id),
+      ]);
 
-      // ========== 2. FACTURACIÓN SOPORTADA ==========
-      const ingresosTx = transactions.filter(tx => (tx.amount ?? 0) > 0);
-      const totalIngresosMonto = ingresosTx.reduce((s, tx) => s + (tx.amount ?? 0), 0);
-      const ingresosConFacturaMonto = ingresosTx.filter(tx => !!tx.invoice_id).reduce((s, tx) => s + (tx.amount ?? 0), 0);
-      const ingresosAnticipoMonto = ingresosTx.filter(tx => !tx.invoice_id && tx.notes && tx.notes.includes('[Anticipo]')).reduce((s, tx) => s + (tx.amount ?? 0), 0);
-      const pctSoportado = totalIngresosMonto > 0 ? (ingresosConFacturaMonto + ingresosAnticipoMonto) / totalIngresosMonto : 0;
-      const scoreFacturacion = hasTransactions ? sixTierScore(pctSoportado) : 0;
+      if (txResult.error) throw txResult.error;
+      if (invoiceResult.error) throw invoiceResult.error;
+      if (matchesResult.error) throw matchesResult.error;
 
-      // ========== 3. CONTROL DE IMPUESTOS ==========
-      const { data: invoices } = await supabase
-        .from('invoices')
-        .select('id, type, status')
-        .gte('issue_date', monthStart)
-        .lt('issue_date', nextMonth);
+      const transactions = (txResult.data ?? []) as TransactionRow[];
+      const invoices = (invoiceResult.data ?? []) as InvoiceRow[];
+      const matches = (matchesResult.data ?? []) as MatchRow[];
 
-      const allInvoices = (invoices || []).filter(i => i.status === 'confirmed');
-      const ventasCount = allInvoices.filter(i => i.type === 'venta').length;
-      const comprasCount = allInvoices.filter(i => i.type === 'compra').length;
+      const latestTxMonth = transactions.reduce((maxMonth, tx) => Math.max(maxMonth, getMonthFromDate(tx.date)), 0);
+      const latestInvoiceMonth = invoices.reduce((maxMonth, invoice) => Math.max(maxMonth, getMonthFromDate(invoice.issue_date)), 0);
+      const latestMonth = Math.max(latestTxMonth, latestInvoiceMonth) || null;
 
-      // % ingresos con factura de venta
-      const ingresosConFacturaCount = ingresosTx.filter(tx => !!tx.invoice_id).length;
-      const pctVentas = ingresosTx.length > 0 ? ingresosConFacturaCount / ingresosTx.length : (ventasCount > 0 ? 1 : 0);
+      setLastMonthWithData(latestMonth);
+      setHasData(Boolean(latestMonth));
 
-      // % egresos con factura de compra
-      const egresosTx = transactions.filter(tx => (tx.amount ?? 0) < 0);
-      const egresosConFactura = egresosTx.filter(tx => !!tx.invoice_id).length;
-      const pctCompras = egresosTx.length > 0 ? egresosConFactura / egresosTx.length : (comprasCount > 0 ? 1 : 0);
+      if (!latestMonth) {
+        setScores(EMPTY_SCORES);
+        setDetails(EMPTY_DETAILS);
+        setHistory([]);
+        return;
+      }
 
-      // % movimientos relevantes con factura o N/A
-      const relevantes = transactions.filter(tx => (tx.amount ?? 0) !== 0);
-      const vinculados = relevantes.filter(tx => !!tx.invoice_id || (tx.notes && (tx.notes.includes('[N/A]') || tx.notes.includes('[Anticipo]')))).length;
-      const pctVinculados = relevantes.length > 0 ? vinculados / relevantes.length : (hasTransactions ? 0 : 0);
+      const matchTransactionIds = Array.from(new Set(matches.map((match) => match.transaction_id).filter(Boolean)));
+      const transactionDateById = new Map<string, string>();
 
-      const hasAnyFiscalData = hasTransactions || allInvoices.length > 0;
-      const completitudFiscal = hasAnyFiscalData ? (pctVentas + pctCompras + pctVinculados) / 3 : 0;
-      const scoreImpuestos = hasAnyFiscalData ? fiveTierScore(completitudFiscal) : 0;
+      if (matchTransactionIds.length > 0) {
+        const { data: matchTransactions, error: matchTransactionsError } = await supabase
+          .from('transactions')
+          .select('id, date')
+          .eq('user_id', user.id)
+          .in('id', matchTransactionIds);
 
-      // ========== 4. CARTERA Y ANTICIPOS ==========
-      const { data: ventaInvoices } = await supabase
-        .from('invoices')
-        .select('id, total_amount, status')
-        .eq('type', 'venta')
-        .eq('status', 'confirmed')
-        .gte('issue_date', monthStart)
-        .lt('issue_date', nextMonth);
+        if (matchTransactionsError) throw matchTransactionsError;
 
-      const { data: matches } = await supabase
-        .from('invoice_transaction_matches')
-        .select('invoice_id, matched_amount');
+        (matchTransactions ?? []).forEach((tx) => {
+          transactionDateById.set(tx.id, tx.date);
+        });
+      }
 
-      const matchMap = new Map<string, number>();
-      (matches || []).forEach(m => {
-        matchMap.set(m.invoice_id, (matchMap.get(m.invoice_id) || 0) + (m.matched_amount || 0));
-      });
+      const matchesWithDates = matches
+        .map((match) => ({
+          invoice_id: match.invoice_id,
+          matched_amount: match.matched_amount ?? 0,
+          date: transactionDateById.get(match.transaction_id) ?? null,
+        }))
+        .filter((match): match is { invoice_id: string; matched_amount: number; date: string } => Boolean(match.date));
 
-      const periodVentas = ventaInvoices || [];
-      const facturacionTotal = periodVentas.reduce((s, i) => s + (i.total_amount || 0), 0);
-      const cuentasPorCobrar = periodVentas.reduce((s, i) => {
-        const paid = matchMap.get(i.id) || 0;
-        return s + Math.max(0, (i.total_amount || 0) - paid);
-      }, 0);
-      const pctCartera = facturacionTotal > 0 ? cuentasPorCobrar / facturacionTotal : 0;
+      const monthlyResults: Array<{ month: number; scores: ScoreBreakdown; details: ScoreDetails }> = [];
 
-      // Anticipos sin factura
-      const anticiposSinFactura = ingresosTx
-        .filter(tx => !tx.invoice_id && tx.notes && tx.notes.includes('[Anticipo]'))
-        .reduce((s, tx) => s + (tx.amount ?? 0), 0);
-      const pctAnticipos = totalIngresosMonto > 0 ? anticiposSinFactura / totalIngresosMonto : 0;
+      for (let month = 1; month <= latestMonth; month += 1) {
+        const rangeEndExclusive = month === 12
+          ? `${year + 1}-01-01`
+          : `${year}-${String(month + 1).padStart(2, '0')}-01`;
 
-      const riesgoTotal = (pctCartera + pctAnticipos) / 2;
-      const scoreCartera = carteraScore(riesgoTotal);
+        const transactionsToDate = transactions.filter((tx) => tx.date < rangeEndExclusive);
+        const invoicesToDate = invoices.filter((invoice) => invoice.issue_date < rangeEndExclusive);
+        const salesInvoicesToDate = invoicesToDate.filter((invoice) => invoice.type === 'venta');
+        const salesInvoiceIds = new Set(salesInvoicesToDate.map((invoice) => invoice.id));
 
-      // ========== 5. CLASIFICACIÓN FINANCIERA ==========
-      const completas = transactions.filter(tx => {
-        const hasCat = !!tx.category_id;
-        const hasResp = !!tx.responsible_id || (tx.notes && tx.notes.includes('[N/A]'));
-        const hasInvoice = !!tx.invoice_id || (tx.notes && (tx.notes.includes('[N/A]') || tx.notes.includes('[Anticipo]')));
-        return hasCat && hasResp && hasInvoice;
-      }).length;
-      const pctClasificado = totalTx > 0 ? completas / totalTx : 0;
-      const scoreClasificacion = hasTransactions ? sixTierScore(pctClasificado) : 0;
+        const matchedByInvoice = new Map<string, number>();
+        matchesWithDates.forEach((match) => {
+          if (match.date >= rangeEndExclusive) return;
+          if (!salesInvoiceIds.has(match.invoice_id)) return;
 
-      const total = scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion;
+          matchedByInvoice.set(
+            match.invoice_id,
+            (matchedByInvoice.get(match.invoice_id) ?? 0) + match.matched_amount
+          );
+        });
 
-      const breakdown: ScoreBreakdown = {
-        conciliacion: scoreConciliacion,
-        facturacion: scoreFacturacion,
-        impuestos: scoreImpuestos,
-        cartera: scoreCartera,
-        clasificacion: scoreClasificacion,
-        total,
-      };
+        const { scores: monthScores, details: monthDetails } = calculateFinancialHealthMetrics(
+          transactionsToDate,
+          invoicesToDate,
+          salesInvoicesToDate,
+          matchedByInvoice
+        );
 
-      const det: ScoreDetails = {
-        conciliacion: { pct: pctConciliado, montoPendiente, totalMovimientos },
-        facturacion: { pct: pctSoportado, ingresosConFactura: ingresosConFacturaMonto, ingresosAnticipo: ingresosAnticipoMonto, totalIngresos: totalIngresosMonto },
-        impuestos: { pct: completitudFiscal, pctVentas, pctCompras, pctVinculados },
-        cartera: { pct: riesgoTotal, pctCartera, pctAnticipos, cuentasPorCobrar, anticiposSinFactura, facturacionTotal, ingresosTotal: totalIngresosMonto },
-        clasificacion: { pct: pctClasificado, completas, total: totalTx },
-      };
+        monthlyResults.push({ month, scores: monthScores, details: monthDetails });
+      }
 
-      setScores(breakdown);
-      setDetails(det);
+      const current = monthlyResults[monthlyResults.length - 1];
+      setScores(current?.scores ?? EMPTY_SCORES);
+      setDetails(current?.details ?? EMPTY_DETAILS);
 
-      // Upsert to DB
-      await supabase.from('financial_health_scores').upsert({
-        user_id: user.id,
-        month,
+      const historyRows: HistoricalScore[] = monthlyResults.map((item) => ({
+        month: item.month,
         year,
-        score_total: total,
-        score_conciliacion: scoreConciliacion,
-        score_facturacion: scoreFacturacion,
-        score_impuestos: scoreImpuestos,
-        score_cartera: scoreCartera,
-        score_clasificacion: scoreClasificacion,
-        details: det as any,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,month,year' });
+        score_total: item.scores.total,
+        score_conciliacion: item.scores.conciliacion,
+        score_facturacion: item.scores.facturacion,
+        score_impuestos: item.scores.impuestos,
+        score_cartera: item.scores.cartera,
+        score_clasificacion: item.scores.clasificacion,
+      }));
 
+      setHistory(historyRows);
+
+      const upsertRows = monthlyResults.map((item) => ({
+        user_id: user.id,
+        month: item.month,
+        year,
+        score_total: item.scores.total,
+        score_conciliacion: item.scores.conciliacion,
+        score_facturacion: item.scores.facturacion,
+        score_impuestos: item.scores.impuestos,
+        score_cartera: item.scores.cartera,
+        score_clasificacion: item.scores.clasificacion,
+        details: item.details as unknown,
+        updated_at: new Date().toISOString(),
+      }));
+
+      if (upsertRows.length > 0) {
+        await supabase
+          .from('financial_health_scores')
+          .upsert(upsertRows, { onConflict: 'user_id,month,year' });
+      }
     } catch (error) {
       console.error('Error calculating financial health score:', error);
+      setScores(EMPTY_SCORES);
+      setDetails(EMPTY_DETAILS);
+      setHistory([]);
+      setHasData(false);
+      setLastMonthWithData(null);
     } finally {
       setLoading(false);
-    }
-  }, [year, month]);
-
-  const fetchHistory = useCallback(async () => {
-    try {
-      const { data } = await supabase
-        .from('financial_health_scores')
-        .select('month, year, score_total, score_conciliacion, score_facturacion, score_impuestos, score_cartera, score_clasificacion')
-        .eq('year', year)
-        .order('month', { ascending: true });
-
-      setHistory((data as HistoricalScore[]) || []);
-    } catch (error) {
-      console.error('Error fetching score history:', error);
     }
   }, [year]);
 
   useEffect(() => {
     calculate();
-    fetchHistory();
-  }, [calculate, fetchHistory]);
+  }, [calculate]);
 
-  const interpretation = useMemo(() => scores ? getScoreInterpretation(scores.total) : null, [scores]);
-  const recommendations = useMemo(() => scores ? getRecommendations(scores) : [], [scores]);
+  const interpretation = useMemo(() => (scores ? getScoreInterpretation(scores.total) : null), [scores]);
+  const recommendations = useMemo(() => (scores ? getRecommendations(scores) : []), [scores]);
 
-  return { scores, details, history, loading, interpretation, recommendations, recalculate: calculate, hasData };
+  return {
+    scores,
+    details,
+    history,
+    loading,
+    interpretation,
+    recommendations,
+    recalculate: calculate,
+    hasData,
+    lastMonthWithData,
+  };
 }
