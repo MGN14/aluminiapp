@@ -240,9 +240,9 @@ export function calculateFinancialHealthMetrics(
       pctCartera,
       pctAnticipos,
       cuentasPorCobrar,
-      anticiposSinFactura,
-      facturacionTotal,
-      ingresosTotal: totalIngresosMonto,
+      anticiposSinFactura: totalAnticipos,
+      facturacionTotal: baseCartera,
+      ingresosTotal: baseAnticipos,
     },
     clasificacion: { pct: pctClasificado, completas, total: totalTx },
   };
