@@ -22,6 +22,7 @@ import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashbo
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
 import OperationalSummaryCards from '@/components/dashboard/OperationalSummaryCards';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
+import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import PlanStatusCard from '@/components/subscription/PlanStatusCard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -923,8 +924,11 @@ export default function Dashboard() {
               />
             </div>
 
+            {/* Financial Health Score */}
+            <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
+
             {/* Pending Transactions Table - Annual, not tied to period filters */}
-            <PendingTransactionsTable 
+            <PendingTransactionsTable
               transactions={transactions
                 .filter(tx => new Date(tx.date).getFullYear() === periodSelection.year)
                 .map(tx => ({
