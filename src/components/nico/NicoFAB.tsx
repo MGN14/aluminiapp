@@ -1,5 +1,6 @@
 import { useNico } from '@/hooks/useNicoContext';
 import { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import nicoAvatar from '@/assets/nico-avatar.png';
 
 const CTA_MESSAGES = [
