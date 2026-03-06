@@ -283,6 +283,8 @@ export default function TransactionRow({
           invoiceId={derivedInvoiceId}
           tags={derivedTags}
           transactionType={localTransaction.type || 'egreso'}
+          transactionAmount={localTransaction.amount}
+          transactionId={localTransaction.id}
           onChange={handleInvoiceChange}
         />
       </TableCell>
