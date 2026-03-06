@@ -214,7 +214,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
         score_impuestos: item.scores.impuestos,
         score_cartera: item.scores.cartera,
         score_clasificacion: item.scores.clasificacion,
-        details: item.details as unknown,
+        details: item.details as any,
         updated_at: new Date().toISOString(),
       }));
 
