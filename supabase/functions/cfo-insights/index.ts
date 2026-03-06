@@ -188,6 +188,7 @@ Deno.serve(async (req) => {
     const matches = matchesRes.data || [];
     const anticiposTx = anticiposTxRes.data || [];
     const retefuenteCompraRate = taxSettingsRes.data?.retefuente_compra_rate || 0;
+    const initialState = initialStateRes.data || null;
 
     console.log(`[cfo-insights] txCurrent=${txCurrent.length} txPrev=${txPrev.length} invPeriod=${invPeriod.length} invIva=${invIva.length}`);
 
