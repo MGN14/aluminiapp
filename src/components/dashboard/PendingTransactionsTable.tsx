@@ -197,6 +197,7 @@ export function PendingTransactionsTable({
     if (notes.includes('[N/A]')) tags.push('na');
     if (notes.includes('[IVA a favor - Pago DIAN]')) tags.push('iva_favor');
     if (notes.includes('[Retefuente - Sin factura]')) tags.push('retefuente');
+    if (notes.includes('[Anticipo]')) tags.push('anticipo');
     return tags;
   };
 
@@ -321,6 +322,8 @@ export function PendingTransactionsTable({
                         invoiceId={tx.invoice_id}
                         tags={parseTagsFromNotes(tx.notes)}
                         transactionType={tx.type || 'egreso'}
+                        transactionAmount={tx.amount}
+                        transactionId={tx.id}
                         onChange={(invId, tags) => handleInvoiceChange(tx.id, invId, tags, tx.notes)}
                         className="min-w-[120px]"
                       />
