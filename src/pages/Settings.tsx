@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import PlanBadge from '@/components/subscription/PlanBadge';
 import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import TaxRecalculationButton from '@/components/settings/TaxRecalculationButton';
+import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import AutoRulesButton from '@/components/settings/AutoRulesButton';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mail, Building2, Shield, LogOut, Key, Save, Calculator, Wand2 } from 'lucide-react';
