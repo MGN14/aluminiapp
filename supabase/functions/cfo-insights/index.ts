@@ -109,6 +109,7 @@ Deno.serve(async (req) => {
       matchesRes,
       anticiposTxRes,
       taxSettingsRes,
+      initialStateRes,
     ] = await Promise.all([
       // Current period transactions
       admin
@@ -169,6 +170,12 @@ Deno.serve(async (req) => {
       admin
         .from("tax_settings")
         .select("retefuente_compra_rate")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      // Initial financial state
+      admin
+        .from("initial_financial_state")
+        .select("saldo_bancos, cuentas_por_cobrar, cuentas_por_pagar, anticipos_de_clientes, iva_a_favor, iva_por_pagar, retefuente_por_pagar, ica_por_pagar")
         .eq("user_id", userId)
         .maybeSingle(),
     ]);
