@@ -163,10 +163,11 @@ export function useFinancialHealthScore(year: number, month: number) {
       // % movimientos relevantes con factura o N/A
       const relevantes = transactions.filter(tx => (tx.amount ?? 0) !== 0);
       const vinculados = relevantes.filter(tx => !!tx.invoice_id || (tx.notes && (tx.notes.includes('[N/A]') || tx.notes.includes('[Anticipo]')))).length;
-      const pctVinculados = relevantes.length > 0 ? vinculados / relevantes.length : 1;
+      const pctVinculados = relevantes.length > 0 ? vinculados / relevantes.length : (hasTransactions ? 0 : 0);
 
-      const completitudFiscal = (pctVentas + pctCompras + pctVinculados) / 3;
-      const scoreImpuestos = fiveTierScore(completitudFiscal);
+      const hasAnyFiscalData = hasTransactions || allInvoices.length > 0;
+      const completitudFiscal = hasAnyFiscalData ? (pctVentas + pctCompras + pctVinculados) / 3 : 0;
+      const scoreImpuestos = hasAnyFiscalData ? fiveTierScore(completitudFiscal) : 0;
 
       // ========== 4. CARTERA Y ANTICIPOS ==========
       const { data: ventaInvoices } = await supabase
