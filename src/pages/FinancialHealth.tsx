@@ -136,7 +136,7 @@ export default function FinancialHealth() {
     }));
   }, [history]);
 
-  if (loading) {
+  if (loading || initialLoading) {
     return (
       <AppLayout>
         <div className="max-w-5xl mx-auto space-y-6">
