@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Shield, TrendingUp, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { useFinancialHealthScore, getScoreInterpretation, getRecommendations, type ScoreDetails } from '@/hooks/useFinancialHealthScore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -89,8 +90,33 @@ export default function FinancialHealth() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  const { scores, details, history, loading, interpretation, recommendations } = useFinancialHealthScore(year, month);
+  // Default to latest month with transaction data
+  useEffect(() => {
+    async function findLatestMonth() {
+      try {
+        const { data } = await supabase
+          .from('transactions')
+          .select('date')
+          .is('deleted_at', null)
+          .order('date', { ascending: false })
+          .limit(1);
+        if (data && data.length > 0) {
+          const d = new Date(data[0].date);
+          setYear(d.getFullYear());
+          setMonth(d.getMonth() + 1);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setInitialLoading(false);
+      }
+    }
+    findLatestMonth();
+  }, []);
+
+  const { scores, details, history, loading, interpretation, recommendations, hasData } = useFinancialHealthScore(year, month);
 
   const donutData = useMemo(() => {
     if (!scores) return [];
