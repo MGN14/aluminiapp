@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 
@@ -42,7 +42,10 @@ export type InitialStateFormData = {
   iva_a_favor: number;
 };
 
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
 const DETAIL_FIELDS = ['cuentas_por_cobrar', 'anticipos_a_proveedores', 'anticipos_de_clientes', 'cuentas_por_pagar'] as const;
+const AUTOSAVE_DELAY_MS = 1000;
 
 export function sumDetailsByType(details: InitialStateDetail[], type: string): number {
   return details.filter(d => d.field_type === type).reduce((s, d) => s + d.amount, 0);
@@ -73,6 +76,9 @@ export function useInitialFinancialState() {
   const [details, setDetails] = useState<InitialStateDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [isConfigured, setIsConfigured] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user) {
@@ -109,58 +115,99 @@ export function useInitialFinancialState() {
     fetchData();
   }, [fetchData]);
 
-  const save = useCallback(async (formData: InitialStateFormData, newDetails: InitialStateDetail[]) => {
-    if (!user) throw new Error('No user');
-
-    // Save main record (set detail-based columns to 0 since they live in details table now)
-    const payload = {
-      ...formData,
-      user_id: user.id,
-      updated_at: new Date().toISOString(),
-      cuentas_por_cobrar: sumDetailsByType(newDetails, 'cuentas_por_cobrar'),
-      anticipos_a_proveedores: sumDetailsByType(newDetails, 'anticipos_a_proveedores'),
-      cuentas_por_pagar: sumDetailsByType(newDetails, 'cuentas_por_pagar'),
-      anticipos_de_clientes: sumDetailsByType(newDetails, 'anticipos_de_clientes'),
-      iva_por_pagar: 0,
-      retefuente_por_pagar: 0,
-      ica_por_pagar: 0,
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     };
+  }, []);
 
-    if (data) {
-      const { error } = await supabase
-        .from('initial_financial_state' as any)
-        .update(payload as any)
-        .eq('user_id', user.id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase
-        .from('initial_financial_state' as any)
-        .insert(payload as any);
-      if (error) throw error;
-    }
+  const persistNow = useCallback(async (formData: InitialStateFormData, newDetails: InitialStateDetail[]) => {
+    if (!user) return;
 
-    // Replace all details: delete existing, insert new
-    await supabase
-      .from('initial_state_details' as any)
-      .delete()
-      .eq('user_id', user.id);
+    setSaveStatus('saving');
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
 
-    if (newDetails.length > 0) {
-      const detailPayloads = newDetails.map(d => ({
+    try {
+      const payload = {
+        ...formData,
         user_id: user.id,
-        field_type: d.field_type,
-        responsible_id: d.responsible_id,
-        responsible_name: d.responsible_name,
-        amount: d.amount,
-      }));
-      const { error } = await supabase
+        updated_at: new Date().toISOString(),
+        cuentas_por_cobrar: sumDetailsByType(newDetails, 'cuentas_por_cobrar'),
+        anticipos_a_proveedores: sumDetailsByType(newDetails, 'anticipos_a_proveedores'),
+        cuentas_por_pagar: sumDetailsByType(newDetails, 'cuentas_por_pagar'),
+        anticipos_de_clientes: sumDetailsByType(newDetails, 'anticipos_de_clientes'),
+        iva_por_pagar: 0,
+        retefuente_por_pagar: 0,
+        ica_por_pagar: 0,
+      };
+
+      // Check current state in DB
+      const { data: existing } = await supabase
+        .from('initial_financial_state' as any)
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (existing) {
+        const { error } = await supabase
+          .from('initial_financial_state' as any)
+          .update(payload as any)
+          .eq('user_id', user.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('initial_financial_state' as any)
+          .insert(payload as any);
+        if (error) throw error;
+      }
+
+      // Replace all details
+      await supabase
         .from('initial_state_details' as any)
-        .insert(detailPayloads as any);
-      if (error) throw error;
+        .delete()
+        .eq('user_id', user.id);
+
+      const validDetails = newDetails.filter(d => d.responsible_name.trim() || d.amount > 0);
+      if (validDetails.length > 0) {
+        const detailPayloads = validDetails.map(d => ({
+          user_id: user.id,
+          field_type: d.field_type,
+          responsible_id: d.responsible_id,
+          responsible_name: d.responsible_name,
+          amount: d.amount,
+        }));
+        const { error } = await supabase
+          .from('initial_state_details' as any)
+          .insert(detailPayloads as any);
+        if (error) throw error;
+      }
+
+      setData(prev => prev ? { ...prev, ...payload } as any : { ...payload, id: 'new' } as any);
+      setIsConfigured(true);
+      setSaveStatus('saved');
+      savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2500);
+    } catch (e) {
+      console.error('Auto-save error:', e);
+      setSaveStatus('error');
+      savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 4000);
     }
+  }, [user]);
 
+  const autoSave = useCallback((formData: InitialStateFormData, newDetails: InitialStateDetail[]) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      persistNow(formData, newDetails);
+    }, AUTOSAVE_DELAY_MS);
+  }, [persistNow]);
+
+  // Legacy save (explicit) — still used for confirm dialog
+  const save = useCallback(async (formData: InitialStateFormData, newDetails: InitialStateDetail[]) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    await persistNow(formData, newDetails);
     await fetchData();
-  }, [user, data, fetchData]);
+  }, [persistNow, fetchData]);
 
-  return { data, details, loading, isConfigured, save, refetch: fetchData };
+  return { data, details, loading, isConfigured, save, autoSave, saveStatus, refetch: fetchData };
 }
