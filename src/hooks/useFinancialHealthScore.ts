@@ -123,8 +123,8 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       setHasData(Boolean(latestMonth));
 
       if (!latestMonth) {
-        setScores(EMPTY_SCORES);
-        setDetails(EMPTY_DETAILS);
+        setScores(null);
+        setDetails(null);
         setHistory([]);
         return;
       }
@@ -225,8 +225,8 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       }
     } catch (error) {
       console.error('Error calculating financial health score:', error);
-      setScores(EMPTY_SCORES);
-      setDetails(EMPTY_DETAILS);
+      setScores(null);
+      setDetails(null);
       setHistory([]);
       setHasData(false);
       setLastMonthWithData(null);
