@@ -202,7 +202,10 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Section 3: Tax Configuration */}
+        {/* Section 3: Initial Financial State */}
+        <InitialFinancialStateCard />
+
+        {/* Section 4: Tax Configuration */}
         <TaxSettingsCard />
 
         {/* Section 4: Tax Recalculation */}
