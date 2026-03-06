@@ -101,6 +101,7 @@ export function useFinancialHealthScore(year: number, month: number) {
   const [details, setDetails] = useState<ScoreDetails | null>(null);
   const [history, setHistory] = useState<HistoricalScore[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(true);
 
   const calculate = useCallback(async () => {
     try {
@@ -122,6 +123,7 @@ export function useFinancialHealthScore(year: number, month: number) {
       const transactions = txs || [];
       const totalTx = transactions.length;
       const hasTransactions = totalTx > 0;
+      setHasData(hasTransactions);
 
       // ========== 1. CONCILIACIÓN BANCARIA (amount-based) ==========
       const totalMovimientos = transactions.reduce((s, tx) => s + Math.abs(tx.amount ?? 0), 0);
@@ -280,5 +282,5 @@ export function useFinancialHealthScore(year: number, month: number) {
   const interpretation = useMemo(() => scores ? getScoreInterpretation(scores.total) : null, [scores]);
   const recommendations = useMemo(() => scores ? getRecommendations(scores) : [], [scores]);
 
-  return { scores, details, history, loading, interpretation, recommendations, recalculate: calculate };
+  return { scores, details, history, loading, interpretation, recommendations, recalculate: calculate, hasData };
 }
