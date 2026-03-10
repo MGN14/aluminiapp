@@ -348,6 +348,9 @@ export default function FinancialHealth() {
           </Card>
         )}
 
+        {/* Nico Insights - Full detail */}
+        <CFOInsights periodSelection={insightsPeriod} hasTransactions={hasTransactions} />
+
         {historyChartData.length > 1 && (
           <Card>
             <CardHeader>

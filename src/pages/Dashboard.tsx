@@ -675,8 +675,8 @@ export default function Dashboard() {
         {/* Financial Health Score */}
         <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
 
-        {/* CFO Automático - Insights */}
-        <CFOInsights 
+        {/* Mini Insights - Top 3 */}
+        <InsightsMiniCards 
           periodSelection={periodSelection} 
           hasTransactions={transactions.length > 0} 
         />
