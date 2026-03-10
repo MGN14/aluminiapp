@@ -183,7 +183,7 @@ export function calculateFinancialHealthMetrics(
 
   const hasAnyCarteraData = baseCartera > 0 || baseAnticipos > 0;
   const riesgoTotal = hasAnyCarteraData ? (pctCartera + pctAnticipos) / 2 : 0;
-  const scoreCartera = hasAnyCarteraData ? carteraScore(riesgoTotal) : 0;
+  const scoreCartera = hasAnyCarteraData ? carteraLinearScore(riesgoTotal) : 0;
 
   // ========== 5. CLASIFICACIÓN FINANCIERA ==========
   const completas = transactions.filter((tx) => {
