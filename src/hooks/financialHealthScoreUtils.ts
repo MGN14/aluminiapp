@@ -194,7 +194,7 @@ export function calculateFinancialHealthMetrics(
   }).length;
 
   const pctClasificado = safePct(completas, totalTx);
-  const scoreClasificacion = totalTx > 0 ? sixTierScore(pctClasificado) : 0;
+  const scoreClasificacion = totalTx > 0 ? linearScore(pctClasificado) : 0;
 
   const total = scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion;
 
