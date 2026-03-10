@@ -16,7 +16,7 @@ import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCatego
 import { BilledByMonthChart } from '@/components/dashboard/BilledByMonthChart';
 import { BilledByClientMonthChart } from '@/components/dashboard/BilledByClientMonthChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
-import CFOInsights from '@/components/dashboard/CFOInsights';
+import InsightsMiniCards from '@/components/dashboard/InsightsMiniCards';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
@@ -675,8 +675,8 @@ export default function Dashboard() {
         {/* Financial Health Score */}
         <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
 
-        {/* CFO Automático - Insights */}
-        <CFOInsights 
+        {/* Mini Insights - Top 3 */}
+        <InsightsMiniCards 
           periodSelection={periodSelection} 
           hasTransactions={transactions.length > 0} 
         />

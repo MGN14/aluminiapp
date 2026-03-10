@@ -8,6 +8,8 @@ import { useFinancialHealthScore, type ScoreDetails } from '@/hooks/useFinancial
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import nicoAvatar from '@/assets/nico-avatar.png';
+import CFOInsights from '@/components/dashboard/CFOInsights';
+import { PeriodSelection } from '@/components/dashboard/UnifiedPeriodFilter';
 
 const SCORE_COLORS = {
   conciliacion: 'hsl(217, 91%, 60%)',
@@ -141,6 +143,22 @@ export default function FinancialHealth() {
   }, []);
 
   const { scores, details, history, loading, interpretation, recommendations, hasData, lastMonthWithData } = useFinancialHealthScore(year);
+
+  // Build period selection for CFOInsights
+  const now = new Date();
+  const insightsPeriod: PeriodSelection = useMemo(() => ({
+    type: 'year' as const,
+    month: now.getMonth() + 1,
+    quarter: Math.ceil((now.getMonth() + 1) / 3),
+    year,
+  }), [year]);
+
+  const [hasTransactions, setHasTransactions] = useState(false);
+  useEffect(() => {
+    supabase.from('transactions').select('id', { count: 'exact', head: true }).is('deleted_at', null).then(({ count }) => {
+      setHasTransactions((count ?? 0) > 0);
+    });
+  }, []);
 
   const yearOptions = useMemo(() => {
     const baseYear = Math.max(currentYear, latestAvailableYear);
@@ -329,6 +347,9 @@ export default function FinancialHealth() {
             </CardContent>
           </Card>
         )}
+
+        {/* Nico Insights - Full detail */}
+        <CFOInsights periodSelection={insightsPeriod} hasTransactions={hasTransactions} />
 
         {historyChartData.length > 1 && (
           <Card>
