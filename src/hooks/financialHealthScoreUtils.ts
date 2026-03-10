@@ -130,7 +130,7 @@ export function calculateFinancialHealthMetrics(
     .filter((tx) => !tx.responsible_id && !tx.invoice_id && !isNA(tx.notes) && !isAnticipo(tx.notes))
     .reduce((sum, tx) => sum + Math.abs(tx.amount ?? 0), 0);
   const pctConciliado = totalMovimientos > 0 ? clampPct(1 - montoPendiente / totalMovimientos) : 0;
-  const scoreConciliacion = totalMovimientos > 0 ? sixTierScore(pctConciliado) : 0;
+  const scoreConciliacion = totalMovimientos > 0 ? linearScore(pctConciliado) : 0;
 
   // ========== 2. FACTURACIÓN SOPORTADA ==========
   const ingresosTx = transactions.filter((tx) => (tx.amount ?? 0) > 0);
