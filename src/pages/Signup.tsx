@@ -40,7 +40,16 @@ export default function Signup() {
     }
     const { error } = await signUp(email, password, fullName);
     if (error) {
-      setError(error.message);
+      // Translate common Supabase auth error messages to Spanish
+      let msg = error.message;
+      if (msg.includes('weak') || msg.includes('easy to guess')) {
+        msg = 'La contraseña es muy común o fácil de adivinar. Por favor elige una más segura.';
+      } else if (msg.includes('already registered') || msg.includes('already been registered')) {
+        msg = 'Este correo ya está registrado. Intenta iniciar sesión.';
+      } else if (msg.includes('rate limit') || msg.includes('too many requests')) {
+        msg = 'Demasiados intentos. Espera un momento antes de intentar de nuevo.';
+      }
+      setError(msg);
       setLoading(false);
     } else {
       setSuccess(true);
