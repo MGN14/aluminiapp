@@ -142,7 +142,7 @@ export function calculateFinancialHealthMetrics(
     .filter((tx) => !tx.invoice_id && isAnticipo(tx.notes))
     .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
   const pctSoportado = safePct(ingresosConFacturaMonto + ingresosAnticipoMonto, totalIngresosMonto);
-  const scoreFacturacion = totalIngresosMonto > 0 ? sixTierScore(pctSoportado) : 0;
+  const scoreFacturacion = totalIngresosMonto > 0 ? linearScore(pctSoportado) : 0;
 
   // ========== 3. CONTROL DE IMPUESTOS ==========
   const egresosTx = transactions.filter((tx) => (tx.amount ?? 0) < 0);
