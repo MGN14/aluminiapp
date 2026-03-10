@@ -8,6 +8,8 @@ import { useFinancialHealthScore, type ScoreDetails } from '@/hooks/useFinancial
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import nicoAvatar from '@/assets/nico-avatar.png';
+import CFOInsights from '@/components/dashboard/CFOInsights';
+import { PeriodSelection } from '@/components/dashboard/UnifiedPeriodFilter';
 
 const SCORE_COLORS = {
   conciliacion: 'hsl(217, 91%, 60%)',
