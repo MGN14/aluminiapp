@@ -144,6 +144,22 @@ export default function FinancialHealth() {
 
   const { scores, details, history, loading, interpretation, recommendations, hasData, lastMonthWithData } = useFinancialHealthScore(year);
 
+  // Build period selection for CFOInsights
+  const now = new Date();
+  const insightsPeriod: PeriodSelection = useMemo(() => ({
+    type: 'year' as const,
+    month: now.getMonth() + 1,
+    quarter: Math.ceil((now.getMonth() + 1) / 3),
+    year,
+  }), [year]);
+
+  const [hasTransactions, setHasTransactions] = useState(false);
+  useEffect(() => {
+    supabase.from('transactions').select('id', { count: 'exact', head: true }).is('deleted_at', null).then(({ count }) => {
+      setHasTransactions((count ?? 0) > 0);
+    });
+  }, []);
+
   const yearOptions = useMemo(() => {
     const baseYear = Math.max(currentYear, latestAvailableYear);
     return Array.from({ length: 4 }, (_, i) => baseYear - i);
