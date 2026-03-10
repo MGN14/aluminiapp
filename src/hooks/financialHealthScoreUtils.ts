@@ -159,7 +159,7 @@ export function calculateFinancialHealthMetrics(
 
   const hasAnyFiscalData = transactions.length > 0 || confirmedInvoices.length > 0;
   const completitudFiscal = hasAnyFiscalData ? (pctVentas + pctCompras + pctVinculados) / 3 : 0;
-  const scoreImpuestos = hasAnyFiscalData ? fiveTierScore(completitudFiscal) : 0;
+  const scoreImpuestos = hasAnyFiscalData ? linearScore(completitudFiscal) : 0;
 
   // ========== 4. CARTERA Y ANTICIPOS ==========
   const initialCxC = initialState?.cuentas_por_cobrar ?? 0;
