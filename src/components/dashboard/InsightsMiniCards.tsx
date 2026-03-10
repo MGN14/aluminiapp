@@ -134,7 +134,7 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
           <div className="w-7 h-7 rounded-full overflow-hidden border border-success/30 flex-shrink-0">
             <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
           </div>
-          <h3 className="text-sm font-semibold text-foreground">Insights principales</h3>
+          <h3 className="text-sm font-semibold text-foreground">Nico analizó tu negocio hoy</h3>
         </div>
         <Link to="/financial-health">
           <Button variant="ghost" size="sm" className="text-xs gap-1 text-primary">
