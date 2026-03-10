@@ -67,33 +67,14 @@ function safePct(part: number, total: number): number {
   return clampPct(part / total);
 }
 
-// 6-tier scale used for conciliacion, facturacion, clasificacion
-function sixTierScore(pct: number): number {
-  if (pct >= 0.98) return 20;
-  if (pct >= 0.95) return 18;
-  if (pct >= 0.9) return 15;
-  if (pct >= 0.8) return 10;
-  if (pct >= 0.7) return 5;
-  return 0;
+// Linear score: pct * 20, rounded to 1 decimal
+function linearScore(pct: number): number {
+  return Math.round(clampPct(pct) * 20 * 10) / 10;
 }
 
-// 5-tier scale used for impuestos
-function fiveTierScore(pct: number): number {
-  if (pct >= 0.95) return 20;
-  if (pct >= 0.85) return 16;
-  if (pct >= 0.7) return 12;
-  if (pct >= 0.5) return 6;
-  return 0;
-}
-
-// Cartera risk scale (lower is better)
-function carteraScore(riesgo: number): number {
-  if (riesgo <= 0.05) return 20;
-  if (riesgo <= 0.1) return 18;
-  if (riesgo <= 0.2) return 15;
-  if (riesgo <= 0.3) return 10;
-  if (riesgo <= 0.4) return 5;
-  return 0;
+// Cartera risk: inverted linear (lower risk = higher score)
+function carteraLinearScore(riesgo: number): number {
+  return Math.round(clampPct(1 - riesgo) * 20 * 10) / 10;
 }
 
 export function getScoreInterpretation(score: number): { level: string; message: string; color: string } {
@@ -149,7 +130,7 @@ export function calculateFinancialHealthMetrics(
     .filter((tx) => !tx.responsible_id && !tx.invoice_id && !isNA(tx.notes) && !isAnticipo(tx.notes))
     .reduce((sum, tx) => sum + Math.abs(tx.amount ?? 0), 0);
   const pctConciliado = totalMovimientos > 0 ? clampPct(1 - montoPendiente / totalMovimientos) : 0;
-  const scoreConciliacion = totalMovimientos > 0 ? sixTierScore(pctConciliado) : 0;
+  const scoreConciliacion = totalMovimientos > 0 ? linearScore(pctConciliado) : 0;
 
   // ========== 2. FACTURACIÓN SOPORTADA ==========
   const ingresosTx = transactions.filter((tx) => (tx.amount ?? 0) > 0);
@@ -161,7 +142,7 @@ export function calculateFinancialHealthMetrics(
     .filter((tx) => !tx.invoice_id && isAnticipo(tx.notes))
     .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
   const pctSoportado = safePct(ingresosConFacturaMonto + ingresosAnticipoMonto, totalIngresosMonto);
-  const scoreFacturacion = totalIngresosMonto > 0 ? sixTierScore(pctSoportado) : 0;
+  const scoreFacturacion = totalIngresosMonto > 0 ? linearScore(pctSoportado) : 0;
 
   // ========== 3. CONTROL DE IMPUESTOS ==========
   const egresosTx = transactions.filter((tx) => (tx.amount ?? 0) < 0);
@@ -178,7 +159,7 @@ export function calculateFinancialHealthMetrics(
 
   const hasAnyFiscalData = transactions.length > 0 || confirmedInvoices.length > 0;
   const completitudFiscal = hasAnyFiscalData ? (pctVentas + pctCompras + pctVinculados) / 3 : 0;
-  const scoreImpuestos = hasAnyFiscalData ? fiveTierScore(completitudFiscal) : 0;
+  const scoreImpuestos = hasAnyFiscalData ? linearScore(completitudFiscal) : 0;
 
   // ========== 4. CARTERA Y ANTICIPOS ==========
   const initialCxC = initialState?.cuentas_por_cobrar ?? 0;
@@ -202,7 +183,7 @@ export function calculateFinancialHealthMetrics(
 
   const hasAnyCarteraData = baseCartera > 0 || baseAnticipos > 0;
   const riesgoTotal = hasAnyCarteraData ? (pctCartera + pctAnticipos) / 2 : 0;
-  const scoreCartera = hasAnyCarteraData ? carteraScore(riesgoTotal) : 0;
+  const scoreCartera = hasAnyCarteraData ? carteraLinearScore(riesgoTotal) : 0;
 
   // ========== 5. CLASIFICACIÓN FINANCIERA ==========
   const completas = transactions.filter((tx) => {
@@ -213,9 +194,9 @@ export function calculateFinancialHealthMetrics(
   }).length;
 
   const pctClasificado = safePct(completas, totalTx);
-  const scoreClasificacion = totalTx > 0 ? sixTierScore(pctClasificado) : 0;
+  const scoreClasificacion = totalTx > 0 ? linearScore(pctClasificado) : 0;
 
-  const total = scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion;
+  const total = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion) * 10) / 10;
 
   const scores: ScoreBreakdown = {
     conciliacion: scoreConciliacion,
