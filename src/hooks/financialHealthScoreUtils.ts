@@ -79,28 +79,23 @@ function carteraLinearScore(riesgo: number): number {
 
 export function getScoreInterpretation(score: number): { level: string; message: string; color: string } {
   if (score >= 90) return {
-    level: 'Muy ordenado',
-    message: 'Tu negocio tiene un alto nivel de organización financiera. La información disponible permitiría enfrentar una revisión tributaria con tranquilidad.',
+    level: '¡Felicitaciones! 🎉',
+    message: 'Eres más ordenado y preparado que el 70% de las empresas colombianas. Tu negocio está listo para cualquier visita de la DIAN sin preocupaciones. Si tienes alguna duda, pregúntale a Nico.',
     color: 'text-success',
   };
-  if (score >= 75) return {
-    level: 'Orden saludable',
-    message: 'Tus finanzas están relativamente organizadas, pero aún existen algunos puntos que podrían generar inconsistencias si la información fuera revisada.',
+  if (score >= 80) return {
+    level: 'Casi listo, pero cuidado ⚠️',
+    message: 'Estás cerca de tener todo en orden, pero aún hay detalles que podrían costarte una sanción de la DIAN. No vale la pena pagar una multa por falta de un poco de organización. Pregúntale a Nico cómo cerrar esas brechas.',
     color: 'text-success',
   };
-  if (score >= 60) return {
-    level: 'Orden aceptable con riesgos',
-    message: 'Tu negocio muestra desorden financiero en algunos aspectos. Es recomendable organizar tu información antes de que esto genere problemas fiscales o de control.',
+  if (score >= 50) return {
+    level: 'Hay problemas, pero puedes mejorar',
+    message: 'Tu negocio tiene desorden financiero en varios frentes. Si la DIAN toca tu puerta hoy, tendrías dificultades para soportar varias operaciones. La buena noticia: aún estás a tiempo de corregirlo. Pregúntale a Nico por dónde empezar.',
     color: 'text-warning',
   };
-  if (score >= 45) return {
-    level: 'Riesgo alto',
-    message: 'Tu negocio tiene un nivel de desorden financiero considerable. Si hoy recibieras una revisión de la DIAN, probablemente tendrías dificultades para soportar varias operaciones.',
-    color: 'text-destructive',
-  };
   return {
-    level: 'Riesgo crítico',
-    message: 'Tu negocio presenta un nivel de desorden financiero muy alto. En el estado actual sería difícil soportar adecuadamente los movimientos financieros ante una revisión de la DIAN. Es urgente organizar la información.',
+    level: '🚨 Alerta máxima',
+    message: 'Si la DIAN te visita mañana, no podrías soportar la mayoría de tus movimientos financieros. Esto puede significar sanciones graves, multas e incluso investigaciones. Es urgente actuar YA. Pregúntale a Nico qué hacer primero.',
     color: 'text-destructive',
   };
 }
