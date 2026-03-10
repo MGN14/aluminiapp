@@ -196,7 +196,7 @@ export function calculateFinancialHealthMetrics(
   const pctClasificado = safePct(completas, totalTx);
   const scoreClasificacion = totalTx > 0 ? linearScore(pctClasificado) : 0;
 
-  const total = scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion;
+  const total = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion) * 10) / 10;
 
   const scores: ScoreBreakdown = {
     conciliacion: scoreConciliacion,
