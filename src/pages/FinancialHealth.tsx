@@ -191,7 +191,7 @@ export default function FinancialHealth() {
               Orden Financiero
             </h1>
             <p className="text-muted-foreground text-sm">
-              Evaluación acumulada anual con datos reales de extractos y facturas DIAN
+              ¿Tu empresa soporta una visita sorpresa de la DIAN? Ellos llevarán expertos en tu actividad económica, así que vamos a ver qué tan tranquilos podemos estar 🧐
             </p>
             <p className="text-xs text-muted-foreground mt-1">{coverageLabel}</p>
           </div>

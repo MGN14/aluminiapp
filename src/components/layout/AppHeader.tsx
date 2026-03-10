@@ -37,7 +37,7 @@ const navItems = [{
   label: 'Reportes'
 }, {
   path: '/financial-health',
-  label: 'Orden',
+  label: 'Visita DIAN',
 }, {
   path: '/export',
   label: 'Exportar'
