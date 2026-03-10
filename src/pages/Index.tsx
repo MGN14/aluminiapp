@@ -1,6 +1,7 @@
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { FileSpreadsheet } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 import MobileNav from '@/components/layout/MobileNav';
 import Footer from '@/components/layout/Footer';
 import HeroSection from './landing/HeroSection';
@@ -12,6 +13,12 @@ import ForEntrepreneursSection from './landing/ForEntrepreneursSection';
 import ClosingCTA from './landing/ClosingCTA';
 
 export default function Index() {
+  const { user, loading } = useAuth();
+
+  // If user is authenticated, redirect to dashboard
+  if (!loading && user) {
+    return <Navigate to="/dashboard" replace />;
+  }
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Navigation */}
