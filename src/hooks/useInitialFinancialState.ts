@@ -44,9 +44,6 @@ export type InitialStateFormData = {
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-const DETAIL_FIELDS = ['cuentas_por_cobrar', 'anticipos_a_proveedores', 'anticipos_de_clientes', 'cuentas_por_pagar'] as const;
-const AUTOSAVE_DELAY_MS = 1000;
-
 export function sumDetailsByType(details: InitialStateDetail[], type: string): number {
   return details.filter(d => d.field_type === type).reduce((s, d) => s + d.amount, 0);
 }
@@ -70,13 +67,15 @@ export function getPatrimonio(form: InitialStateFormData, details: InitialStateD
   return getTotalActivos(form, details) - getTotalPasivos(form, details);
 }
 
+const AUTOSAVE_DELAY_MS = 1200;
+
 export function useInitialFinancialState() {
   const { user } = useAuth();
-  const [data, setData] = useState<InitialFinancialState | null>(null);
-  const [details, setDetails] = useState<InitialStateDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [isConfigured, setIsConfigured] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [initialData, setInitialData] = useState<InitialFinancialState | null>(null);
+  const [initialDetails, setInitialDetails] = useState<InitialStateDetail[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -101,8 +100,8 @@ export function useInitialFinancialState() {
 
       if (error) throw error;
       if (detailError) throw detailError;
-      setData(row as any);
-      setDetails((detailRows as any[]) || []);
+      setInitialData(row as any);
+      setInitialDetails((detailRows as any[]) || []);
       setIsConfigured(!!row);
     } catch (e) {
       console.error('Error fetching initial financial state:', e);
@@ -115,7 +114,6 @@ export function useInitialFinancialState() {
     fetchData();
   }, [fetchData]);
 
-  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -143,7 +141,6 @@ export function useInitialFinancialState() {
         ica_por_pagar: 0,
       };
 
-      // Check current state in DB
       const { data: existing } = await supabase
         .from('initial_financial_state' as any)
         .select('id')
@@ -184,7 +181,6 @@ export function useInitialFinancialState() {
         if (error) throw error;
       }
 
-      setData(prev => prev ? { ...prev, ...payload } as any : { ...payload, id: 'new' } as any);
       setIsConfigured(true);
       setSaveStatus('saved');
       savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2500);
@@ -202,12 +198,19 @@ export function useInitialFinancialState() {
     }, AUTOSAVE_DELAY_MS);
   }, [persistNow]);
 
-  // Legacy save (explicit) — still used for confirm dialog
   const save = useCallback(async (formData: InitialStateFormData, newDetails: InitialStateDetail[]) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     await persistNow(formData, newDetails);
-    await fetchData();
-  }, [persistNow, fetchData]);
+  }, [persistNow]);
 
-  return { data, details, loading, isConfigured, save, autoSave, saveStatus, refetch: fetchData };
+  return { 
+    initialData, 
+    initialDetails, 
+    loading, 
+    isConfigured, 
+    save, 
+    autoSave, 
+    saveStatus, 
+    refetch: fetchData,
+  };
 }
