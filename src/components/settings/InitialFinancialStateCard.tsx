@@ -21,7 +21,6 @@ import {
   getTotalActivos,
   getTotalPasivos,
   getPatrimonio,
-  sumDetailsByType,
   type InitialStateFormData,
   type InitialStateDetail,
   type SaveStatus,
@@ -30,7 +29,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import {
   Loader2,
-  Save,
   Landmark,
   AlertTriangle,
   CheckCircle2,
@@ -91,7 +89,7 @@ function formatCurrency(v: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 }
 
-function SaveStatusIndicator({ status }: { status: SaveStatus }) {
+function SaveStatusBadge({ status }: { status: SaveStatus }) {
   if (status === 'idle') return null;
   return (
     <div className="flex items-center gap-1.5 text-xs">
@@ -118,18 +116,25 @@ function SaveStatusIndicator({ status }: { status: SaveStatus }) {
 }
 
 function DetailSection({
-  fieldType, label, items, onAdd, onRemove, onUpdate, disabled, responsibles,
+  fieldType, label, items, globalDetails, onAdd, onRemove, onUpdate, disabled, responsibles,
 }: {
   fieldType: DetailFieldType;
   label: string;
   items: InitialStateDetail[];
+  globalDetails: InitialStateDetail[];
   onAdd: () => void;
-  onRemove: (index: number) => void;
-  onUpdate: (index: number, field: 'responsible_name' | 'amount', value: string | number) => void;
+  onRemove: (globalIndex: number) => void;
+  onUpdate: (globalIndex: number, field: 'responsible_name' | 'amount', value: string | number) => void;
   disabled: boolean;
   responsibles: Responsible[];
 }) {
   const total = items.reduce((s, i) => s + i.amount, 0);
+
+  // Build a map from local index to global index
+  const globalIndices: number[] = [];
+  globalDetails.forEach((d, gi) => {
+    if (d.field_type === fieldType) globalIndices.push(gi);
+  });
 
   return (
     <div className="space-y-2">
@@ -137,34 +142,37 @@ function DetailSection({
         <Label className="text-xs text-muted-foreground">{label}</Label>
         <span className="text-xs font-medium text-muted-foreground">{formatCurrency(total)}</span>
       </div>
-      {items.map((item, idx) => (
-        <div key={idx} className="flex items-center gap-2">
-          <Input
-            value={item.responsible_name}
-            onChange={(e) => onUpdate(idx, 'responsible_name', e.target.value)}
-            disabled={disabled}
-            placeholder="Nombre del tercero"
-            className="flex-1 text-sm"
-            list={`resp-list-${fieldType}`}
-          />
-          <div className="relative w-36">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+      {items.map((item, localIdx) => {
+        const gi = globalIndices[localIdx];
+        return (
+          <div key={`${fieldType}-${localIdx}`} className="flex items-center gap-2">
             <Input
-              type="number" min={0} step="0.01"
-              value={item.amount || ''}
-              onChange={(e) => onUpdate(idx, 'amount', Number(e.target.value) || 0)}
+              value={item.responsible_name}
+              onChange={(e) => onUpdate(gi, 'responsible_name', e.target.value)}
               disabled={disabled}
-              className="pl-6 text-right text-sm"
-              placeholder="0"
+              placeholder="Nombre del tercero"
+              className="flex-1 text-sm"
+              list={`resp-list-${fieldType}`}
             />
+            <div className="relative w-36">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+              <Input
+                type="number" min={0} step="0.01"
+                value={item.amount || ''}
+                onChange={(e) => onUpdate(gi, 'amount', Number(e.target.value) || 0)}
+                disabled={disabled}
+                className="pl-6 text-right text-sm"
+                placeholder="0"
+              />
+            </div>
+            {!disabled && (
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onRemove(gi)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
-          {!disabled && (
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onRemove(idx)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
-      ))}
+        );
+      })}
       <datalist id={`resp-list-${fieldType}`}>
         {responsibles.map(r => <option key={r.id} value={r.name} />)}
       </datalist>
@@ -179,80 +187,78 @@ function DetailSection({
 }
 
 export default function InitialFinancialStateCard() {
-  const { data, details: savedDetails, loading, isConfigured, save, autoSave, saveStatus } = useInitialFinancialState();
+  const { initialData, initialDetails, loading, isConfigured, save, autoSave, saveStatus } = useInitialFinancialState();
   const { user } = useAuth();
   const { toast } = useToast();
+
   const [form, setForm] = useState<InitialStateFormData>(DEFAULT_FORM);
   const [details, setDetails] = useState<InitialStateDetail[]>([]);
-  const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
-  const initializedRef = useRef(false);
+  const hasLoadedRef = useRef(false);
 
   const isReadOnly = isConfigured && !editing;
 
-  // Load responsibles
+  // Load responsibles once
   useEffect(() => {
     if (!user) return;
     supabase.from('responsibles').select('id, name').eq('active', true).order('name')
       .then(({ data }) => setResponsibles((data as Responsible[]) || []));
   }, [user]);
 
+  // Initialize form from DB only on first load (not on every save)
   useEffect(() => {
-    if (data) {
+    if (hasLoadedRef.current) return;
+    if (loading) return;
+
+    if (initialData) {
       setForm({
-        fecha_inicio: data.fecha_inicio,
-        saldo_bancos: data.saldo_bancos,
-        inventario: data.inventario,
-        otros_activos: data.otros_activos,
-        impuestos_por_pagar: data.impuestos_por_pagar,
-        prestamos: data.prestamos,
-        iva_a_favor: data.iva_a_favor,
+        fecha_inicio: initialData.fecha_inicio,
+        saldo_bancos: initialData.saldo_bancos,
+        inventario: initialData.inventario,
+        otros_activos: initialData.otros_activos,
+        impuestos_por_pagar: initialData.impuestos_por_pagar,
+        prestamos: initialData.prestamos,
+        iva_a_favor: initialData.iva_a_favor,
       });
     }
-    setDetails(savedDetails.map(d => ({ ...d })));
-    initializedRef.current = true;
-  }, [data, savedDetails]);
+    setDetails(initialDetails.map(d => ({ ...d })));
+    hasLoadedRef.current = true;
+  }, [loading, initialData, initialDetails]);
 
-  // Trigger auto-save on form/details change (skip initial load)
-  const changeCountRef = useRef(0);
   const triggerAutoSave = useCallback((newForm: InitialStateFormData, newDetails: InitialStateDetail[]) => {
-    if (!initializedRef.current) return;
     if (isReadOnly) return;
-    // Only auto-save if fecha_inicio is set
     if (!newForm.fecha_inicio) return;
     autoSave(newForm, newDetails);
   }, [autoSave, isReadOnly]);
 
-  const update = (field: keyof InitialStateFormData, value: number | string) => {
+  const updateField = useCallback((field: keyof InitialStateFormData, value: number | string) => {
     setForm(prev => {
       const next = { ...prev, [field]: value };
-      triggerAutoSave(next, details);
+      // Use setTimeout to avoid setState-during-render
+      setTimeout(() => triggerAutoSave(next, details), 0);
       return next;
     });
-  };
+  }, [triggerAutoSave, details]);
 
-  const addDetail = (fieldType: DetailFieldType) => {
+  const addDetail = useCallback((fieldType: DetailFieldType) => {
+    setDetails(prev => [...prev, { field_type: fieldType, responsible_id: null, responsible_name: '', amount: 0 }]);
+  }, []);
+
+  const removeDetail = useCallback((globalIndex: number) => {
     setDetails(prev => {
-      const next = [...prev, { field_type: fieldType, responsible_id: null, responsible_name: '', amount: 0 }];
-      // Don't auto-save empty row, wait for user to fill it
+      const next = prev.filter((_, i) => i !== globalIndex);
+      setTimeout(() => triggerAutoSave(form, next), 0);
       return next;
     });
-  };
+  }, [form, triggerAutoSave]);
 
-  const removeDetail = (index: number) => {
-    setDetails(prev => {
-      const next = prev.filter((_, i) => i !== index);
-      triggerAutoSave(form, next);
-      return next;
-    });
-  };
-
-  const updateDetail = (index: number, field: 'responsible_name' | 'amount', value: string | number) => {
+  const updateDetail = useCallback((globalIndex: number, field: 'responsible_name' | 'amount', value: string | number) => {
     setDetails(prev => {
       const next = prev.map((d, i) => {
-        if (i !== index) return d;
+        if (i !== globalIndex) return d;
         const updated = { ...d, [field]: value };
         if (field === 'responsible_name') {
           const match = responsibles.find(r => r.name.toLowerCase() === (value as string).toLowerCase());
@@ -260,12 +266,12 @@ export default function InitialFinancialStateCard() {
         }
         return updated;
       });
-      triggerAutoSave(form, next);
+      setTimeout(() => triggerAutoSave(form, next), 0);
       return next;
     });
-  };
+  }, [form, responsibles, triggerAutoSave]);
 
-  const getItemsForType = (type: DetailFieldType) => details.filter(d => d.field_type === type);
+  const getItemsForType = useCallback((type: DetailFieldType) => details.filter(d => d.field_type === type), [details]);
 
   const totalActivos = useMemo(() => getTotalActivos(form, details), [form, details]);
   const totalPasivos = useMemo(() => getTotalPasivos(form, details), [form, details]);
@@ -295,6 +301,22 @@ export default function InitialFinancialStateCard() {
     }
   };
 
+  const handleCancel = useCallback(() => {
+    setEditing(false);
+    if (initialData) {
+      setForm({
+        fecha_inicio: initialData.fecha_inicio,
+        saldo_bancos: initialData.saldo_bancos,
+        inventario: initialData.inventario,
+        otros_activos: initialData.otros_activos,
+        impuestos_por_pagar: initialData.impuestos_por_pagar,
+        prestamos: initialData.prestamos,
+        iva_a_favor: initialData.iva_a_favor,
+      });
+    }
+    setDetails(initialDetails.map(d => ({ ...d })));
+  }, [initialData, initialDetails]);
+
   if (loading) {
     return (
       <Card>
@@ -321,7 +343,7 @@ export default function InitialFinancialStateCard() {
                   : 'Configura el punto de partida financiero de tu negocio. Usa los valores declarados en tus estados financieros o balance del contador.'}
               </CardDescription>
             </div>
-            {!isReadOnly && <SaveStatusIndicator status={saveStatus} />}
+            {!isReadOnly && <SaveStatusBadge status={saveStatus} />}
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -330,7 +352,7 @@ export default function InitialFinancialStateCard() {
             <Label htmlFor="fecha_inicio" className="font-medium">Fecha de inicio en AluminIA</Label>
             <Input
               id="fecha_inicio" type="date" value={form.fecha_inicio}
-              onChange={(e) => update('fecha_inicio', e.target.value)}
+              onChange={(e) => updateField('fecha_inicio', e.target.value)}
               disabled={isReadOnly} className="w-48"
             />
             <p className="text-xs text-muted-foreground">
@@ -348,37 +370,27 @@ export default function InitialFinancialStateCard() {
               <span className="ml-auto text-sm font-semibold text-emerald-600">{formatCurrency(totalActivos)}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <CurrencyInput id="saldo_bancos" label="Saldo en bancos" value={form.saldo_bancos} onChange={(v) => update('saldo_bancos', v)} disabled={isReadOnly} />
-              <CurrencyInput id="inventario" label="Inventario" value={form.inventario} onChange={(v) => update('inventario', v)} disabled={isReadOnly} />
-              <CurrencyInput id="otros_activos" label="Otros activos" value={form.otros_activos} onChange={(v) => update('otros_activos', v)} disabled={isReadOnly} />
+              <CurrencyInput id="saldo_bancos" label="Saldo en bancos" value={form.saldo_bancos} onChange={(v) => updateField('saldo_bancos', v)} disabled={isReadOnly} />
+              <CurrencyInput id="inventario" label="Inventario" value={form.inventario} onChange={(v) => updateField('inventario', v)} disabled={isReadOnly} />
+              <CurrencyInput id="otros_activos" label="Otros activos" value={form.otros_activos} onChange={(v) => updateField('otros_activos', v)} disabled={isReadOnly} />
             </div>
             <Separator className="my-2" />
             <DetailSection
               fieldType="cuentas_por_cobrar" label="Cuentas por cobrar (por tercero)"
               items={getItemsForType('cuentas_por_cobrar')}
+              globalDetails={details}
               onAdd={() => addDetail('cuentas_por_cobrar')}
-              onRemove={(idx) => {
-                const allOfType = details.map((d, i) => ({ d, i })).filter(x => x.d.field_type === 'cuentas_por_cobrar');
-                removeDetail(allOfType[idx].i);
-              }}
-              onUpdate={(idx, field, value) => {
-                const allOfType = details.map((d, i) => ({ d, i })).filter(x => x.d.field_type === 'cuentas_por_cobrar');
-                updateDetail(allOfType[idx].i, field, value);
-              }}
+              onRemove={removeDetail}
+              onUpdate={updateDetail}
               disabled={isReadOnly} responsibles={responsibles}
             />
             <DetailSection
               fieldType="anticipos_a_proveedores" label="Anticipos a proveedores (por tercero)"
               items={getItemsForType('anticipos_a_proveedores')}
+              globalDetails={details}
               onAdd={() => addDetail('anticipos_a_proveedores')}
-              onRemove={(idx) => {
-                const allOfType = details.map((d, i) => ({ d, i })).filter(x => x.d.field_type === 'anticipos_a_proveedores');
-                removeDetail(allOfType[idx].i);
-              }}
-              onUpdate={(idx, field, value) => {
-                const allOfType = details.map((d, i) => ({ d, i })).filter(x => x.d.field_type === 'anticipos_a_proveedores');
-                updateDetail(allOfType[idx].i, field, value);
-              }}
+              onRemove={removeDetail}
+              onUpdate={updateDetail}
               disabled={isReadOnly} responsibles={responsibles}
             />
           </div>
@@ -393,36 +405,26 @@ export default function InitialFinancialStateCard() {
               <span className="ml-auto text-sm font-semibold text-red-600">{formatCurrency(totalPasivos)}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <CurrencyInput id="impuestos_por_pagar" label="Impuestos por pagar" value={form.impuestos_por_pagar} onChange={(v) => update('impuestos_por_pagar', v)} disabled={isReadOnly} />
-              <CurrencyInput id="prestamos" label="Préstamos" value={form.prestamos} onChange={(v) => update('prestamos', v)} disabled={isReadOnly} />
+              <CurrencyInput id="impuestos_por_pagar" label="Impuestos por pagar" value={form.impuestos_por_pagar} onChange={(v) => updateField('impuestos_por_pagar', v)} disabled={isReadOnly} />
+              <CurrencyInput id="prestamos" label="Préstamos" value={form.prestamos} onChange={(v) => updateField('prestamos', v)} disabled={isReadOnly} />
             </div>
             <Separator className="my-2" />
             <DetailSection
               fieldType="cuentas_por_pagar" label="Cuentas por pagar (por tercero)"
               items={getItemsForType('cuentas_por_pagar')}
+              globalDetails={details}
               onAdd={() => addDetail('cuentas_por_pagar')}
-              onRemove={(idx) => {
-                const allOfType = details.map((d, i) => ({ d, i })).filter(x => x.d.field_type === 'cuentas_por_pagar');
-                removeDetail(allOfType[idx].i);
-              }}
-              onUpdate={(idx, field, value) => {
-                const allOfType = details.map((d, i) => ({ d, i })).filter(x => x.d.field_type === 'cuentas_por_pagar');
-                updateDetail(allOfType[idx].i, field, value);
-              }}
+              onRemove={removeDetail}
+              onUpdate={updateDetail}
               disabled={isReadOnly} responsibles={responsibles}
             />
             <DetailSection
               fieldType="anticipos_de_clientes" label="Anticipos de clientes (por tercero)"
               items={getItemsForType('anticipos_de_clientes')}
+              globalDetails={details}
               onAdd={() => addDetail('anticipos_de_clientes')}
-              onRemove={(idx) => {
-                const allOfType = details.map((d, i) => ({ d, i })).filter(x => x.d.field_type === 'anticipos_de_clientes');
-                removeDetail(allOfType[idx].i);
-              }}
-              onUpdate={(idx, field, value) => {
-                const allOfType = details.map((d, i) => ({ d, i })).filter(x => x.d.field_type === 'anticipos_de_clientes');
-                updateDetail(allOfType[idx].i, field, value);
-              }}
+              onRemove={removeDetail}
+              onUpdate={updateDetail}
               disabled={isReadOnly} responsibles={responsibles}
             />
           </div>
@@ -435,7 +437,7 @@ export default function InitialFinancialStateCard() {
               <Receipt className="h-4 w-4 text-amber-500" />
               <h3 className="font-medium text-sm">Impuestos</h3>
             </div>
-            <CurrencyInput id="iva_a_favor" label="IVA a favor" value={form.iva_a_favor} onChange={(v) => update('iva_a_favor', v)} disabled={isReadOnly} />
+            <CurrencyInput id="iva_a_favor" label="IVA a favor" value={form.iva_a_favor} onChange={(v) => updateField('iva_a_favor', v)} disabled={isReadOnly} />
             <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 border border-border">
               <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-xs text-muted-foreground">
@@ -488,21 +490,7 @@ export default function InitialFinancialStateCard() {
             ) : (
               <>
                 {editing && (
-                  <Button variant="ghost" onClick={() => {
-                    setEditing(false);
-                    if (data) {
-                      setForm({
-                        fecha_inicio: data.fecha_inicio,
-                        saldo_bancos: data.saldo_bancos,
-                        inventario: data.inventario,
-                        otros_activos: data.otros_activos,
-                        impuestos_por_pagar: data.impuestos_por_pagar,
-                        prestamos: data.prestamos,
-                        iva_a_favor: data.iva_a_favor,
-                      });
-                    }
-                    setDetails(savedDetails.map(d => ({ ...d })));
-                  }}>
+                  <Button variant="ghost" onClick={handleCancel}>
                     Cancelar
                   </Button>
                 )}
