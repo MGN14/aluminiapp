@@ -56,6 +56,8 @@ serve(async (req) => {
       { data: matches },
       { data: bankStatements },
       { data: profile },
+      { data: initialState },
+      { data: initialStateDetails },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -102,6 +104,15 @@ serve(async (req) => {
         .select("company_name, full_name")
         .eq("user_id", user.id)
         .single(),
+      supabase
+        .from("initial_financial_state")
+        .select("*")
+        .eq("user_id", user.id)
+        .single(),
+      supabase
+        .from("initial_state_details")
+        .select("field_type, responsible_name, amount, responsible_id")
+        .eq("user_id", user.id),
     ]);
 
     const fmt = (n: number) =>
