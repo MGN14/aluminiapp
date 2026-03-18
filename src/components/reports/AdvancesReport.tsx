@@ -5,11 +5,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Banknote, AlertCircle } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Banknote, AlertCircle, History, Info } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { Info } from 'lucide-react';
+import AdvancesTable from './AdvancesTable';
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('es-CO', {
@@ -21,28 +22,27 @@ function formatCurrency(value: number): string {
 }
 
 const currentYear = new Date().getFullYear();
-const currentMonth = new Date().getMonth() + 1;
 const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
 export default function AdvancesReport() {
   const { user } = useAuth();
   const [year, setYear] = useState(currentYear);
+  const [tab, setTab] = useState<'current' | 'previous'>('current');
 
-  const startDate = `${year}-01-01`;
-  const endDate = `${year}-12-31`;
+  const displayYear = tab === 'current' ? year : year - 1;
+  const startDate = `${displayYear}-01-01`;
+  const endDate = `${displayYear}-12-31`;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['advances-report', user?.id, year],
+    queryKey: ['advances-report', user?.id, displayYear],
     queryFn: async () => {
       if (!user) return null;
 
-      // Get income transactions without invoice_id
       const { data: transactions, error } = await supabase
         .from('transactions')
-        .select('id, date, description, amount, owner, responsible_id, notes, statement_id, category, category_id, categories!transactions_category_id_fkey(name)')
+        .select('id, date, description, amount, owner, responsible_id, notes, statement_id, category, category_id, invoice_id, categories!transactions_category_id_fkey(name)')
         .eq('user_id', user.id)
         .eq('type', 'ingreso')
-        .is('invoice_id', null)
         .is('deleted_at', null)
         .gte('date', startDate)
         .lte('date', endDate)
@@ -50,7 +50,7 @@ export default function AdvancesReport() {
 
       if (error) throw error;
 
-      // Get responsible names first (needed for filtering)
+      // Get responsible names
       const allRespIds = [...new Set((transactions || []).filter(t => t.responsible_id).map(t => t.responsible_id!))];
       let respMap = new Map<string, string>();
       if (allRespIds.length > 0) {
@@ -58,22 +58,21 @@ export default function AdvancesReport() {
           .from('responsibles')
           .select('id, name')
           .in('id', allRespIds);
-        if (resps) {
-          resps.forEach(r => respMap.set(r.id, r.name));
-        }
+        if (resps) resps.forEach(r => respMap.set(r.id, r.name));
       }
 
-      // Filter: must be Ingreso + Category "Ventas" + Responsible != "Otros"
+      // Filter: Ingreso + Category "Ventas" + Responsible != "Otros" + no invoice
       const filtered = (transactions || []).filter((t: any) => {
         const catName = (t.categories?.name || t.category || '').trim().toLowerCase();
         const hasResponsible = Boolean(t.responsible_id);
         const isVentas = catName === 'ventas';
         const respName = t.responsible_id ? respMap.get(t.responsible_id) : null;
         const isRespOtros = respName?.toLowerCase() === 'otros';
-        return hasResponsible && isVentas && !isRespOtros;
+        const hasNoInvoice = !t.invoice_id;
+        return hasResponsible && isVentas && !isRespOtros && hasNoInvoice;
       });
 
-      // Get statement names for bank account display
+      // Get statement names
       const statementIds = [...new Set(filtered.map(t => t.statement_id))];
       let statementsMap = new Map<string, string>();
       if (statementIds.length > 0) {
@@ -81,14 +80,19 @@ export default function AdvancesReport() {
           .from('bank_statements')
           .select('id, display_name, bank_name')
           .in('id', statementIds);
-        if (statements) {
-          statements.forEach(s => {
-            statementsMap.set(s.id, s.display_name || s.bank_name);
-          });
-        }
+        if (statements) statements.forEach(s => statementsMap.set(s.id, s.display_name || s.bank_name));
       }
 
-      return { transactions: filtered, statementsMap, respMap };
+      // Get user invoices for reconciliation (sales invoices)
+      const { data: invoices } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, counterparty_name, total_amount, issue_date')
+        .eq('user_id', user.id)
+        .eq('type', 'venta')
+        .order('issue_date', { ascending: false })
+        .limit(200);
+
+      return { transactions: filtered, statementsMap, respMap, invoices: invoices || [] };
     },
     enabled: !!user,
   });
@@ -96,6 +100,17 @@ export default function AdvancesReport() {
   const totalAdvances = useMemo(() => {
     if (!data?.transactions) return 0;
     return data.transactions.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+  }, [data]);
+
+  // Group by client
+  const byClient = useMemo(() => {
+    if (!data?.transactions) return [];
+    const map = new Map<string, number>();
+    for (const tx of data.transactions) {
+      const clientName = tx.owner || (tx.responsible_id ? data.respMap.get(tx.responsible_id) : null) || 'Sin asignar';
+      map.set(clientName, (map.get(clientName) ?? 0) + Math.abs(tx.amount ?? 0));
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [data]);
 
   return (
@@ -130,83 +145,100 @@ export default function AdvancesReport() {
           </CardHeader>
         </Card>
 
-        {/* KPI */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Anticipos</CardTitle>
-            <div className="p-2 rounded-lg bg-warning/10">
-              <Banknote className="h-4 w-4 text-warning" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-warning">{formatCurrency(totalAdvances)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {data?.transactions.length ?? 0} transacción{(data?.transactions.length ?? 0) !== 1 ? 'es' : ''} • {year}
-            </p>
-          </CardContent>
-        </Card>
+        {/* Tabs */}
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'current' | 'previous')}>
+          <TabsList className="w-full sm:w-auto">
+            <TabsTrigger value="current" className="flex-1 sm:flex-initial gap-1.5">
+              <Banknote className="h-4 w-4" />
+              Anticipos {year}
+            </TabsTrigger>
+            <TabsTrigger value="previous" className="flex-1 sm:flex-initial gap-1.5">
+              <History className="h-4 w-4" />
+              Periodo anterior
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Table */}
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/80">
-                    <TableHead className="font-semibold">Fecha</TableHead>
-                    <TableHead className="font-semibold">Cliente</TableHead>
-                    <TableHead className="font-semibold min-w-[250px]">Descripción</TableHead>
-                    <TableHead className="font-semibold text-right">Monto</TableHead>
-                    <TableHead className="font-semibold">Cuenta</TableHead>
-                    <TableHead className="font-semibold">Observaciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                        Cargando datos...
-                      </TableCell>
-                    </TableRow>
-                  ) : !data?.transactions.length ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-12">
-                        <div className="flex flex-col items-center gap-2">
-                          <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
-                          <p className="text-muted-foreground">Aún no hay suficiente información para mostrar rankings.</p>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+          {tab === 'previous' && (
+            <p className="text-sm font-bold text-muted-foreground mt-2">{year - 1}</p>
+          )}
+
+          <TabsContent value="current" className="space-y-4 mt-4">
+            {/* KPI */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Anticipos</CardTitle>
+                  <div className="p-2 rounded-lg bg-warning/10">
+                    <Banknote className="h-4 w-4 text-warning" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-warning">{formatCurrency(totalAdvances)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {data?.transactions.length ?? 0} transacción{(data?.transactions.length ?? 0) !== 1 ? 'es' : ''} • {displayYear}
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* By client summary */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Anticipos por Cliente</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {byClient.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Sin datos</p>
                   ) : (
-                    data.transactions.map((tx) => {
-                      const clientName = tx.owner || (tx.responsible_id ? data.respMap.get(tx.responsible_id) : null) || 'Sin asignar';
-                      const accountName = data.statementsMap.get(tx.statement_id) || '-';
-                      // Clean notes from system markers
-                      const cleanNotes = (tx.notes || '')
-                        .replace(/\[.*?\]/g, '')
-                        .trim() || '-';
-
-                      return (
-                        <TableRow key={tx.id}>
-                          <TableCell className="text-sm whitespace-nowrap">
-                            {format(new Date(tx.date), 'dd MMM yyyy', { locale: es })}
-                          </TableCell>
-                          <TableCell className="text-sm font-medium">{clientName}</TableCell>
-                          <TableCell className="text-sm truncate max-w-[300px]">{tx.description}</TableCell>
-                          <TableCell className="text-right font-bold text-sm text-success">
-                            {formatCurrency(Math.abs(tx.amount ?? 0))}
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{accountName}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{cleanNotes}</TableCell>
-                        </TableRow>
-                      );
-                    })
+                    <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                      {byClient.slice(0, 8).map(([name, amount]) => (
+                        <div key={name} className="flex items-center justify-between text-sm">
+                          <span className="truncate mr-2">{name}</span>
+                          <span className="font-semibold text-warning whitespace-nowrap">{formatCurrency(amount)}</span>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                </TableBody>
-              </Table>
+                </CardContent>
+              </Card>
             </div>
-          </CardContent>
-        </Card>
+
+            <AdvancesTable
+              transactions={data?.transactions ?? []}
+              statementsMap={data?.statementsMap ?? new Map()}
+              respMap={data?.respMap ?? new Map()}
+              invoices={data?.invoices ?? []}
+              isLoading={isLoading}
+              showReconcile={false}
+            />
+          </TabsContent>
+
+          <TabsContent value="previous" className="space-y-4 mt-4">
+            {/* KPI */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Anticipos {year - 1}</CardTitle>
+                <div className="p-2 rounded-lg bg-warning/10">
+                  <History className="h-4 w-4 text-warning" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-warning">{formatCurrency(totalAdvances)}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {data?.transactions.length ?? 0} transacción{(data?.transactions.length ?? 0) !== 1 ? 'es' : ''} • {displayYear}
+                </p>
+              </CardContent>
+            </Card>
+
+            <AdvancesTable
+              transactions={data?.transactions ?? []}
+              statementsMap={data?.statementsMap ?? new Map()}
+              respMap={data?.respMap ?? new Map()}
+              invoices={data?.invoices ?? []}
+              isLoading={isLoading}
+              showReconcile={true}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
     </TooltipProvider>
   );
