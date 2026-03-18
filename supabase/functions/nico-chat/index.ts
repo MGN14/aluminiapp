@@ -571,6 +571,9 @@ ANTICIPOS SIN FACTURAR:
 Total anticipos: ${fmt(totalAnticipos)} (${anticipos.length} transacciones)
 ${anticipos.slice(0, 5).map((a, i) => `${i + 1}. ${a.responsable}: ${fmt(a.monto)} (${a.fecha}) — ${a.descripcion}`).join("\n") || "Sin anticipos pendientes"}
 
+ANTICIPOS ACUMULADOS POR CLIENTE:
+${topAnticiposCliente.map(([name, amount], i) => `${i + 1}. ${name}: ${fmt(amount)}`).join("\n") || "Sin anticipos"}
+
 ═══════════════════════════════════════════
 MÓDULO 5 — ALERTAS E INCONSISTENCIAS DETECTADAS
 ═══════════════════════════════════════════
