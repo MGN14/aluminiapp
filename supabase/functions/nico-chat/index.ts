@@ -363,6 +363,7 @@ serve(async (req) => {
     // --- Anticipos (ingresos bancarios sin factura asociada, con responsable) ---
     const anticipos: { responsable: string; monto: number; fecha: string; descripcion: string }[] = [];
     let totalAnticipos = 0;
+    const anticiposPorCliente: Record<string, number> = {};
     for (const t of (transactions ?? [])) {
       const credit = t.credit ?? 0;
       if (credit <= 0 || t.invoice_id) continue;
@@ -376,7 +377,10 @@ serve(async (req) => {
         descripcion: t.description?.substring(0, 60) ?? "",
       });
       totalAnticipos += credit;
+      anticiposPorCliente[respName] = (anticiposPorCliente[respName] ?? 0) + credit;
     }
+    const topAnticiposCliente = Object.entries(anticiposPorCliente)
+      .sort((a, b) => b[1] - a[1]);
 
     // --- Inconsistencias fiscales ---
     const inconsistencias: string[] = [];
