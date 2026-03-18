@@ -56,6 +56,8 @@ serve(async (req) => {
       { data: matches },
       { data: bankStatements },
       { data: profile },
+      { data: initialState },
+      { data: initialStateDetails },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -102,6 +104,15 @@ serve(async (req) => {
         .select("company_name, full_name")
         .eq("user_id", user.id)
         .single(),
+      supabase
+        .from("initial_financial_state")
+        .select("*")
+        .eq("user_id", user.id)
+        .single(),
+      supabase
+        .from("initial_state_details")
+        .select("field_type, responsible_name, amount, responsible_id")
+        .eq("user_id", user.id),
     ]);
 
     const fmt = (n: number) =>
@@ -561,6 +572,32 @@ MÓDULO 5 — ALERTAS E INCONSISTENCIAS DETECTADAS
 ═══════════════════════════════════════════
 
 ${inconsistencias.length > 0 ? inconsistencias.map((inc, i) => `⚠ ${i + 1}. ${inc}`).join("\n") : "No se detectaron inconsistencias relevantes."}
+
+═══════════════════════════════════════════
+MÓDULO 6 — ESTADO INICIAL FINANCIERO (Saldos de apertura)
+Fuente: saldos configurados por el empresario como punto de partida del negocio en AluminIA.
+IMPORTANTE: Estos saldos representan la posición financiera ANTES de empezar a registrar movimientos. Deben sumarse a los cálculos acumulados.
+═══════════════════════════════════════════
+
+${initialState ? `Fecha de inicio: ${initialState.fecha_inicio}
+Saldo en bancos: ${fmt(initialState.saldo_bancos ?? 0)}
+Cuentas por cobrar: ${fmt(initialState.cuentas_por_cobrar ?? 0)}
+Inventario: ${fmt(initialState.inventario ?? 0)}
+Anticipos a proveedores: ${fmt(initialState.anticipos_a_proveedores ?? 0)}
+Otros activos: ${fmt(initialState.otros_activos ?? 0)}
+Cuentas por pagar: ${fmt(initialState.cuentas_por_pagar ?? 0)}
+Anticipos de clientes: ${fmt(initialState.anticipos_de_clientes ?? 0)}
+Impuestos por pagar: ${fmt(initialState.impuestos_por_pagar ?? 0)}
+Préstamos: ${fmt(initialState.prestamos ?? 0)}
+IVA a favor: ${fmt(initialState.iva_a_favor ?? 0)}
+IVA por pagar: ${fmt(initialState.iva_por_pagar ?? 0)}
+Retefuente por pagar: ${fmt(initialState.retefuente_por_pagar ?? 0)}
+ICA por pagar: ${fmt(initialState.ica_por_pagar ?? 0)}` : "No se ha configurado el estado inicial financiero."}
+
+${(initialStateDetails ?? []).length > 0 ? `DESGLOSE POR RESPONSABLE:
+${(initialStateDetails ?? []).map((d: any) => `- ${d.field_type}: ${d.responsible_name} → ${fmt(d.amount ?? 0)}`).join("\n")}` : ""}
+
+NOTA PARA ANÁLISIS: Cuando calcules posición de caja total, suma el saldo inicial de bancos + neto de transacciones. Para CxC y CxP totales, suma los saldos iniciales + los pendientes de facturas. Los anticipos de clientes iniciales son pasivos que deben facturarse.
 
 ═══════════════════════════════════════════
 INFORMACIÓN DEL NEGOCIO
