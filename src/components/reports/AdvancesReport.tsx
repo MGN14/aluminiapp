@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Banknote, History, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Banknote, History, Info, Link2, Check } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { toast } from 'sonner';
 import AdvancesTable from './AdvancesTable';
 
 function formatCurrency(value: number): string {
@@ -22,7 +24,9 @@ const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
 export default function AdvancesReport() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [year, setYear] = useState(currentYear);
+  const [reconcilingDetail, setReconcilingDetail] = useState<string | null>(null);
 
   const startDate = `${year}-01-01`;
   const endDate = `${year}-12-31`;
@@ -115,12 +119,36 @@ export default function AdvancesReport() {
     enabled: !!user,
   });
 
+  const handleReconcileDetail = async (detailId: string, invoiceId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('initial_state_details' as any)
+        .update({ invoice_id: invoiceId } as any)
+        .eq('id', detailId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      toast.success('Anticipo de periodo anterior vinculado a factura');
+      queryClient.invalidateQueries({ queryKey: ['advances-report'] });
+      setReconcilingDetail(null);
+    } catch {
+      toast.error('Error al vincular');
+    }
+  };
+
+  // Only count unreconciled initial details
+  const unreconciledDetails = useMemo(() => {
+    return (data?.initialDetails || []).filter((d: any) => !d.invoice_id);
+  }, [data]);
+
   const totalAdvancesTx = useMemo(() => {
     if (!data?.transactions) return 0;
     return data.transactions.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
   }, [data]);
 
-  const initialAnticipo = data?.initialAnticipo ?? 0;
+  const initialAnticipo = useMemo(() => {
+    return unreconciledDetails.reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
+  }, [unreconciledDetails]);
   const totalAdvances = totalAdvancesTx + initialAnticipo;
 
   // Group by client (transactions + initial state details)
@@ -135,16 +163,14 @@ export default function AdvancesReport() {
       }
     }
 
-    // From initial state details
-    if (data?.initialDetails) {
-      for (const d of data.initialDetails) {
-        const name = (d as any).responsible_name || 'Periodo anterior';
-        map.set(name, (map.get(name) ?? 0) + ((d as any).amount ?? 0));
-      }
+    // From unreconciled initial state details
+    for (const d of unreconciledDetails) {
+      const name = (d as any).responsible_name || 'Periodo anterior';
+      map.set(name, (map.get(name) ?? 0) + ((d as any).amount ?? 0));
     }
 
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
-  }, [data]);
+  }, [data, unreconciledDetails]);
 
   return (
     <TooltipProvider>
@@ -213,13 +239,51 @@ export default function AdvancesReport() {
                   : 'Sin estado inicial configurado'}
               </p>
               {data?.initialDetails && data.initialDetails.length > 0 && (
-                <div className="mt-2 space-y-1 border-t pt-2">
-                  {data.initialDetails.map((d: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between text-xs">
-                      <span className="truncate mr-2 text-muted-foreground">{d.responsible_name || 'Sin nombre'}</span>
-                      <span className="font-semibold whitespace-nowrap">{formatCurrency(d.amount ?? 0)}</span>
-                    </div>
-                  ))}
+                <div className="mt-2 space-y-1.5 border-t pt-2">
+                  {data.initialDetails.map((d: any) => {
+                    const isReconciled = !!d.invoice_id;
+                    const invoice = isReconciled ? data.invoices.find((inv: any) => inv.id === d.invoice_id) : null;
+
+                    return (
+                      <div key={d.id} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="truncate mr-2 text-muted-foreground">{d.responsible_name || 'Sin nombre'}</span>
+                          <span className="font-semibold whitespace-nowrap">{formatCurrency(d.amount ?? 0)}</span>
+                        </div>
+                        {isReconciled ? (
+                          <div className="flex items-center gap-1 text-xs text-success">
+                            <Check className="h-3 w-3" />
+                            <span>Vinculada: {invoice?.invoice_number || 'Factura'}</span>
+                          </div>
+                        ) : reconcilingDetail === d.id ? (
+                          <Select onValueChange={(invoiceId) => handleReconcileDetail(d.id, invoiceId)}>
+                            <SelectTrigger className="h-6 text-xs">
+                              <SelectValue placeholder="Seleccionar factura" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(data?.invoices || []).map((inv: any) => (
+                                <SelectItem key={inv.id} value={inv.id}>
+                                  <span className="text-xs">
+                                    {inv.invoice_number} — {inv.counterparty_name || 'Sin nombre'} ({formatCurrency(inv.total_amount)})
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 text-xs gap-1 px-1 text-muted-foreground hover:text-primary"
+                            onClick={() => setReconcilingDetail(d.id)}
+                          >
+                            <Link2 className="h-3 w-3" />
+                            Vincular factura
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
