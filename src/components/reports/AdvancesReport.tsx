@@ -163,11 +163,10 @@ export default function AdvancesReport() {
       }
     }
 
-    // From initial state details
-    if (data?.initialDetails) {
-      for (const d of data.initialDetails) {
-        const name = (d as any).responsible_name || 'Periodo anterior';
-        map.set(name, (map.get(name) ?? 0) + ((d as any).amount ?? 0));
+    // From unreconciled initial state details
+    for (const d of unreconciledDetails) {
+      const name = (d as any).responsible_name || 'Periodo anterior';
+      map.set(name, (map.get(name) ?? 0) + ((d as any).amount ?? 0));
       }
     }
 
