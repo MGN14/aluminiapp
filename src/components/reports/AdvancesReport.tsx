@@ -167,11 +167,10 @@ export default function AdvancesReport() {
     for (const d of unreconciledDetails) {
       const name = (d as any).responsible_name || 'Periodo anterior';
       map.set(name, (map.get(name) ?? 0) + ((d as any).amount ?? 0));
-      }
     }
 
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
-  }, [data]);
+  }, [data, unreconciledDetails]);
 
   return (
     <TooltipProvider>
