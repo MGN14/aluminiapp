@@ -4,11 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Banknote, AlertCircle, History, Info } from 'lucide-react';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { Banknote, History, Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import AdvancesTable from './AdvancesTable';
 
@@ -27,31 +23,45 @@ const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 export default function AdvancesReport() {
   const { user } = useAuth();
   const [year, setYear] = useState(currentYear);
-  const [tab, setTab] = useState<'current' | 'previous'>('current');
 
-  const displayYear = tab === 'current' ? year : year - 1;
-  const startDate = `${displayYear}-01-01`;
-  const endDate = `${displayYear}-12-31`;
+  const startDate = `${year}-01-01`;
+  const endDate = `${year}-12-31`;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['advances-report', user?.id, displayYear],
+    queryKey: ['advances-report', user?.id, year],
     queryFn: async () => {
       if (!user) return null;
 
-      const { data: transactions, error } = await supabase
-        .from('transactions')
-        .select('id, date, description, amount, owner, responsible_id, notes, statement_id, category, category_id, invoice_id, categories!transactions_category_id_fkey(name)')
-        .eq('user_id', user.id)
-        .eq('type', 'ingreso')
-        .is('deleted_at', null)
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .order('date', { ascending: false });
+      // Fetch transactions + initial state details in parallel
+      const [txResult, initialDetailsResult, initialStateResult] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('id, date, description, amount, owner, responsible_id, notes, statement_id, category, category_id, invoice_id, categories!transactions_category_id_fkey(name)')
+          .eq('user_id', user.id)
+          .eq('type', 'ingreso')
+          .is('deleted_at', null)
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('date', { ascending: false }),
+        supabase
+          .from('initial_state_details' as any)
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('field_type', 'anticipos_de_clientes'),
+        supabase
+          .from('initial_financial_state' as any)
+          .select('anticipos_de_clientes, fecha_inicio')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+      ]);
 
-      if (error) throw error;
+      if (txResult.error) throw txResult.error;
+      const transactions = txResult.data || [];
+      const initialDetails = (initialDetailsResult.data as any[]) || [];
+      const initialState = initialStateResult.data as any;
 
       // Get responsible names
-      const allRespIds = [...new Set((transactions || []).filter(t => t.responsible_id).map(t => t.responsible_id!))];
+      const allRespIds = [...new Set(transactions.filter(t => t.responsible_id).map(t => t.responsible_id!))];
       let respMap = new Map<string, string>();
       if (allRespIds.length > 0) {
         const { data: resps } = await supabase
@@ -62,7 +72,7 @@ export default function AdvancesReport() {
       }
 
       // Filter: Ingreso + Category "Ventas" + Responsible != "Otros" + no invoice
-      const filtered = (transactions || []).filter((t: any) => {
+      const filtered = transactions.filter((t: any) => {
         const catName = (t.categories?.name || t.category || '').trim().toLowerCase();
         const hasResponsible = Boolean(t.responsible_id);
         const isVentas = catName === 'ventas';
@@ -83,7 +93,7 @@ export default function AdvancesReport() {
         if (statements) statements.forEach(s => statementsMap.set(s.id, s.display_name || s.bank_name));
       }
 
-      // Get user invoices for reconciliation (sales invoices)
+      // Get user invoices for reconciliation
       const { data: invoices } = await supabase
         .from('invoices')
         .select('id, invoice_number, counterparty_name, total_amount, issue_date')
@@ -92,31 +102,54 @@ export default function AdvancesReport() {
         .order('issue_date', { ascending: false })
         .limit(200);
 
-      return { transactions: filtered, statementsMap, respMap, invoices: invoices || [] };
+      return {
+        transactions: filtered,
+        statementsMap,
+        respMap,
+        invoices: invoices || [],
+        initialDetails,
+        initialAnticipo: initialState?.anticipos_de_clientes ?? 0,
+        fechaInicio: initialState?.fecha_inicio,
+      };
     },
     enabled: !!user,
   });
 
-  const totalAdvances = useMemo(() => {
+  const totalAdvancesTx = useMemo(() => {
     if (!data?.transactions) return 0;
     return data.transactions.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
   }, [data]);
 
-  // Group by client
+  const initialAnticipo = data?.initialAnticipo ?? 0;
+  const totalAdvances = totalAdvancesTx + initialAnticipo;
+
+  // Group by client (transactions + initial state details)
   const byClient = useMemo(() => {
-    if (!data?.transactions) return [];
     const map = new Map<string, number>();
-    for (const tx of data.transactions) {
-      const clientName = tx.owner || (tx.responsible_id ? data.respMap.get(tx.responsible_id) : null) || 'Sin asignar';
-      map.set(clientName, (map.get(clientName) ?? 0) + Math.abs(tx.amount ?? 0));
+
+    // From transactions
+    if (data?.transactions) {
+      for (const tx of data.transactions) {
+        const clientName = tx.owner || (tx.responsible_id ? data.respMap.get(tx.responsible_id) : null) || 'Sin asignar';
+        map.set(clientName, (map.get(clientName) ?? 0) + Math.abs(tx.amount ?? 0));
+      }
     }
+
+    // From initial state details
+    if (data?.initialDetails) {
+      for (const d of data.initialDetails) {
+        const name = (d as any).responsible_name || 'Periodo anterior';
+        map.set(name, (map.get(name) ?? 0) + ((d as any).amount ?? 0));
+      }
+    }
+
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [data]);
 
   return (
     <TooltipProvider>
       <div className="space-y-4">
-        {/* Filters */}
+        {/* Header */}
         <Card>
           <CardHeader className="pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -127,7 +160,7 @@ export default function AdvancesReport() {
                     <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Ingresos bancarios sin factura asociada. Dinero que ya entró pero aún no se ha facturado.</p>
+                    <p>Ingresos bancarios sin factura asociada. Incluye saldos iniciales configurados en ajustes.</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -145,100 +178,84 @@ export default function AdvancesReport() {
           </CardHeader>
         </Card>
 
-        {/* Tabs */}
-        <Tabs value={tab} onValueChange={(v) => setTab(v as 'current' | 'previous')}>
-          <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="current" className="flex-1 sm:flex-initial gap-1.5">
-              <Banknote className="h-4 w-4" />
-              Anticipos {year}
-            </TabsTrigger>
-            <TabsTrigger value="previous" className="flex-1 sm:flex-initial gap-1.5">
-              <History className="h-4 w-4" />
-              Periodo anterior
-            </TabsTrigger>
-          </TabsList>
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Total */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Anticipos</CardTitle>
+              <div className="p-2 rounded-lg bg-warning/10">
+                <Banknote className="h-4 w-4 text-warning" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-warning">{formatCurrency(totalAdvances)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {data?.transactions.length ?? 0} transacción{(data?.transactions.length ?? 0) !== 1 ? 'es' : ''} • {year}
+                {initialAnticipo > 0 && ` + saldo inicial`}
+              </p>
+            </CardContent>
+          </Card>
 
-          {tab === 'previous' && (
-            <p className="text-sm font-bold text-muted-foreground mt-2">{year - 1}</p>
-          )}
-
-          <TabsContent value="current" className="space-y-4 mt-4">
-            {/* KPI */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Anticipos</CardTitle>
-                  <div className="p-2 rounded-lg bg-warning/10">
-                    <Banknote className="h-4 w-4 text-warning" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-warning">{formatCurrency(totalAdvances)}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {data?.transactions.length ?? 0} transacción{(data?.transactions.length ?? 0) !== 1 ? 'es' : ''} • {displayYear}
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* By client summary */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Anticipos por Cliente</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {byClient.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Sin datos</p>
-                  ) : (
-                    <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                      {byClient.slice(0, 8).map(([name, amount]) => (
-                        <div key={name} className="flex items-center justify-between text-sm">
-                          <span className="truncate mr-2">{name}</span>
-                          <span className="font-semibold text-warning whitespace-nowrap">{formatCurrency(amount)}</span>
-                        </div>
-                      ))}
+          {/* Previous period (initial state) */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Anticipos Periodo Anterior</CardTitle>
+              <div className="p-2 rounded-lg bg-muted">
+                <History className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-foreground">{formatCurrency(initialAnticipo)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {data?.fechaInicio
+                  ? <><span className="font-bold">Corte: {data.fechaInicio}</span></>
+                  : 'Sin estado inicial configurado'}
+              </p>
+              {data?.initialDetails && data.initialDetails.length > 0 && (
+                <div className="mt-2 space-y-1 border-t pt-2">
+                  {data.initialDetails.map((d: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <span className="truncate mr-2 text-muted-foreground">{d.responsible_name || 'Sin nombre'}</span>
+                      <span className="font-semibold whitespace-nowrap">{formatCurrency(d.amount ?? 0)}</span>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <AdvancesTable
-              transactions={data?.transactions ?? []}
-              statementsMap={data?.statementsMap ?? new Map()}
-              respMap={data?.respMap ?? new Map()}
-              invoices={data?.invoices ?? []}
-              isLoading={isLoading}
-              showReconcile={false}
-            />
-          </TabsContent>
-
-          <TabsContent value="previous" className="space-y-4 mt-4">
-            {/* KPI */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Anticipos {year - 1}</CardTitle>
-                <div className="p-2 rounded-lg bg-warning/10">
-                  <History className="h-4 w-4 text-warning" />
+                  ))}
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-warning">{formatCurrency(totalAdvances)}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {data?.transactions.length ?? 0} transacción{(data?.transactions.length ?? 0) !== 1 ? 'es' : ''} • {displayYear}
-                </p>
-              </CardContent>
-            </Card>
+              )}
+            </CardContent>
+          </Card>
 
-            <AdvancesTable
-              transactions={data?.transactions ?? []}
-              statementsMap={data?.statementsMap ?? new Map()}
-              respMap={data?.respMap ?? new Map()}
-              invoices={data?.invoices ?? []}
-              isLoading={isLoading}
-              showReconcile={true}
-            />
-          </TabsContent>
-        </Tabs>
+          {/* By client summary */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Anticipos por Cliente</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {byClient.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin datos</p>
+              ) : (
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {byClient.slice(0, 10).map(([name, amount]) => (
+                    <div key={name} className="flex items-center justify-between text-sm">
+                      <span className="truncate mr-2">{name}</span>
+                      <span className="font-semibold text-warning whitespace-nowrap">{formatCurrency(amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Table */}
+        <AdvancesTable
+          transactions={data?.transactions ?? []}
+          statementsMap={data?.statementsMap ?? new Map()}
+          respMap={data?.respMap ?? new Map()}
+          invoices={data?.invoices ?? []}
+          isLoading={isLoading}
+          showReconcile={true}
+        />
       </div>
     </TooltipProvider>
   );
