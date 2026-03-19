@@ -119,12 +119,36 @@ export default function AdvancesReport() {
     enabled: !!user,
   });
 
+  const handleReconcileDetail = async (detailId: string, invoiceId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('initial_state_details' as any)
+        .update({ invoice_id: invoiceId } as any)
+        .eq('id', detailId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      toast.success('Anticipo de periodo anterior vinculado a factura');
+      queryClient.invalidateQueries({ queryKey: ['advances-report'] });
+      setReconcilingDetail(null);
+    } catch {
+      toast.error('Error al vincular');
+    }
+  };
+
+  // Only count unreconciled initial details
+  const unreconciledDetails = useMemo(() => {
+    return (data?.initialDetails || []).filter((d: any) => !d.invoice_id);
+  }, [data]);
+
   const totalAdvancesTx = useMemo(() => {
     if (!data?.transactions) return 0;
     return data.transactions.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
   }, [data]);
 
-  const initialAnticipo = data?.initialAnticipo ?? 0;
+  const initialAnticipo = useMemo(() => {
+    return unreconciledDetails.reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
+  }, [unreconciledDetails]);
   const totalAdvances = totalAdvancesTx + initialAnticipo;
 
   // Group by client (transactions + initial state details)
