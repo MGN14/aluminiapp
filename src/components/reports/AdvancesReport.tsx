@@ -239,13 +239,51 @@ export default function AdvancesReport() {
                   : 'Sin estado inicial configurado'}
               </p>
               {data?.initialDetails && data.initialDetails.length > 0 && (
-                <div className="mt-2 space-y-1 border-t pt-2">
-                  {data.initialDetails.map((d: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between text-xs">
-                      <span className="truncate mr-2 text-muted-foreground">{d.responsible_name || 'Sin nombre'}</span>
-                      <span className="font-semibold whitespace-nowrap">{formatCurrency(d.amount ?? 0)}</span>
-                    </div>
-                  ))}
+                <div className="mt-2 space-y-1.5 border-t pt-2">
+                  {data.initialDetails.map((d: any) => {
+                    const isReconciled = !!d.invoice_id;
+                    const invoice = isReconciled ? data.invoices.find((inv: any) => inv.id === d.invoice_id) : null;
+
+                    return (
+                      <div key={d.id} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="truncate mr-2 text-muted-foreground">{d.responsible_name || 'Sin nombre'}</span>
+                          <span className="font-semibold whitespace-nowrap">{formatCurrency(d.amount ?? 0)}</span>
+                        </div>
+                        {isReconciled ? (
+                          <div className="flex items-center gap-1 text-xs text-success">
+                            <Check className="h-3 w-3" />
+                            <span>Vinculada: {invoice?.invoice_number || 'Factura'}</span>
+                          </div>
+                        ) : reconcilingDetail === d.id ? (
+                          <Select onValueChange={(invoiceId) => handleReconcileDetail(d.id, invoiceId)}>
+                            <SelectTrigger className="h-6 text-xs">
+                              <SelectValue placeholder="Seleccionar factura" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(data?.invoices || []).map((inv: any) => (
+                                <SelectItem key={inv.id} value={inv.id}>
+                                  <span className="text-xs">
+                                    {inv.invoice_number} — {inv.counterparty_name || 'Sin nombre'} ({formatCurrency(inv.total_amount)})
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 text-xs gap-1 px-1 text-muted-foreground hover:text-primary"
+                            onClick={() => setReconcilingDetail(d.id)}
+                          >
+                            <Link2 className="h-3 w-3" />
+                            Vincular factura
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
