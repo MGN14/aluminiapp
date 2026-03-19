@@ -1,0 +1,1 @@
+ALTER TABLE public.initial_state_details ADD COLUMN invoice_id uuid REFERENCES public.invoices(id) ON DELETE SET NULL DEFAULT NULL;

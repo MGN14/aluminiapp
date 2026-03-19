@@ -251,6 +251,7 @@ export type Database = {
           created_at: string
           field_type: string
           id: string
+          invoice_id: string | null
           responsible_id: string | null
           responsible_name: string
           user_id: string
@@ -260,6 +261,7 @@ export type Database = {
           created_at?: string
           field_type: string
           id?: string
+          invoice_id?: string | null
           responsible_id?: string | null
           responsible_name?: string
           user_id: string
@@ -269,11 +271,19 @@ export type Database = {
           created_at?: string
           field_type?: string
           id?: string
+          invoice_id?: string | null
           responsible_id?: string | null
           responsible_name?: string
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "initial_state_details_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "initial_state_details_responsible_id_fkey"
             columns: ["responsible_id"]
