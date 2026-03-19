@@ -24,7 +24,9 @@ const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
 export default function AdvancesReport() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [year, setYear] = useState(currentYear);
+  const [reconcilingDetail, setReconcilingDetail] = useState<string | null>(null);
 
   const startDate = `${year}-01-01`;
   const endDate = `${year}-12-31`;
