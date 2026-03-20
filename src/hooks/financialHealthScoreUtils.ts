@@ -135,8 +135,10 @@ export function calculateFinancialHealthMetrics(
   const totalIngresosMonto = ingresosTx.reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
   const facturacionVentas = salesInvoices.reduce((sum, inv) => sum + (inv.total_amount ?? 0), 0);
   const baseFacturacion = totalIngresosMonto + initialAnticiposClientes;
-  const soportado = facturacionVentas + initialAnticiposClientes;
-  const pctSoportado = baseFacturacion > 0 ? clampPct(soportado / baseFacturacion) : 0;
+  const soportado = facturacionVentas;
+  const saldoPorFacturar = Math.max(0, baseFacturacion - soportado);
+  const pctSinFacturar = safePct(saldoPorFacturar, baseFacturacion);
+  const pctSoportado = clampPct(1 - pctSinFacturar);
   const scoreFacturacion = baseFacturacion > 0 ? linearScore(pctSoportado) : 0;
 
   // ========== 3. CONTROL DE IMPUESTOS ==========
