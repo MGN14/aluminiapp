@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MONTH_NAMES } from '@/types/transaction';
-import { Receipt, AlertCircle, Info, Lightbulb, CheckCircle2 } from 'lucide-react';
+import { Receipt, AlertCircle, Info, Lightbulb, CheckCircle2, ChevronDown, ChevronRight, Banknote, ShieldCheck, History } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -27,6 +27,13 @@ function formatCurrency(value: number): string {
 const currentYear = new Date().getFullYear();
 const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
+interface PaymentDetail {
+  type: 'transaction' | 'match' | 'advance' | 'retefuente';
+  label: string;
+  amount: number;
+  date?: string;
+}
+
 interface InvoiceWithPayments {
   id: string;
   invoice_number: string;
@@ -37,6 +44,7 @@ interface InvoiceWithPayments {
   pending: number;
   days_since: number;
   status: 'pagada' | 'parcial' | 'pendiente';
+  details: PaymentDetail[];
 }
 
 interface Suggestion {
@@ -50,6 +58,16 @@ interface Suggestion {
 export default function AccountsReceivableReport() {
   const { user } = useAuth();
   const [year, setYear] = useState(currentYear);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  const toggleRow = (id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['accounts-receivable', user?.id, year],
@@ -59,10 +77,9 @@ export default function AccountsReceivableReport() {
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
 
-      // Get all sales invoices for the year
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type, retefuente_cliente_amount')
+        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type, retefuente_cliente_amount, autoretefuente_amount, reteica_amount')
         .eq('user_id', user.id)
         .eq('type', 'venta')
         .gte('issue_date', startDate)
@@ -74,69 +91,114 @@ export default function AccountsReceivableReport() {
 
       const invoiceIds = invoices.map(i => i.id);
 
-      // Get direct transaction payments (invoice_id on transactions)
-      const { data: directPayments } = await supabase
-        .from('transactions')
-        .select('id, invoice_id, amount, description, owner')
-        .eq('user_id', user.id)
-        .is('deleted_at', null)
-        .in('invoice_id', invoiceIds);
+      const [directRes, matchRes, advanceRes, unmatchedRes] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('id, invoice_id, amount, description, date')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .in('invoice_id', invoiceIds),
+        supabase
+          .from('invoice_transaction_matches')
+          .select('invoice_id, matched_amount, transaction_id')
+          .eq('user_id', user.id)
+          .in('invoice_id', invoiceIds),
+        supabase
+          .from('initial_state_details')
+          .select('invoice_id, amount, responsible_name')
+          .eq('user_id', user.id)
+          .eq('field_type', 'anticipos_de_clientes')
+          .in('invoice_id', invoiceIds),
+        supabase
+          .from('transactions')
+          .select('id, amount, description, owner, responsible_id, date')
+          .eq('user_id', user.id)
+          .eq('type', 'ingreso')
+          .is('invoice_id', null)
+          .is('deleted_at', null)
+          .gte('date', startDate)
+          .lte('date', endDate),
+      ]);
 
-      // Get payments from invoice_transaction_matches
-      const { data: matchPayments } = await supabase
-        .from('invoice_transaction_matches')
-        .select('invoice_id, matched_amount, transaction_id')
-        .eq('user_id', user.id)
-        .in('invoice_id', invoiceIds);
+      // Get transaction dates for matches
+      const matchTxIds = [...new Set((matchRes.data || []).map(m => m.transaction_id))];
+      let matchTxMap = new Map<string, { description: string; date: string }>();
+      if (matchTxIds.length > 0) {
+        const { data: matchTxs } = await supabase
+          .from('transactions')
+          .select('id, description, date')
+          .in('id', matchTxIds);
+        (matchTxs || []).forEach(t => matchTxMap.set(t.id, { description: t.description, date: t.date }));
+      }
 
-      // Get advance payments from initial_state_details linked to invoices
-      const { data: advancePayments } = await supabase
-        .from('initial_state_details')
-        .select('invoice_id, amount')
-        .eq('user_id', user.id)
-        .eq('field_type', 'anticipos_de_clientes')
-        .in('invoice_id', invoiceIds);
-
-      // Get unmatched income transactions for suggestions
-      const { data: unmatchedTx } = await supabase
-        .from('transactions')
-        .select('id, amount, description, owner, responsible_id, date')
-        .eq('user_id', user.id)
-        .eq('type', 'ingreso')
-        .is('invoice_id', null)
-        .is('deleted_at', null)
-        .gte('date', startDate)
-        .lte('date', endDate);
-
-      // Aggregate payments per invoice
+      // Build per-invoice detail lists
+      const detailsByInvoice = new Map<string, PaymentDetail[]>();
       const paymentsByInvoice = new Map<string, number>();
-      (directPayments || []).forEach(p => {
-        if (p.invoice_id) {
-          const current = paymentsByInvoice.get(p.invoice_id) || 0;
-          paymentsByInvoice.set(p.invoice_id, current + Math.abs(p.amount ?? 0));
-        }
+
+      invoiceIds.forEach(id => {
+        detailsByInvoice.set(id, []);
+        paymentsByInvoice.set(id, 0);
       });
-      (matchPayments || []).forEach(p => {
-        const current = paymentsByInvoice.get(p.invoice_id) || 0;
-        paymentsByInvoice.set(p.invoice_id, current + Math.abs(p.matched_amount));
+
+      // Direct transaction payments
+      (directRes.data || []).forEach(p => {
+        if (!p.invoice_id) return;
+        const amt = Math.abs(p.amount ?? 0);
+        detailsByInvoice.get(p.invoice_id)?.push({
+          type: 'transaction',
+          label: p.description || 'Transacción directa',
+          amount: amt,
+          date: p.date,
+        });
+        paymentsByInvoice.set(p.invoice_id, (paymentsByInvoice.get(p.invoice_id) || 0) + amt);
       });
-      // Count linked advance payments from initial state
-      (advancePayments || []).forEach((p: any) => {
-        if (p.invoice_id) {
-          const current = paymentsByInvoice.get(p.invoice_id) || 0;
-          paymentsByInvoice.set(p.invoice_id, current + Math.abs(p.amount ?? 0));
-        }
+
+      // Match payments
+      (matchRes.data || []).forEach(p => {
+        const tx = matchTxMap.get(p.transaction_id);
+        const amt = Math.abs(p.matched_amount);
+        detailsByInvoice.get(p.invoice_id)?.push({
+          type: 'match',
+          label: tx?.description || 'Conciliación manual',
+          amount: amt,
+          date: tx?.date,
+        });
+        paymentsByInvoice.set(p.invoice_id, (paymentsByInvoice.get(p.invoice_id) || 0) + amt);
+      });
+
+      // Advance payments from initial state
+      ((advanceRes.data || []) as any[]).forEach(p => {
+        if (!p.invoice_id) return;
+        const amt = Math.abs(p.amount ?? 0);
+        detailsByInvoice.get(p.invoice_id)?.push({
+          type: 'advance',
+          label: `Anticipo periodo anterior — ${p.responsible_name || 'Sin nombre'}`,
+          amount: amt,
+        });
+        paymentsByInvoice.set(p.invoice_id, (paymentsByInvoice.get(p.invoice_id) || 0) + amt);
       });
 
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
         const paid = paymentsByInvoice.get(inv.id) || 0;
         const retefuenteCliente = (inv as any).retefuente_cliente_amount ?? 0;
-        const pending = Math.max(0, inv.total_amount - paid - retefuenteCliente);
+        const details = [...(detailsByInvoice.get(inv.id) || [])];
+
+        // Add retention as a detail line
+        if (retefuenteCliente > 0) {
+          details.push({
+            type: 'retefuente',
+            label: 'Retefuente cliente (pagada a DIAN)',
+            amount: retefuenteCliente,
+          });
+        }
+
+        const totalDeducted = paid + retefuenteCliente;
+        const pending = Math.max(0, inv.total_amount - totalDeducted);
         const daysSince = differenceInDays(today, new Date(inv.issue_date));
         let status: 'pagada' | 'parcial' | 'pendiente' = 'pendiente';
         if (pending <= 0) status = 'pagada';
-        else if (paid > 0) status = 'parcial';
+        else if (totalDeducted > 0) status = 'parcial';
 
         return {
           id: inv.id,
@@ -144,26 +206,25 @@ export default function AccountsReceivableReport() {
           counterparty_name: inv.counterparty_name,
           issue_date: inv.issue_date,
           total_amount: inv.total_amount,
-          paid_amount: paid,
+          paid_amount: totalDeducted,
           pending,
           days_since: daysSince,
           status,
+          details,
         };
       });
 
-      // Filter only those with pending > 0
       const unpaid = receivables.filter(r => r.pending > 0).sort((a, b) => b.pending - a.pending);
 
-      // Generate suggestions
+      // Suggestions
       const suggestions: Suggestion[] = [];
-      const TOLERANCE = 0.05; // 5% tolerance
+      const TOLERANCE = 0.05;
       for (const inv of unpaid) {
-        for (const tx of (unmatchedTx || [])) {
+        for (const tx of (unmatchedRes.data || [])) {
           const txAmount = Math.abs(tx.amount ?? 0);
           const diff = Math.abs(txAmount - inv.total_amount) / inv.total_amount;
           const ownerMatch = tx.owner && inv.counterparty_name &&
             tx.owner.toLowerCase().includes(inv.counterparty_name.toLowerCase().substring(0, 5));
-
           if (diff <= TOLERANCE || ownerMatch) {
             suggestions.push({
               invoiceId: inv.id,
@@ -208,6 +269,15 @@ export default function AccountsReceivableReport() {
         return <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Parcial</Badge>;
       case 'pendiente':
         return <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">Pendiente</Badge>;
+    }
+  };
+
+  const detailIcon = (type: PaymentDetail['type']) => {
+    switch (type) {
+      case 'transaction': return <Banknote className="h-3 w-3 text-success" />;
+      case 'match': return <CheckCircle2 className="h-3 w-3 text-success" />;
+      case 'advance': return <History className="h-3 w-3 text-warning" />;
+      case 'retefuente': return <ShieldCheck className="h-3 w-3 text-primary" />;
     }
   };
 
@@ -303,11 +373,12 @@ export default function AccountsReceivableReport() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/80">
+                    <TableHead className="w-8"></TableHead>
                     <TableHead className="font-semibold"># Factura</TableHead>
                     <TableHead className="font-semibold">Cliente</TableHead>
                     <TableHead className="font-semibold">Emisión</TableHead>
                     <TableHead className="font-semibold text-right">Total</TableHead>
-                    <TableHead className="font-semibold text-right">Pagado</TableHead>
+                    <TableHead className="font-semibold text-right">Abonado</TableHead>
                     <TableHead className="font-semibold text-right">Pendiente</TableHead>
                     <TableHead className="font-semibold text-center">Días</TableHead>
                     <TableHead className="font-semibold text-center">Estado</TableHead>
@@ -316,45 +387,98 @@ export default function AccountsReceivableReport() {
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
                         Cargando datos...
                       </TableCell>
                     </TableRow>
                   ) : !data?.receivables.length ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12">
+                      <TableCell colSpan={9} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
-                          <p className="text-muted-foreground">Aún no hay suficiente información para mostrar rankings.</p>
+                          <p className="text-muted-foreground">No hay facturas con saldo pendiente en {year}.</p>
                         </div>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    data.receivables.map((inv) => (
-                      <TableRow key={inv.id}>
-                        <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
-                        <TableCell className="text-sm">{inv.counterparty_name || 'Sin nombre'}</TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">
-                          {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
-                        </TableCell>
-                        <TableCell className="text-right text-sm font-medium">
-                          {formatCurrency(inv.total_amount)}
-                        </TableCell>
-                        <TableCell className="text-right text-sm text-success">
-                          {formatCurrency(inv.paid_amount)}
-                        </TableCell>
-                        <TableCell className="text-right text-sm font-bold text-destructive">
-                          {formatCurrency(inv.pending)}
-                        </TableCell>
-                        <TableCell className={cn(
-                          "text-center text-sm font-medium",
-                          inv.days_since > 90 ? 'text-destructive' : inv.days_since > 30 ? 'text-warning' : 'text-muted-foreground'
-                        )}>
-                          {inv.days_since}d
-                        </TableCell>
-                        <TableCell className="text-center">{statusBadge(inv.status)}</TableCell>
-                      </TableRow>
-                    ))
+                    data.receivables.map((inv) => {
+                      const isExpanded = expandedRows.has(inv.id);
+                      const hasDetails = inv.details.length > 0;
+
+                      return (
+                        <>
+                          <TableRow
+                            key={inv.id}
+                            className={cn(
+                              hasDetails && 'cursor-pointer hover:bg-muted/50',
+                              isExpanded && 'bg-muted/30'
+                            )}
+                            onClick={() => hasDetails && toggleRow(inv.id)}
+                          >
+                            <TableCell className="w-8 px-2">
+                              {hasDetails && (
+                                isExpanded
+                                  ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
+                            <TableCell className="text-sm">{inv.counterparty_name || 'Sin nombre'}</TableCell>
+                            <TableCell className="text-sm whitespace-nowrap">
+                              {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
+                            </TableCell>
+                            <TableCell className="text-right text-sm font-medium">
+                              {formatCurrency(inv.total_amount)}
+                            </TableCell>
+                            <TableCell className="text-right text-sm text-success">
+                              {formatCurrency(inv.paid_amount)}
+                            </TableCell>
+                            <TableCell className="text-right text-sm font-bold text-destructive">
+                              {formatCurrency(inv.pending)}
+                            </TableCell>
+                            <TableCell className={cn(
+                              "text-center text-sm font-medium",
+                              inv.days_since > 90 ? 'text-destructive' : inv.days_since > 30 ? 'text-warning' : 'text-muted-foreground'
+                            )}>
+                              {inv.days_since}d
+                            </TableCell>
+                            <TableCell className="text-center">{statusBadge(inv.status)}</TableCell>
+                          </TableRow>
+                          {isExpanded && (
+                            <TableRow key={`${inv.id}-details`} className="bg-muted/20 hover:bg-muted/20">
+                              <TableCell colSpan={9} className="py-2 px-4">
+                                <div className="pl-6 space-y-1.5">
+                                  <p className="text-xs font-semibold text-muted-foreground mb-2">Detalle de abonos y deducciones</p>
+                                  {inv.details.map((d, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 text-xs">
+                                      {detailIcon(d.type)}
+                                      <span className="flex-1 truncate text-foreground">{d.label}</span>
+                                      {d.date && (
+                                        <span className="text-muted-foreground whitespace-nowrap">
+                                          {format(new Date(d.date), 'dd MMM yyyy', { locale: es })}
+                                        </span>
+                                      )}
+                                      <span className={cn(
+                                        "font-semibold whitespace-nowrap",
+                                        d.type === 'retefuente' ? 'text-primary' : 'text-success'
+                                      )}>
+                                        -{formatCurrency(d.amount)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  <div className="flex items-center justify-between pt-1.5 mt-1.5 border-t border-border text-xs">
+                                    <span className="font-semibold text-muted-foreground">Total deducido</span>
+                                    <span className="font-bold text-success">
+                                      -{formatCurrency(inv.details.reduce((s, d) => s + d.amount, 0))}
+                                    </span>
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
