@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles } from 'lucide-react';
 import { useNico } from '@/hooks/useNicoContext';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link } from 'react-router-dom';
