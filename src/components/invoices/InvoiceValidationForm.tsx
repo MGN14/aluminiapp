@@ -108,6 +108,11 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
         const base = field === 'subtotal_base' ? (value as number) : next.subtotal_base;
         next.reteica_amount = Math.round(base * rate / 100);
       }
+      if (field === 'retefuente_cliente_rate' || field === 'subtotal_base') {
+        const rate = field === 'retefuente_cliente_rate' ? (value as number) : next.retefuente_cliente_rate;
+        const base = field === 'subtotal_base' ? (value as number) : next.subtotal_base;
+        next.retefuente_cliente_amount = Math.round(base * rate / 100);
+      }
 
       return next;
     });
