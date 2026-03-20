@@ -47,6 +47,7 @@ export interface HealthInvoice {
   id: string;
   type: string | null;
   total_amount: number | null;
+  retefuente_cliente_amount?: number | null;
 }
 
 function isNA(notes: string | null): boolean {
