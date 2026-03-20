@@ -271,7 +271,16 @@ export default function AdvancesReport() {
                         {isReconciled ? (
                           <div className="flex items-center gap-1 text-xs text-success">
                             <Check className="h-3 w-3" />
-                            <span>Vinculada: {invoice?.invoice_number || 'Factura'}</span>
+                            <span className="flex-1">Vinculada: {invoice?.invoice_number || 'Factura'}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                              onClick={() => handleUnlinkDetail(d.id)}
+                              title="Desvincular"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
                           </div>
                         ) : reconcilingDetail === d.id ? (
                           <Select onValueChange={(invoiceId) => handleReconcileDetail(d.id, invoiceId)}>
