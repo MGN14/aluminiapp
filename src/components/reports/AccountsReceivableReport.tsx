@@ -181,10 +181,12 @@ export default function AccountsReceivableReport() {
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
         const paid = paymentsByInvoice.get(inv.id) || 0;
-        // Use saved amount, or calculate 2.5% of subtotal_base as fallback
+        // Use the saved retefuente values from the invoice module directly
+        // Only fall back to 2.5% if rate is null (never configured), not if explicitly 0
         const savedRetefuente = (inv as any).retefuente_cliente_amount ?? 0;
-        const rawRate = (inv as any).retefuente_cliente_rate ?? 0;
-        const effectiveRate = rawRate > 0 && rawRate < 1 ? rawRate : 0.025;
+        const rawRate = (inv as any).retefuente_cliente_rate;
+        const hasExplicitRate = rawRate !== null && rawRate !== undefined;
+        const effectiveRate = hasExplicitRate ? rawRate : 0.025;
         const retefuenteCliente = savedRetefuente > 0
           ? savedRetefuente
           : Math.round((inv.subtotal_base ?? 0) * effectiveRate);
