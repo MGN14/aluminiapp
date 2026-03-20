@@ -39,7 +39,7 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
       // 1. Cuentas por Cobrar - sales invoices with pending balance
       const invoicesPromise = supabase
         .from('invoices')
-        .select('id, total_amount, counterparty_name')
+        .select('id, total_amount, counterparty_name, retefuente_cliente_amount')
         .eq('type', 'venta')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);
