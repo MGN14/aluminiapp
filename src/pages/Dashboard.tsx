@@ -59,7 +59,6 @@ interface Metrics {
   saldoActual: number;
   totalIngresos: number;
   totalEgresos: number;
-  burnRate: number;
   pendingReconcile: number;
   transactionCount: number;
   cuatrimestreLabel: string;
