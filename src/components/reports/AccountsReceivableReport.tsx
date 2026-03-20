@@ -89,6 +89,14 @@ export default function AccountsReceivableReport() {
         .eq('user_id', user.id)
         .in('invoice_id', invoiceIds);
 
+      // Get advance payments from initial_state_details linked to invoices
+      const { data: advancePayments } = await supabase
+        .from('initial_state_details')
+        .select('invoice_id, amount')
+        .eq('user_id', user.id)
+        .eq('field_type', 'anticipos_de_clientes')
+        .in('invoice_id', invoiceIds);
+
       // Get unmatched income transactions for suggestions
       const { data: unmatchedTx } = await supabase
         .from('transactions')
@@ -111,6 +119,13 @@ export default function AccountsReceivableReport() {
       (matchPayments || []).forEach(p => {
         const current = paymentsByInvoice.get(p.invoice_id) || 0;
         paymentsByInvoice.set(p.invoice_id, current + Math.abs(p.matched_amount));
+      });
+      // Count linked advance payments from initial state
+      (advancePayments || []).forEach((p: any) => {
+        if (p.invoice_id) {
+          const current = paymentsByInvoice.get(p.invoice_id) || 0;
+          paymentsByInvoice.set(p.invoice_id, current + Math.abs(p.amount ?? 0));
+        }
       });
 
       const today = new Date();

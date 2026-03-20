@@ -130,6 +130,7 @@ export default function AdvancesReport() {
       if (error) throw error;
       toast.success('Anticipo de periodo anterior vinculado a factura');
       queryClient.invalidateQueries({ queryKey: ['advances-report'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts-receivable'] });
       setReconcilingDetail(null);
     } catch {
       toast.error('Error al vincular');
