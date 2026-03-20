@@ -403,12 +403,10 @@ export default function AccountsReceivableReport() {
                   ) : (
                     data.receivables.map((inv) => {
                       const isExpanded = expandedRows.has(inv.id);
-                      const hasDetails = inv.details.length > 0;
+                      const hasDetails = (inv.details?.length ?? 0) > 0;
 
                       return (
-                        <>
-                          <TableRow
-                            key={inv.id}
+                        <React.Fragment key={inv.id}>
                             className={cn(
                               hasDetails && 'cursor-pointer hover:bg-muted/50',
                               isExpanded && 'bg-muted/30'
