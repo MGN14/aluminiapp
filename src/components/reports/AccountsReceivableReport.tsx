@@ -274,11 +274,27 @@ export default function AccountsReceivableReport() {
 
   const detailIcon = (type: PaymentDetail['type']) => {
     switch (type) {
-      case 'transaction': return <Banknote className="h-3 w-3 text-success" />;
-      case 'match': return <CheckCircle2 className="h-3 w-3 text-success" />;
-      case 'advance': return <History className="h-3 w-3 text-warning" />;
-      case 'retefuente': return <ShieldCheck className="h-3 w-3 text-primary" />;
+      case 'transaction': return <Banknote className="h-4 w-4 text-success" />;
+      case 'match': return <CheckCircle2 className="h-4 w-4 text-success" />;
+      case 'advance': return <History className="h-4 w-4 text-warning" />;
+      case 'retefuente': return <ShieldCheck className="h-4 w-4 text-primary" />;
     }
+  };
+
+  const detailTypeBadge = (type: PaymentDetail['type']) => {
+    const labels: Record<string, string> = {
+      transaction: 'Pago',
+      match: 'Conciliación',
+      advance: 'Anticipo',
+      retefuente: 'Retención',
+    };
+    const colors: Record<string, string> = {
+      transaction: 'bg-success/10 text-success border-success/30',
+      match: 'bg-success/10 text-success border-success/30',
+      advance: 'bg-warning/10 text-warning border-warning/30',
+      retefuente: 'bg-primary/10 text-primary border-primary/30',
+    };
+    return <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", colors[type])}>{labels[type]}</Badge>;
   };
 
   return (
@@ -410,14 +426,14 @@ export default function AccountsReceivableReport() {
                           <TableRow
                             className={cn(
                               hasDetails && 'cursor-pointer hover:bg-muted/50',
-                              isExpanded && 'bg-muted/30'
+                              isExpanded && 'bg-muted/30 border-l-2 border-l-primary'
                             )}
                             onClick={() => hasDetails && toggleRow(inv.id)}
                           >
                             <TableCell className="w-8 px-2">
                               {hasDetails && (
                                 isExpanded
-                                  ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                  ? <ChevronDown className="h-4 w-4 text-primary" />
                                   : <ChevronRight className="h-4 w-4 text-muted-foreground" />
                               )}
                             </TableCell>
@@ -444,32 +460,56 @@ export default function AccountsReceivableReport() {
                             <TableCell className="text-center">{statusBadge(inv.status)}</TableCell>
                           </TableRow>
                           {isExpanded && (
-                            <TableRow key={`${inv.id}-details`} className="bg-muted/20 hover:bg-muted/20">
-                              <TableCell colSpan={9} className="py-2 px-4">
-                                <div className="pl-6 space-y-1.5">
-                                  <p className="text-xs font-semibold text-muted-foreground mb-2">Detalle de abonos y deducciones</p>
-                                  {inv.details.map((d, idx) => (
-                                    <div key={idx} className="flex items-center gap-2 text-xs">
-                                      {detailIcon(d.type)}
-                                      <span className="flex-1 truncate text-foreground">{d.label}</span>
-                                      {d.date && (
-                                        <span className="text-muted-foreground whitespace-nowrap">
-                                          {format(new Date(d.date), 'dd MMM yyyy', { locale: es })}
-                                        </span>
-                                      )}
-                                      <span className={cn(
-                                        "font-semibold whitespace-nowrap",
-                                        d.type === 'retefuente' ? 'text-primary' : 'text-success'
-                                      )}>
-                                        -{formatCurrency(d.amount)}
+                            <TableRow key={`${inv.id}-details`} className="hover:bg-transparent">
+                              <TableCell colSpan={9} className="p-0">
+                                <div className="bg-muted/10 border-l-2 border-l-primary mx-0">
+                                  <div className="px-6 py-4 space-y-3">
+                                    <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                      <Receipt className="h-4 w-4 text-primary" />
+                                      Detalle de abonos y deducciones
+                                    </p>
+                                    <div className="space-y-2">
+                                      {(inv.details || []).map((d, idx) => (
+                                        <div
+                                          key={idx}
+                                          className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border/60"
+                                        >
+                                          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/60 shrink-0">
+                                            {detailIcon(d.type)}
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 mb-0.5">
+                                              {detailTypeBadge(d.type)}
+                                              {d.date && (
+                                                <span className="text-xs text-muted-foreground">
+                                                  {format(new Date(d.date), 'dd MMM yyyy', { locale: es })}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <p className="text-sm text-foreground truncate">{d.label}</p>
+                                          </div>
+                                          <span className={cn(
+                                            "text-sm font-bold whitespace-nowrap",
+                                            d.type === 'retefuente' ? 'text-primary' : 'text-success'
+                                          )}>
+                                            −{formatCurrency(d.amount)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {/* Summary row */}
+                                    <div className="flex items-center justify-between pt-3 border-t border-border">
+                                      <span className="text-sm font-semibold text-muted-foreground">Total deducido de la deuda</span>
+                                      <span className="text-base font-bold text-success">
+                                        −{formatCurrency((inv.details || []).reduce((s, d) => s + d.amount, 0))}
                                       </span>
                                     </div>
-                                  ))}
-                                  <div className="flex items-center justify-between pt-1.5 mt-1.5 border-t border-border text-xs">
-                                    <span className="font-semibold text-muted-foreground">Total deducido</span>
-                                    <span className="font-bold text-success">
-                                      -{formatCurrency((inv.details || []).reduce((s, d) => s + d.amount, 0))}
-                                    </span>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-sm font-semibold text-muted-foreground">Saldo pendiente</span>
+                                      <span className="text-base font-bold text-destructive">
+                                        {formatCurrency(inv.pending)}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
                               </TableCell>
