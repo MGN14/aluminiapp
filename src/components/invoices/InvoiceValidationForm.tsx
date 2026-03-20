@@ -203,8 +203,8 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
 
       {/* Tax fields for VENTAS — auto-calculated from settings */}
       {form.type === 'venta' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-md border border-warning/30 bg-warning/5">
-          <div className="sm:col-span-2 lg:col-span-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 rounded-md border border-warning/30 bg-warning/5">
+          <div className="sm:col-span-2 lg:col-span-3">
             <p className="text-sm font-medium text-foreground mb-1">Retenciones (sobre base gravable)</p>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Info className="h-3 w-3" />
@@ -226,6 +226,15 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           <div>
             <Label>$ ReteICA</Label>
             <Input type="number" value={form.reteica_amount} readOnly className="bg-muted" />
+          </div>
+          <div>
+            <Label>% Retefuente cliente</Label>
+            <Input type="number" step="0.01" value={form.retefuente_cliente_rate} onChange={e => update('retefuente_cliente_rate', parseFloat(e.target.value) || 0)} placeholder="Ej: 2.5" />
+          </div>
+          <div>
+            <Label>$ Retefuente cliente</Label>
+            <Input type="number" value={form.retefuente_cliente_amount} readOnly className="bg-muted" />
+            <p className="text-xs text-muted-foreground mt-1">Se descuenta de Cuentas por Cobrar</p>
           </div>
         </div>
       )}
