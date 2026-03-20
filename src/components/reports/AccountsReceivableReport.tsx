@@ -407,6 +407,7 @@ export default function AccountsReceivableReport() {
 
                       return (
                         <React.Fragment key={inv.id}>
+                          <TableRow
                             className={cn(
                               hasDetails && 'cursor-pointer hover:bg-muted/50',
                               isExpanded && 'bg-muted/30'
