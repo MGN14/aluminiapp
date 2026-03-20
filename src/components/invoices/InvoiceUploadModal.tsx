@@ -341,6 +341,8 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
             autoretefuente_amount: data.autoretefuente_amount,
             reteica_rate: data.reteica_rate,
             reteica_amount: data.reteica_amount,
+            retefuente_cliente_rate: data.retefuente_cliente_rate,
+            retefuente_cliente_amount: data.retefuente_cliente_amount,
             cufe: data.cufe,
             payment_method: data.payment_method,
             status: data.status,
