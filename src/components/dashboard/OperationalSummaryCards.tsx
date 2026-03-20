@@ -110,7 +110,8 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         let pendingCount = 0;
         invoicesRes.data.forEach(inv => {
           const paid = payments.get(inv.id) || 0;
-          const pending = Math.max(0, inv.total_amount - paid);
+          const retefuenteCliente = (inv as any).retefuente_cliente_amount ?? 0;
+          const pending = Math.max(0, inv.total_amount - paid - retefuenteCliente);
           if (pending > 0) {
             pendingTotal += pending;
             pendingCount++;
