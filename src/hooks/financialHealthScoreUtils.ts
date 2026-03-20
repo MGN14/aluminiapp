@@ -164,7 +164,8 @@ export function calculateFinancialHealthMetrics(
   const facturacionTotal = salesInvoices.reduce((sum, invoice) => sum + (invoice.total_amount ?? 0), 0);
   const cuentasPorCobrarFacturas = salesInvoices.reduce((sum, invoice) => {
     const paid = matchedByInvoice.get(invoice.id) ?? 0;
-    return sum + Math.max(0, (invoice.total_amount ?? 0) - paid);
+    const retefuente = invoice.retefuente_cliente_amount ?? 0;
+    return sum + Math.max(0, (invoice.total_amount ?? 0) - paid - retefuente);
   }, 0);
   const cuentasPorCobrar = cuentasPorCobrarFacturas + initialCxC;
   const baseCartera = facturacionTotal + initialCxC;
