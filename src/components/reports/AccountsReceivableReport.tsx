@@ -537,6 +537,136 @@ export default function AccountsReceivableReport() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Paid invoices */}
+        {!isLoading && paidInvoices.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowPaid(!showPaid)}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                  <CardTitle className="text-sm font-medium">
+                    Facturas pagadas ({paidInvoices.length})
+                  </CardTitle>
+                </div>
+                {showPaid
+                  ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                }
+              </div>
+            </CardHeader>
+            {showPaid && (
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/80">
+                        <TableHead className="w-8"></TableHead>
+                        <TableHead className="font-semibold"># Factura</TableHead>
+                        <TableHead className="font-semibold">Cliente</TableHead>
+                        <TableHead className="font-semibold">Emisión</TableHead>
+                        <TableHead className="font-semibold text-right">Total</TableHead>
+                        <TableHead className="font-semibold text-right">Abonado</TableHead>
+                        <TableHead className="font-semibold text-right">Pendiente</TableHead>
+                        <TableHead className="font-semibold text-center">Días</TableHead>
+                        <TableHead className="font-semibold text-center">Estado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paidInvoices.map((inv) => {
+                        const isExpanded = expandedRows.has(inv.id);
+                        const hasDetails = (inv.details?.length ?? 0) > 0;
+                        return (
+                          <React.Fragment key={inv.id}>
+                            <TableRow
+                              className={cn(
+                                hasDetails && 'cursor-pointer hover:bg-muted/50',
+                                isExpanded && 'bg-muted/30 border-l-2 border-l-primary'
+                              )}
+                              onClick={() => hasDetails && toggleRow(inv.id)}
+                            >
+                              <TableCell className="w-8 px-2">
+                                {hasDetails && (
+                                  isExpanded
+                                    ? <ChevronDown className="h-4 w-4 text-primary" />
+                                    : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </TableCell>
+                              <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
+                              <TableCell className="text-sm">{inv.counterparty_name || 'Sin nombre'}</TableCell>
+                              <TableCell className="text-sm whitespace-nowrap">
+                                {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
+                              </TableCell>
+                              <TableCell className="text-right text-sm font-medium">
+                                {formatCurrency(inv.total_amount)}
+                              </TableCell>
+                              <TableCell className="text-right text-sm text-success">
+                                {formatCurrency(inv.paid_amount)}
+                              </TableCell>
+                              <TableCell className="text-right text-sm text-muted-foreground">
+                                {formatCurrency(inv.pending)}
+                              </TableCell>
+                              <TableCell className="text-center text-sm text-muted-foreground">
+                                {inv.days_since}d
+                              </TableCell>
+                              <TableCell className="text-center">{statusBadge(inv.status)}</TableCell>
+                            </TableRow>
+                            {isExpanded && (
+                              <TableRow key={`${inv.id}-details`} className="hover:bg-transparent">
+                                <TableCell colSpan={9} className="p-0">
+                                  <div className="bg-muted/10 border-l-2 border-l-primary mx-0">
+                                    <div className="px-6 py-4 space-y-3">
+                                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                        <Receipt className="h-4 w-4 text-primary" />
+                                        Detalle de abonos y deducciones
+                                      </p>
+                                      <div className="space-y-2">
+                                        {(inv.details || []).map((d, idx) => (
+                                          <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border/60">
+                                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/60 shrink-0">
+                                              {detailIcon(d.type)}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-2 mb-0.5">
+                                                {detailTypeBadge(d.type)}
+                                                {d.date && (
+                                                  <span className="text-xs text-muted-foreground">
+                                                    {format(new Date(d.date), 'dd MMM yyyy', { locale: es })}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <p className="text-sm text-foreground truncate">{d.label}</p>
+                                            </div>
+                                            <span className={cn(
+                                              "text-sm font-bold whitespace-nowrap",
+                                              d.type === 'retefuente' ? 'text-primary' : 'text-success'
+                                            )}>
+                                              −{formatCurrency(d.amount)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div className="flex items-center justify-between pt-3 border-t border-border">
+                                        <span className="text-sm font-semibold text-muted-foreground">Total deducido</span>
+                                        <span className="text-base font-bold text-success">
+                                          −{formatCurrency((inv.details || []).reduce((s, d) => s + d.amount, 0))}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        )}
       </div>
     </TooltipProvider>
   );
