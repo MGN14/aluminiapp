@@ -475,7 +475,7 @@ export default function AccountsReceivableReport() {
                               </TableCell>
                             </TableRow>
                           )}
-                        </>
+                        </React.Fragment>
                       );
                     })
                   )}
