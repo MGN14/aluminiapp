@@ -52,6 +52,8 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
     autoretefuente_amount: 0,
     reteica_rate: 0,
     reteica_amount: 0,
+    retefuente_cliente_rate: 2.5,
+    retefuente_cliente_amount: Math.round(data.subtotal_base * 2.5 / 100),
     status: 'draft',
     display_name: suggestedName || (originalFilename?.replace('.pdf', '') || ''),
   });
