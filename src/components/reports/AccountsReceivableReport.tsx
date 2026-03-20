@@ -131,7 +131,8 @@ export default function AccountsReceivableReport() {
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
         const paid = paymentsByInvoice.get(inv.id) || 0;
-        const pending = Math.max(0, inv.total_amount - paid);
+        const retefuenteCliente = (inv as any).retefuente_cliente_amount ?? 0;
+        const pending = Math.max(0, inv.total_amount - paid - retefuenteCliente);
         const daysSince = differenceInDays(today, new Date(inv.issue_date));
         let status: 'pagada' | 'parcial' | 'pendiente' = 'pendiente';
         if (pending <= 0) status = 'pagada';
