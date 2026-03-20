@@ -50,7 +50,7 @@ function getVariableExplanation(key: string, details: ScoreDetails): { formula: 
       const d = details.facturacion;
       return {
         formula: `${pct(d.pct)} soportado`,
-        explanation: `Del acumulado anual de ${fmt(d.totalIngresos)} en ingresos, ${fmt(d.ingresosConFactura)} tienen factura DIAN y ${fmt(d.ingresosAnticipo)} están marcados como anticipo.`,
+        explanation: `De ${fmt(d.totalIngresos)} (ingresos + anticipos iniciales), ${fmt(d.ingresosConFactura)} están facturados y ${fmt(d.ingresosAnticipo)} son anticipos de periodo anterior.`,
       };
     }
     case 'impuestos': {

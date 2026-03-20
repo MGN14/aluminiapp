@@ -118,6 +118,7 @@ export function calculateFinancialHealthMetrics(
   matchedByInvoice: Map<string, number>,
   initialState?: { cuentas_por_cobrar?: number; anticipos_de_clientes?: number } | null
 ): { scores: ScoreBreakdown; details: ScoreDetails } {
+  const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
   const totalTx = transactions.length;
 
   // ========== 1. CONCILIACIÓN BANCARIA (amount-based) ==========
@@ -129,16 +130,14 @@ export function calculateFinancialHealthMetrics(
   const scoreConciliacion = totalMovimientos > 0 ? linearScore(pctConciliado) : 0;
 
   // ========== 2. FACTURACIÓN SOPORTADA ==========
+  // Use actual confirmed sales invoice totals vs total income + initial advances
   const ingresosTx = transactions.filter((tx) => (tx.amount ?? 0) > 0);
   const totalIngresosMonto = ingresosTx.reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-  const ingresosConFacturaMonto = ingresosTx
-    .filter((tx) => Boolean(tx.invoice_id))
-    .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-  const ingresosAnticipoMonto = ingresosTx
-    .filter((tx) => !tx.invoice_id && isAnticipo(tx.notes))
-    .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-  const pctSoportado = safePct(ingresosConFacturaMonto + ingresosAnticipoMonto, totalIngresosMonto);
-  const scoreFacturacion = totalIngresosMonto > 0 ? linearScore(pctSoportado) : 0;
+  const facturacionVentas = salesInvoices.reduce((sum, inv) => sum + (inv.total_amount ?? 0), 0);
+  const baseFacturacion = totalIngresosMonto + initialAnticiposClientes;
+  const soportado = facturacionVentas + initialAnticiposClientes;
+  const pctSoportado = baseFacturacion > 0 ? clampPct(soportado / baseFacturacion) : 0;
+  const scoreFacturacion = baseFacturacion > 0 ? linearScore(pctSoportado) : 0;
 
   // ========== 3. CONTROL DE IMPUESTOS ==========
   const egresosTx = transactions.filter((tx) => (tx.amount ?? 0) < 0);
@@ -159,7 +158,7 @@ export function calculateFinancialHealthMetrics(
 
   // ========== 4. CARTERA Y ANTICIPOS ==========
   const initialCxC = initialState?.cuentas_por_cobrar ?? 0;
-  const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
+  // initialAnticiposClientes already declared above
 
   const facturacionTotal = salesInvoices.reduce((sum, invoice) => sum + (invoice.total_amount ?? 0), 0);
   const cuentasPorCobrarFacturas = salesInvoices.reduce((sum, invoice) => {
@@ -213,9 +212,9 @@ export function calculateFinancialHealthMetrics(
     conciliacion: { pct: pctConciliado, montoPendiente, totalMovimientos },
     facturacion: {
       pct: pctSoportado,
-      ingresosConFactura: ingresosConFacturaMonto,
-      ingresosAnticipo: ingresosAnticipoMonto,
-      totalIngresos: totalIngresosMonto,
+      ingresosConFactura: facturacionVentas,
+      ingresosAnticipo: initialAnticiposClientes,
+      totalIngresos: baseFacturacion,
     },
     impuestos: { pct: completitudFiscal, pctVentas, pctCompras, pctVinculados },
     cartera: {

@@ -690,7 +690,7 @@ export default function Dashboard() {
             )}
 
             {/* Main Metrics Grid */}
-            <div className="grid gap-4 md:grid-cols-3 animate-fade-in">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
               {/* Saldo Actual */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -748,6 +748,29 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground mt-1">
                     <ArrowDownRight className="h-3 w-3 mr-1 text-destructive" />
+                    {periodRange.label}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Resultado Neto */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    Resultado Neto
+                  </CardTitle>
+                  <div className={`p-2 rounded-lg ${(metrics.totalIngresos - metrics.totalEgresos) >= 0 ? 'bg-success/10' : 'bg-destructive/10'}`}>
+                    {(metrics.totalIngresos - metrics.totalEgresos) >= 0 
+                      ? <TrendingUp className="h-4 w-4 text-success" />
+                      : <TrendingDown className="h-4 w-4 text-destructive" />
+                    }
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${(metrics.totalIngresos - metrics.totalEgresos) >= 0 ? 'text-success' : 'text-destructive'}`}>
+                    {formatCurrency(metrics.totalIngresos - metrics.totalEgresos)}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
                     {periodRange.label}
                   </div>
                 </CardContent>
