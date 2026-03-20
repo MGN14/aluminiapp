@@ -123,6 +123,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       if (matchesResult.error) throw matchesResult.error;
 
       const initialState = (initialStateResult.data as any) ?? null;
+      const advanceDetails = ((advanceDetailsResult.data || []) as any[]);
 
       const transactions = (txResult.data ?? []) as TransactionRow[];
       const invoices = (invoiceResult.data ?? []) as InvoiceRow[];
