@@ -73,16 +73,17 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
 
         if (settings) {
           setForm(prev => {
-            // Rates from tax_settings are stored as decimals (e.g., 0.004 for 0.4%)
-            // Convert to percentage for display
             const autoRate = (settings.autoretefuente_rate || 0) * 100;
             const reteicaRate = (settings.reteica_rate || 0) * 100;
+            const retefuenteClienteRate = (settings.retefuente_compra_rate || 0.025) * 100;
             return {
               ...prev,
               autoretefuente_rate: autoRate,
               autoretefuente_amount: Math.round(prev.subtotal_base * autoRate / 100),
               reteica_rate: reteicaRate,
               reteica_amount: Math.round(prev.subtotal_base * reteicaRate / 100),
+              retefuente_cliente_rate: retefuenteClienteRate,
+              retefuente_cliente_amount: Math.round(prev.subtotal_base * retefuenteClienteRate / 100),
             };
           });
         }
