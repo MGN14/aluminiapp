@@ -183,11 +183,16 @@ export function calculateFinancialHealthMetrics(
   const scoreCartera = hasAnyCarteraData ? carteraLinearScore(riesgoTotal) : 0;
 
   // ========== 5. CLASIFICACIÓN FINANCIERA ==========
+  // A transaction is "complete" if it has category + responsible + invoice support.
+  // For expenses/transfers with a responsible assigned, having an invoice is not mandatory
+  // (the responsible assignment already means it was reviewed and reconciled).
   const completas = transactions.filter((tx) => {
     const hasCategory = Boolean(tx.category_id);
     const hasResponsible = Boolean(tx.responsible_id) || isNA(tx.notes);
     const hasInvoice = Boolean(tx.invoice_id) || isNA(tx.notes) || isAnticipo(tx.notes);
-    return hasCategory && hasResponsible && hasInvoice;
+    // If it has a responsible, the invoice requirement is relaxed (reconciled)
+    const invoiceOk = hasInvoice || hasResponsible;
+    return hasCategory && hasResponsible && invoiceOk;
   }).length;
 
   const pctClasificado = safePct(completas, totalTx);
