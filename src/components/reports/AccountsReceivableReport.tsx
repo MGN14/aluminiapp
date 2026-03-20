@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -391,7 +391,7 @@ export default function AccountsReceivableReport() {
                         Cargando datos...
                       </TableCell>
                     </TableRow>
-                  ) : !data?.receivables.length ? (
+                  ) : !data?.receivables?.length ? (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
@@ -403,12 +403,11 @@ export default function AccountsReceivableReport() {
                   ) : (
                     data.receivables.map((inv) => {
                       const isExpanded = expandedRows.has(inv.id);
-                      const hasDetails = inv.details.length > 0;
+                      const hasDetails = (inv.details?.length ?? 0) > 0;
 
                       return (
-                        <>
+                        <React.Fragment key={inv.id}>
                           <TableRow
-                            key={inv.id}
                             className={cn(
                               hasDetails && 'cursor-pointer hover:bg-muted/50',
                               isExpanded && 'bg-muted/30'
@@ -469,14 +468,14 @@ export default function AccountsReceivableReport() {
                                   <div className="flex items-center justify-between pt-1.5 mt-1.5 border-t border-border text-xs">
                                     <span className="font-semibold text-muted-foreground">Total deducido</span>
                                     <span className="font-bold text-success">
-                                      -{formatCurrency(inv.details.reduce((s, d) => s + d.amount, 0))}
+                                      -{formatCurrency((inv.details || []).reduce((s, d) => s + d.amount, 0))}
                                     </span>
                                   </div>
                                 </div>
                               </TableCell>
                             </TableRow>
                           )}
-                        </>
+                        </React.Fragment>
                       );
                     })
                   )}
