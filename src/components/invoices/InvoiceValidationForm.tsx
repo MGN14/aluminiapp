@@ -22,6 +22,8 @@ interface FormData extends ExtractedInvoiceData {
   autoretefuente_amount: number;
   reteica_rate: number;
   reteica_amount: number;
+  retefuente_cliente_rate: number;
+  retefuente_cliente_amount: number;
   status: string;
   display_name: string;
 }
