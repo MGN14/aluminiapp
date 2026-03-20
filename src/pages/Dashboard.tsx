@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, Wallet, Flame, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Receipt, Loader2, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles } from 'lucide-react';
 import { useNico } from '@/hooks/useNicoContext';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link } from 'react-router-dom';
@@ -59,7 +59,6 @@ interface Metrics {
   saldoActual: number;
   totalIngresos: number;
   totalEgresos: number;
-  burnRate: number;
   pendingReconcile: number;
   transactionCount: number;
   cuatrimestreLabel: string;
@@ -365,7 +364,6 @@ export default function Dashboard() {
         saldoActual: 0,
         totalIngresos: 0,
         totalEgresos: 0,
-        burnRate: 0,
         pendingReconcile: 0,
         transactionCount: 0,
         cuatrimestreLabel: cuatrimestre.label,
@@ -388,29 +386,12 @@ export default function Dashboard() {
         .reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
     );
 
-    // Burn rate: quarterly (trimestre) based on selected quarter
-    const quarterStartMonth = (periodSelection.quarter - 1) * 3;
-    const quarterStart = new Date(periodSelection.year, quarterStartMonth, 1);
-    const quarterEnd = new Date(periodSelection.year, quarterStartMonth + 3, 0, 23, 59, 59);
-    const quarterExpenses = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return txDate >= quarterStart && txDate <= quarterEnd && (tx.amount ?? 0) < 0;
-    });
-    const monthsWithData = new Set(
-      quarterExpenses.map(tx => {
-        const d = new Date(tx.date);
-        return `${d.getFullYear()}-${d.getMonth()}`;
-      })
-    ).size || 1;
-    const burnRate = Math.abs(quarterExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / monthsWithData;
-
     const pendingReconcile = periodTransactions.filter(tx => !tx.responsible_id).length;
 
     return {
       saldoActual,
       totalIngresos,
       totalEgresos,
-      burnRate,
       pendingReconcile,
       transactionCount: periodTransactions.length,
       cuatrimestreLabel: `Q${periodSelection.quarter} ${periodSelection.year}`,
@@ -709,7 +690,7 @@ export default function Dashboard() {
             )}
 
             {/* Main Metrics Grid */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+            <div className="grid gap-4 md:grid-cols-3 animate-fade-in">
               {/* Saldo Actual */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -772,28 +753,6 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Burn Rate */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Burn Rate
-                  </CardTitle>
-                  <div className="p-2 rounded-lg bg-destructive/10">
-                    <Flame className="h-4 w-4 text-destructive" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-foreground">
-                    {formatCurrency(metrics.burnRate)}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    Promedio mensual ({metrics.cuatrimestreLabel})
-                  </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
-                    Basado en trimestre
-                  </div>
-                </CardContent>
-              </Card>
             </div>
 
             {/* Tax & Misc Metrics - single fluid grid, no gaps */}
