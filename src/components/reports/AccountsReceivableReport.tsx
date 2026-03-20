@@ -62,7 +62,7 @@ export default function AccountsReceivableReport() {
       // Get all sales invoices for the year
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type')
+        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type, retefuente_cliente_amount')
         .eq('user_id', user.id)
         .eq('type', 'venta')
         .gte('issue_date', startDate)
