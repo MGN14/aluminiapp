@@ -192,7 +192,7 @@ export default function AccountsReceivableReport() {
 
         // Always add retention as a detail line for sale invoices
         if (retefuenteCliente > 0) {
-          const displayRate = savedRetefuente > 0 && rate ? (rate * 100).toFixed(1) : '2.5';
+          const displayRate = savedRetefuente > 0 && rawRate > 0 ? (rawRate * 100).toFixed(1) : '2.5';
           details.push({
             type: 'retefuente',
             label: `Retefuente cliente ${displayRate}% (pagada a DIAN)`,
