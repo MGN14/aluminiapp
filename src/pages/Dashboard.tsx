@@ -690,7 +690,7 @@ export default function Dashboard() {
             )}
 
             {/* Main Metrics Grid */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+            <div className="grid gap-4 md:grid-cols-3 animate-fade-in">
               {/* Saldo Actual */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
