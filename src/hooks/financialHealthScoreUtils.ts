@@ -158,7 +158,7 @@ export function calculateFinancialHealthMetrics(
 
   // ========== 4. CARTERA Y ANTICIPOS ==========
   const initialCxC = initialState?.cuentas_por_cobrar ?? 0;
-  const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
+  // initialAnticiposClientes already declared above
 
   const facturacionTotal = salesInvoices.reduce((sum, invoice) => sum + (invoice.total_amount ?? 0), 0);
   const cuentasPorCobrarFacturas = salesInvoices.reduce((sum, invoice) => {
