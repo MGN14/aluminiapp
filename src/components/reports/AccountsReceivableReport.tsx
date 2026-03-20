@@ -391,7 +391,7 @@ export default function AccountsReceivableReport() {
                         Cargando datos...
                       </TableCell>
                     </TableRow>
-                  ) : !data?.receivables.length ? (
+                  ) : !data?.receivables?.length ? (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
