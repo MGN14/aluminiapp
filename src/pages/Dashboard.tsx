@@ -364,7 +364,6 @@ export default function Dashboard() {
         saldoActual: 0,
         totalIngresos: 0,
         totalEgresos: 0,
-        burnRate: 0,
         pendingReconcile: 0,
         transactionCount: 0,
         cuatrimestreLabel: cuatrimestre.label,
@@ -387,29 +386,12 @@ export default function Dashboard() {
         .reduce((sum, tx) => sum + (tx.amount ?? 0), 0)
     );
 
-    // Burn rate: quarterly (trimestre) based on selected quarter
-    const quarterStartMonth = (periodSelection.quarter - 1) * 3;
-    const quarterStart = new Date(periodSelection.year, quarterStartMonth, 1);
-    const quarterEnd = new Date(periodSelection.year, quarterStartMonth + 3, 0, 23, 59, 59);
-    const quarterExpenses = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
-      return txDate >= quarterStart && txDate <= quarterEnd && (tx.amount ?? 0) < 0;
-    });
-    const monthsWithData = new Set(
-      quarterExpenses.map(tx => {
-        const d = new Date(tx.date);
-        return `${d.getFullYear()}-${d.getMonth()}`;
-      })
-    ).size || 1;
-    const burnRate = Math.abs(quarterExpenses.reduce((sum, tx) => sum + (tx.amount ?? 0), 0)) / monthsWithData;
-
     const pendingReconcile = periodTransactions.filter(tx => !tx.responsible_id).length;
 
     return {
       saldoActual,
       totalIngresos,
       totalEgresos,
-      burnRate,
       pendingReconcile,
       transactionCount: periodTransactions.length,
       cuatrimestreLabel: `Q${periodSelection.quarter} ${periodSelection.year}`,
