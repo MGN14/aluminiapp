@@ -73,7 +73,7 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
       if (invoicesRes.data && invoicesRes.data.length > 0) {
         const invoiceIds = invoicesRes.data.map(i => i.id);
 
-        const [directRes, matchRes] = await Promise.all([
+        const [directRes, matchRes, advanceRes] = await Promise.all([
           supabase
             .from('transactions')
             .select('invoice_id, amount')
@@ -82,6 +82,11 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
           supabase
             .from('invoice_transaction_matches')
             .select('invoice_id, matched_amount')
+            .in('invoice_id', invoiceIds),
+          supabase
+            .from('initial_state_details')
+            .select('invoice_id, amount')
+            .eq('field_type', 'anticipos_de_clientes')
             .in('invoice_id', invoiceIds),
         ]);
 
@@ -93,6 +98,12 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         });
         (matchRes.data || []).forEach(p => {
           payments.set(p.invoice_id, (payments.get(p.invoice_id) || 0) + Math.abs(p.matched_amount));
+        });
+        // Count linked advance payments from initial state
+        ((advanceRes.data || []) as any[]).forEach(p => {
+          if (p.invoice_id) {
+            payments.set(p.invoice_id, (payments.get(p.invoice_id) || 0) + Math.abs(p.amount ?? 0));
+          }
         });
 
         let pendingTotal = 0;

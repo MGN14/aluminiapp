@@ -86,7 +86,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       const yearStart = `${year}-01-01`;
       const nextYearStart = `${year + 1}-01-01`;
 
-      const [txResult, invoiceResult, matchesResult, initialStateResult] = await Promise.all([
+      const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult] = await Promise.all([
         supabase
           .from('transactions')
           .select('id, date, responsible_id, invoice_id, notes, category_id, amount')
@@ -110,6 +110,12 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .select('cuentas_por_cobrar, anticipos_de_clientes')
           .eq('user_id', user.id)
           .maybeSingle(),
+        supabase
+          .from('initial_state_details')
+          .select('invoice_id, amount')
+          .eq('user_id', user.id)
+          .eq('field_type', 'anticipos_de_clientes')
+          .not('invoice_id', 'is', null),
       ]);
 
       if (txResult.error) throw txResult.error;
@@ -117,6 +123,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       if (matchesResult.error) throw matchesResult.error;
 
       const initialState = (initialStateResult.data as any) ?? null;
+      const advanceDetails = ((advanceDetailsResult.data || []) as any[]);
 
       const transactions = (txResult.data ?? []) as TransactionRow[];
       const invoices = (invoiceResult.data ?? []) as InvoiceRow[];
@@ -182,6 +189,16 @@ export function useFinancialHealthScore(year: number, _month?: number) {
             match.invoice_id,
             (matchedByInvoice.get(match.invoice_id) ?? 0) + match.matched_amount
           );
+        });
+
+        // Include linked advance payments from initial_state_details
+        advanceDetails.forEach((ad: any) => {
+          if (ad.invoice_id && salesInvoiceIds.has(ad.invoice_id)) {
+            matchedByInvoice.set(
+              ad.invoice_id,
+              (matchedByInvoice.get(ad.invoice_id) ?? 0) + Math.abs(ad.amount ?? 0)
+            );
+          }
         });
 
         const { scores: monthScores, details: monthDetails } = calculateFinancialHealthMetrics(
