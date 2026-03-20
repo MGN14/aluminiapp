@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Banknote, History, Info, Link2, Check } from 'lucide-react';
+import { Banknote, History, Info, Link2, Check, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import AdvancesTable from './AdvancesTable';
@@ -137,6 +137,23 @@ export default function AdvancesReport() {
     }
   };
 
+  const handleUnlinkDetail = async (detailId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('initial_state_details' as any)
+        .update({ invoice_id: null } as any)
+        .eq('id', detailId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      toast.success('Anticipo desvinculado');
+      queryClient.invalidateQueries({ queryKey: ['advances-report'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts-receivable'] });
+    } catch {
+      toast.error('Error al desvincular');
+    }
+  };
+
   // Only count unreconciled initial details
   const unreconciledDetails = useMemo(() => {
     return (data?.initialDetails || []).filter((d: any) => !d.invoice_id);
@@ -254,7 +271,16 @@ export default function AdvancesReport() {
                         {isReconciled ? (
                           <div className="flex items-center gap-1 text-xs text-success">
                             <Check className="h-3 w-3" />
-                            <span>Vinculada: {invoice?.invoice_number || 'Factura'}</span>
+                            <span className="flex-1">Vinculada: {invoice?.invoice_number || 'Factura'}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                              onClick={() => handleUnlinkDetail(d.id)}
+                              title="Desvincular"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
                           </div>
                         ) : reconcilingDetail === d.id ? (
                           <Select onValueChange={(invoiceId) => handleReconcileDetail(d.id, invoiceId)}>
