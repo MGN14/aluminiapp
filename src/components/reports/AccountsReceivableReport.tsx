@@ -468,7 +468,7 @@ export default function AccountsReceivableReport() {
                                   <div className="flex items-center justify-between pt-1.5 mt-1.5 border-t border-border text-xs">
                                     <span className="font-semibold text-muted-foreground">Total deducido</span>
                                     <span className="font-bold text-success">
-                                      -{formatCurrency(inv.details.reduce((s, d) => s + d.amount, 0))}
+                                      -{formatCurrency((inv.details || []).reduce((s, d) => s + d.amount, 0))}
                                     </span>
                                   </div>
                                 </div>
