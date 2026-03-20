@@ -201,7 +201,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           }
         });
 
-
+        const { scores: monthScores, details: monthDetails } = calculateFinancialHealthMetrics(
           transactionsToDate,
           invoicesToDate,
           salesInvoicesToDate,
