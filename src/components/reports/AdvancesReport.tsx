@@ -137,6 +137,23 @@ export default function AdvancesReport() {
     }
   };
 
+  const handleUnlinkDetail = async (detailId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('initial_state_details' as any)
+        .update({ invoice_id: null } as any)
+        .eq('id', detailId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      toast.success('Anticipo desvinculado');
+      queryClient.invalidateQueries({ queryKey: ['advances-report'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts-receivable'] });
+    } catch {
+      toast.error('Error al desvincular');
+    }
+  };
+
   // Only count unreconciled initial details
   const unreconciledDetails = useMemo(() => {
     return (data?.initialDetails || []).filter((d: any) => !d.invoice_id);
