@@ -79,7 +79,7 @@ export default function AccountsReceivableReport() {
 
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type, retefuente_cliente_amount, autoretefuente_amount, reteica_amount')
+        .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
         .eq('user_id', user.id)
         .eq('type', 'venta')
         .gte('issue_date', startDate)
