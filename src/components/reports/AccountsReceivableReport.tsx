@@ -183,10 +183,11 @@ export default function AccountsReceivableReport() {
         const paid = paymentsByInvoice.get(inv.id) || 0;
         // Use saved amount, or calculate 2.5% of subtotal_base as fallback
         const savedRetefuente = (inv as any).retefuente_cliente_amount ?? 0;
-        const rate = (inv as any).retefuente_cliente_rate ?? 0.025;
+        const rawRate = (inv as any).retefuente_cliente_rate ?? 0;
+        const effectiveRate = rawRate > 0 && rawRate < 1 ? rawRate : 0.025;
         const retefuenteCliente = savedRetefuente > 0
           ? savedRetefuente
-          : Math.round((inv.subtotal_base ?? 0) * (typeof rate === 'number' && rate < 1 ? rate : 0.025));
+          : Math.round((inv.subtotal_base ?? 0) * effectiveRate);
         const details = [...(detailsByInvoice.get(inv.id) || [])];
 
         // Always add retention as a detail line for sale invoices
