@@ -201,12 +201,27 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           }
         });
 
+        // Include direct transaction payments (transactions with invoice_id linked to sales invoices)
+        transactionsToDate.forEach((tx) => {
+          if (tx.invoice_id && salesInvoiceIds.has(tx.invoice_id) && (tx.amount ?? 0) > 0) {
+            matchedByInvoice.set(
+              tx.invoice_id,
+              (matchedByInvoice.get(tx.invoice_id) ?? 0) + Math.abs(tx.amount ?? 0)
+            );
+          }
+        });
+
+        // Calculate unlinked initial anticipos (only those without invoice_id)
+        const linkedAnticiposAmount = advanceDetails.reduce((sum: number, ad: any) => sum + Math.abs(ad.amount ?? 0), 0);
+        const unlinkedAnticiposClientes = Math.max(0, (initialState?.anticipos_de_clientes ?? 0) - linkedAnticiposAmount);
+
         const { scores: monthScores, details: monthDetails } = calculateFinancialHealthMetrics(
           transactionsToDate,
           invoicesToDate,
           salesInvoicesToDate,
           matchedByInvoice,
-          initialState
+          initialState,
+          unlinkedAnticiposClientes
         );
 
         monthlyResults.push({ month, scores: monthScores, details: monthDetails });
