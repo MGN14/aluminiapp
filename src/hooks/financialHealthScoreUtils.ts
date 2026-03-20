@@ -116,7 +116,8 @@ export function calculateFinancialHealthMetrics(
   confirmedInvoices: HealthInvoice[],
   salesInvoices: HealthInvoice[],
   matchedByInvoice: Map<string, number>,
-  initialState?: { cuentas_por_cobrar?: number; anticipos_de_clientes?: number } | null
+  initialState?: { cuentas_por_cobrar?: number; anticipos_de_clientes?: number } | null,
+  unlinkedAnticiposClientes?: number
 ): { scores: ScoreBreakdown; details: ScoreDetails } {
   const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
   const totalTx = transactions.length;
