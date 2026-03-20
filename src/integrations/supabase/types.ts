@@ -418,6 +418,8 @@ export type Database = {
           pdf_path: string | null
           prefix: string | null
           processing_error: string | null
+          retefuente_cliente_amount: number | null
+          retefuente_cliente_rate: number | null
           reteica_amount: number | null
           reteica_rate: number | null
           seller_name: string | null
@@ -456,6 +458,8 @@ export type Database = {
           pdf_path?: string | null
           prefix?: string | null
           processing_error?: string | null
+          retefuente_cliente_amount?: number | null
+          retefuente_cliente_rate?: number | null
           reteica_amount?: number | null
           reteica_rate?: number | null
           seller_name?: string | null
@@ -494,6 +498,8 @@ export type Database = {
           pdf_path?: string | null
           prefix?: string | null
           processing_error?: string | null
+          retefuente_cliente_amount?: number | null
+          retefuente_cliente_rate?: number | null
           reteica_amount?: number | null
           reteica_rate?: number | null
           seller_name?: string | null

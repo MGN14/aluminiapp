@@ -62,7 +62,7 @@ export default function AccountsReceivableReport() {
       // Get all sales invoices for the year
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type')
+        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type, retefuente_cliente_amount')
         .eq('user_id', user.id)
         .eq('type', 'venta')
         .gte('issue_date', startDate)
@@ -131,7 +131,8 @@ export default function AccountsReceivableReport() {
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
         const paid = paymentsByInvoice.get(inv.id) || 0;
-        const pending = Math.max(0, inv.total_amount - paid);
+        const retefuenteCliente = (inv as any).retefuente_cliente_amount ?? 0;
+        const pending = Math.max(0, inv.total_amount - paid - retefuenteCliente);
         const daysSince = differenceInDays(today, new Date(inv.issue_date));
         let status: 'pagada' | 'parcial' | 'pendiente' = 'pendiente';
         if (pending <= 0) status = 'pagada';

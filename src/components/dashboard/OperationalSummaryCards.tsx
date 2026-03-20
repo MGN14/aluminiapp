@@ -39,7 +39,7 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
       // 1. Cuentas por Cobrar - sales invoices with pending balance
       const invoicesPromise = supabase
         .from('invoices')
-        .select('id, total_amount, counterparty_name')
+        .select('id, total_amount, counterparty_name, retefuente_cliente_amount')
         .eq('type', 'venta')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);
@@ -110,7 +110,8 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         let pendingCount = 0;
         invoicesRes.data.forEach(inv => {
           const paid = payments.get(inv.id) || 0;
-          const pending = Math.max(0, inv.total_amount - paid);
+          const retefuenteCliente = (inv as any).retefuente_cliente_amount ?? 0;
+          const pending = Math.max(0, inv.total_amount - paid - retefuenteCliente);
           if (pending > 0) {
             pendingTotal += pending;
             pendingCount++;

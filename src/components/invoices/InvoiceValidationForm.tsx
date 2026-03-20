@@ -22,6 +22,8 @@ interface FormData extends ExtractedInvoiceData {
   autoretefuente_amount: number;
   reteica_rate: number;
   reteica_amount: number;
+  retefuente_cliente_rate: number;
+  retefuente_cliente_amount: number;
   status: string;
   display_name: string;
 }
@@ -50,6 +52,8 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
     autoretefuente_amount: 0,
     reteica_rate: 0,
     reteica_amount: 0,
+    retefuente_cliente_rate: 2.5,
+    retefuente_cliente_amount: Math.round(data.subtotal_base * 2.5 / 100),
     status: 'draft',
     display_name: suggestedName || (originalFilename?.replace('.pdf', '') || ''),
   });
@@ -63,22 +67,23 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
       try {
         const { data: settings } = await supabase
           .from('tax_settings')
-          .select('autoretefuente_rate, reteica_rate')
+          .select('autoretefuente_rate, reteica_rate, retefuente_compra_rate')
           .eq('user_id', user.id)
           .maybeSingle();
 
         if (settings) {
           setForm(prev => {
-            // Rates from tax_settings are stored as decimals (e.g., 0.004 for 0.4%)
-            // Convert to percentage for display
             const autoRate = (settings.autoretefuente_rate || 0) * 100;
             const reteicaRate = (settings.reteica_rate || 0) * 100;
+            const retefuenteClienteRate = (settings.retefuente_compra_rate || 0.025) * 100;
             return {
               ...prev,
               autoretefuente_rate: autoRate,
               autoretefuente_amount: Math.round(prev.subtotal_base * autoRate / 100),
               reteica_rate: reteicaRate,
               reteica_amount: Math.round(prev.subtotal_base * reteicaRate / 100),
+              retefuente_cliente_rate: retefuenteClienteRate,
+              retefuente_cliente_amount: Math.round(prev.subtotal_base * retefuenteClienteRate / 100),
             };
           });
         }
@@ -102,6 +107,11 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
         const rate = field === 'reteica_rate' ? (value as number) : next.reteica_rate;
         const base = field === 'subtotal_base' ? (value as number) : next.subtotal_base;
         next.reteica_amount = Math.round(base * rate / 100);
+      }
+      if (field === 'retefuente_cliente_rate' || field === 'subtotal_base') {
+        const rate = field === 'retefuente_cliente_rate' ? (value as number) : next.retefuente_cliente_rate;
+        const base = field === 'subtotal_base' ? (value as number) : next.subtotal_base;
+        next.retefuente_cliente_amount = Math.round(base * rate / 100);
       }
 
       return next;
@@ -193,8 +203,8 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
 
       {/* Tax fields for VENTAS — auto-calculated from settings */}
       {form.type === 'venta' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-md border border-warning/30 bg-warning/5">
-          <div className="sm:col-span-2 lg:col-span-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 rounded-md border border-warning/30 bg-warning/5">
+          <div className="sm:col-span-2 lg:col-span-3">
             <p className="text-sm font-medium text-foreground mb-1">Retenciones (sobre base gravable)</p>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Info className="h-3 w-3" />
@@ -216,6 +226,15 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           <div>
             <Label>$ ReteICA</Label>
             <Input type="number" value={form.reteica_amount} readOnly className="bg-muted" />
+          </div>
+          <div>
+            <Label>% Retefuente cliente</Label>
+            <Input type="number" step="0.01" value={form.retefuente_cliente_rate} onChange={e => update('retefuente_cliente_rate', parseFloat(e.target.value) || 0)} placeholder="Ej: 2.5" />
+          </div>
+          <div>
+            <Label>$ Retefuente cliente</Label>
+            <Input type="number" value={form.retefuente_cliente_amount} readOnly className="bg-muted" />
+            <p className="text-xs text-muted-foreground mt-1">Se descuenta de Cuentas por Cobrar</p>
           </div>
         </div>
       )}

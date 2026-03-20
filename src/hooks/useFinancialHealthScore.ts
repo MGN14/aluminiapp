@@ -96,7 +96,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .lt('date', nextYearStart),
         supabase
           .from('invoices')
-          .select('id, type, status, issue_date, total_amount')
+          .select('id, type, status, issue_date, total_amount, retefuente_cliente_amount')
           .eq('user_id', user.id)
           .eq('status', 'confirmed')
           .gte('issue_date', yearStart)
