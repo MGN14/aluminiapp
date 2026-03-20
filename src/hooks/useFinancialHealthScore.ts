@@ -191,7 +191,17 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           );
         });
 
-        const { scores: monthScores, details: monthDetails } = calculateFinancialHealthMetrics(
+        // Include linked advance payments from initial_state_details
+        advanceDetails.forEach((ad: any) => {
+          if (ad.invoice_id && salesInvoiceIds.has(ad.invoice_id)) {
+            matchedByInvoice.set(
+              ad.invoice_id,
+              (matchedByInvoice.get(ad.invoice_id) ?? 0) + Math.abs(ad.amount ?? 0)
+            );
+          }
+        });
+
+
           transactionsToDate,
           invoicesToDate,
           salesInvoicesToDate,
