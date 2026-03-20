@@ -212,9 +212,9 @@ export function calculateFinancialHealthMetrics(
     conciliacion: { pct: pctConciliado, montoPendiente, totalMovimientos },
     facturacion: {
       pct: pctSoportado,
-      ingresosConFactura: ingresosConFacturaMonto,
-      ingresosAnticipo: ingresosAnticipoMonto,
-      totalIngresos: totalIngresosMonto,
+      ingresosConFactura: facturacionVentas,
+      ingresosAnticipo: initialAnticiposClientes,
+      totalIngresos: baseFacturacion,
     },
     impuestos: { pct: completitudFiscal, pctVentas, pctCompras, pctVinculados },
     cartera: {
