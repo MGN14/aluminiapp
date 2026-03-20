@@ -130,16 +130,14 @@ export function calculateFinancialHealthMetrics(
   const scoreConciliacion = totalMovimientos > 0 ? linearScore(pctConciliado) : 0;
 
   // ========== 2. FACTURACIÓN SOPORTADA ==========
+  // Use actual confirmed sales invoice totals vs total income + initial advances
   const ingresosTx = transactions.filter((tx) => (tx.amount ?? 0) > 0);
   const totalIngresosMonto = ingresosTx.reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-  const ingresosConFacturaMonto = ingresosTx
-    .filter((tx) => Boolean(tx.invoice_id))
-    .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-  const ingresosAnticipoMonto = ingresosTx
-    .filter((tx) => !tx.invoice_id && isAnticipo(tx.notes))
-    .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
-  const pctSoportado = safePct(ingresosConFacturaMonto + ingresosAnticipoMonto, totalIngresosMonto);
-  const scoreFacturacion = totalIngresosMonto > 0 ? linearScore(pctSoportado) : 0;
+  const facturacionVentas = salesInvoices.reduce((sum, inv) => sum + (inv.total_amount ?? 0), 0);
+  const baseFacturacion = totalIngresosMonto + initialAnticiposClientes;
+  const soportado = facturacionVentas + initialAnticiposClientes;
+  const pctSoportado = baseFacturacion > 0 ? clampPct(soportado / baseFacturacion) : 0;
+  const scoreFacturacion = baseFacturacion > 0 ? linearScore(pctSoportado) : 0;
 
   // ========== 3. CONTROL DE IMPUESTOS ==========
   const egresosTx = transactions.filter((tx) => (tx.amount ?? 0) < 0);
