@@ -253,6 +253,12 @@ export default function AccountsReceivableReport() {
     return (data?.receivables || []).reduce((s, r) => s + r.pending, 0);
   }, [data]);
 
+  const paidInvoices = useMemo(() => {
+    return (data?.allReceivables || []).filter(r => r.pending <= 0);
+  }, [data]);
+
+  const [showPaid, setShowPaid] = useState(false);
+
   const handleAssociate = async (suggestion: Suggestion) => {
     if (!user) return;
     const { error } = await supabase
