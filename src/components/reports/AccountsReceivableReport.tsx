@@ -79,7 +79,7 @@ export default function AccountsReceivableReport() {
 
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type, retefuente_cliente_amount, autoretefuente_amount, reteica_amount')
+        .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
         .eq('user_id', user.id)
         .eq('type', 'venta')
         .gte('issue_date', startDate)
@@ -181,14 +181,20 @@ export default function AccountsReceivableReport() {
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
         const paid = paymentsByInvoice.get(inv.id) || 0;
-        const retefuenteCliente = (inv as any).retefuente_cliente_amount ?? 0;
+        // Use saved amount, or calculate 2.5% of subtotal_base as fallback
+        const savedRetefuente = (inv as any).retefuente_cliente_amount ?? 0;
+        const rate = (inv as any).retefuente_cliente_rate ?? 0.025;
+        const retefuenteCliente = savedRetefuente > 0
+          ? savedRetefuente
+          : Math.round((inv.subtotal_base ?? 0) * (typeof rate === 'number' && rate < 1 ? rate : 0.025));
         const details = [...(detailsByInvoice.get(inv.id) || [])];
 
-        // Add retention as a detail line
+        // Always add retention as a detail line for sale invoices
         if (retefuenteCliente > 0) {
+          const displayRate = savedRetefuente > 0 && rate ? (rate * 100).toFixed(1) : '2.5';
           details.push({
             type: 'retefuente',
-            label: 'Retefuente cliente (pagada a DIAN)',
+            label: `Retefuente cliente ${displayRate}% (pagada a DIAN)`,
             amount: retefuenteCliente,
           });
         }
