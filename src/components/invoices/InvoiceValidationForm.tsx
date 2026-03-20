@@ -67,7 +67,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
       try {
         const { data: settings } = await supabase
           .from('tax_settings')
-          .select('autoretefuente_rate, reteica_rate')
+          .select('autoretefuente_rate, reteica_rate, retefuente_compra_rate')
           .eq('user_id', user.id)
           .maybeSingle();
 
