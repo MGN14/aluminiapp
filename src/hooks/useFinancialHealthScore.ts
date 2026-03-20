@@ -86,7 +86,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       const yearStart = `${year}-01-01`;
       const nextYearStart = `${year + 1}-01-01`;
 
-      const [txResult, invoiceResult, matchesResult, initialStateResult] = await Promise.all([
+      const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult] = await Promise.all([
         supabase
           .from('transactions')
           .select('id, date, responsible_id, invoice_id, notes, category_id, amount')
@@ -110,6 +110,12 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .select('cuentas_por_cobrar, anticipos_de_clientes')
           .eq('user_id', user.id)
           .maybeSingle(),
+        supabase
+          .from('initial_state_details')
+          .select('invoice_id, amount')
+          .eq('user_id', user.id)
+          .eq('field_type', 'anticipos_de_clientes')
+          .not('invoice_id', 'is', null),
       ]);
 
       if (txResult.error) throw txResult.error;
