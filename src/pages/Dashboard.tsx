@@ -753,28 +753,6 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Burn Rate */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Burn Rate
-                  </CardTitle>
-                  <div className="p-2 rounded-lg bg-destructive/10">
-                    <Flame className="h-4 w-4 text-destructive" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-foreground">
-                    {formatCurrency(metrics.burnRate)}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    Promedio mensual ({metrics.cuatrimestreLabel})
-                  </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
-                    Basado en trimestre
-                  </div>
-                </CardContent>
-              </Card>
             </div>
 
             {/* Tax & Misc Metrics - single fluid grid, no gaps */}
