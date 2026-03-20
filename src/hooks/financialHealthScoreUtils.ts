@@ -118,6 +118,7 @@ export function calculateFinancialHealthMetrics(
   matchedByInvoice: Map<string, number>,
   initialState?: { cuentas_por_cobrar?: number; anticipos_de_clientes?: number } | null
 ): { scores: ScoreBreakdown; details: ScoreDetails } {
+  const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
   const totalTx = transactions.length;
 
   // ========== 1. CONCILIACIÓN BANCARIA (amount-based) ==========
