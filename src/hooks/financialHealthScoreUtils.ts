@@ -174,12 +174,15 @@ export function calculateFinancialHealthMetrics(
   const baseCartera = facturacionTotal + initialCxC;
   const pctCartera = safePct(cuentasPorCobrar, baseCartera);
 
-  // Use pre-calculated current period anticipos if provided, otherwise fall back to [Anticipo] tag
-  const anticiposSinFactura = currentPeriodAnticipos ?? ingresosTx
+  // Use pre-calculated total anticipos if provided (already includes unlinked initial),
+  // otherwise fall back to [Anticipo] tag + unlinked initial
+  const fallbackAnticipos = ingresosTx
     .filter((tx) => !tx.invoice_id && isAnticipo(tx.notes))
     .reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
   const effectiveUnlinkedAnticipos = unlinkedAnticiposClientes ?? initialAnticiposClientes;
-  const totalAnticipos = anticiposSinFactura + effectiveUnlinkedAnticipos;
+  const totalAnticipos = currentPeriodAnticipos != null
+    ? currentPeriodAnticipos
+    : fallbackAnticipos + effectiveUnlinkedAnticipos;
   const baseAnticipos = totalIngresosMonto + initialAnticiposClientes;
   const pctAnticipos = safePct(totalAnticipos, baseAnticipos);
 
