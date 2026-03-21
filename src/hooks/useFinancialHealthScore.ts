@@ -238,13 +238,36 @@ export function useFinancialHealthScore(year: number, _month?: number) {
         const linkedAnticiposAmount = advanceDetails.reduce((sum: number, ad: any) => sum + Math.abs(ad.amount ?? 0), 0);
         const unlinkedAnticiposClientes = Math.max(0, (initialState?.anticipos_de_clientes ?? 0) - linkedAnticiposAmount);
 
+        // Calculate current period anticipos matching advances report logic:
+        // ingreso + category "Ventas" + has responsible (not "Otros") + no invoice_id
+        const currentPeriodAnticipos = transactionsToDate
+          .filter((tx) => {
+            if ((tx.amount ?? 0) <= 0) return false; // only ingresos
+            if (tx.invoice_id) return false; // no invoice linked
+            if (!tx.responsible_id) return false; // must have responsible
+            const catName = tx.category_id ? (categoryNameById.get(tx.category_id) ?? '') : '';
+            if (catName.toLowerCase() !== 'ventas') return false;
+            const respName = respNameById.get(tx.responsible_id) ?? '';
+            if (respName.toLowerCase() === 'otros') return false;
+            return true;
+          })
+          .reduce((sum, tx) => sum + Math.abs(tx.amount ?? 0), 0);
+
+        // Unlinked initial details amount
+        const unlinkedInitialAmount = allAdvanceDetails
+          .filter((d: any) => !d.invoice_id)
+          .reduce((sum: number, d: any) => sum + Math.abs(d.amount ?? 0), 0);
+
+        const totalCurrentPeriodAnticipos = currentPeriodAnticipos + unlinkedInitialAmount;
+
         const { scores: monthScores, details: monthDetails } = calculateFinancialHealthMetrics(
           transactionsToDate,
           invoicesToDate,
           salesInvoicesToDate,
           matchedByInvoice,
           initialState,
-          unlinkedAnticiposClientes
+          unlinkedAnticiposClientes,
+          totalCurrentPeriodAnticipos
         );
 
         monthlyResults.push({ month, scores: monthScores, details: monthDetails });
