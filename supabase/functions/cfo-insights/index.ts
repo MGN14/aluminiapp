@@ -304,31 +304,32 @@ Deno.serve(async (req) => {
     }
 
     // ─── INSIGHT C: Anticipos sin facturar ───
-    // Get responsible names to exclude "Banco"
-    const respIds = [...new Set(anticiposTx.filter((t: any) => t.responsible_id).map((t: any) => t.responsible_id))];
-    let respMap: Record<string, string> = {};
-    if (respIds.length > 0) {
-      const { data: resps } = await admin.from("responsibles").select("id, name").in("id", respIds);
-      if (resps) resps.forEach((r: any) => { respMap[r.id] = r.name; });
-    }
-
+    // Same logic as AdvancesReport: Ingreso + Category "Ventas" + Responsible != "Otros" + no invoice
     const filteredAnticipos = anticiposTx.filter((t: any) => {
       const catName = (t.categories?.name || t.category || "").toLowerCase();
       const hasResp = Boolean(t.responsible_id);
-      const respName = t.responsible_id ? respMap[t.responsible_id] : null;
-      // New rule: must be Ingreso + Category "Ventas" + Responsible != "Otros"
+      const respName = t.responsible_id ? respNameById.get(t.responsible_id) : null;
       const isVentas = catName === "ventas";
       const isRespOtros = respName?.toLowerCase() === "otros";
       return hasResp && isVentas && !isRespOtros;
     });
 
-    const totalAnticipos = filteredAnticipos.reduce((s: number, t: any) => s + Math.abs(t.amount ?? 0), 0);
+    // Also include initial state details without invoice (unlinked advances from prior periods)
+    const unlinkedInitialAnticipos = initialDetails.filter((d: any) => !d.invoice_id);
+    const totalAnticiposTx = filteredAnticipos.reduce((s: number, t: any) => s + Math.abs(t.amount ?? 0), 0);
+    const totalAnticiposInitial = unlinkedInitialAnticipos.reduce((s: number, d: any) => s + Math.abs(d.amount ?? 0), 0);
+    const totalAnticipos = totalAnticiposTx + totalAnticiposInitial;
+    const anticiposCount = filteredAnticipos.length + unlinkedInitialAnticipos.length;
 
-    if (filteredAnticipos.length > 0) {
+    if (anticiposCount > 0) {
+      let anticipoText = `Tienes ${anticiposCount} anticipo${anticiposCount > 1 ? "s" : ""} sin factura por ${fmt(totalAnticipos)}.`;
+      if (totalAnticiposInitial > 0 && totalAnticiposTx > 0) {
+        anticipoText += ` Incluye ${fmt(totalAnticiposInitial)} de periodos anteriores y ${fmt(totalAnticiposTx)} del año en curso.`;
+      }
       insights.push({
         key: "anticipos",
         title: "Anticipos sin factura 📋",
-        text: `Tienes ${filteredAnticipos.length} ingreso${filteredAnticipos.length > 1 ? "s" : ""} por ${fmt(totalAnticipos)} con responsable asignado pero sin factura vinculada.`,
+        text: anticipoText,
         recommendation: "Asocia una factura existente o emite una nueva para cada anticipo. Esto te ayuda con la DIAN y a mantener limpia tu contabilidad.",
         action: { label: "Ver anticipos", path: "/reports" },
         impact: totalAnticipos,
@@ -336,9 +337,9 @@ Deno.serve(async (req) => {
     }
 
     // ─── INSIGHT D: Cuentas por cobrar ───
+    // Same logic as AccountsReceivableReport: subtract payments + retefuente + initial advances
     const salesInvoices = invYear.filter((i: any) => i.type === "venta");
     if (salesInvoices.length > 0) {
-      // Get direct transaction payments
       const salesIds = salesInvoices.map((i: any) => i.id);
       const { data: directPayments } = await admin
         .from("transactions")
@@ -348,11 +349,17 @@ Deno.serve(async (req) => {
         .in("invoice_id", salesIds);
 
       const payments = new Map<string, number>();
+      // Direct transaction payments
       (directPayments || []).forEach((p: any) => {
         if (p.invoice_id) payments.set(p.invoice_id, (payments.get(p.invoice_id) || 0) + Math.abs(p.amount ?? 0));
       });
+      // Manual matches
       matches.forEach((m: any) => {
         payments.set(m.invoice_id, (payments.get(m.invoice_id) || 0) + Math.abs(m.matched_amount));
+      });
+      // Initial state advance payments linked to invoices
+      initialDetails.filter((d: any) => d.invoice_id).forEach((d: any) => {
+        payments.set(d.invoice_id, (payments.get(d.invoice_id) || 0) + Math.abs(d.amount ?? 0));
       });
 
       let totalCxC = 0;
@@ -363,13 +370,22 @@ Deno.serve(async (req) => {
 
       salesInvoices.forEach((inv: any) => {
         const paid = payments.get(inv.id) || 0;
-        const pending = Math.max(0, inv.total_amount - paid);
+        // Subtract retefuente cliente (same logic as CxC report)
+        const savedRetefuente = inv.retefuente_cliente_amount ?? 0;
+        const rawRate = inv.retefuente_cliente_rate;
+        const hasExplicitRate = rawRate !== null && rawRate !== undefined;
+        const effectiveRate = hasExplicitRate ? rawRate : 0.025;
+        const retefuenteCliente = savedRetefuente > 0
+          ? savedRetefuente
+          : Math.round((inv.subtotal_base ?? 0) * effectiveRate);
+
+        const totalDeducted = paid + retefuenteCliente;
+        const pending = Math.max(0, inv.total_amount - totalDeducted);
         if (pending > 0) {
           totalCxC += pending;
           cxcCount++;
           const name = inv.counterparty_name || "Sin nombre";
           clientDebt.set(name, (clientDebt.get(name) || 0) + pending);
-          // Check if overdue > 30 days
           const issueDate = new Date(inv.issue_date);
           const daysSince = Math.floor((today.getTime() - issueDate.getTime()) / (1000 * 60 * 60 * 24));
           if (daysSince > 30) overdue30 += pending;
