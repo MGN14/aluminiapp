@@ -256,7 +256,7 @@ export default function AccountsReceivableReport() {
         }
       }
 
-      return { receivables: unpaid, suggestions, allReceivables: receivables };
+      return { receivables: unpaid, suggestions, allReceivables: receivables, initialCxC };
     },
     enabled: !!user,
   });
