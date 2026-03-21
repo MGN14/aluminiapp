@@ -444,7 +444,24 @@ export default function AccountsReceivableReport() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    data.receivables.map((inv) => {
+                    <>
+                      {initialCxC > 0 && (
+                        <TableRow className="bg-warning/5 border-l-2 border-l-warning">
+                          <TableCell className="w-8 px-2"></TableCell>
+                          <TableCell className="text-sm font-medium text-warning" colSpan={2}>
+                            📋 Saldo inicial CxC (periodo anterior)
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap text-muted-foreground">—</TableCell>
+                          <TableCell className="text-right text-sm font-medium">{formatCurrency(initialCxC)}</TableCell>
+                          <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
+                          <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(initialCxC)}</TableCell>
+                          <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {data.receivables.map((inv) => {
                       const isExpanded = expandedRows.has(inv.id);
                       const hasDetails = (inv.details?.length ?? 0) > 0;
 
