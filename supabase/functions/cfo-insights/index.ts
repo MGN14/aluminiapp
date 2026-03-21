@@ -110,6 +110,8 @@ Deno.serve(async (req) => {
       anticiposTxRes,
       taxSettingsRes,
       initialStateRes,
+      initialDetailsRes,
+      responsiblesRes,
     ] = await Promise.all([
       // Current period transactions
       admin
@@ -127,10 +129,10 @@ Deno.serve(async (req) => {
         .is("deleted_at", null)
         .gte("date", prevPeriodStart)
         .lte("date", prevPeriodEnd),
-      // Invoices in the period (confirmed)
+      // Invoices in the period (confirmed) - include retefuente fields
       admin
         .from("invoices")
-        .select("id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, reteica_amount, autoretefuente_amount, status, due_date")
+        .select("id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, reteica_amount, autoretefuente_amount, retefuente_cliente_amount, retefuente_cliente_rate, status, due_date")
         .eq("user_id", userId)
         .eq("status", "confirmed")
         .gte("issue_date", periodStart)
@@ -143,10 +145,10 @@ Deno.serve(async (req) => {
         .eq("status", "confirmed")
         .gte("issue_date", ivaStart)
         .lte("issue_date", ivaEnd),
-      // Year invoices (for YTD)
+      // Year invoices (for YTD) - include retefuente fields
       admin
         .from("invoices")
-        .select("id, type, issue_date, total_amount, counterparty_name, reteica_amount, autoretefuente_amount, status")
+        .select("id, type, issue_date, subtotal_base, total_amount, counterparty_name, reteica_amount, autoretefuente_amount, retefuente_cliente_amount, retefuente_cliente_rate, status")
         .eq("user_id", userId)
         .eq("status", "confirmed")
         .gte("issue_date", yearStart)
@@ -156,16 +158,16 @@ Deno.serve(async (req) => {
         .from("invoice_transaction_matches")
         .select("invoice_id, matched_amount")
         .eq("user_id", userId),
-      // Anticipos: income transactions with responsible, no invoice
+      // Anticipos: income transactions with responsible, no invoice (year-wide)
       admin
         .from("transactions")
-        .select("id, amount, responsible_id, category, categories!transactions_category_id_fkey(name)")
+        .select("id, date, amount, responsible_id, category, category_id, categories!transactions_category_id_fkey(name)")
         .eq("user_id", userId)
         .eq("type", "ingreso")
         .is("invoice_id", null)
         .is("deleted_at", null)
-        .gte("date", periodStart)
-        .lte("date", periodEnd),
+        .gte("date", yearStart)
+        .lte("date", yearEnd),
       // Tax settings
       admin
         .from("tax_settings")
@@ -178,6 +180,17 @@ Deno.serve(async (req) => {
         .select("saldo_bancos, cuentas_por_cobrar, cuentas_por_pagar, anticipos_de_clientes, iva_a_favor, iva_por_pagar, retefuente_por_pagar, ica_por_pagar")
         .eq("user_id", userId)
         .maybeSingle(),
+      // Initial state details (anticipos_de_clientes)
+      admin
+        .from("initial_state_details")
+        .select("id, invoice_id, amount, responsible_name, field_type")
+        .eq("user_id", userId)
+        .eq("field_type", "anticipos_de_clientes"),
+      // Responsibles for name lookup
+      admin
+        .from("responsibles")
+        .select("id, name")
+        .eq("user_id", userId),
     ]);
 
     const txCurrent = txCurrentRes.data || [];
@@ -189,6 +202,12 @@ Deno.serve(async (req) => {
     const anticiposTx = anticiposTxRes.data || [];
     const retefuenteCompraRate = taxSettingsRes.data?.retefuente_compra_rate || 0;
     const initialState = initialStateRes.data || null;
+    const initialDetails = initialDetailsRes.data || [];
+    const allResponsibles = responsiblesRes.data || [];
+
+    // Build responsible name lookup
+    const respNameById = new Map<string, string>();
+    allResponsibles.forEach((r: any) => respNameById.set(r.id, r.name));
 
     console.log(`[cfo-insights] txCurrent=${txCurrent.length} txPrev=${txPrev.length} invPeriod=${invPeriod.length} invIva=${invIva.length}`);
 
