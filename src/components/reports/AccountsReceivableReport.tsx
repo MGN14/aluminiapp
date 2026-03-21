@@ -77,17 +77,27 @@ export default function AccountsReceivableReport() {
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
 
-      const { data: invoices, error: invErr } = await supabase
-        .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
-        .eq('user_id', user.id)
-        .eq('type', 'venta')
-        .gte('issue_date', startDate)
-        .lte('issue_date', endDate)
-        .order('issue_date', { ascending: false });
+      const [invoicesRes, initialStateRes] = await Promise.all([
+        supabase
+          .from('invoices')
+          .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
+          .eq('user_id', user.id)
+          .eq('type', 'venta')
+          .gte('issue_date', startDate)
+          .lte('issue_date', endDate)
+          .order('issue_date', { ascending: false }),
+        supabase
+          .from('initial_financial_state')
+          .select('cuentas_por_cobrar')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+      ]);
+
+      const { data: invoices, error: invErr } = invoicesRes;
+      const initialCxC = initialStateRes.data?.cuentas_por_cobrar ?? 0;
 
       if (invErr) throw invErr;
-      if (!invoices?.length) return { receivables: [], suggestions: [] };
+      if (!invoices?.length) return { receivables: [], suggestions: [], initialCxC };
 
       const invoiceIds = invoices.map(i => i.id);
 
@@ -246,14 +256,16 @@ export default function AccountsReceivableReport() {
         }
       }
 
-      return { receivables: unpaid, suggestions, allReceivables: receivables };
+      return { receivables: unpaid, suggestions, allReceivables: receivables, initialCxC };
     },
     enabled: !!user,
   });
 
+  const initialCxC = data?.initialCxC ?? 0;
+
   const totalPending = useMemo(() => {
-    return (data?.receivables || []).reduce((s, r) => s + r.pending, 0);
-  }, [data]);
+    return (data?.receivables || []).reduce((s, r) => s + r.pending, 0) + initialCxC;
+  }, [data, initialCxC]);
 
   const paidInvoices = useMemo(() => {
     return (data?.allReceivables || []).filter(r => r.pending <= 0);
@@ -432,7 +444,24 @@ export default function AccountsReceivableReport() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    data.receivables.map((inv) => {
+                    <>
+                      {initialCxC > 0 && (
+                        <TableRow className="bg-warning/5 border-l-2 border-l-warning">
+                          <TableCell className="w-8 px-2"></TableCell>
+                          <TableCell className="text-sm font-medium text-warning" colSpan={2}>
+                            📋 Saldo inicial CxC (periodo anterior)
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap text-muted-foreground">—</TableCell>
+                          <TableCell className="text-right text-sm font-medium">{formatCurrency(initialCxC)}</TableCell>
+                          <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
+                          <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(initialCxC)}</TableCell>
+                          <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {data.receivables.map((inv) => {
                       const isExpanded = expandedRows.has(inv.id);
                       const hasDetails = (inv.details?.length ?? 0) > 0;
 
@@ -532,7 +561,8 @@ export default function AccountsReceivableReport() {
                           )}
                         </React.Fragment>
                       );
-                    })
+                    })}
+                    </>
                   )}
                 </TableBody>
               </Table>
