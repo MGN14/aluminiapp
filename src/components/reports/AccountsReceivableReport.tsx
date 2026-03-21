@@ -561,7 +561,8 @@ export default function AccountsReceivableReport() {
                           )}
                         </React.Fragment>
                       );
-                    })
+                    })}
+                    </>
                   )}
                 </TableBody>
               </Table>
