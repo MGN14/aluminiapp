@@ -305,9 +305,12 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       }));
 
       if (upsertRows.length > 0) {
-        await supabase
+        const { error: upsertError } = await supabase
           .from('financial_health_scores')
-          .upsert(upsertRows, { onConflict: 'user_id,month,year' });
+          .upsert(upsertRows as any, { onConflict: 'user_id,month,year' });
+        if (upsertError) {
+          console.error('Error upserting financial health scores:', upsertError);
+        }
       }
     } catch (error) {
       console.error('Error calculating financial health score:', error);
