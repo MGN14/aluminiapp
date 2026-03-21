@@ -45,6 +45,8 @@ serve(async (req) => {
     const lastMonth = thisMonth === 1 ? 12 : thisMonth - 1;
     const lastMonthYear = thisMonth === 1 ? thisYear - 1 : thisYear;
     const since = new Date(thisYear - 1, now.getMonth(), 1).toISOString().split("T")[0];
+    const yearStart = `${thisYear}-01-01`;
+    const yearEnd = `${thisYear}-12-31`;
 
     // --- Parallel data fetching (expanded) ---
     const [
@@ -58,10 +60,11 @@ serve(async (req) => {
       { data: profile },
       { data: initialState },
       { data: initialStateDetails },
+      { data: healthScores },
     ] = await Promise.all([
       supabase
         .from("transactions")
-        .select("date, description, credit, debit, amount, category, operational_type, category_id, invoice_id, type, responsible_id, owner, has_retefuente, retefuente_amount, notes")
+        .select("id, date, description, credit, debit, amount, category, operational_type, category_id, invoice_id, type, responsible_id, owner, has_retefuente, retefuente_amount, notes")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .gte("date", since)
@@ -71,10 +74,12 @@ serve(async (req) => {
         .from("categories")
         .select("id, name, report_group")
         .eq("user_id", user.id),
+      // FIXED: Only fetch confirmed invoices (same as CFO insights and reports)
       supabase
         .from("invoices")
-        .select("id, type, invoice_number, issue_date, due_date, subtotal_base, iva_amount, total_amount, counterparty_name, counterparty_nit, status, autoretefuente_amount, reteica_amount, seller_name, buyer_name, payment_method")
+        .select("id, type, invoice_number, issue_date, due_date, subtotal_base, iva_amount, total_amount, counterparty_name, counterparty_nit, status, autoretefuente_amount, reteica_amount, retefuente_cliente_amount, retefuente_cliente_rate, seller_name, buyer_name, payment_method")
         .eq("user_id", user.id)
+        .eq("status", "confirmed")
         .gte("issue_date", since)
         .order("issue_date", { ascending: false })
         .limit(500),
@@ -111,8 +116,16 @@ serve(async (req) => {
         .single(),
       supabase
         .from("initial_state_details")
-        .select("field_type, responsible_name, amount, responsible_id")
+        .select("field_type, responsible_name, amount, responsible_id, invoice_id")
         .eq("user_id", user.id),
+      // NEW: Fetch latest financial health score
+      supabase
+        .from("financial_health_scores")
+        .select("score_total, score_conciliacion, score_facturacion, score_impuestos, score_cartera, score_clasificacion, month, year, details")
+        .eq("user_id", user.id)
+        .order("year", { ascending: false })
+        .order("month", { ascending: false })
+        .limit(1),
     ]);
 
     const fmt = (n: number) =>
@@ -263,13 +276,14 @@ serve(async (req) => {
     }
 
     // Invoice year totals
-    let thisYearInv = { ventas: 0, compras: 0, iva_ventas: 0, iva_compras: 0, autoretefuente: 0, reteica: 0, ventas_count: 0, compras_count: 0 };
-    let lastYearInv = { ventas: 0, compras: 0, iva_ventas: 0, iva_compras: 0, autoretefuente: 0, reteica: 0, ventas_count: 0, compras_count: 0 };
+    let thisYearInv = { ventas: 0, ventas_base: 0, compras: 0, compras_base: 0, iva_ventas: 0, iva_compras: 0, autoretefuente: 0, reteica: 0, ventas_count: 0, compras_count: 0 };
+    let lastYearInv = { ventas: 0, ventas_base: 0, compras: 0, compras_base: 0, iva_ventas: 0, iva_compras: 0, autoretefuente: 0, reteica: 0, ventas_count: 0, compras_count: 0 };
     for (const [key, m] of Object.entries(invByMonth)) {
       const yr = key.split("-")[0];
       const target = yr === `${thisYear}` ? thisYearInv : yr === `${thisYear - 1}` ? lastYearInv : null;
       if (!target) continue;
-      target.ventas += m.ventas_total; target.compras += m.compras_total;
+      target.ventas += m.ventas_total; target.ventas_base += m.ventas_base;
+      target.compras += m.compras_total; target.compras_base += m.compras_base;
       target.iva_ventas += m.ventas_iva; target.iva_compras += m.compras_iva;
       target.autoretefuente += m.autoretefuente; target.reteica += m.reteica;
       target.ventas_count += m.ventas_count; target.compras_count += m.compras_count;
@@ -278,11 +292,13 @@ serve(async (req) => {
     const currentInv = invByMonth[currentKey] ?? null;
     const lastMonthInv = invByMonth[lastMonthKey] ?? null;
 
+    const retefuenteCompraRate = taxSettings?.retefuente_compra_rate ?? 0.025;
+
     const summarizeInvMonth = (key: string | null, data: MonthInvoice | null) => {
       if (!key || !data) return "Sin facturas registradas";
       const [yr, mo] = key.split("-");
       const name = monthNames[parseInt(mo) - 1];
-      const retefuenteCompras = (data.compras_base) * (taxSettings?.retefuente_compra_rate ?? 0.025);
+      const retefuenteCompras = (data.compras_base) * retefuenteCompraRate;
       const ivaBalance = data.ventas_iva - data.compras_iva;
       return `${name} ${yr}: Ventas facturadas=${fmt(data.ventas_total)} (${data.ventas_count} facturas, Base=${fmt(data.ventas_base)}, IVA=${fmt(data.ventas_iva)}), Compras facturadas=${fmt(data.compras_total)} (${data.compras_count} facturas, Base=${fmt(data.compras_base)}, IVA descontable=${fmt(data.compras_iva)}), IVA neto (a pagar/favor)=${fmt(ivaBalance)}, Autorretefuente=${fmt(data.autoretefuente)}, ReteICA=${fmt(data.reteica)}, Retefuente compras estimada=${fmt(retefuenteCompras)}`;
     };
@@ -320,65 +336,129 @@ serve(async (req) => {
     const totalTxCount = (transactions ?? []).length;
     const unmatchedTxCount = totalTxCount - matchedTxCount;
 
-    // --- Cuentas por Cobrar (facturas de venta con saldo pendiente) ---
+    // --- Cuentas por Cobrar (FIXED: same logic as CFO insights + AccountsReceivableReport) ---
+    // Includes retefuente deduction, initial state advances linked to invoices, and initial CxC balance
     const cuentasPorCobrar: { cliente: string; factura: string; total: number; pagado: number; saldo: number; fecha: string; vencimiento: string | null }[] = [];
+    
+    // Build payment map including direct payments, manual matches, and initial advance payments
+    const paymentsByInvoice = new Map<string, number>();
+    
+    // Direct transaction payments (transactions linked to invoices)
+    for (const t of (transactions ?? [])) {
+      if (t.invoice_id) {
+        paymentsByInvoice.set(t.invoice_id, (paymentsByInvoice.get(t.invoice_id) || 0) + Math.abs(t.amount ?? 0));
+      }
+    }
+    // Manual matches
+    for (const m of (matches ?? [])) {
+      paymentsByInvoice.set(m.invoice_id, (paymentsByInvoice.get(m.invoice_id) || 0) + Math.abs(m.matched_amount ?? 0));
+    }
+    // Initial state advance payments linked to invoices
+    const allInitialDetails = initialStateDetails ?? [];
+    const anticiposDeClientes = allInitialDetails.filter((d: any) => d.field_type === "anticipos_de_clientes");
+    for (const d of anticiposDeClientes) {
+      if (d.invoice_id) {
+        paymentsByInvoice.set(d.invoice_id, (paymentsByInvoice.get(d.invoice_id) || 0) + Math.abs(d.amount ?? 0));
+      }
+    }
+
     for (const inv of (invoices ?? [])) {
       if (inv.type !== "venta") continue;
       const total = inv.total_amount ?? 0;
-      const pagado = matchesByInvoice[inv.id] ?? 0;
-      const saldo = total - pagado;
-      if (saldo > 1000) { // threshold to avoid rounding noise
+      const paid = paymentsByInvoice.get(inv.id) || 0;
+      
+      // FIXED: Deduct retefuente (same logic as CFO insights)
+      const savedRetefuente = inv.retefuente_cliente_amount ?? 0;
+      const rawRate = inv.retefuente_cliente_rate;
+      const hasExplicitRate = rawRate !== null && rawRate !== undefined;
+      const effectiveRate = hasExplicitRate ? rawRate : 0.025;
+      const retefuenteCliente = savedRetefuente > 0
+        ? savedRetefuente
+        : Math.round((inv.subtotal_base ?? 0) * effectiveRate);
+      
+      const totalDeducted = paid + retefuenteCliente;
+      const saldo = Math.max(0, total - totalDeducted);
+      
+      if (saldo > 1000) {
         cuentasPorCobrar.push({
           cliente: inv.counterparty_name || inv.buyer_name || "Sin nombre",
           factura: inv.invoice_number,
-          total, pagado, saldo,
+          total, pagado: paid, saldo,
           fecha: inv.issue_date,
           vencimiento: inv.due_date,
         });
       }
     }
     cuentasPorCobrar.sort((a, b) => b.saldo - a.saldo);
-    const totalPorCobrar = cuentasPorCobrar.reduce((s, c) => s + c.saldo, 0);
+    const totalPorCobrarFacturas = cuentasPorCobrar.reduce((s, c) => s + c.saldo, 0);
+    // FIXED: Add initial CxC balance
+    const initialCxC = initialState?.cuentas_por_cobrar ?? 0;
+    const totalPorCobrar = totalPorCobrarFacturas + initialCxC;
 
-    // --- Cuentas por Pagar (facturas de compra con saldo pendiente) ---
+    // --- Cuentas por Pagar (FIXED: deduct payments like CxC) ---
     const cuentasPorPagar: { proveedor: string; factura: string; total: number; pagado: number; saldo: number; fecha: string; vencimiento: string | null }[] = [];
     for (const inv of (invoices ?? [])) {
       if (inv.type !== "compra") continue;
       const total = inv.total_amount ?? 0;
-      const pagado = matchesByInvoice[inv.id] ?? 0;
-      const saldo = total - pagado;
+      const paid = paymentsByInvoice.get(inv.id) || 0;
+      const saldo = Math.max(0, total - paid);
       if (saldo > 1000) {
         cuentasPorPagar.push({
           proveedor: inv.counterparty_name || inv.seller_name || "Sin nombre",
           factura: inv.invoice_number,
-          total, pagado, saldo,
+          total, pagado: paid, saldo,
           fecha: inv.issue_date,
           vencimiento: inv.due_date,
         });
       }
     }
     cuentasPorPagar.sort((a, b) => b.saldo - a.saldo);
-    const totalPorPagar = cuentasPorPagar.reduce((s, c) => s + c.saldo, 0);
+    const totalPorPagarFacturas = cuentasPorPagar.reduce((s, c) => s + c.saldo, 0);
+    const initialCxP = initialState?.cuentas_por_pagar ?? 0;
+    const totalPorPagar = totalPorPagarFacturas + initialCxP;
 
-    // --- Anticipos (ingresos bancarios sin factura asociada, con responsable) ---
+    // --- Anticipos (FIXED: same logic as AdvancesReport - category='ventas', resp!='otros', no invoice) ---
     const anticipos: { responsable: string; monto: number; fecha: string; descripcion: string }[] = [];
-    let totalAnticipos = 0;
+    let totalAnticiposTx = 0;
     const anticiposPorCliente: Record<string, number> = {};
-    for (const t of (transactions ?? [])) {
+    
+    // Current year anticipos from transactions
+    const yearTx = (transactions ?? []).filter((t: any) => {
+      const d = new Date(t.date + "T00:00:00");
+      return d.getFullYear() === thisYear;
+    });
+    
+    for (const t of yearTx) {
       const credit = t.credit ?? 0;
       if (credit <= 0 || t.invoice_id) continue;
       if (!t.responsible_id) continue;
+      
       const respName = respMap[t.responsible_id] ?? t.owner ?? "Sin responsable";
-      if (respName.toLowerCase() === "banco") continue;
+      // FIXED: Match AdvancesReport logic - filter by category "ventas" and exclude "otros"
+      const catInfo = t.category_id ? catMap[t.category_id] : null;
+      const catName = (catInfo?.name ?? t.category ?? "").toLowerCase();
+      if (catName !== "ventas") continue;
+      if (respName.toLowerCase() === "otros") continue;
+      
       anticipos.push({
         responsable: respName,
         monto: credit,
         fecha: t.date,
         descripcion: t.description?.substring(0, 60) ?? "",
       });
-      totalAnticipos += credit;
+      totalAnticiposTx += credit;
       anticiposPorCliente[respName] = (anticiposPorCliente[respName] ?? 0) + credit;
     }
+    
+    // FIXED: Include initial state anticipos (unlinked ones from prior periods)
+    const unlinkedInitialAnticipos = anticiposDeClientes.filter((d: any) => !d.invoice_id);
+    const totalAnticiposInitial = unlinkedInitialAnticipos.reduce((s: number, d: any) => s + Math.abs(d.amount ?? 0), 0);
+    for (const d of unlinkedInitialAnticipos) {
+      const respName = d.responsible_name || "Sin responsable";
+      anticiposPorCliente[respName] = (anticiposPorCliente[respName] ?? 0) + Math.abs(d.amount ?? 0);
+    }
+    
+    const totalAnticipos = totalAnticiposTx + totalAnticiposInitial;
     const topAnticiposCliente = Object.entries(anticiposPorCliente)
       .sort((a, b) => b[1] - a[1]);
 
@@ -415,7 +495,6 @@ serve(async (req) => {
     // Saldo a favor from previous cuatrimestre
     const ivaSaldoFavorAnterior = (() => {
       const cuatStart = thisMonth <= 4 ? 1 : thisMonth <= 8 ? 5 : 9;
-      // Previous cuatrimestre
       let prevStart: number, prevEnd: number, prevYear: number;
       if (cuatStart === 1) { prevStart = 9; prevEnd = 12; prevYear = thisYear - 1; }
       else if (cuatStart === 5) { prevStart = 1; prevEnd = 4; prevYear = thisYear; }
@@ -427,7 +506,7 @@ serve(async (req) => {
         if (inv) { ivaV += inv.ventas_iva; ivaC += inv.compras_iva; }
       }
       const neto = ivaV - ivaC;
-      return neto < 0 ? Math.abs(neto) : 0; // saldo a favor only if negative (compras > ventas)
+      return neto < 0 ? Math.abs(neto) : 0;
     })();
 
     const ivaNeto = ivaNetoCuatrimestre.neto - ivaSaldoFavorAnterior;
@@ -470,6 +549,13 @@ serve(async (req) => {
       ? `Extractos cargados: ${(bankStatements ?? []).length}. Períodos: ${(bankStatements ?? []).map(s => `${s.display_name || s.file_name} (${s.statement_month ? monthNames[(s.statement_month ?? 1) - 1] : "?"} ${s.statement_year ?? "?"})`).slice(0, 6).join(", ")}${(bankStatements ?? []).length > 6 ? "..." : ""}`
       : "No hay extractos bancarios cargados.";
 
+    // --- Financial Health Score ---
+    const latestScore = (healthScores ?? [])[0] ?? null;
+    const healthScoreCtx = latestScore
+      ? `Score total: ${latestScore.score_total}/100 (${monthNames[(latestScore.month ?? 1) - 1]} ${latestScore.year})
+Conciliación: ${latestScore.score_conciliacion}/20, Facturación soportada: ${latestScore.score_facturacion}/20, Impuestos: ${latestScore.score_impuestos}/20, Cartera y anticipos: ${latestScore.score_cartera}/20, Clasificación: ${latestScore.score_clasificacion}/20`
+      : "Sin score de salud financiera calculado.";
+
     // =============================================
     // BUILD FULL CONTEXT
     // =============================================
@@ -505,9 +591,9 @@ ${sortedCashMonths.slice(-6).map(k => summarizeCashMonth(k, cashByMonth[k])).joi
 ${statementsInfo}
 
 ═══════════════════════════════════════════
-MÓDULO 2 — FACTURACIÓN DIAN (Facturas electrónicas legales)
-Fuente: facturas de venta y compra registradas ante la DIAN.
-IMPORTANTE: "Facturado" ≠ "Recibido en banco". Las ventas facturadas son documentos legales; el dinero puede o no haber entrado al banco.
+MÓDULO 2 — FACTURACIÓN DIAN (Facturas electrónicas legales confirmadas)
+Fuente: facturas de venta y compra CONFIRMADAS ante la DIAN.
+IMPORTANTE: "Facturado" ≠ "Recibido en banco". Solo se incluyen facturas con status=confirmed.
 ═══════════════════════════════════════════
 
 MES ACTUAL (${currentKey}):
@@ -520,8 +606,8 @@ VARIACIÓN FACTURACIÓN (mes actual vs anterior):
 Ventas facturadas: ${currentInv && lastMonthInv ? pct(currentInv.ventas_total, lastMonthInv.ventas_total) : "Sin datos"}
 Compras facturadas: ${currentInv && lastMonthInv ? pct(currentInv.compras_total, lastMonthInv.compras_total) : "Sin datos"}
 
-AÑO ${thisYear} ACUMULADO (facturación):
-Ventas=${fmt(thisYearInv.ventas)} (${thisYearInv.ventas_count} facturas), Compras=${fmt(thisYearInv.compras)} (${thisYearInv.compras_count} facturas), IVA ventas=${fmt(thisYearInv.iva_ventas)}, IVA compras=${fmt(thisYearInv.iva_compras)}, IVA neto=${fmt(thisYearInv.iva_ventas - thisYearInv.iva_compras)}, Autorretefuente=${fmt(thisYearInv.autoretefuente)}, ReteICA=${fmt(thisYearInv.reteica)}
+AÑO ${thisYear} ACUMULADO (facturación confirmada):
+Ventas=${fmt(thisYearInv.ventas)} (${thisYearInv.ventas_count} facturas, Base=${fmt(thisYearInv.ventas_base)}), Compras=${fmt(thisYearInv.compras)} (${thisYearInv.compras_count} facturas, Base=${fmt(thisYearInv.compras_base)}), IVA ventas=${fmt(thisYearInv.iva_ventas)}, IVA compras=${fmt(thisYearInv.iva_compras)}, IVA neto=${fmt(thisYearInv.iva_ventas - thisYearInv.iva_compras)}, Autorretefuente=${fmt(thisYearInv.autoretefuente)}, ReteICA=${fmt(thisYearInv.reteica)}
 
 AÑO ${thisYear - 1} ACUMULADO (facturación):
 Ventas=${fmt(lastYearInv.ventas)} (${lastYearInv.ventas_count} facturas), Compras=${fmt(lastYearInv.compras)} (${lastYearInv.compras_count} facturas)
@@ -559,17 +645,18 @@ CONCILIACIÓN:
 Transacciones con factura asociada: ${matchedTxCount} de ${totalTxCount} (${totalTxCount > 0 ? ((matchedTxCount / totalTxCount) * 100).toFixed(0) : 0}%)
 Transacciones sin factura: ${unmatchedTxCount}
 
-CUENTAS POR COBRAR (facturas de venta pendientes):
-Total por cobrar: ${fmt(totalPorCobrar)} (${cuentasPorCobrar.length} facturas)
-${cuentasPorCobrar.slice(0, 8).map((c, i) => `${i + 1}. ${c.cliente} — Factura ${c.factura}: Saldo ${fmt(c.saldo)} (emitida ${c.fecha}${c.vencimiento ? `, vence ${c.vencimiento}` : ""})`).join("\n") || "Sin cuentas por cobrar"}
+CUENTAS POR COBRAR (facturas de venta pendientes + saldo inicial):
+Total por cobrar: ${fmt(totalPorCobrar)} (${cuentasPorCobrar.length} facturas pendientes${initialCxC > 0 ? ` + ${fmt(initialCxC)} saldo inicial` : ""})
+NOTA: Se descuentan pagos directos, matches manuales, anticipos vinculados y retefuente del cliente (2.5% si no tiene tasa explícita).
+${cuentasPorCobrar.slice(0, 8).map((c, i) => `${i + 1}. ${c.cliente} — Factura ${c.factura}: Saldo ${fmt(c.saldo)} (emitida ${c.fecha}${c.vencimiento ? `, vence ${c.vencimiento}` : ""})`).join("\n") || "Sin facturas pendientes de cobro"}
 
-CUENTAS POR PAGAR (facturas de compra pendientes):
-Total por pagar: ${fmt(totalPorPagar)} (${cuentasPorPagar.length} facturas)
-${cuentasPorPagar.slice(0, 8).map((c, i) => `${i + 1}. ${c.proveedor} — Factura ${c.factura}: Saldo ${fmt(c.saldo)} (emitida ${c.fecha}${c.vencimiento ? `, vence ${c.vencimiento}` : ""})`).join("\n") || "Sin cuentas por pagar"}
+CUENTAS POR PAGAR (facturas de compra pendientes + saldo inicial):
+Total por pagar: ${fmt(totalPorPagar)} (${cuentasPorPagar.length} facturas pendientes${initialCxP > 0 ? ` + ${fmt(initialCxP)} saldo inicial` : ""})
+${cuentasPorPagar.slice(0, 8).map((c, i) => `${i + 1}. ${c.proveedor} — Factura ${c.factura}: Saldo ${fmt(c.saldo)} (emitida ${c.fecha}${c.vencimiento ? `, vence ${c.vencimiento}` : ""})`).join("\n") || "Sin facturas pendientes de pago"}
 
-ANTICIPOS SIN FACTURAR:
-Total anticipos: ${fmt(totalAnticipos)} (${anticipos.length} transacciones)
-${anticipos.slice(0, 5).map((a, i) => `${i + 1}. ${a.responsable}: ${fmt(a.monto)} (${a.fecha}) — ${a.descripcion}`).join("\n") || "Sin anticipos pendientes"}
+ANTICIPOS SIN FACTURAR (categoría "Ventas", con responsable, sin factura):
+Total anticipos: ${fmt(totalAnticipos)} (${totalAnticiposTx > 0 ? `${fmt(totalAnticiposTx)} del año en curso` : ""}${totalAnticiposInitial > 0 ? `${totalAnticiposTx > 0 ? " + " : ""}${fmt(totalAnticiposInitial)} de periodos anteriores` : ""})
+${anticipos.slice(0, 5).map((a, i) => `${i + 1}. ${a.responsable}: ${fmt(a.monto)} (${a.fecha}) — ${a.descripcion}`).join("\n") || "Sin anticipos del año en curso"}
 
 ANTICIPOS ACUMULADOS POR CLIENTE:
 ${topAnticiposCliente.map(([name, amount], i) => `${i + 1}. ${name}: ${fmt(amount)}`).join("\n") || "Sin anticipos"}
@@ -601,10 +688,16 @@ IVA por pagar: ${fmt(initialState.iva_por_pagar ?? 0)}
 Retefuente por pagar: ${fmt(initialState.retefuente_por_pagar ?? 0)}
 ICA por pagar: ${fmt(initialState.ica_por_pagar ?? 0)}` : "No se ha configurado el estado inicial financiero."}
 
-${(initialStateDetails ?? []).length > 0 ? `DESGLOSE POR RESPONSABLE:
-${(initialStateDetails ?? []).map((d: any) => `- ${d.field_type}: ${d.responsible_name} → ${fmt(d.amount ?? 0)}`).join("\n")}` : ""}
+${allInitialDetails.length > 0 ? `DESGLOSE POR RESPONSABLE:
+${allInitialDetails.map((d: any) => `- ${d.field_type}: ${d.responsible_name} → ${fmt(d.amount ?? 0)}`).join("\n")}` : ""}
 
 NOTA PARA ANÁLISIS: Cuando calcules posición de caja total, suma el saldo inicial de bancos + neto de transacciones. Para CxC y CxP totales, suma los saldos iniciales + los pendientes de facturas. Los anticipos de clientes iniciales son pasivos que deben facturarse.
+
+═══════════════════════════════════════════
+MÓDULO 7 — SALUD FINANCIERA (Score Visita DIAN)
+═══════════════════════════════════════════
+
+${healthScoreCtx}
 
 ═══════════════════════════════════════════
 INFORMACIÓN DEL NEGOCIO
@@ -628,17 +721,21 @@ Eres un verdadero auxiliar financiero inteligente. Tu misión es ayudar al empre
 - Prevenir multas e inconsistencias contables
 
 CONOCIMIENTO DE MÓDULOS:
-Tienes acceso a cinco fuentes de datos distintas y debes diferenciarlas siempre:
+Tienes acceso a siete fuentes de datos distintas y debes diferenciarlas siempre:
 
 1. FLUJO DE CAJA (Extractos bancarios): Movimientos reales del banco. Cuando el usuario pregunta "¿cuánto gasté?", "¿cuánto entró?", "¿cuánto tengo?", usa estos datos. Son entradas y salidas reales de dinero.
 
-2. FACTURACIÓN DIAN (Facturas electrónicas): Documentos legales de venta y compra. Cuando el usuario pregunta "¿cuánto he facturado?", "¿cuántas facturas tengo?", "¿quiénes son mis clientes?", usa estos datos. IMPORTANTE: facturar no es lo mismo que recibir el dinero. Una venta facturada puede no haberse cobrado todavía.
+2. FACTURACIÓN DIAN (Facturas electrónicas): Documentos legales de venta y compra CONFIRMADOS. Cuando el usuario pregunta "¿cuánto he facturado?", "¿cuántas facturas tengo?", "¿quiénes son mis clientes?", usa estos datos. IMPORTANTE: facturar no es lo mismo que recibir el dinero. Una venta facturada puede no haberse cobrado todavía.
 
 3. OBLIGACIONES FISCALES: IVA (diferencia entre IVA de ventas e IVA de compras), Retefuente, ReteICA, Autorretefuente. Estos se calculan desde las facturas DIAN, no desde los extractos bancarios.
 
-4. CONCILIACIÓN Y CARTERA: Cuentas por cobrar, cuentas por pagar, anticipos sin facturar, y la reconciliación entre facturas y movimientos bancarios.
+4. CONCILIACIÓN Y CARTERA: Cuentas por cobrar (con deducción de retefuente y pagos), cuentas por pagar, anticipos sin facturar (categoría "Ventas" con responsable asignado), y la reconciliación entre facturas y movimientos bancarios.
 
 5. ALERTAS E INCONSISTENCIAS: Detección automática de riesgos tributarios, brechas entre facturación y banco, concentración de clientes, facturas vencidas, etc.
+
+6. ESTADO INICIAL FINANCIERO: Saldos de apertura del negocio que se suman a los acumulados.
+
+7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 5 factores (conciliación, facturación soportada, impuestos, cartera/anticipos, clasificación) sobre 100 puntos.
 
 CAPACIDADES DE ANÁLISIS:
 
@@ -665,7 +762,7 @@ C) Optimización tributaria (dentro de la ley):
 
 D) Análisis de cartera:
 - Clientes con deuda alta o vencida
-- Anticipos grandes sin facturar
+- Anticipos grandes sin facturar (solo ingresos con categoría "Ventas" y responsable ≠ "Otros")
 - Proveedores pendientes de pago
 - Ciclo de cobro vs ciclo de pago
 
@@ -675,6 +772,10 @@ E) Comportamiento del negocio:
 - Tendencia de ingresos y gastos
 - Estacionalidad
 
+F) Salud financiera:
+- Interpretar el score de Visita DIAN y dar recomendaciones para mejorar cada factor
+- Explicar qué factores están bien y cuáles necesitan atención
+
 REGLAS DE ANÁLISIS:
 - Si el usuario pregunta sobre facturación, ventas facturadas o clientes, responde con datos del módulo de FACTURACIÓN DIAN.
 - Si pregunta sobre flujo de caja, gastos, ingresos bancarios o proveedores por pagos, responde con datos del FLUJO DE CAJA.
@@ -683,7 +784,9 @@ REGLAS DE ANÁLISIS:
 - Si detectas discrepancias entre lo facturado y lo recibido en banco, menciónalo como un dato relevante.
 - Analiza la conciliación: si hay muchas transacciones sin factura asociada, sugiérelo como punto de mejora.
 - Siempre que sea relevante, menciona alertas e inconsistencias detectadas de forma proactiva.
-- Cuando el usuario pregunte de forma general ("¿cómo va mi negocio?", "dame un diagnóstico"), ofrece un panorama completo que integre flujo de caja, facturación, cartera e inconsistencias.
+- Cuando el usuario pregunte de forma general ("¿cómo va mi negocio?", "dame un diagnóstico"), ofrece un panorama completo que integre flujo de caja, facturación, cartera, salud financiera e inconsistencias.
+- Los datos de CxC ya incluyen la deducción de retefuente del cliente y los pagos (directos, matches manuales y anticipos vinculados). No deduzcas dos veces.
+- Los anticipos solo incluyen ingresos con categoría "Ventas", responsable asignado y sin factura. No incluyen transferencias ni ingresos de categorías diferentes.
 
 REGLAS ESPECIALES PARA CÁLCULOS DE IVA Y SALDO A FAVOR:
 
