@@ -87,10 +87,10 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       const yearStart = `${year}-01-01`;
       const nextYearStart = `${year + 1}-01-01`;
 
-      const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult] = await Promise.all([
+      const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult, categoriesResult, responsiblesResult, allAdvanceDetailsResult] = await Promise.all([
         supabase
           .from('transactions')
-          .select('id, date, responsible_id, invoice_id, notes, category_id, amount')
+          .select('id, date, responsible_id, invoice_id, notes, category_id, amount, type')
           .eq('user_id', user.id)
           .is('deleted_at', null)
           .gte('date', yearStart)
@@ -117,6 +117,19 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes')
           .not('invoice_id', 'is', null),
+        supabase
+          .from('categories')
+          .select('id, name')
+          .eq('user_id', user.id),
+        supabase
+          .from('responsibles')
+          .select('id, name')
+          .eq('user_id', user.id),
+        supabase
+          .from('initial_state_details')
+          .select('id, invoice_id, amount, responsible_name')
+          .eq('user_id', user.id)
+          .eq('field_type', 'anticipos_de_clientes'),
       ]);
 
       if (txResult.error) throw txResult.error;
