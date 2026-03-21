@@ -542,12 +542,78 @@ serve(async (req) => {
       ? `Extractos cargados: ${(bankStatements ?? []).length}. Períodos: ${(bankStatements ?? []).map(s => `${s.display_name || s.file_name} (${s.statement_month ? monthNames[(s.statement_month ?? 1) - 1] : "?"} ${s.statement_year ?? "?"})`).slice(0, 6).join(", ")}${(bankStatements ?? []).length > 6 ? "..." : ""}`
       : "No hay extractos bancarios cargados.";
 
-    // --- Financial Health Score ---
-    const latestScore = (healthScores ?? [])[0] ?? null;
-    const healthScoreCtx = latestScore
-      ? `Score total: ${latestScore.score_total}/100 (${monthNames[(latestScore.month ?? 1) - 1]} ${latestScore.year})
-Conciliación: ${latestScore.score_conciliacion}/20, Facturación soportada: ${latestScore.score_facturacion}/20, Impuestos: ${latestScore.score_impuestos}/20, Cartera y anticipos: ${latestScore.score_cartera}/20, Clasificación: ${latestScore.score_clasificacion}/20`
-      : "Sin score de salud financiera calculado.";
+    // --- Financial Health Score (calculated inline, same logic as frontend) ---
+    const _isNA = (notes: string | null) => Boolean(notes?.includes('[N/A]'));
+    const _isAnticipo = (notes: string | null) => Boolean(notes?.includes('[Anticipo]'));
+    const _clamp = (v: number) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
+    const _safePct = (part: number, total: number) => total <= 0 ? 0 : _clamp(part / total);
+    const _linear = (pct: number) => Math.round(_clamp(pct) * 20 * 10) / 10;
+    const _carteraLinear = (r: number) => Math.round(_clamp(1 - r) * 20 * 10) / 10;
+
+    // Filter to current year transactions
+    const yearTxAll = (transactions ?? []).filter((t: any) => new Date(t.date + "T00:00:00").getFullYear() === thisYear);
+
+    // 1. Conciliación (amount-based)
+    const totalMovimientos = yearTxAll.reduce((s: number, tx: any) => s + Math.abs(tx.amount ?? 0), 0);
+    const montoPendiente = yearTxAll
+      .filter((tx: any) => !tx.responsible_id && !tx.invoice_id && !_isNA(tx.notes) && !_isAnticipo(tx.notes))
+      .reduce((s: number, tx: any) => s + Math.abs(tx.amount ?? 0), 0);
+    const pctConciliado = totalMovimientos > 0 ? _clamp(1 - montoPendiente / totalMovimientos) : 0;
+    const scoreConciliacion = totalMovimientos > 0 ? _linear(pctConciliado) : 0;
+
+    // 2. Facturación soportada
+    const yearSalesInvoices = (invoices ?? []).filter((inv: any) => inv.type === "venta" && new Date(inv.issue_date + "T00:00:00").getFullYear() === thisYear);
+    const totalIngresosMonto = yearTxAll.filter((tx: any) => (tx.amount ?? 0) > 0).reduce((s: number, tx: any) => s + (tx.amount ?? 0), 0);
+    const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
+    const facturacionVentasScore = yearSalesInvoices.reduce((s: number, inv: any) => s + (inv.total_amount ?? 0), 0);
+    const baseFacturacionScore = totalIngresosMonto + initialAnticiposClientes;
+    const saldoPorFacturarScore = Math.max(0, baseFacturacionScore - facturacionVentasScore);
+    const pctSinFacturar = _safePct(saldoPorFacturarScore, baseFacturacionScore);
+    const pctSoportado = _clamp(1 - pctSinFacturar);
+    const scoreFacturacion = baseFacturacionScore > 0 ? _linear(pctSoportado) : 0;
+
+    // 3. Impuestos
+    const ingresosTxS = yearTxAll.filter((tx: any) => (tx.amount ?? 0) > 0);
+    const egresosTxS = yearTxAll.filter((tx: any) => (tx.amount ?? 0) < 0);
+    const relevantesTxS = yearTxAll.filter((tx: any) => (tx.amount ?? 0) !== 0);
+    const pctVentasS = _safePct(ingresosTxS.filter((tx: any) => Boolean(tx.invoice_id)).length, ingresosTxS.length);
+    const pctComprasS = _safePct(egresosTxS.filter((tx: any) => Boolean(tx.invoice_id)).length, egresosTxS.length);
+    const pctVinculadosS = _safePct(relevantesTxS.filter((tx: any) => Boolean(tx.invoice_id) || _isNA(tx.notes)).length, relevantesTxS.length);
+    const hasAnyFiscal = yearTxAll.length > 0 || yearSalesInvoices.length > 0;
+    const completitudFiscal = hasAnyFiscal ? (pctVentasS + pctComprasS + pctVinculadosS) / 3 : 0;
+    const scoreImpuestos = hasAnyFiscal ? _linear(completitudFiscal) : 0;
+
+    // 4. Cartera y anticipos
+    const facturacionTotalScore = yearSalesInvoices.reduce((s: number, inv: any) => s + (inv.total_amount ?? 0), 0);
+    const cxcFacturasScore = yearSalesInvoices.reduce((s: number, inv: any) => {
+      const paid = paymentsByInvoice.get(inv.id) || 0;
+      const ret = inv.retefuente_cliente_amount ?? 0;
+      return s + Math.max(0, (inv.total_amount ?? 0) - paid - ret);
+    }, 0);
+    const initialCxCScore = initialState?.cuentas_por_cobrar ?? 0;
+    const cxcScore = cxcFacturasScore + initialCxCScore;
+    const baseCarteraScore = facturacionTotalScore + initialCxCScore;
+    const pctCarteraScore = _safePct(cxcScore, baseCarteraScore);
+    const baseAnticiposScore = totalIngresosMonto + initialAnticiposClientes;
+    const pctAnticiposScore = _safePct(totalAnticipos, baseAnticiposScore);
+    const hasCarteraData = baseCarteraScore > 0 || baseAnticiposScore > 0;
+    const riesgoTotal = hasCarteraData ? (pctCarteraScore + pctAnticiposScore) / 2 : 0;
+    const scoreCartera = hasCarteraData ? _carteraLinear(riesgoTotal) : 0;
+
+    // 5. Clasificación
+    const completasScore = yearTxAll.filter((tx: any) => {
+      const hasCat = Boolean(tx.category_id);
+      const hasResp = Boolean(tx.responsible_id) || _isNA(tx.notes);
+      const hasInv = Boolean(tx.invoice_id) || _isNA(tx.notes) || _isAnticipo(tx.notes);
+      return hasCat && hasResp && (hasInv || hasResp);
+    }).length;
+    const pctClasificado = _safePct(completasScore, yearTxAll.length);
+    const scoreClasificacion = yearTxAll.length > 0 ? _linear(pctClasificado) : 0;
+
+    const scoreTotalCalc = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion) * 10) / 10;
+
+    const healthScoreCtx = `Score total: ${scoreTotalCalc}/100 (${monthNames[thisMonth - 1]} ${thisYear})
+Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturacion}/20, Impuestos: ${scoreImpuestos}/20, Cartera y anticipos: ${scoreCartera}/20, Clasificación: ${scoreClasificacion}/20`;
 
     // =============================================
     // BUILD FULL CONTEXT
