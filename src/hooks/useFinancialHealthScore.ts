@@ -16,6 +16,7 @@ export { getRecommendations, getScoreInterpretation } from './financialHealthSco
 
 interface TransactionRow extends HealthTransaction {
   date: string;
+  type?: string | null;
 }
 
 interface InvoiceRow extends HealthInvoice {
