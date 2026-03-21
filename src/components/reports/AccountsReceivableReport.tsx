@@ -261,9 +261,11 @@ export default function AccountsReceivableReport() {
     enabled: !!user,
   });
 
+  const initialCxC = data?.initialCxC ?? 0;
+
   const totalPending = useMemo(() => {
-    return (data?.receivables || []).reduce((s, r) => s + r.pending, 0);
-  }, [data]);
+    return (data?.receivables || []).reduce((s, r) => s + r.pending, 0) + initialCxC;
+  }, [data, initialCxC]);
 
   const paidInvoices = useMemo(() => {
     return (data?.allReceivables || []).filter(r => r.pending <= 0);
