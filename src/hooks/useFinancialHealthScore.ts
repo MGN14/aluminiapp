@@ -138,6 +138,15 @@ export function useFinancialHealthScore(year: number, _month?: number) {
 
       const initialState = (initialStateResult.data as any) ?? null;
       const advanceDetails = ((advanceDetailsResult.data || []) as any[]);
+      const allAdvanceDetails = ((allAdvanceDetailsResult.data || []) as any[]);
+
+      // Build category name map for advances calculation
+      const categoryNameById = new Map<string, string>();
+      ((categoriesResult.data || []) as any[]).forEach((c: any) => categoryNameById.set(c.id, c.name));
+
+      // Build responsible name map
+      const respNameById = new Map<string, string>();
+      ((responsiblesResult.data || []) as any[]).forEach((r: any) => respNameById.set(r.id, r.name));
 
       const transactions = (txResult.data ?? []) as TransactionRow[];
       const invoices = (invoiceResult.data ?? []) as InvoiceRow[];
