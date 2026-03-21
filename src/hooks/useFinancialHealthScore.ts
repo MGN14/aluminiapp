@@ -16,6 +16,7 @@ export { getRecommendations, getScoreInterpretation } from './financialHealthSco
 
 interface TransactionRow extends HealthTransaction {
   date: string;
+  type?: string | null;
 }
 
 interface InvoiceRow extends HealthInvoice {
@@ -86,10 +87,10 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       const yearStart = `${year}-01-01`;
       const nextYearStart = `${year + 1}-01-01`;
 
-      const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult] = await Promise.all([
+      const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult, categoriesResult, responsiblesResult, allAdvanceDetailsResult] = await Promise.all([
         supabase
           .from('transactions')
-          .select('id, date, responsible_id, invoice_id, notes, category_id, amount')
+          .select('id, date, responsible_id, invoice_id, notes, category_id, amount, type')
           .eq('user_id', user.id)
           .is('deleted_at', null)
           .gte('date', yearStart)
@@ -116,6 +117,19 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes')
           .not('invoice_id', 'is', null),
+        supabase
+          .from('categories')
+          .select('id, name')
+          .eq('user_id', user.id),
+        supabase
+          .from('responsibles')
+          .select('id, name')
+          .eq('user_id', user.id),
+        supabase
+          .from('initial_state_details')
+          .select('id, invoice_id, amount, responsible_name')
+          .eq('user_id', user.id)
+          .eq('field_type', 'anticipos_de_clientes'),
       ]);
 
       if (txResult.error) throw txResult.error;
@@ -124,6 +138,15 @@ export function useFinancialHealthScore(year: number, _month?: number) {
 
       const initialState = (initialStateResult.data as any) ?? null;
       const advanceDetails = ((advanceDetailsResult.data || []) as any[]);
+      const allAdvanceDetails = ((allAdvanceDetailsResult.data || []) as any[]);
+
+      // Build category name map for advances calculation
+      const categoryNameById = new Map<string, string>();
+      ((categoriesResult.data || []) as any[]).forEach((c: any) => categoryNameById.set(c.id, c.name));
+
+      // Build responsible name map
+      const respNameById = new Map<string, string>();
+      ((responsiblesResult.data || []) as any[]).forEach((r: any) => respNameById.set(r.id, r.name));
 
       const transactions = (txResult.data ?? []) as TransactionRow[];
       const invoices = (invoiceResult.data ?? []) as InvoiceRow[];
@@ -215,13 +238,36 @@ export function useFinancialHealthScore(year: number, _month?: number) {
         const linkedAnticiposAmount = advanceDetails.reduce((sum: number, ad: any) => sum + Math.abs(ad.amount ?? 0), 0);
         const unlinkedAnticiposClientes = Math.max(0, (initialState?.anticipos_de_clientes ?? 0) - linkedAnticiposAmount);
 
+        // Calculate current period anticipos matching advances report logic:
+        // ingreso + category "Ventas" + has responsible (not "Otros") + no invoice_id
+        const currentPeriodAnticipos = transactionsToDate
+          .filter((tx) => {
+            if ((tx.amount ?? 0) <= 0) return false; // only ingresos
+            if (tx.invoice_id) return false; // no invoice linked
+            if (!tx.responsible_id) return false; // must have responsible
+            const catName = tx.category_id ? (categoryNameById.get(tx.category_id) ?? '') : '';
+            if (catName.toLowerCase() !== 'ventas') return false;
+            const respName = respNameById.get(tx.responsible_id) ?? '';
+            if (respName.toLowerCase() === 'otros') return false;
+            return true;
+          })
+          .reduce((sum, tx) => sum + Math.abs(tx.amount ?? 0), 0);
+
+        // Unlinked initial details amount
+        const unlinkedInitialAmount = allAdvanceDetails
+          .filter((d: any) => !d.invoice_id)
+          .reduce((sum: number, d: any) => sum + Math.abs(d.amount ?? 0), 0);
+
+        const totalCurrentPeriodAnticipos = currentPeriodAnticipos + unlinkedInitialAmount;
+
         const { scores: monthScores, details: monthDetails } = calculateFinancialHealthMetrics(
           transactionsToDate,
           invoicesToDate,
           salesInvoicesToDate,
           matchedByInvoice,
           initialState,
-          unlinkedAnticiposClientes
+          unlinkedAnticiposClientes,
+          totalCurrentPeriodAnticipos
         );
 
         monthlyResults.push({ month, scores: monthScores, details: monthDetails });
