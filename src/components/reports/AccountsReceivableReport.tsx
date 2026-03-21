@@ -77,17 +77,27 @@ export default function AccountsReceivableReport() {
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
 
-      const { data: invoices, error: invErr } = await supabase
-        .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
-        .eq('user_id', user.id)
-        .eq('type', 'venta')
-        .gte('issue_date', startDate)
-        .lte('issue_date', endDate)
-        .order('issue_date', { ascending: false });
+      const [invoicesRes, initialStateRes] = await Promise.all([
+        supabase
+          .from('invoices')
+          .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
+          .eq('user_id', user.id)
+          .eq('type', 'venta')
+          .gte('issue_date', startDate)
+          .lte('issue_date', endDate)
+          .order('issue_date', { ascending: false }),
+        supabase
+          .from('initial_financial_state')
+          .select('cuentas_por_cobrar')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+      ]);
+
+      const { data: invoices, error: invErr } = invoicesRes;
+      const initialCxC = initialStateRes.data?.cuentas_por_cobrar ?? 0;
 
       if (invErr) throw invErr;
-      if (!invoices?.length) return { receivables: [], suggestions: [] };
+      if (!invoices?.length) return { receivables: [], suggestions: [], initialCxC };
 
       const invoiceIds = invoices.map(i => i.id);
 
