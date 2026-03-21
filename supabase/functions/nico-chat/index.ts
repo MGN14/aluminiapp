@@ -60,7 +60,7 @@ serve(async (req) => {
       { data: profile },
       { data: initialState },
       { data: initialStateDetails },
-      { data: healthScores },
+      // healthScores calculated inline below
     ] = await Promise.all([
       supabase
         .from("transactions")
