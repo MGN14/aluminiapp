@@ -118,14 +118,7 @@ serve(async (req) => {
         .from("initial_state_details")
         .select("field_type, responsible_name, amount, responsible_id, invoice_id")
         .eq("user_id", user.id),
-      // NEW: Fetch latest financial health score
-      supabase
-        .from("financial_health_scores")
-        .select("score_total, score_conciliacion, score_facturacion, score_impuestos, score_cartera, score_clasificacion, month, year, details")
-        .eq("user_id", user.id)
-        .order("year", { ascending: false })
-        .order("month", { ascending: false })
-        .limit(1),
+      // Score is now calculated inline below
     ]);
 
     const fmt = (n: number) =>
