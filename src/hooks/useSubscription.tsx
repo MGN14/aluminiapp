@@ -94,10 +94,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       if (result.error || !result.data) {
         if (isDev) console.error('[PLAN] Error from check-subscription:', result.error);
+        // On transient failure, keep previous state if we had one (avoid blank screen)
         setState((prev) => ({
           ...prev,
           loading: false,
-          error: 'No se pudo validar la suscripción.',
+          error: prev.plan !== 'demo' || prev.subscribed ? null : 'No se pudo validar la suscripción.',
         }));
         return;
       }

@@ -44,14 +44,26 @@ serve(async (req) => {
       });
     }
 
-    const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: { Authorization: `Bearer ${token}`, apikey: anonKey },
-    });
+    let authRes: Response;
+    try {
+      authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+        headers: { Authorization: `Bearer ${token}`, apikey: anonKey },
+      });
+    } catch (fetchErr) {
+      logStep("Auth API fetch failed (network)", { message: String(fetchErr) });
+      return new Response(JSON.stringify({ error: "Auth service unavailable" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 503,
+      });
+    }
 
     if (!authRes.ok) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      logStep("Auth API returned non-ok", { status: authRes.status });
+      // Only return 401 for actual auth failures; other errors are transient
+      const httpStatus = authRes.status === 401 || authRes.status === 403 ? 401 : 503;
+      return new Response(JSON.stringify({ error: httpStatus === 401 ? "Unauthorized" : "Auth service error" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
+        status: httpStatus,
       });
     }
 
