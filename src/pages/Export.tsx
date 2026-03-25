@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible, getCurrentCuatrimestre, getCurrentMonth } from '@/types/transaction';
@@ -11,11 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, FileSpreadsheet, Loader2, ShieldAlert, ArrowRight, Sparkles, AlertTriangle, FileDown, Mail, CheckCircle } from 'lucide-react';
+import { Download, FileSpreadsheet, Loader2, ShieldAlert, ArrowRight, AlertTriangle, FileDown, Mail, CheckCircle, Landmark, Scale, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import writeXlsxFile from 'write-excel-file';
-import NicoChat from '@/components/nico/NicoChat';
-import nicoAvatar from '@/assets/nico-avatar.png';
+import { toast as sonnerToast } from 'sonner';
 
 interface StatementOption {
   id: string;
@@ -270,15 +269,15 @@ export default function Export() {
 
   return (
     <AppLayout>
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="max-w-3xl mx-auto space-y-8">
+        {/* BLOQUE 1 – Gráfico educativo */}
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Exportar Datos</h1>
+          <h1 className="text-2xl font-bold text-foreground">Exportar datos</h1>
           <p className="text-muted-foreground">
-            Descarga tus transacciones organizadas para tu contadora.
+            Descarga tus transacciones organizadas para tu contadora y mantén consistencia con la DIAN.
           </p>
         </div>
 
-        {/* Workflow Steps - Startup style */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {steps.map((step, i) => {
             const Icon = step.icon;
@@ -287,7 +286,6 @@ export default function Export() {
                 key={i}
                 className="relative flex flex-col items-center text-center p-5 rounded-2xl border border-border bg-card hover:shadow-md transition-shadow group"
               >
-                {/* Step number badge */}
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-success text-white flex items-center justify-center text-xs font-bold shadow-sm">
                   {i + 1}
                 </div>
@@ -296,7 +294,6 @@ export default function Export() {
                 </div>
                 <p className="text-sm font-semibold text-foreground leading-tight">{step.label}</p>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{step.desc}</p>
-                {/* Arrow connector (desktop only) */}
                 {i < steps.length - 1 && (
                   <ArrowRight className="hidden sm:block absolute -right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/40 z-10" />
                 )}
@@ -320,47 +317,20 @@ export default function Export() {
           </div>
         )}
 
-        {/* Nico Assistant */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-success/30 shrink-0">
-                <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
-              </div>
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  Pregúntale a Nico
-                  <Sparkles className="h-4 w-4 text-success" />
-                </CardTitle>
-                <CardDescription>
-                  ¿Dudas sobre tus datos antes de exportar? Nico te ayuda.
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[350px] rounded-lg border border-border overflow-hidden">
-              <NicoChat />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Export Card */}
+        {/* BLOQUE 2 – Exportar Excel */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5" />
-              Exportar a Excel
+              <FileSpreadsheet className="h-5 w-5 text-success" />
+              Exportar movimientos contables
             </CardTitle>
             <CardDescription>
-              Incluye: Transacciones, Resumen DIAN y Resumen General
+              Descarga tus transacciones organizadas para tu auxiliar contable o contador. Este archivo es la base para llevar tu contabilidad al día y mantener consistencia con la DIAN.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
-                Extracto
-              </label>
+              <label className="text-sm font-medium text-foreground">Extracto</label>
               <Select value={selectedStatement} onValueChange={setSelectedStatement}>
                 <SelectTrigger>
                   <SelectValue placeholder="Todos los extractos" />
@@ -391,8 +361,8 @@ export default function Export() {
               </ul>
             </div>
 
-            <Button 
-              onClick={handleExport} 
+            <Button
+              onClick={handleExport}
               disabled={loading || transactions.length === 0}
               className="w-full"
               size="lg"
@@ -409,6 +379,85 @@ export default function Export() {
                 </>
               )}
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* BLOQUE 3 – Intro reportes */}
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold text-foreground">Prepárate para el banco y la DIAN</h2>
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            Cuando solicitas un préstamo o enfrentas una revisión de la DIAN, no basta con tener los datos… necesitas entenderlos y saber explicarlos.
+          </p>
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            AluminIA genera reportes claros con la información que realmente analizan estas entidades.
+          </p>
+        </div>
+
+        {/* BLOQUE 4 – Reportes */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="flex flex-col">
+            <CardHeader>
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-2">
+                <Landmark className="h-5 w-5 text-primary" />
+              </div>
+              <CardTitle className="text-base">Informe para solicitud de crédito</CardTitle>
+              <CardDescription>
+                Presenta tu negocio con claridad ante el banco. Incluye flujo de caja, clientes principales, cartera y evaluación de riesgo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="mt-auto">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => sonnerToast.info('Próximamente disponible')}
+              >
+                Generar informe para banco
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="flex flex-col">
+            <CardHeader>
+              <div className="w-10 h-10 rounded-xl bg-destructive/10 flex items-center justify-center mb-2">
+                <Scale className="h-5 w-5 text-destructive" />
+              </div>
+              <CardTitle className="text-base">Informe para revisión DIAN</CardTitle>
+              <CardDescription>
+                Organiza tu información fiscal y detecta inconsistencias antes de una auditoría. Incluye IVA, anticipos, ingresos sin factura y consistencia fiscal.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="mt-auto">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => sonnerToast.info('Próximamente disponible')}
+              >
+                Generar informe DIAN
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* BLOQUE 5 – Conciencia */}
+        <Card className="border-border bg-muted/20">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+              <div className="space-y-2">
+                <p className="font-semibold text-foreground text-sm">¿Por qué estos reportes son importantes?</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Muchos negocios tienen la información, pero no saben explicarla.
+                </p>
+                <p className="text-sm text-muted-foreground leading-relaxed">Esto puede hacer que:</p>
+                <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                  <li>te nieguen un crédito</li>
+                  <li>tengas problemas en una revisión de la DIAN</li>
+                </ul>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Estos reportes te ayudan a responder con claridad y seguridad.
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
