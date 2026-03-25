@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible, getCurrentCuatrimestre, getCurrentMonth } from '@/types/transaction';
@@ -11,11 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, FileSpreadsheet, Loader2, ShieldAlert, ArrowRight, Sparkles, AlertTriangle, FileDown, Mail, CheckCircle } from 'lucide-react';
+import { Download, FileSpreadsheet, Loader2, ShieldAlert, ArrowRight, AlertTriangle, FileDown, Mail, CheckCircle, Landmark, Scale, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import writeXlsxFile from 'write-excel-file';
-import NicoChat from '@/components/nico/NicoChat';
-import nicoAvatar from '@/assets/nico-avatar.png';
+import { toast as sonnerToast } from 'sonner';
 
 interface StatementOption {
   id: string;
