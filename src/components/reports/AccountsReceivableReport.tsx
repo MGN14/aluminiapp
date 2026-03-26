@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MONTH_NAMES } from '@/types/transaction';
-import { Receipt, AlertCircle, Info, Lightbulb, CheckCircle2, ChevronDown, ChevronRight, Banknote, ShieldCheck, History } from 'lucide-react';
+import { Receipt, AlertCircle, Info, Lightbulb, CheckCircle2, ChevronDown, ChevronRight, Banknote, ShieldCheck, History, Link2, X } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -57,8 +57,10 @@ interface Suggestion {
 
 export default function AccountsReceivableReport() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [year, setYear] = useState(currentYear);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [reconcilingDetailId, setReconcilingDetailId] = useState<string | null>(null);
 
   const toggleRow = (id: string) => {
     setExpandedRows(prev => {
@@ -77,7 +79,7 @@ export default function AccountsReceivableReport() {
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
 
-      const [invoicesRes, initialStateRes] = await Promise.all([
+      const [invoicesRes, initialDetailsRes, allInvoicesRes] = await Promise.all([
         supabase
           .from('invoices')
           .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
@@ -87,17 +89,26 @@ export default function AccountsReceivableReport() {
           .lte('issue_date', endDate)
           .order('issue_date', { ascending: false }),
         supabase
-          .from('initial_financial_state')
-          .select('cuentas_por_cobrar')
+          .from('initial_state_details' as any)
+          .select('*')
           .eq('user_id', user.id)
-          .maybeSingle(),
+          .eq('field_type', 'cuentas_por_cobrar'),
+        supabase
+          .from('invoices')
+          .select('id, invoice_number, counterparty_name, total_amount, issue_date')
+          .eq('user_id', user.id)
+          .eq('type', 'venta')
+          .order('issue_date', { ascending: false })
+          .limit(200),
       ]);
 
       const { data: invoices, error: invErr } = invoicesRes;
-      const initialCxC = initialStateRes.data?.cuentas_por_cobrar ?? 0;
+      const initialCxCDetails = (initialDetailsRes.data as any[]) || [];
+      const initialCxC = initialCxCDetails.reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
+      const unreconciledInitialCxC = initialCxCDetails.filter((d: any) => !d.invoice_id).reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
 
       if (invErr) throw invErr;
-      if (!invoices?.length) return { receivables: [], suggestions: [], initialCxC };
+      if (!invoices?.length && initialCxCDetails.length === 0) return { receivables: [], suggestions: [], initialCxC: 0, initialCxCDetails, unreconciledInitialCxC, allInvoices: allInvoicesRes.data || [] };
 
       const invoiceIds = invoices.map(i => i.id);
 
@@ -256,7 +267,7 @@ export default function AccountsReceivableReport() {
         }
       }
 
-      return { receivables: unpaid, suggestions, allReceivables: receivables, initialCxC };
+      return { receivables: unpaid, suggestions, allReceivables: receivables, initialCxC: unreconciledInitialCxC, initialCxCDetails, unreconciledInitialCxC, allInvoices: allInvoicesRes.data || [] };
     },
     enabled: !!user,
   });
@@ -286,6 +297,39 @@ export default function AccountsReceivableReport() {
     }
     toast.success(`Transacción asociada a factura #${suggestion.invoiceNumber}`);
     refetch();
+  };
+
+  const handleReconcileDetail = async (detailId: string, invoiceId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('initial_state_details' as any)
+        .update({ invoice_id: invoiceId } as any)
+        .eq('id', detailId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      toast.success('Saldo inicial vinculado a factura');
+      queryClient.invalidateQueries({ queryKey: ['accounts-receivable'] });
+      setReconcilingDetailId(null);
+    } catch {
+      toast.error('Error al vincular');
+    }
+  };
+
+  const handleUnlinkDetail = async (detailId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('initial_state_details' as any)
+        .update({ invoice_id: null } as any)
+        .eq('id', detailId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      toast.success('Saldo inicial desvinculado');
+      queryClient.invalidateQueries({ queryKey: ['accounts-receivable'] });
+    } catch {
+      toast.error('Error al desvincular');
+    }
   };
 
   const statusBadge = (status: 'pagada' | 'parcial' | 'pendiente') => {
@@ -434,7 +478,7 @@ export default function AccountsReceivableReport() {
                         Cargando datos...
                       </TableCell>
                     </TableRow>
-                  ) : !data?.receivables?.length ? (
+                  ) : !data?.receivables?.length && !(data?.initialCxCDetails?.length) ? (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
@@ -445,22 +489,126 @@ export default function AccountsReceivableReport() {
                     </TableRow>
                   ) : (
                     <>
-                      {initialCxC > 0 && (
-                        <TableRow className="bg-warning/5 border-l-2 border-l-warning">
-                          <TableCell className="w-8 px-2"></TableCell>
-                          <TableCell className="text-sm font-medium text-warning" colSpan={2}>
-                            📋 Saldo inicial CxC (periodo anterior)
-                          </TableCell>
-                          <TableCell className="text-sm whitespace-nowrap text-muted-foreground">—</TableCell>
-                          <TableCell className="text-right text-sm font-medium">{formatCurrency(initialCxC)}</TableCell>
-                          <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
-                          <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(initialCxC)}</TableCell>
-                          <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
-                          <TableCell className="text-center">
-                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>
-                          </TableCell>
-                        </TableRow>
-                      )}
+                      {/* Initial CxC details per client */}
+                      {(data?.initialCxCDetails || []).filter((d: any) => !d.invoice_id).map((detail: any) => {
+                        const detailKey = `initial-${detail.id}`;
+                        const isExpanded = expandedRows.has(detailKey);
+                        const isReconciling = reconcilingDetailId === detail.id;
+
+                        return (
+                          <React.Fragment key={detailKey}>
+                            <TableRow
+                              className={cn(
+                                'bg-warning/5 border-l-2 border-l-warning cursor-pointer hover:bg-warning/10',
+                                isExpanded && 'bg-warning/10'
+                              )}
+                              onClick={() => toggleRow(detailKey)}
+                            >
+                              <TableCell className="w-8 px-2">
+                                {isExpanded
+                                  ? <ChevronDown className="h-4 w-4 text-warning" />
+                                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                              </TableCell>
+                              <TableCell className="text-sm font-medium text-warning">
+                                📋 Saldo inicial
+                              </TableCell>
+                              <TableCell className="text-sm font-medium">
+                                {detail.responsible_name || 'Sin nombre'}
+                              </TableCell>
+                              <TableCell className="text-sm whitespace-nowrap text-muted-foreground">Periodo anterior</TableCell>
+                              <TableCell className="text-right text-sm font-medium">{formatCurrency(detail.amount)}</TableCell>
+                              <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
+                              <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(detail.amount)}</TableCell>
+                              <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && (
+                              <TableRow className="hover:bg-transparent">
+                                <TableCell colSpan={9} className="p-0">
+                                  <div className="bg-warning/5 border-l-2 border-l-warning mx-0">
+                                    <div className="px-6 py-4 space-y-3">
+                                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                        <Link2 className="h-4 w-4 text-warning" />
+                                        Vincular a factura de venta
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Asocia este saldo a una factura para que se descuente del pendiente por cobrar.
+                                      </p>
+                                      {isReconciling ? (
+                                        <div className="space-y-2">
+                                          <Select onValueChange={(invoiceId) => handleReconcileDetail(detail.id, invoiceId)}>
+                                            <SelectTrigger className="w-full">
+                                              <SelectValue placeholder="Seleccionar factura..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {(data?.allInvoices || []).map((inv: any) => (
+                                                <SelectItem key={inv.id} value={inv.id}>
+                                                  #{inv.invoice_number} — {inv.counterparty_name || 'Sin nombre'} — {formatCurrency(inv.total_amount)}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-xs"
+                                            onClick={(e) => { e.stopPropagation(); setReconcilingDetailId(null); }}
+                                          >
+                                            <X className="h-3 w-3 mr-1" /> Cancelar
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="gap-1 text-xs"
+                                          onClick={(e) => { e.stopPropagation(); setReconcilingDetailId(detail.id); }}
+                                        >
+                                          <Link2 className="h-3 w-3" />
+                                          Vincular a factura
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Reconciled initial CxC details */}
+                      {(data?.initialCxCDetails || []).filter((d: any) => d.invoice_id).map((detail: any) => {
+                        const linkedInvoice = (data?.allInvoices || []).find((inv: any) => inv.id === detail.invoice_id);
+                        const detailKey = `initial-linked-${detail.id}`;
+                        return (
+                          <TableRow key={detailKey} className="bg-success/5 border-l-2 border-l-success">
+                            <TableCell className="w-8 px-2"></TableCell>
+                            <TableCell className="text-sm font-medium text-success">
+                              ✅ #{linkedInvoice?.invoice_number || '?'}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {detail.responsible_name || 'Sin nombre'}
+                            </TableCell>
+                            <TableCell className="text-sm whitespace-nowrap text-muted-foreground">Periodo anterior</TableCell>
+                            <TableCell className="text-right text-sm font-medium">{formatCurrency(detail.amount)}</TableCell>
+                            <TableCell className="text-right text-sm text-success">{formatCurrency(detail.amount)}</TableCell>
+                            <TableCell className="text-right text-sm text-muted-foreground">{formatCurrency(0)}</TableCell>
+                            <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
+                            <TableCell className="text-center">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-xs text-destructive hover:text-destructive"
+                                onClick={() => handleUnlinkDetail(detail.id)}
+                              >
+                                <X className="h-3 w-3 mr-1" /> Desvincular
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                       {data.receivables.map((inv) => {
                       const isExpanded = expandedRows.has(inv.id);
                       const hasDetails = (inv.details?.length ?? 0) > 0;
