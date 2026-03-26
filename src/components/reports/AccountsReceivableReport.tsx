@@ -57,8 +57,10 @@ interface Suggestion {
 
 export default function AccountsReceivableReport() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [year, setYear] = useState(currentYear);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [reconcilingDetailId, setReconcilingDetailId] = useState<string | null>(null);
 
   const toggleRow = (id: string) => {
     setExpandedRows(prev => {
