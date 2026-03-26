@@ -489,22 +489,126 @@ export default function AccountsReceivableReport() {
                     </TableRow>
                   ) : (
                     <>
-                      {initialCxC > 0 && (
-                        <TableRow className="bg-warning/5 border-l-2 border-l-warning">
-                          <TableCell className="w-8 px-2"></TableCell>
-                          <TableCell className="text-sm font-medium text-warning" colSpan={2}>
-                            📋 Saldo inicial CxC (periodo anterior)
-                          </TableCell>
-                          <TableCell className="text-sm whitespace-nowrap text-muted-foreground">—</TableCell>
-                          <TableCell className="text-right text-sm font-medium">{formatCurrency(initialCxC)}</TableCell>
-                          <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
-                          <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(initialCxC)}</TableCell>
-                          <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
-                          <TableCell className="text-center">
-                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>
-                          </TableCell>
-                        </TableRow>
-                      )}
+                      {/* Initial CxC details per client */}
+                      {(data?.initialCxCDetails || []).filter((d: any) => !d.invoice_id).map((detail: any) => {
+                        const detailKey = `initial-${detail.id}`;
+                        const isExpanded = expandedRows.has(detailKey);
+                        const isReconciling = reconcilingDetailId === detail.id;
+
+                        return (
+                          <React.Fragment key={detailKey}>
+                            <TableRow
+                              className={cn(
+                                'bg-warning/5 border-l-2 border-l-warning cursor-pointer hover:bg-warning/10',
+                                isExpanded && 'bg-warning/10'
+                              )}
+                              onClick={() => toggleRow(detailKey)}
+                            >
+                              <TableCell className="w-8 px-2">
+                                {isExpanded
+                                  ? <ChevronDown className="h-4 w-4 text-warning" />
+                                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                              </TableCell>
+                              <TableCell className="text-sm font-medium text-warning">
+                                📋 Saldo inicial
+                              </TableCell>
+                              <TableCell className="text-sm font-medium">
+                                {detail.responsible_name || 'Sin nombre'}
+                              </TableCell>
+                              <TableCell className="text-sm whitespace-nowrap text-muted-foreground">Periodo anterior</TableCell>
+                              <TableCell className="text-right text-sm font-medium">{formatCurrency(detail.amount)}</TableCell>
+                              <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
+                              <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(detail.amount)}</TableCell>
+                              <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && (
+                              <TableRow className="hover:bg-transparent">
+                                <TableCell colSpan={9} className="p-0">
+                                  <div className="bg-warning/5 border-l-2 border-l-warning mx-0">
+                                    <div className="px-6 py-4 space-y-3">
+                                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                        <Link2 className="h-4 w-4 text-warning" />
+                                        Vincular a factura de venta
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Asocia este saldo a una factura para que se descuente del pendiente por cobrar.
+                                      </p>
+                                      {isReconciling ? (
+                                        <div className="space-y-2">
+                                          <Select onValueChange={(invoiceId) => handleReconcileDetail(detail.id, invoiceId)}>
+                                            <SelectTrigger className="w-full">
+                                              <SelectValue placeholder="Seleccionar factura..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {(data?.allInvoices || []).map((inv: any) => (
+                                                <SelectItem key={inv.id} value={inv.id}>
+                                                  #{inv.invoice_number} — {inv.counterparty_name || 'Sin nombre'} — {formatCurrency(inv.total_amount)}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-xs"
+                                            onClick={(e) => { e.stopPropagation(); setReconcilingDetailId(null); }}
+                                          >
+                                            <X className="h-3 w-3 mr-1" /> Cancelar
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="gap-1 text-xs"
+                                          onClick={(e) => { e.stopPropagation(); setReconcilingDetailId(detail.id); }}
+                                        >
+                                          <Link2 className="h-3 w-3" />
+                                          Vincular a factura
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Reconciled initial CxC details */}
+                      {(data?.initialCxCDetails || []).filter((d: any) => d.invoice_id).map((detail: any) => {
+                        const linkedInvoice = (data?.allInvoices || []).find((inv: any) => inv.id === detail.invoice_id);
+                        const detailKey = `initial-linked-${detail.id}`;
+                        return (
+                          <TableRow key={detailKey} className="bg-success/5 border-l-2 border-l-success">
+                            <TableCell className="w-8 px-2"></TableCell>
+                            <TableCell className="text-sm font-medium text-success">
+                              ✅ #{linkedInvoice?.invoice_number || '?'}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {detail.responsible_name || 'Sin nombre'}
+                            </TableCell>
+                            <TableCell className="text-sm whitespace-nowrap text-muted-foreground">Periodo anterior</TableCell>
+                            <TableCell className="text-right text-sm font-medium">{formatCurrency(detail.amount)}</TableCell>
+                            <TableCell className="text-right text-sm text-success">{formatCurrency(detail.amount)}</TableCell>
+                            <TableCell className="text-right text-sm text-muted-foreground">{formatCurrency(0)}</TableCell>
+                            <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
+                            <TableCell className="text-center">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-xs text-destructive hover:text-destructive"
+                                onClick={() => handleUnlinkDetail(detail.id)}
+                              >
+                                <X className="h-3 w-3 mr-1" /> Desvincular
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                       {data.receivables.map((inv) => {
                       const isExpanded = expandedRows.has(inv.id);
                       const hasDetails = (inv.details?.length ?? 0) > 0;
