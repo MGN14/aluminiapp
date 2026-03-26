@@ -79,7 +79,7 @@ export default function AccountsReceivableReport() {
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
 
-      const [invoicesRes, initialStateRes] = await Promise.all([
+      const [invoicesRes, initialDetailsRes, allInvoicesRes] = await Promise.all([
         supabase
           .from('invoices')
           .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
@@ -89,17 +89,26 @@ export default function AccountsReceivableReport() {
           .lte('issue_date', endDate)
           .order('issue_date', { ascending: false }),
         supabase
-          .from('initial_financial_state')
-          .select('cuentas_por_cobrar')
+          .from('initial_state_details' as any)
+          .select('*')
           .eq('user_id', user.id)
-          .maybeSingle(),
+          .eq('field_type', 'cuentas_por_cobrar'),
+        supabase
+          .from('invoices')
+          .select('id, invoice_number, counterparty_name, total_amount, issue_date')
+          .eq('user_id', user.id)
+          .eq('type', 'venta')
+          .order('issue_date', { ascending: false })
+          .limit(200),
       ]);
 
       const { data: invoices, error: invErr } = invoicesRes;
-      const initialCxC = initialStateRes.data?.cuentas_por_cobrar ?? 0;
+      const initialCxCDetails = (initialDetailsRes.data as any[]) || [];
+      const initialCxC = initialCxCDetails.reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
+      const unreconciledInitialCxC = initialCxCDetails.filter((d: any) => !d.invoice_id).reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
 
       if (invErr) throw invErr;
-      if (!invoices?.length) return { receivables: [], suggestions: [], initialCxC };
+      if (!invoices?.length && initialCxCDetails.length === 0) return { receivables: [], suggestions: [], initialCxC: 0, initialCxCDetails, unreconciledInitialCxC, allInvoices: allInvoicesRes.data || [] };
 
       const invoiceIds = invoices.map(i => i.id);
 
