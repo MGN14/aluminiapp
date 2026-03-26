@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -57,7 +57,6 @@ interface Suggestion {
 
 export default function AccountsReceivableReport() {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
   const [year, setYear] = useState(currentYear);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
