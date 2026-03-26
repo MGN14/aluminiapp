@@ -299,6 +299,39 @@ export default function AccountsReceivableReport() {
     refetch();
   };
 
+  const handleReconcileDetail = async (detailId: string, invoiceId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('initial_state_details' as any)
+        .update({ invoice_id: invoiceId } as any)
+        .eq('id', detailId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      toast.success('Saldo inicial vinculado a factura');
+      queryClient.invalidateQueries({ queryKey: ['accounts-receivable'] });
+      setReconcilingDetailId(null);
+    } catch {
+      toast.error('Error al vincular');
+    }
+  };
+
+  const handleUnlinkDetail = async (detailId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('initial_state_details' as any)
+        .update({ invoice_id: null } as any)
+        .eq('id', detailId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      toast.success('Saldo inicial desvinculado');
+      queryClient.invalidateQueries({ queryKey: ['accounts-receivable'] });
+    } catch {
+      toast.error('Error al desvincular');
+    }
+  };
+
   const statusBadge = (status: 'pagada' | 'parcial' | 'pendiente') => {
     switch (status) {
       case 'pagada':
