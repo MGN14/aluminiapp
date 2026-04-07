@@ -39,15 +39,15 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
       // 1. Cuentas por Cobrar - sales invoices with pending balance
       const invoicesPromise = supabase
         .from('invoices')
-        .select('id, total_amount, counterparty_name, retefuente_cliente_amount')
+        .select('id, total_amount, subtotal_base, counterparty_name, retefuente_cliente_amount, retefuente_cliente_rate')
         .eq('type', 'venta')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);
 
-      // 2. Anticipos - income transactions without invoice, with responsible, not "otros" category
+      // 2. Anticipos - income transactions with category "ventas", responsible != "otros", no invoice
       const anticiposPromise = supabase
         .from('transactions')
-        .select('id, amount, responsible_id, category')
+        .select('id, amount, responsible_id, category, category_id, categories!transactions_category_id_fkey(name), invoice_id')
         .eq('type', 'ingreso')
         .is('invoice_id', null)
         .is('deleted_at', null)
@@ -63,13 +63,29 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);
 
-      const [invoicesRes, anticiposRes, comprasRes] = await Promise.all([
+      // 4. Initial state details for CxC and anticipos
+      const initialCxCPromise = supabase
+        .from('initial_state_details')
+        .select('id, amount, invoice_id')
+        .eq('field_type', 'cuentas_por_cobrar');
+
+      const initialAnticiposPromise = supabase
+        .from('initial_state_details')
+        .select('id, amount, invoice_id')
+        .eq('field_type', 'anticipos_de_clientes');
+
+      const [invoicesRes, anticiposRes, comprasRes, initialCxCRes, initialAnticiposRes] = await Promise.all([
         invoicesPromise,
         anticiposPromise,
         comprasPromise,
+        initialCxCPromise,
+        initialAnticiposPromise,
       ]);
 
       // --- CxC ---
+      // Include initial CxC balance (same as report)
+      const initialCxCTotal = (initialCxCRes.data || []).reduce((s, d) => s + (d.amount ?? 0), 0);
+
       if (invoicesRes.data && invoicesRes.data.length > 0) {
         const invoiceIds = invoicesRes.data.map(i => i.id);
 
@@ -99,7 +115,6 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         (matchRes.data || []).forEach(p => {
           payments.set(p.invoice_id, (payments.get(p.invoice_id) || 0) + Math.abs(p.matched_amount));
         });
-        // Count linked advance payments from initial state
         ((advanceRes.data || []) as any[]).forEach(p => {
           if (p.invoice_id) {
             payments.set(p.invoice_id, (payments.get(p.invoice_id) || 0) + Math.abs(p.amount ?? 0));
@@ -110,23 +125,29 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
         let pendingCount = 0;
         invoicesRes.data.forEach(inv => {
           const paid = payments.get(inv.id) || 0;
-          const retefuenteCliente = (inv as any).retefuente_cliente_amount ?? 0;
+          // Match report logic: use saved retefuente, fallback to 2.5% if rate is null
+          const savedRetefuente = (inv as any).retefuente_cliente_amount ?? 0;
+          const rawRate = (inv as any).retefuente_cliente_rate;
+          const hasExplicitRate = rawRate !== null && rawRate !== undefined;
+          const effectiveRate = hasExplicitRate ? rawRate : 0.025;
+          const retefuenteCliente = savedRetefuente > 0
+            ? savedRetefuente
+            : Math.round(((inv as any).subtotal_base ?? 0) * effectiveRate);
           const pending = Math.max(0, inv.total_amount - paid - retefuenteCliente);
           if (pending > 0) {
             pendingTotal += pending;
             pendingCount++;
           }
         });
-        setTotalCxC(pendingTotal);
+        setTotalCxC(pendingTotal + initialCxCTotal);
         setCxcCount(pendingCount);
       } else {
-        setTotalCxC(0);
+        setTotalCxC(initialCxCTotal);
         setCxcCount(0);
       }
 
-      // --- Anticipos ---
+      // --- Anticipos (match report logic: category "ventas", responsible != "otros", no invoice) ---
       if (anticiposRes.data) {
-        // Need responsible names to exclude "Banco"
         const respIds = [...new Set(anticiposRes.data.filter(t => t.responsible_id).map(t => t.responsible_id!))];
         let respMap = new Map<string, string>();
         if (respIds.length > 0) {
@@ -137,19 +158,27 @@ export default function OperationalSummaryCards({ year, periodLabel }: Props) {
           if (resps) resps.forEach(r => respMap.set(r.id, r.name));
         }
 
-        const filtered = anticiposRes.data.filter(t => {
-          const cat = (t.category || '').trim().toLowerCase();
+        const filtered = anticiposRes.data.filter((t: any) => {
+          const catName = (t.categories?.name || t.category || '').trim().toLowerCase();
           const hasResp = Boolean(t.responsible_id);
-          const isExcluded = cat === 'otros';
+          const isVentas = catName === 'ventas';
           const respName = t.responsible_id ? respMap.get(t.responsible_id) : null;
-          const isBanco = respName?.toLowerCase() === 'banco';
-          return hasResp && !isExcluded && !isBanco;
+          const isRespOtros = respName?.toLowerCase() === 'otros';
+          return hasResp && isVentas && !isRespOtros;
         });
 
-        setTotalAnticipos(filtered.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0));
+        // Include unreconciled initial anticipos (same as report)
+        const unreconciledInitialAnticipos = (initialAnticiposRes.data || [])
+          .filter((d: any) => !d.invoice_id)
+          .reduce((s, d) => s + Math.abs(d.amount ?? 0), 0);
+
+        setTotalAnticipos(filtered.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0) + unreconciledInitialAnticipos);
         setAnticiposCount(filtered.length);
       } else {
-        setTotalAnticipos(0);
+        const unreconciledInitialAnticipos = (initialAnticiposRes.data || [])
+          .filter((d: any) => !d.invoice_id)
+          .reduce((s, d) => s + Math.abs(d.amount ?? 0), 0);
+        setTotalAnticipos(unreconciledInitialAnticipos);
         setAnticiposCount(0);
       }
 
