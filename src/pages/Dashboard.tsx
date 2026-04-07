@@ -835,13 +835,6 @@ export default function Dashboard() {
                 transactionCount={invoiceMetrics?.retefuenteYearCount ?? 0}
               />
 
-              {/* 4x1000 (GMF) Accumulated */}
-              <GMFAccumulatedCard
-                total={gmfMetrics.total}
-                year={gmfMetrics.year}
-                transactionCount={gmfMetrics.transactionCount}
-              />
-
               {/* RETEICA Metrics */}
               {(invoiceMetrics?.reteicaMonth ?? 0) > 0 && (
                 <ReteicaMonthlyCard
@@ -859,6 +852,13 @@ export default function Dashboard() {
                   transactionCount={invoiceMetrics?.reteicaYearCount ?? 0}
                 />
               )}
+
+              {/* 4x1000 (GMF) Accumulated */}
+              <GMFAccumulatedCard
+                total={gmfMetrics.total}
+                year={gmfMetrics.year}
+                transactionCount={gmfMetrics.transactionCount}
+              />
 
               {/* Operational Summary */}
               <OperationalSummaryCards
