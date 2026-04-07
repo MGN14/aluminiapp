@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { lovable } from '@/integrations/lovable/index';
@@ -31,7 +31,7 @@ export default function Login() {
 
   // Auto-redirect when user is authenticated (after login or already logged in)
   // Only redirect if not switching accounts
-  React.useEffect(() => {
+  useEffect(() => {
     if (user && !authLoading && !switchingAccount) {
       navigate(from, { replace: true });
     }
