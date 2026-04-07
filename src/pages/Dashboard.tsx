@@ -759,10 +759,21 @@ export default function Dashboard() {
 
             </div>
 
-            {/* Tax & Misc Metrics - single fluid grid, no gaps */}
+            {/* Tax & Misc Metrics - single fluid grid */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 auto-rows-fr animate-fade-in">
 
-              {/* IVA Neto (Por Pagar / A Favor) - Always visible with disclaimer */}
+              {/* 1. Facturado Ventas & Compras + metrics callback */}
+              <InvoiceSummaryCards
+                periodStart={periodRange.start}
+                periodEnd={periodRange.end}
+                periodLabel={periodRange.label}
+                year={periodSelection.year}
+                cuatrimestreStart={cuatrimestre.start}
+                cuatrimestreEnd={cuatrimestre.end}
+                onMetrics={handleInvoiceMetrics}
+              />
+
+              {/* 3. IVA Neto (Por Pagar / A Favor) */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -780,7 +791,6 @@ export default function Dashboard() {
                     <Calendar className="h-3 w-3 mr-1" />
                     {cuatrimestre.label}
                   </div>
-                  {/* Mandatory Disclaimer */}
                   <div className="flex items-start gap-1 mt-3 p-2 bg-muted/50 rounded text-[10px] text-muted-foreground">
                     <Info className="h-3 w-3 mt-0.5 shrink-0" />
                     <span>Valor estimado desde facturas confirmadas. Puede variar según conciliaciones y validación final.</span>
@@ -788,28 +798,7 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Retefuente por Pagar (combined: autorretefuente ventas + retefuente compras) */}
-              <RetefuenteMonthlyCard
-                total={invoiceMetrics?.retefuenteMonth ?? 0}
-                periodLabel={periodRange.label}
-                transactionCount={invoiceMetrics?.retefuenteMonthCount ?? 0}
-              />
-
-              {/* Retefuente Acumulada (Año) - combined */}
-              <RetefuenteYearlyCard
-                total={invoiceMetrics?.retefuenteYear ?? 0}
-                year={periodSelection.year}
-                transactionCount={invoiceMetrics?.retefuenteYearCount ?? 0}
-              />
-
-              {/* 4x1000 (GMF) Accumulated */}
-              <GMFAccumulatedCard
-                total={gmfMetrics.total}
-                year={gmfMetrics.year}
-                transactionCount={gmfMetrics.transactionCount}
-              />
-
-              {/* Pending Reconciliation */}
+              {/* 4. Pendientes Conciliar */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -832,7 +821,28 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* RETEICA Metrics - from invoices */}
+              {/* Retefuente por Pagar */}
+              <RetefuenteMonthlyCard
+                total={invoiceMetrics?.retefuenteMonth ?? 0}
+                periodLabel={periodRange.label}
+                transactionCount={invoiceMetrics?.retefuenteMonthCount ?? 0}
+              />
+
+              {/* Retefuente Acumulada (Año) */}
+              <RetefuenteYearlyCard
+                total={invoiceMetrics?.retefuenteYear ?? 0}
+                year={periodSelection.year}
+                transactionCount={invoiceMetrics?.retefuenteYearCount ?? 0}
+              />
+
+              {/* 4x1000 (GMF) Accumulated */}
+              <GMFAccumulatedCard
+                total={gmfMetrics.total}
+                year={gmfMetrics.year}
+                transactionCount={gmfMetrics.transactionCount}
+              />
+
+              {/* RETEICA Metrics */}
               {(invoiceMetrics?.reteicaMonth ?? 0) > 0 && (
                 <ReteicaMonthlyCard
                   total={invoiceMetrics?.reteicaMonth ?? 0}
@@ -850,18 +860,7 @@ export default function Dashboard() {
                 />
               )}
 
-              {/* Invoice Summary Cards */}
-              <InvoiceSummaryCards
-                periodStart={periodRange.start}
-                periodEnd={periodRange.end}
-                periodLabel={periodRange.label}
-                year={periodSelection.year}
-                cuatrimestreStart={cuatrimestre.start}
-                cuatrimestreEnd={cuatrimestre.end}
-                onMetrics={handleInvoiceMetrics}
-              />
-
-              {/* Operational Summary: CxC, Anticipos, Top Proveedores */}
+              {/* Operational Summary */}
               <OperationalSummaryCards
                 year={periodSelection.year}
                 periodLabel={periodRange.label}
