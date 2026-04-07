@@ -690,26 +690,7 @@ export default function Dashboard() {
             )}
 
             {/* Main Metrics Grid */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 animate-fade-in">
-              {/* Saldo Actual */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Saldo Final
-                  </CardTitle>
-                  <div className="p-2 rounded-lg bg-accent/10">
-                    <Wallet className="h-4 w-4 text-accent" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className={`text-2xl font-bold ${metrics.saldoActual >= 0 ? 'text-foreground' : 'text-destructive'}`}>
-                    {formatCurrency(metrics.saldoActual)}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {periodRange.label}
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="grid gap-4 md:grid-cols-3 animate-fade-in">
 
               {/* Total Ingresos */}
               <Card>
