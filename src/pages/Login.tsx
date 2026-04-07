@@ -29,6 +29,14 @@ export default function Login() {
   // Get the redirect destination from state, or default to dashboard
   const from = (location.state as { from?: string })?.from || '/dashboard';
 
+  // Auto-redirect when user is authenticated (after login or already logged in)
+  // Only redirect if not switching accounts
+  React.useEffect(() => {
+    if (user && !authLoading && !switchingAccount) {
+      navigate(from, { replace: true });
+    }
+  }, [user, authLoading, switchingAccount, from, navigate]);
+
   const handleGoToDashboard = () => navigate(from, { replace: true });
 
   const handleSwitchAccount = async () => {
