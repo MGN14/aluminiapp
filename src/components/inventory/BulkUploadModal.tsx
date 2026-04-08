@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import readXlsxFile from 'read-excel-file';
+// @ts-ignore
+import readXlsxFile from 'read-excel-file/browser';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
