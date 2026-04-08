@@ -26,6 +26,7 @@ import Reports from "./pages/Reports";
 import Nico from "./pages/Nico";
 import Invoices from "./pages/Invoices";
 import FinancialHealth from "./pages/FinancialHealth";
+import Inventory from "./pages/Inventory";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();

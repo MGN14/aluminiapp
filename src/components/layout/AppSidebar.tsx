@@ -6,7 +6,7 @@ import {
   FileDown,
   FileUp,
   ArrowLeftRight,
-  Link2,
+  Package,
   BarChart3,
   Receipt,
   Users,
