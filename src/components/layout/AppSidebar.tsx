@@ -15,7 +15,7 @@ import {
   Download,
   Building2,
   Landmark,
-  Sparkles,
+  Bot,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -28,25 +28,11 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar';
-import aluminiaAvatar from '@/assets/aluminia-avatar.png';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import PlanBadge from '@/components/subscription/PlanBadge';
-
-const mainItems = [
-  {
-    title: 'Nico IA',
-    url: '/nico',
-    icon: Sparkles,
-    highlight: true,
-  },
-  {
-    title: 'Dashboard',
-    url: '/dashboard',
-    icon: LayoutDashboard,
-  },
-];
 
 const documentItems = [
   { title: 'Extractos', url: '/statement-upload', icon: FileUp },
@@ -74,30 +60,39 @@ const exportItems = [
 ];
 
 interface SectionProps {
-  label?: string;
+  label: string;
   items: { title: string; url: string; icon: React.ComponentType<any>; highlight?: boolean }[];
   collapsed: boolean;
   currentPath: string;
+  currentSearch: string;
 }
 
-function SidebarSection({ label, items, collapsed, currentPath }: SectionProps) {
+function isItemActive(itemUrl: string, currentPath: string, currentSearch: string) {
+  const [basePath, query] = itemUrl.split('?');
+  if (currentPath !== basePath) return false;
+  if (!query) return !currentSearch || currentSearch === '?';
+  return currentSearch === `?${query}`;
+}
+
+function SidebarSection({ label, items, collapsed, currentPath, currentSearch }: SectionProps) {
   return (
     <SidebarGroup>
-      {label && <SidebarGroupLabel className="text-[11px] uppercase tracking-wider text-sidebar-foreground/50 font-semibold px-3">{label}</SidebarGroupLabel>}
+      <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.08em] text-sidebar-foreground/40 font-semibold px-3 mb-0.5">
+        {label}
+      </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
           {items.map((item) => {
-            const basePath = item.url.split('?')[0];
-            const isActive = currentPath === basePath || (basePath === '/invoices' && currentPath === '/invoices');
+            const active = isItemActive(item.url, currentPath, currentSearch);
             return (
               <SidebarMenuItem key={item.url}>
-                <SidebarMenuButton asChild isActive={isActive}>
+                <SidebarMenuButton asChild isActive={active}>
                   <NavLink
                     to={item.url}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all ${
-                      item.highlight && !isActive
-                        ? 'text-sidebar-foreground font-semibold'
-                        : ''
+                    className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
+                      item.highlight && !active
+                        ? 'font-medium text-sidebar-foreground'
+                        : 'text-sidebar-foreground/70'
                     }`}
                     activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
                   >
@@ -119,22 +114,24 @@ export default function AppSidebar() {
   const collapsed = state === 'collapsed';
   const location = useLocation();
   const currentPath = location.pathname;
+  const currentSearch = location.search;
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      <SidebarHeader className="px-3 py-4">
+      {/* Brand header */}
+      <SidebarHeader className="px-3 pt-4 pb-2">
         <NavLink to="/dashboard" className="flex items-center gap-2.5 px-1">
-          <div className="w-8 h-8 rounded-full overflow-hidden border border-sidebar-border shrink-0">
-            <img src={aluminiaAvatar} alt="AluminIA" className="w-full h-full object-cover" />
+          <div className="w-7 h-7 rounded-lg bg-success flex items-center justify-center shrink-0">
+            <span className="text-success-foreground font-bold text-sm">A</span>
           </div>
           {!collapsed && (
-            <span className="text-lg font-bold text-sidebar-foreground tracking-tight">AluminIA</span>
+            <span className="text-base font-bold text-sidebar-foreground tracking-tight">AluminIA</span>
           )}
         </NavLink>
       </SidebarHeader>
 
-      <SidebarContent className="px-2 gap-1">
-        {/* Nico IA highlight */}
+      <SidebarContent className="px-2 gap-0.5">
+        {/* Nico IA – primary CTA */}
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -142,21 +139,23 @@ export default function AppSidebar() {
                 <SidebarMenuButton asChild isActive={currentPath === '/nico'}>
                   <NavLink
                     to="/nico"
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-success/10 to-success/5 border border-success/20 hover:from-success/20 hover:to-success/10 transition-all"
-                    activeClassName="from-success/25 to-success/15 border-success/40"
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-semibold border border-success/25 bg-success/8 text-success hover:bg-success/15 transition-colors"
+                    activeClassName="bg-success/20 border-success/40 text-success"
                   >
-                    <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0">
+                    <div className="w-5 h-5 rounded-md overflow-hidden shrink-0 ring-1 ring-success/30">
                       <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
                     </div>
-                    {!collapsed && <span className="text-sidebar-foreground">Nico IA</span>}
+                    {!collapsed && <span>Nico IA</span>}
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+
+              {/* Dashboard */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={currentPath === '/dashboard'}>
                   <NavLink
                     to="/dashboard"
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all"
+                    className="flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] text-sidebar-foreground/70 transition-colors"
                     activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
                   >
                     <LayoutDashboard className="h-4 w-4 shrink-0" />
@@ -168,13 +167,15 @@ export default function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSection label="Documentos" items={documentItems} collapsed={collapsed} currentPath={currentPath} />
-        <SidebarSection label="Movimientos" items={movementItems} collapsed={collapsed} currentPath={currentPath} />
-        <SidebarSection label="Reportes" items={reportItems} collapsed={collapsed} currentPath={currentPath} />
-        <SidebarSection label="Exportar / Compartir" items={exportItems} collapsed={collapsed} currentPath={currentPath} />
+        <SidebarSeparator className="my-1" />
+
+        <SidebarSection label="Documentos" items={documentItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
+        <SidebarSection label="Movimientos" items={movementItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
+        <SidebarSection label="Reportes" items={reportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
+        <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
       </SidebarContent>
 
-      <SidebarFooter className="px-3 py-3">
+      <SidebarFooter className="px-3 py-3 border-t border-sidebar-border">
         {!collapsed && <PlanBadge />}
       </SidebarFooter>
     </Sidebar>
