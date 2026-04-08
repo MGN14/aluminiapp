@@ -26,6 +26,7 @@ import Reports from "./pages/Reports";
 import Nico from "./pages/Nico";
 import Invoices from "./pages/Invoices";
 import FinancialHealth from "./pages/FinancialHealth";
+import Inventory from "./pages/Inventory";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -111,6 +112,10 @@ const App = () => (
               <Route
                 path="/financial-health"
                 element={<ProtectedRoute><FinancialHealth /></ProtectedRoute>}
+              />
+              <Route
+                path="/inventarios"
+                element={<ProtectedRoute><Inventory /></ProtectedRoute>}
               />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
