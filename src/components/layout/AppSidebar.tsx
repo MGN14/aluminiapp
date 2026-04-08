@@ -142,8 +142,8 @@ export default function AppSidebar() {
                 <SidebarMenuButton asChild isActive={currentPath === '/nico'}>
                   <NavLink
                     to="/nico"
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 hover:from-emerald-500/20 hover:to-teal-500/20 transition-all"
-                    activeClassName="from-emerald-500/25 to-teal-500/25 border-emerald-500/40"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-success/10 to-success/5 border border-success/20 hover:from-success/20 hover:to-success/10 transition-all"
+                    activeClassName="from-success/25 to-success/15 border-success/40"
                   >
                     <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0">
                       <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
