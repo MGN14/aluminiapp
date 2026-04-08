@@ -1,41 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Send, X, Trash2, Sparkles } from 'lucide-react';
+import { Send, X, Trash2, Sparkles, ArrowRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useNico, NicoPageContext } from '@/hooks/useNicoContext';
 import nicoAvatar from '@/assets/nico-avatar.png';
+import NicoQuickActions from './NicoQuickActions';
+import NicoMessageBubble from './NicoMessageBubble';
 
-type Msg = { role: 'user' | 'assistant'; content: string; id?: string };
-
-const PAGE_SUGGESTIONS: Record<string, string[]> = {
-  dashboard: [
-    '¿Cuánto gasté este mes?',
-    '¿Cuál es mi utilidad neta?',
-    '¿Cómo voy frente al mes anterior?',
-  ],
-  transactions: [
-    '¿Cuál es mi gasto más grande?',
-    '¿Cuánto sumé en ingresos este período?',
-    '¿Hay algún movimiento inusual?',
-  ],
-  reports: [
-    '¿Cómo está mi EBITDA este mes?',
-    '¿Cómo voy frente al año pasado?',
-    '¿Cuánto debo provisionar para impuestos?',
-  ],
-  export: [
-    '¿Qué período debería exportar?',
-    '¿Qué categorías tienen más movimiento?',
-    '¿Hay gastos sin categorizar?',
-  ],
-  default: [
-    '¿Cuánto gasté este mes?',
-    '¿Cuál fue mi proveedor más costoso?',
-    '¿Cuánto debo provisionar para impuestos?',
-  ],
-};
+export type Msg = { role: 'user' | 'assistant'; content: string; id?: string };
 
 function buildContextNote(ctx: NicoPageContext): string {
   const parts: string[] = [`Página actual: ${ctx.page}`];
@@ -62,8 +36,7 @@ export default function NicoDrawer() {
   const [isLoading, setIsLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  const suggestions = PAGE_SUGGESTIONS[pageContext.page] ?? PAGE_SUGGESTIONS.default;
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Listen for prefill events from CFO Insights
   useEffect(() => {
@@ -71,13 +44,30 @@ export default function NicoDrawer() {
       const detail = (e as CustomEvent).detail;
       if (detail?.message) {
         setInput(detail.message);
-        // Auto-send after a brief delay to let the drawer render
         setTimeout(() => send(detail.message), 500);
       }
     };
     window.addEventListener('nico-prefill', handler);
     return () => window.removeEventListener('nico-prefill', handler);
   }, [messages, isLoading]);
+
+  // Focus input when drawer opens
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 350);
+    }
+  }, [isOpen]);
+
+  // Keyboard shortcut ⌘K
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        const { openNico: open } = useNico();
+      }
+    };
+    // We handle this in the provider instead
+  }, []);
 
   // Load history when drawer opens
   useEffect(() => {
@@ -219,99 +209,79 @@ export default function NicoDrawer() {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm md:hidden"
+        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
         onClick={closeNico}
       />
 
       {/* Drawer */}
-      <div className="fixed bottom-0 right-0 z-50 flex flex-col h-[90vh] md:h-screen w-full md:w-[400px] bg-card border-l border-border shadow-2xl animate-in slide-in-from-right duration-300">
+      <div className="fixed top-0 right-0 z-50 flex flex-col h-screen w-full md:w-[420px] bg-card border-l border-border shadow-2xl animate-in slide-in-from-right duration-300">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full overflow-hidden border border-border bg-muted">
-              <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-foreground">Nico</div>
-              <div className="text-xs text-success flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
-                Activo · Analizando tus datos
+        <div className="px-5 py-4 border-b border-border bg-card flex-shrink-0">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-success/30 bg-muted shadow-sm">
+                <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                  Nico
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-success/10 text-[10px] font-semibold text-success">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                    IA
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground">Analizando tu negocio</div>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-1">
-            {messages.length > 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                onClick={clearHistory}
-                title="Borrar historial"
-              >
-                <Trash2 className="w-4 h-4" />
+            <div className="flex items-center gap-1">
+              {messages.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  onClick={clearHistory}
+                  title="Borrar historial"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={closeNico}>
+                <X className="w-4 h-4" />
               </Button>
-            )}
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={closeNico}>
-              <X className="w-4 h-4" />
-            </Button>
+            </div>
           </div>
+
+          {/* Quick Actions */}
+          <NicoQuickActions onSelect={send} disabled={isLoading} />
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/10">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/5">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full gap-4 py-8 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-success/10 flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-success" />
+              <div className="w-14 h-14 rounded-2xl bg-success/10 flex items-center justify-center">
+                <Sparkles className="w-7 h-7 text-success" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground mb-1">Pregúntale a Nico</p>
-                <p className="text-xs text-muted-foreground max-w-xs">
-                  Analiza tus ingresos, gastos y tendencias con preguntas en lenguaje natural.
+                <p className="text-sm font-bold text-foreground mb-1">Tu copiloto financiero</p>
+                <p className="text-xs text-muted-foreground max-w-[280px] leading-relaxed">
+                  Pregúntame sobre ingresos, gastos, impuestos o cualquier aspecto de tu negocio. Analizo tus datos en tiempo real.
                 </p>
-              </div>
-              <div className="flex flex-col gap-2 w-full">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => send(s)}
-                    className="text-left text-xs px-3 py-2.5 rounded-xl border border-border bg-card hover:border-success/50 hover:bg-success/5 text-muted-foreground hover:text-foreground transition-all"
-                  >
-                    {s}
-                  </button>
-                ))}
               </div>
             </div>
           )}
 
           {messages.map((msg, i) => (
-            <div
+            <NicoMessageBubble
               key={msg.id ?? i}
-              className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
-            >
-              {msg.role === 'assistant' && (
-                <div className="w-7 h-7 rounded-full overflow-hidden border border-border bg-muted mr-2 flex-shrink-0 mt-0.5">
-                  <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
-                </div>
-              )}
-              <div
-                className={cn(
-                  'max-w-[82%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap',
-                  msg.role === 'user'
-                    ? 'bg-success text-white rounded-br-sm'
-                    : 'bg-card text-foreground border border-border rounded-bl-sm'
-                )}
-              >
-                {msg.content}
-                {msg.role === 'assistant' && i === messages.length - 1 && isLoading && (
-                  <span className="inline-block w-1.5 h-4 bg-success/60 ml-1 animate-pulse rounded-sm" />
-                )}
-              </div>
-            </div>
+              msg={msg}
+              isLast={i === messages.length - 1}
+              isLoading={isLoading}
+            />
           ))}
 
           {isLoading && messages[messages.length - 1]?.role === 'user' && (
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-2.5">
               <div className="w-7 h-7 rounded-full overflow-hidden border border-border bg-muted flex-shrink-0 mt-0.5">
                 <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
               </div>
@@ -328,21 +298,6 @@ export default function NicoDrawer() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Quick suggestions when chat has messages */}
-        {messages.length > 0 && !isLoading && (
-          <div className="px-4 pt-2 pb-1 flex gap-2 flex-wrap bg-card border-t border-border flex-shrink-0">
-            {suggestions.slice(0, 2).map((s) => (
-              <button
-                key={s}
-                onClick={() => send(s)}
-                className="text-xs px-3 py-1.5 rounded-full border border-border bg-muted hover:border-success/50 hover:bg-success/5 text-muted-foreground hover:text-foreground transition-all whitespace-nowrap"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Input */}
         <form
           onSubmit={(e) => { e.preventDefault(); send(input); }}
@@ -350,9 +305,10 @@ export default function NicoDrawer() {
         >
           <div className="flex items-center gap-2">
             <input
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Pregúntale a Nico..."
+              placeholder="Pregúntale a Nico sobre tu negocio..."
               disabled={isLoading}
               className="flex-1 bg-muted rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
             />
