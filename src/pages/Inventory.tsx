@@ -12,8 +12,9 @@ import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import AppLayout from '@/components/layout/AppLayout';
 
 export default function Inventory() {
-  const { products, movements, metrics, loading, addProduct, addMovement } = useInventoryData();
+  const { products, movements, metrics, loading, addProduct, addMovement, refetch } = useInventoryData();
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [adjustProduct, setAdjustProduct] = useState<ProductWithMetrics | null>(null);
   const [adjustMode, setAdjustMode] = useState<'adjust' | 'entrada' | 'salida'>('adjust');
 
