@@ -640,9 +640,6 @@ export default function Dashboard() {
           </Alert>
         )}
 
-        {/* Plan Status Card */}
-        <PlanStatusCard />
-
 
         {/* Initial state warning */}
         <InitialStateWarning />
