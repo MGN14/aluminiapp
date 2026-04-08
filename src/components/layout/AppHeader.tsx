@@ -45,6 +45,26 @@ export default function AppHeader() {
   const { openNico, isOpen } = useNico();
   const [companyInitial, setCompanyInitial] = useState<string | null>(null);
   const [placeholder, setPlaceholder] = useState(PAGE_PLACEHOLDERS.default);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+  };
+
+  // Initialize theme from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') {
+      document.documentElement.classList.add('dark');
+      setIsDark(true);
+    } else {
+      document.documentElement.classList.remove('dark');
+      setIsDark(false);
+    }
+  }, []);
 
   useEffect(() => {
     const updatePlaceholder = () => {
