@@ -87,10 +87,17 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-// ── Module wrapper (renders based on visibility) ──────────
-function DashboardBlock({ id, customization, children }: { id: DashboardModule; customization: ReturnType<typeof useDashboardCustomization>; children: ReactNode }) {
+// ── Module wrapper with staggered entrance animation ──────
+function DashboardBlock({ id, customization, children, index = 0 }: { id: DashboardModule; customization: ReturnType<typeof useDashboardCustomization>; children: ReactNode; index?: number }) {
   if (!customization.isVisible(id)) return null;
-  return <>{children}</>;
+  return (
+    <div
+      className="animate-slide-up opacity-0 [animation-fill-mode:forwards]"
+      style={{ animationDelay: `${index * 80}ms` }}
+    >
+      {children}
+    </div>
+  );
 }
 
 // ── Main Component ─────────────────────────────────────────
@@ -266,14 +273,14 @@ export default function Dashboard() {
   }, [periodTransactions]);
 
   // ── Build ordered module map ──
-  const moduleRenderers: Record<DashboardModule, () => ReactNode> = {
-    insights: () => (
-      <DashboardBlock id="insights" customization={customization}>
+  const moduleRenderers: Record<DashboardModule, (idx: number) => ReactNode> = {
+    insights: (idx: number) => (
+      <DashboardBlock id="insights" customization={customization} index={idx}>
         <InsightsMiniCards periodSelection={periodSelection} hasTransactions={transactions.length > 0} />
       </DashboardBlock>
     ),
-    mainMetrics: () => (
-      <DashboardBlock id="mainMetrics" customization={customization}>
+    mainMetrics: (idx: number) => (
+      <DashboardBlock id="mainMetrics" customization={customization} index={idx}>
         {/* Apple-style Main Metrics */}
         <div className="grid gap-5 md:grid-cols-3">
           {/* Ingresos */}
@@ -332,8 +339,8 @@ export default function Dashboard() {
         </div>
       </DashboardBlock>
     ),
-    invoiceTax: () => (
-      <DashboardBlock id="invoiceTax" customization={customization}>
+    invoiceTax: (idx: number) => (
+      <DashboardBlock id="invoiceTax" customization={customization} index={idx}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 auto-rows-fr">
           <InvoiceSummaryCards
             periodStart={periodRange.start}
@@ -393,31 +400,31 @@ export default function Dashboard() {
         </div>
       </DashboardBlock>
     ),
-    operational: () => (
-      <DashboardBlock id="operational" customization={customization}>
+    operational: (idx: number) => (
+      <DashboardBlock id="operational" customization={customization} index={idx}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OperationalSummaryCards year={periodSelection.year} periodLabel={periodRange.label} />
         </div>
       </DashboardBlock>
     ),
-    chartsFlow: () => (
-      <DashboardBlock id="chartsFlow" customization={customization}>
+    chartsFlow: (idx: number) => (
+      <DashboardBlock id="chartsFlow" customization={customization} index={idx}>
         <div className="grid gap-6 lg:grid-cols-2">
           <IncomeVsExpenseChart data={incomeVsExpenseData} periodLabel={periodRange.label} />
           <ExpensesByCategoryChart data={expensesByCategoryData} periodLabel={periodRange.label} />
         </div>
       </DashboardBlock>
     ),
-    chartsBilling: () => (
-      <DashboardBlock id="chartsBilling" customization={customization}>
+    chartsBilling: (idx: number) => (
+      <DashboardBlock id="chartsBilling" customization={customization} index={idx}>
         <div className="grid gap-6 lg:grid-cols-2">
           <BilledByMonthChart data={billedByMonthData} year={periodSelection.year} />
           <BilledByClientMonthChart data={billedByClientMonth.data} clientKeys={billedByClientMonth.clientKeys} year={periodSelection.year} />
         </div>
       </DashboardBlock>
     ),
-    pendingTable: () => (
-      <DashboardBlock id="pendingTable" customization={customization}>
+    pendingTable: (idx: number) => (
+      <DashboardBlock id="pendingTable" customization={customization} index={idx}>
         <PendingTransactionsTable
           transactions={transactions.filter(tx => new Date(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type }))}
           categories={categories}
@@ -458,7 +465,7 @@ export default function Dashboard() {
     <AppLayout>
       <div className="max-w-7xl mx-auto space-y-8">
         {/* ─── Header ─── */}
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between animate-fade-in">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl overflow-hidden border-2 border-success/20 shadow-sm shrink-0">
               <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
@@ -511,8 +518,8 @@ export default function Dashboard() {
             )}
 
             {/* Render modules in user-defined order */}
-            {orderedModules.map(mod => (
-              <div key={mod.id}>{moduleRenderers[mod.id]()}</div>
+            {orderedModules.map((mod, idx) => (
+              <div key={mod.id}>{moduleRenderers[mod.id](idx)}</div>
             ))}
           </div>
         )}
