@@ -273,7 +273,7 @@ export default function Dashboard() {
   }, [periodTransactions]);
 
   // ── Build ordered module map ──
-  const moduleRenderers: Record<DashboardModule, () => ReactNode> = {
+  const moduleRenderers: Record<DashboardModule, (idx: number) => ReactNode> = {
     insights: () => (
       <DashboardBlock id="insights" customization={customization}>
         <InsightsMiniCards periodSelection={periodSelection} hasTransactions={transactions.length > 0} />
