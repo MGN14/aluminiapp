@@ -93,13 +93,13 @@ export default function AppHeader() {
       {/* Nico Search Input */}
       <button
         onClick={openNico}
-        className="flex-1 max-w-xl flex items-center gap-2.5 px-4 py-2 rounded-xl border border-border bg-muted/50 hover:bg-muted hover:border-success/40 transition-all cursor-text group"
+        className="flex-1 max-w-xl flex items-center gap-2.5 px-4 py-2 rounded-xl border border-success/30 bg-success/5 hover:bg-success/10 hover:border-success/50 transition-all cursor-text group shadow-sm hover:shadow-md hover:shadow-success/5"
       >
         <Sparkles className="w-4 h-4 text-success shrink-0" />
-        <span className="text-sm text-muted-foreground group-hover:text-foreground/70 transition-colors truncate">
+        <span className="text-sm text-success/70 group-hover:text-success transition-colors truncate font-medium">
           {placeholder}
         </span>
-        <kbd className="hidden md:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-border bg-background text-[10px] text-muted-foreground ml-auto shrink-0">
+        <kbd className="hidden md:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-success/20 bg-success/5 text-[10px] text-success/60 ml-auto shrink-0">
           ⌘K
         </kbd>
       </button>
