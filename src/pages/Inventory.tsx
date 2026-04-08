@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Package } from 'lucide-react';
+import { Plus, Package, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import InventoryMetrics from '@/components/inventory/InventoryMetrics';
@@ -8,11 +8,13 @@ import InventoryChart from '@/components/inventory/InventoryChart';
 import InventoryTable from '@/components/inventory/InventoryTable';
 import AddProductModal from '@/components/inventory/AddProductModal';
 import AdjustStockModal from '@/components/inventory/AdjustStockModal';
+import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import AppLayout from '@/components/layout/AppLayout';
 
 export default function Inventory() {
-  const { products, movements, metrics, loading, addProduct, addMovement } = useInventoryData();
+  const { products, movements, metrics, loading, addProduct, addMovement, refetch } = useInventoryData();
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [adjustProduct, setAdjustProduct] = useState<ProductWithMetrics | null>(null);
   const [adjustMode, setAdjustMode] = useState<'adjust' | 'entrada' | 'salida'>('adjust');
 
@@ -42,10 +44,16 @@ export default function Inventory() {
               </p>
             </div>
           </div>
-          <Button onClick={() => setShowAdd(true)} size="sm" className="gap-2 rounded-xl">
-            <Plus className="h-4 w-4" />
-            Agregar producto
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowBulk(true)} size="sm" className="gap-2 rounded-xl">
+              <Upload className="h-4 w-4" />
+              Carga masiva
+            </Button>
+            <Button onClick={() => setShowAdd(true)} size="sm" className="gap-2 rounded-xl">
+              <Plus className="h-4 w-4" />
+              Agregar producto
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -81,6 +89,7 @@ export default function Inventory() {
       </div>
 
       <AddProductModal open={showAdd} onOpenChange={setShowAdd} onSubmit={addProduct} />
+      <BulkUploadModal open={showBulk} onOpenChange={setShowBulk} onComplete={refetch} />
       <AdjustStockModal
         open={!!adjustProduct}
         onOpenChange={(open) => { if (!open) setAdjustProduct(null); }}
