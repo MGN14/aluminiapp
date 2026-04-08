@@ -42,8 +42,7 @@ const documentItems = [
 ];
 
 const movementItems = [
-  { title: 'Transacciones', url: '/transactions', icon: ArrowLeftRight, highlight: true },
-  { title: 'Conciliación bancaria', url: '/transactions?view=conciliacion', icon: Link2 },
+  { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
 ];
 
 const reportItems = [
