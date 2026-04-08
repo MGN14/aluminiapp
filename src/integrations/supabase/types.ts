@@ -293,6 +293,158 @@ export type Database = {
           },
         ]
       }
+      inventory_counts: {
+        Row: {
+          count_date: string
+          created_at: string
+          difference: number
+          id: string
+          notes: string | null
+          physical_quantity: number
+          product_id: string
+          system_quantity: number
+          user_id: string
+        }
+        Insert: {
+          count_date?: string
+          created_at?: string
+          difference?: number
+          id?: string
+          notes?: string | null
+          physical_quantity?: number
+          product_id: string
+          system_quantity?: number
+          user_id: string
+        }
+        Update: {
+          count_date?: string
+          created_at?: string
+          difference?: number
+          id?: string
+          notes?: string | null
+          physical_quantity?: number
+          product_id?: string
+          system_quantity?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_counts_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inventory_movements: {
+        Row: {
+          created_at: string
+          id: string
+          invoice_id: string | null
+          movement_date: string
+          movement_type: string
+          notes: string | null
+          product_id: string
+          quantity: number
+          total_cost: number
+          unit_cost: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          invoice_id?: string | null
+          movement_date?: string
+          movement_type?: string
+          notes?: string | null
+          product_id: string
+          quantity?: number
+          total_cost?: number
+          unit_cost?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          invoice_id?: string | null
+          movement_date?: string
+          movement_type?: string
+          notes?: string | null
+          product_id?: string
+          quantity?: number
+          total_cost?: number
+          unit_cost?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_movements_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inventory_products: {
+        Row: {
+          active: boolean
+          cost_per_unit: number
+          created_at: string
+          id: string
+          last_count_date: string | null
+          min_stock: number
+          name: string
+          reference: string
+          sale_price: number
+          stock_physical: number | null
+          stock_system: number
+          unit: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          cost_per_unit?: number
+          created_at?: string
+          id?: string
+          last_count_date?: string | null
+          min_stock?: number
+          name: string
+          reference: string
+          sale_price?: number
+          stock_physical?: number | null
+          stock_system?: number
+          unit?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          cost_per_unit?: number
+          created_at?: string
+          id?: string
+          last_count_date?: string | null
+          min_stock?: number
+          name?: string
+          reference?: string
+          sale_price?: number
+          stock_physical?: number | null
+          stock_system?: number
+          unit?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       invoice_items: {
         Row: {
           description: string | null
