@@ -87,10 +87,17 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-// ── Module wrapper (renders based on visibility) ──────────
-function DashboardBlock({ id, customization, children }: { id: DashboardModule; customization: ReturnType<typeof useDashboardCustomization>; children: ReactNode }) {
+// ── Module wrapper with staggered entrance animation ──────
+function DashboardBlock({ id, customization, children, index = 0 }: { id: DashboardModule; customization: ReturnType<typeof useDashboardCustomization>; children: ReactNode; index?: number }) {
   if (!customization.isVisible(id)) return null;
-  return <>{children}</>;
+  return (
+    <div
+      className="animate-slide-up opacity-0 [animation-fill-mode:forwards]"
+      style={{ animationDelay: `${index * 80}ms` }}
+    >
+      {children}
+    </div>
+  );
 }
 
 // ── Main Component ─────────────────────────────────────────
