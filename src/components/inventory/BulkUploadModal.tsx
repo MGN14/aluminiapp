@@ -84,13 +84,13 @@ export default function BulkUploadModal({ open, onOpenChange, onComplete }: Prop
         detectedHeaders = parseCSVLine(lines[0]);
         dataRows = lines.slice(1).map(l => parseCSVLine(l));
       } else {
-        const rows = await readXlsxFile(file);
+        const rows = await readXlsxFile(file) as unknown[][];
         if (rows.length < 2) {
           toast({ title: 'Archivo vacío', description: 'El archivo no contiene datos.', variant: 'destructive' });
           return;
         }
-        detectedHeaders = rows[0].map(c => String(c ?? ''));
-        dataRows = rows.slice(1);
+        detectedHeaders = (rows[0] as unknown[]).map((c: unknown) => String(c ?? ''));
+        dataRows = rows.slice(1) as unknown[][];
       }
 
       // Filter out completely empty rows
