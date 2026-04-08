@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, Wallet, Receipt, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Receipt, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles, Package } from 'lucide-react';
 import { useNico } from '@/hooks/useNicoContext';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link } from 'react-router-dom';
@@ -20,7 +20,7 @@ import InsightsMiniCards from '@/components/dashboard/InsightsMiniCards';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
-import OperationalSummaryCards from '@/components/dashboard/OperationalSummaryCards';
+import { useOperationalData, CxCCard, AnticiposCard, TopBuyersCard } from '@/components/dashboard/OperationalSummaryCards';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import InitialStateWarning from '@/components/dashboard/InitialStateWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
@@ -115,6 +115,7 @@ export default function Dashboard() {
   const [invoiceMetrics, setInvoiceMetrics] = useState<InvoiceFiscalMetrics | null>(null);
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoiceData[]>([]);
   const customization = useDashboardCustomization();
+  
 
   const now = new Date();
   const [periodSelection, setPeriodSelection] = useState<PeriodSelection>({
@@ -124,6 +125,7 @@ export default function Dashboard() {
     year: now.getFullYear(),
   });
   const [periodInitialized, setPeriodInitialized] = useState(false);
+  const operationalData = useOperationalData(periodSelection.year);
 
   // ── Checkout success ──
   useEffect(() => {
@@ -397,13 +399,56 @@ export default function Dashboard() {
           {(invoiceMetrics?.reteicaYear ?? 0) > 0 && <ReteicaYearlyCard total={invoiceMetrics?.reteicaYear ?? 0} year={periodSelection.year} transactionCount={invoiceMetrics?.reteicaYearCount ?? 0} />}
           {/* GMF */}
           <GMFAccumulatedCard total={gmfMetrics.total} year={gmfMetrics.year} transactionCount={gmfMetrics.transactionCount} />
+          {/* CxC & Anticipos */}
+          {!operationalData.loading && (
+            <>
+              <CxCCard totalCxC={operationalData.totalCxC} cxcCount={operationalData.cxcCount} year={periodSelection.year} />
+              <AnticiposCard totalAnticipos={operationalData.totalAnticipos} anticiposCount={operationalData.anticiposCount} year={periodSelection.year} />
+            </>
+          )}
         </div>
       </DashboardBlock>
     ),
     operational: (idx: number) => (
       <DashboardBlock id="operational" customization={customization} index={idx}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <OperationalSummaryCards year={periodSelection.year} periodLabel={periodRange.label} />
+        <div className="grid gap-5 lg:grid-cols-2">
+          {/* Top 3 Clientes */}
+          {!operationalData.loading && (
+            <TopBuyersCard topBuyers={operationalData.topBuyers} totalComprasBase={operationalData.totalComprasBase} year={periodSelection.year} />
+          )}
+          {/* Top 3 Referencias Vendidas */}
+          {invoiceMetrics && (invoiceMetrics.topReferences?.length ?? 0) > 0 && (
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base font-semibold text-foreground">Top 3 Referencias</CardTitle>
+                  <span className="text-[10px] text-muted-foreground">(por base gravable)</span>
+                </div>
+                <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Package className="h-4 w-4 text-primary" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {invoiceMetrics.topReferences.map(([name, { total, qty }], index) => {
+                    const pct = (invoiceMetrics.totalBaseRef ?? 0) > 0 ? ((total / invoiceMetrics.totalBaseRef) * 100).toFixed(0) : '0';
+                    const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
+                    return (
+                      <div key={name} className="flex items-center gap-3">
+                        <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
+                        <span className="text-sm text-foreground truncate flex-1">{name}</span>
+                        <div className="text-right shrink-0">
+                          <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
+                          <span className="text-xs text-muted-foreground ml-1">({pct}%)</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{periodSelection.year}</div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </DashboardBlock>
     ),

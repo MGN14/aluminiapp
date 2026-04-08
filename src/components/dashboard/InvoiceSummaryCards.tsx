@@ -81,6 +81,8 @@ export interface InvoiceFiscalMetrics {
   ventasCount: number;
   comprasCount: number;
   topClients: [string, number][];
+  topReferences: [string, { total: number; qty: number }][];
+  totalBaseRef: number;
 }
 
 interface Props {
@@ -233,7 +235,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     fetchData();
   }, [periodStart, periodEnd, year, cuatrimestreStart, cuatrimestreEnd]);
 
-  const metrics = useMemo((): InvoiceFiscalMetrics => {
+  const metrics = useMemo((): Omit<InvoiceFiscalMetrics, 'topReferences' | 'totalBaseRef'> => {
     const ventas = invoices.filter(i => i.type === 'venta');
     const compras = invoices.filter(i => i.type === 'compra');
     const ventasYear = allYearInvoices.filter(i => i.type === 'venta');
@@ -327,16 +329,18 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
   // onMetrics reporting moved to render guard below
 
+  const totalBaseRef = invoiceItems.reduce((s, item) => s + item.line_base, 0);
+
   // Always report metrics to parent even when loading or no invoices
   useEffect(() => {
-    if (!loading && onMetrics) onMetrics(metrics);
-  }, [loading, metrics, onMetrics]);
+    if (!loading && onMetrics) onMetrics({ ...metrics, topReferences, totalBaseRef });
+  }, [loading, metrics, topReferences, totalBaseRef, onMetrics]);
 
   if (loading) return null;
 
   const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
 
-  const totalBaseRef = invoiceItems.reduce((s, item) => s + item.line_base, 0);
+  // totalBaseRef already computed above
 
   return (
     <TooltipProvider>
