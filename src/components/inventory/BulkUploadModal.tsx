@@ -1,7 +1,5 @@
 import { useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-// @ts-ignore
-import readXlsxFile from 'read-excel-file/browser';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -84,13 +82,18 @@ export default function BulkUploadModal({ open, onOpenChange, onComplete }: Prop
         detectedHeaders = parseCSVLine(lines[0]);
         dataRows = lines.slice(1).map(l => parseCSVLine(l));
       } else {
-        const rows = (await readXlsxFile(file)) as unknown as unknown[][];
-        if (rows.length < 2) {
+        // Dynamically load SheetJS from CDN to avoid duplicate React issues
+        const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as string) as any;
+        const data = await file.arrayBuffer();
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const jsonRows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        if (jsonRows.length < 2) {
           toast({ title: 'Archivo vacío', description: 'El archivo no contiene datos.', variant: 'destructive' });
           return;
         }
-        detectedHeaders = (rows[0] as unknown[]).map((c: unknown) => String(c ?? ''));
-        dataRows = rows.slice(1) as unknown[][];
+        detectedHeaders = (jsonRows[0] as unknown[]).map((c: unknown) => String(c ?? ''));
+        dataRows = jsonRows.slice(1) as unknown[][];
       }
 
       // Filter out completely empty rows
