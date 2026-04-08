@@ -1,14 +1,28 @@
-import { ReactNode } from 'react';
-import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { ReactNode, useEffect } from 'react';
+import { SidebarProvider } from '@/components/ui/sidebar';
 import AppSidebar from './AppSidebar';
 import AppHeader from './AppHeader';
-import NicoFAB from '@/components/nico/NicoFAB';
 import NicoDrawer from '@/components/nico/NicoDrawer';
-import { NicoProvider } from '@/hooks/useNicoContext';
+import { NicoProvider, useNico } from '@/hooks/useNicoContext';
 import TrialBanner from '@/components/subscription/TrialBanner';
 
 interface AppLayoutProps {
   children: ReactNode;
+}
+
+function KeyboardShortcut() {
+  const { openNico } = useNico();
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        openNico();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [openNico]);
+  return null;
 }
 
 export default function AppLayout({ children }: AppLayoutProps) {
@@ -25,8 +39,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </main>
           </div>
         </div>
-        <NicoFAB />
         <NicoDrawer />
+        <KeyboardShortcut />
       </SidebarProvider>
     </NicoProvider>
   );
