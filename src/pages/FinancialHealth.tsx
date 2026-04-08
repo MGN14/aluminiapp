@@ -1,15 +1,18 @@
 import { useState, useMemo, useEffect } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Shield, TrendingUp, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { TrendingUp, AlertTriangle, Info } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { useFinancialHealthScore, type ScoreDetails } from '@/hooks/useFinancialHealthScore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { MessageCircle } from 'lucide-react';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import CFOInsights from '@/components/dashboard/CFOInsights';
 import { PeriodSelection } from '@/components/dashboard/UnifiedPeriodFilter';
+import { useNico } from '@/hooks/useNicoContext';
 
 const SCORE_COLORS = {
   conciliacion: 'hsl(217, 91%, 60%)',
@@ -20,11 +23,11 @@ const SCORE_COLORS = {
 };
 
 const VARIABLES = [
-  { key: 'conciliacion', label: 'Conciliación Bancaria', color: SCORE_COLORS.conciliacion, icon: CheckCircle },
-  { key: 'facturacion', label: 'Facturación Soportada', color: SCORE_COLORS.facturacion, icon: CheckCircle },
-  { key: 'impuestos', label: 'Control de Impuestos', color: SCORE_COLORS.impuestos, icon: AlertTriangle },
-  { key: 'cartera', label: 'Cartera y Anticipos', color: SCORE_COLORS.cartera, icon: AlertTriangle },
-  { key: 'clasificacion', label: 'Clasificación Financiera', color: SCORE_COLORS.clasificacion, icon: Info },
+  { key: 'conciliacion', label: 'Conciliación Bancaria', color: SCORE_COLORS.conciliacion },
+  { key: 'facturacion', label: 'Facturación Soportada', color: SCORE_COLORS.facturacion },
+  { key: 'impuestos', label: 'Control de Impuestos', color: SCORE_COLORS.impuestos },
+  { key: 'cartera', label: 'Cartera y Anticipos', color: SCORE_COLORS.cartera },
+  { key: 'clasificacion', label: 'Clasificación Financiera', color: SCORE_COLORS.clasificacion },
 ] as const;
 
 const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -43,35 +46,35 @@ function getVariableExplanation(key: string, details: ScoreDetails): { formula: 
       const d = details.conciliacion;
       return {
         formula: `${pct(d.pct)} conciliado`,
-        explanation: `Del acumulado anual de movimientos bancarios (${fmt(d.totalMovimientos)}), quedan ${fmt(d.montoPendiente)} sin identificar. Se calcula sobre montos reales, no por conteo de filas.`,
+        explanation: `${fmt(d.montoPendiente)} sin identificar de ${fmt(d.totalMovimientos)} en movimientos.`,
       };
     }
     case 'facturacion': {
       const d = details.facturacion;
       return {
         formula: `${pct(d.pct)} soportado`,
-        explanation: `De ${fmt(d.totalIngresos)} (ingresos + anticipos iniciales), ${fmt(d.ingresosConFactura)} están facturados y ${fmt(d.ingresosAnticipo)} son anticipos de periodo anterior.`,
+        explanation: `${fmt(d.ingresosConFactura)} facturados de ${fmt(d.totalIngresos)} totales.`,
       };
     }
     case 'impuestos': {
       const d = details.impuestos;
       return {
         formula: `${pct(d.pct)} completitud fiscal`,
-        explanation: `Promedio anual de: facturas de venta registradas (${pct(d.pctVentas)}), facturas de compra (${pct(d.pctCompras)}) y movimientos vinculados (${pct(d.pctVinculados)}).`,
+        explanation: `Ventas ${pct(d.pctVentas)}, compras ${pct(d.pctCompras)}, vinculados ${pct(d.pctVinculados)}.`,
       };
     }
     case 'cartera': {
       const d = details.cartera;
       return {
-        formula: `${pct(d.pct)} riesgo promedio`,
-        explanation: `Cartera pendiente acumulada: ${fmt(d.cuentasPorCobrar)} de ${fmt(d.facturacionTotal)} facturado (${pct(d.pctCartera)}). Anticipos sin factura: ${fmt(d.anticiposSinFactura)} de ${fmt(d.ingresosTotal)} ingresos (${pct(d.pctAnticipos)}).`,
+        formula: `${pct(d.pct)} riesgo`,
+        explanation: `Pendiente: ${fmt(d.cuentasPorCobrar)}. Anticipos sin factura: ${fmt(d.anticiposSinFactura)}.`,
       };
     }
     case 'clasificacion': {
       const d = details.clasificacion;
       return {
         formula: `${pct(d.pct)} completas`,
-        explanation: `${d.completas} de ${d.total} transacciones acumuladas tienen categoría, responsable (o N/A) y factura (o N/A) asignados.`,
+        explanation: `${d.completas} de ${d.total} transacciones clasificadas correctamente.`,
       };
     }
     default:
@@ -79,13 +82,43 @@ function getVariableExplanation(key: string, details: ScoreDetails): { formula: 
   }
 }
 
-function getVariableRecommendation(key: string, score: number): string | null {
-  if (key === 'conciliacion' && score < 18) return 'Existen movimientos bancarios sin soporte. Revisa y vincula facturas, asigna responsables o clasifícalos correctamente.';
-  if (key === 'facturacion' && score < 18) return 'Hay ingresos sin factura asociada ni marcados como anticipo. Esto puede generar inconsistencias frente a la DIAN.';
-  if (key === 'impuestos' && score < 16) return 'La base fiscal del año está incompleta. Faltan facturas de compra o venta que afectan el cálculo del IVA y retenciones.';
-  if (key === 'cartera' && score < 18) return 'Una parte importante de tu facturación no ha sido cobrada o tienes anticipos sin factura asociada.';
-  if (key === 'clasificacion' && score < 18) return 'Varias transacciones no tienen categoría, responsable o factura asignada. Completa la información para mejorar tu orden.';
+function getVariableAlert(key: string, score: number): string | null {
+  if (key === 'conciliacion' && score < 18) return 'Movimientos sin soporte detectados';
+  if (key === 'facturacion' && score < 18) return 'Ingresos sin factura detectados';
+  if (key === 'impuestos' && score < 16) return 'Base fiscal incompleta';
+  if (key === 'cartera' && score < 18) return 'Facturación sin cobrar o anticipos pendientes';
+  if (key === 'clasificacion' && score < 18) return 'Transacciones sin clasificar';
   return null;
+}
+
+function getRiskLevel(score: number): { label: string; color: string } {
+  if (score >= 90) return { label: 'Bajo', color: 'text-success' };
+  if (score >= 80) return { label: 'Moderado', color: 'text-success' };
+  if (score >= 50) return { label: 'Alto', color: 'text-warning' };
+  return { label: 'Crítico', color: 'text-destructive' };
+}
+
+function getNicoMessage(score: number): { line1: string; line2: string; line3: string } {
+  if (score >= 90) return {
+    line1: 'Todo en orden. Tu negocio está preparado.',
+    line2: 'Si la DIAN revisa hoy, no tendrías problemas.',
+    line3: 'Sigue así y mantén tu disciplina financiera.',
+  };
+  if (score >= 80) return {
+    line1: 'Casi listo, pero hay detalles por cerrar.',
+    line2: 'Podrías tener observaciones menores en una revisión.',
+    line3: 'Unos ajustes más y quedas tranquilo.',
+  };
+  if (score >= 50) return {
+    line1: 'Tienes desorden en varias áreas clave.',
+    line2: 'Si la DIAN revisa hoy, podrías tener inconsistencias.',
+    line3: 'Aún estás a tiempo de corregirlo.',
+  };
+  return {
+    line1: 'Tu situación fiscal necesita atención urgente.',
+    line2: 'Una visita de la DIAN podría resultar en sanciones.',
+    line3: 'Actúa ahora para evitar multas.',
+  };
 }
 
 export default function FinancialHealth() {
@@ -93,39 +126,23 @@ export default function FinancialHealth() {
   const [year, setYear] = useState(currentYear);
   const [latestAvailableYear, setLatestAvailableYear] = useState(currentYear);
   const [initialLoading, setInitialLoading] = useState(true);
+  const { openNico, setPageContext } = useNico();
 
   useEffect(() => {
     async function initializeYear() {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
+        const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
         const [latestTx, latestInvoice] = await Promise.all([
-          supabase
-            .from('transactions')
-            .select('date')
-            .eq('user_id', user.id)
-            .is('deleted_at', null)
-            .order('date', { ascending: false })
-            .limit(1),
-          supabase
-            .from('invoices')
-            .select('issue_date')
-            .eq('user_id', user.id)
-            .eq('status', 'confirmed')
-            .order('issue_date', { ascending: false })
-            .limit(1),
+          supabase.from('transactions').select('date').eq('user_id', user.id).is('deleted_at', null).order('date', { ascending: false }).limit(1),
+          supabase.from('invoices').select('issue_date').eq('user_id', user.id).eq('status', 'confirmed').order('issue_date', { ascending: false }).limit(1),
         ]);
 
         const txDate = latestTx.data?.[0]?.date ? new Date(`${latestTx.data[0].date}T00:00:00`) : null;
         const invoiceDate = latestInvoice.data?.[0]?.issue_date ? new Date(`${latestInvoice.data[0].issue_date}T00:00:00`) : null;
 
-        const latestDate = [txDate, invoiceDate]
-          .filter((d): d is Date => Boolean(d))
-          .sort((a, b) => b.getTime() - a.getTime())[0];
+        const latestDate = [txDate, invoiceDate].filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0];
 
         if (latestDate) {
           const detectedYear = latestDate.getFullYear();
@@ -138,13 +155,11 @@ export default function FinancialHealth() {
         setInitialLoading(false);
       }
     }
-
     initializeYear();
   }, []);
 
   const { scores, details, history, loading, interpretation, recommendations, hasData, lastMonthWithData } = useFinancialHealthScore(year);
 
-  // Build period selection for CFOInsights
   const now = new Date();
   const insightsPeriod: PeriodSelection = useMemo(() => ({
     type: 'year' as const,
@@ -167,7 +182,7 @@ export default function FinancialHealth() {
 
   const coverageLabel = useMemo(() => {
     if (!lastMonthWithData) return `Sin datos acumulados para ${year}`;
-    return `Acumulado: Ene – ${MONTH_NAMES[lastMonthWithData - 1]} ${year}`;
+    return `Ene – ${MONTH_NAMES[lastMonthWithData - 1]} ${year}`;
   }, [lastMonthWithData, year]);
 
   const donutData = useMemo(() => {
@@ -188,136 +203,168 @@ export default function FinancialHealth() {
     }));
   }, [history]);
 
+  const handleAskNico = () => {
+    setPageContext({ page: 'financial-health', filters: { year } });
+    openNico();
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('nico-prefill', { detail: { message: '¿Cómo puedo mejorar mi score fiscal?' } }));
+    }, 300);
+  };
+
   if (loading || initialLoading) {
     return (
       <AppLayout>
-        <div className="max-w-5xl mx-auto space-y-6">
-          <Skeleton className="h-8 w-60" />
-          <Skeleton className="h-64 w-full" />
+        <div className="max-w-4xl mx-auto px-4 space-y-8 py-4">
+          <Skeleton className="h-10 w-48" />
+          <Skeleton className="h-80 w-full rounded-2xl" />
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-44 rounded-2xl" />)}
+          </div>
         </div>
       </AppLayout>
     );
   }
 
+  const risk = scores ? getRiskLevel(scores.total) : null;
+  const nicoMsg = scores ? getNicoMessage(scores.total) : null;
+
   return (
     <AppLayout>
-      <div className="max-w-5xl mx-auto space-y-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div className="max-w-4xl mx-auto px-4 space-y-10 py-4">
+        {/* Page header */}
+        <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Shield className="h-6 w-6 text-primary" />
-              Orden Financiero
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              ¿Tu empresa soporta una visita sorpresa de la DIAN? Ellos llevarán expertos en tu actividad económica, así que vamos a ver qué tan tranquilos podemos estar 🧐
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">{coverageLabel}</p>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Estado fiscal</h1>
+            <p className="text-sm text-muted-foreground mt-1">{coverageLabel}</p>
           </div>
-          <div className="flex gap-2">
-            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-              <SelectTrigger className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {yearOptions.map((y) => (
-                  <SelectItem key={y} value={String(y)}>
-                    {y}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <SelectTrigger className="w-28 rounded-xl">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {yearOptions.map((y) => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
+        {/* No data warning */}
         {!hasData && (
-          <Card className="border-warning/50 bg-warning/5">
-            <CardContent className="pt-4 pb-4 flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-warning shrink-0" />
-              <p className="text-sm text-muted-foreground">
-                No hay datos de extractos o facturas DIAN para {year}. Sube información para calcular el score acumulado real.
-              </p>
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-warning/30 bg-warning/5 p-5 flex items-center gap-4">
+            <AlertTriangle className="h-5 w-5 text-warning shrink-0" />
+            <p className="text-sm text-muted-foreground">
+              No hay datos para {year}. Sube un extracto bancario o factura para calcular tu score.
+            </p>
+          </div>
         )}
 
-        {scores && interpretation && (
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex flex-col md:flex-row items-center gap-8">
-                <div className="relative w-52 h-52 shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={[{ value: 100 }]} dataKey="value" cx="50%" cy="50%" innerRadius={62} outerRadius={82} startAngle={90} endAngle={-270} stroke="none">
-                        <Cell fill="hsl(var(--muted))" />
-                      </Pie>
-                      <Pie data={[...donutData, { name: 'empty', value: bgValue, color: 'transparent' }]} dataKey="value" cx="50%" cy="50%" innerRadius={62} outerRadius={82} startAngle={90} endAngle={-270} stroke="none" paddingAngle={1}>
-                        {donutData.map((entry, index) => (
-                          <Cell key={index} fill={entry.color} />
-                        ))}
-                        <Cell fill="transparent" />
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className={`text-4xl font-bold ${interpretation.color}`}>{scores.total}</span>
-                    <span className="text-xs text-muted-foreground">/100</span>
-                  </div>
-                </div>
-
-                <div className="flex-1 space-y-4">
-                  <div>
-                    <h2 className={`text-xl font-bold ${interpretation.color}`}>{interpretation.level}</h2>
-                  </div>
-                  <div className="flex items-start gap-3 p-4 bg-muted/40 rounded-lg">
-                    <img src={nicoAvatar} alt="Nico" className="w-8 h-8 rounded-full shrink-0 mt-0.5" />
-                    <p className="text-sm text-foreground leading-relaxed">{interpretation.message}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-2">
-                    {donutData.map((seg) => (
-                      <div key={seg.name} className="flex items-center gap-1.5">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: seg.color }} />
-                        <span className="text-xs text-muted-foreground">{seg.name}</span>
-                        <span className="text-xs font-semibold">{seg.value}/20</span>
-                      </div>
-                    ))}
-                  </div>
+        {/* Hero card */}
+        {scores && interpretation && risk && nicoMsg && (
+          <div className="rounded-3xl border border-border/50 bg-gradient-to-br from-card via-card to-muted/20 p-8 md:p-10 shadow-sm">
+            <div className="flex flex-col md:flex-row items-center gap-10">
+              {/* Donut - EXACT SAME CHART */}
+              <div className="relative w-56 h-56 shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={[{ value: 100 }]} dataKey="value" cx="50%" cy="50%" innerRadius={68} outerRadius={90} startAngle={90} endAngle={-270} stroke="none">
+                      <Cell fill="hsl(var(--muted))" />
+                    </Pie>
+                    <Pie data={[...donutData, { name: 'empty', value: bgValue, color: 'transparent' }]} dataKey="value" cx="50%" cy="50%" innerRadius={68} outerRadius={90} startAngle={90} endAngle={-270} stroke="none" paddingAngle={1}>
+                      {donutData.map((entry, index) => (
+                        <Cell key={index} fill={entry.color} />
+                      ))}
+                      <Cell fill="transparent" />
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className={`text-5xl font-bold tracking-tight ${interpretation.color}`}>{scores.total}</span>
+                  <span className="text-sm text-muted-foreground font-medium">/100</span>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+
+              {/* Info side */}
+              <div className="flex-1 space-y-6 text-center md:text-left">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">Nivel de riesgo</p>
+                  <h2 className={`text-2xl font-bold tracking-tight ${risk.color}`}>{risk.label}</h2>
+                </div>
+
+                {/* Nico message - clean and scannable */}
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold text-foreground">{nicoMsg.line1}</p>
+                  <p className="text-sm text-muted-foreground">{nicoMsg.line2}</p>
+                  <p className="text-sm text-foreground/70">{nicoMsg.line3}</p>
+                </div>
+
+                {/* Legend - horizontal clean */}
+                <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center md:justify-start">
+                  {donutData.map((seg) => (
+                    <div key={seg.name} className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: seg.color }} />
+                      <span className="text-xs text-muted-foreground">{seg.name}</span>
+                      <span className="text-xs font-bold text-foreground">{seg.value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Ask Nico button */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs gap-2 text-success hover:text-success hover:bg-success/10 rounded-xl"
+                  onClick={handleAskNico}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Preguntar a Nico
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
 
+        {/* Variable cards */}
         {scores && details && (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {VARIABLES.map((v) => {
               const value = scores[v.key as keyof typeof scores] as number;
               const pctBar = Math.round((value / 20) * 100);
               const barColor = value >= 18 ? 'bg-success' : value >= 15 ? 'bg-success/70' : value >= 10 ? 'bg-warning' : 'bg-destructive';
               const info = getVariableExplanation(v.key, details);
-              const rec = getVariableRecommendation(v.key, value);
+              const alert = getVariableAlert(v.key, value);
 
               return (
-                <Card key={v.key}>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: v.color }} />
-                      {v.label}
-                    </CardTitle>
-                    <CardDescription className="text-xs font-semibold">{info.formula}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="flex items-end gap-2">
-                      <span className="text-2xl font-bold">{value}</span>
-                      <span className="text-sm text-muted-foreground">/20</span>
+                <Card key={v.key} className="rounded-2xl border-border/50 shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-6 space-y-4">
+                    {/* Header */}
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
+                      <span className="text-sm font-medium text-foreground">{v.label}</span>
                     </div>
-                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pctBar}%` }} />
+
+                    {/* Score */}
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-3xl font-bold tracking-tight text-foreground">{value}</span>
+                      <span className="text-sm text-muted-foreground font-medium">/ 20</span>
                     </div>
-                    <p className="text-[11px] text-muted-foreground leading-snug">{info.explanation}</p>
-                    {rec && (
-                      <div className="flex items-start gap-1.5 pt-1">
-                        <AlertTriangle className="h-3 w-3 text-warning shrink-0 mt-0.5" />
-                        <p className="text-[11px] text-warning leading-snug">{rec}</p>
+
+                    {/* Bar */}
+                    <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pctBar}%` }} />
+                    </div>
+
+                    {/* Formula + explanation (max 2 lines) */}
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground">{info.formula}</p>
+                      <p className="text-xs text-muted-foreground/80 mt-0.5 line-clamp-2">{info.explanation}</p>
+                    </div>
+
+                    {/* Alert - compact Apple style */}
+                    {alert && (
+                      <div className="flex items-center gap-2 rounded-xl bg-warning/8 px-3 py-2">
+                        <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
+                        <span className="text-xs text-warning font-medium">{alert}</span>
                       </div>
                     )}
                   </CardContent>
@@ -327,39 +374,17 @@ export default function FinancialHealth() {
           </div>
         )}
 
-        {recommendations.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <img src={nicoAvatar} alt="Nico" className="w-6 h-6 rounded-full" />
-                Recomendaciones de Nico
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-3">
-                {recommendations.map((rec, i) => (
-                  <li key={i} className="flex items-start gap-3 text-sm">
-                    <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-                    <span>{rec}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Nico Insights - Full detail */}
+        {/* CFO Insights */}
         <CFOInsights periodSelection={insightsPeriod} hasTransactions={hasTransactions} />
 
+        {/* Evolution chart */}
         {historyChartData.length > 1 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Evolución acumulada — {year}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+          <Card className="rounded-2xl border-border/50 shadow-sm">
+            <CardContent className="p-6 md:p-8">
+              <div className="flex items-center gap-2 mb-6">
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-base font-semibold text-foreground">Evolución — {year}</h3>
+              </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={historyChartData}>
@@ -367,10 +392,10 @@ export default function FinancialHealth() {
                     <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
                     <Tooltip
-                      contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 8 }}
+                      contentStyle={{ backgroundColor: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12 }}
                       labelStyle={{ color: 'hsl(var(--foreground))' }}
                     />
-                    <Line type="monotone" dataKey="total" stroke="hsl(217, 91%, 60%)" strokeWidth={2} dot={{ r: 4 }} name="Score Total" />
+                    <Line type="monotone" dataKey="total" stroke="hsl(217, 91%, 60%)" strokeWidth={2} dot={{ r: 4 }} name="Score" />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
