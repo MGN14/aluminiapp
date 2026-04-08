@@ -1,25 +1,17 @@
 import { useState, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download } from 'lucide-react';
+import readXlsxFile from 'read-excel-file';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-
-interface ParsedRow {
-  reference: string;
-  name: string;
-  unit: string;
-  stock_system: number;
-  cost_per_unit: number;
-  sale_price: number;
-  min_stock: number;
-  valid: boolean;
-  error?: string;
-}
+import {
+  detectColumnMapping, buildProducts, markDuplicates, resolveDuplicates,
+  type ColumnMapping, type MappedField, type ParsedProduct, type ImportMode, type DuplicateAction,
+} from '@/lib/bulkUploadUtils';
+import StepUpload from './bulk/StepUpload';
+import StepMapping from './bulk/StepMapping';
+import StepPreview from './bulk/StepPreview';
+import StepResult from './bulk/StepResult';
 
 interface Props {
   open: boolean;
@@ -27,8 +19,9 @@ interface Props {
   onComplete: () => void;
 }
 
-const EXPECTED_HEADERS = ['referencia', 'nombre', 'unidad', 'stock', 'costo_unitario', 'precio_venta', 'stock_minimo'];
+type Step = 'upload' | 'mapping' | 'preview' | 'done';
 
+// ── CSV parser ──
 function parseCSVLine(line: string): string[] {
   const result: string[] = [];
   let current = '';
@@ -42,218 +35,255 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
-function parseNumber(val: string): number {
-  if (!val) return 0;
-  const cleaned = val.replace(/[$ ,]/g, '').replace(',', '.');
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? 0 : n;
-}
-
-function validateRow(row: ParsedRow): ParsedRow {
-  const errors: string[] = [];
-  if (!row.reference) errors.push('Sin referencia');
-  if (!row.name) errors.push('Sin nombre');
-  if (row.stock_system < 0) errors.push('Stock negativo');
-  if (row.cost_per_unit < 0) errors.push('Costo negativo');
-  return { ...row, valid: errors.length === 0, error: errors.join(', ') };
-}
-
 export default function BulkUploadModal({ open, onOpenChange, onComplete }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [rows, setRows] = useState<ParsedRow[]>([]);
-  const [step, setStep] = useState<'upload' | 'preview' | 'done'>('upload');
+  const [step, setStep] = useState<Step>('upload');
+  const [fileName, setFileName] = useState('');
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [rawRows, setRawRows] = useState<unknown[][]>([]);
+  const [mapping, setMapping] = useState<ColumnMapping[]>([]);
+  const [products, setProducts] = useState<ParsedProduct[]>([]);
+  const [importMode, setImportMode] = useState<ImportMode>('initial');
+  const [duplicateAction, setDuplicateAction] = useState<DuplicateAction>('sum');
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState({ inserted: 0, errors: 0 });
+  const [errorProducts, setErrorProducts] = useState<ParsedProduct[]>([]);
+  const [hasExistingProducts, setHasExistingProducts] = useState(false);
 
-  const reset = () => { setRows([]); setStep('upload'); setResult({ inserted: 0, errors: 0 }); };
+  const reset = () => {
+    setStep('upload');
+    setFileName('');
+    setHeaders([]);
+    setRawRows([]);
+    setMapping([]);
+    setProducts([]);
+    setImportMode('initial');
+    setDuplicateAction('sum');
+    setUploading(false);
+    setResult({ inserted: 0, errors: 0 });
+    setErrorProducts([]);
+  };
 
-  const processFile = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      if (!text) return;
+  const processFile = useCallback(async (file: File) => {
+    setFileName(file.name);
+    const isCSV = file.name.toLowerCase().endsWith('.csv');
 
-      const lines = text.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) {
-        toast({ title: 'Archivo vacío', description: 'El archivo no contiene datos.', variant: 'destructive' });
-        return;
+    try {
+      let detectedHeaders: string[];
+      let dataRows: unknown[][];
+
+      if (isCSV) {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) {
+          toast({ title: 'Archivo vacío', description: 'El archivo no contiene datos.', variant: 'destructive' });
+          return;
+        }
+        detectedHeaders = parseCSVLine(lines[0]);
+        dataRows = lines.slice(1).map(l => parseCSVLine(l));
+      } else {
+        const rows = await readXlsxFile(file);
+        if (rows.length < 2) {
+          toast({ title: 'Archivo vacío', description: 'El archivo no contiene datos.', variant: 'destructive' });
+          return;
+        }
+        detectedHeaders = rows[0].map(c => String(c ?? ''));
+        dataRows = rows.slice(1);
       }
 
-      // Skip header
-      const dataLines = lines.slice(1);
-      const parsed: ParsedRow[] = dataLines.map(line => {
-        const cols = parseCSVLine(line);
-        return validateRow({
-          reference: cols[0] || '',
-          name: cols[1] || '',
-          unit: cols[2] || 'unidad',
-          stock_system: parseNumber(cols[3] || '0'),
-          cost_per_unit: parseNumber(cols[4] || '0'),
-          sale_price: parseNumber(cols[5] || '0'),
-          min_stock: parseNumber(cols[6] || '0'),
-          valid: true,
-        });
-      });
+      // Filter out completely empty rows
+      dataRows = dataRows.filter(row => row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== ''));
 
-      setRows(parsed);
-      setStep('preview');
-    };
-    reader.readAsText(file);
-  }, [toast]);
+      setHeaders(detectedHeaders);
+      setRawRows(dataRows);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: (files) => { if (files[0]) processFile(files[0]); },
-    accept: { 'text/csv': ['.csv'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'], 'application/vnd.ms-excel': ['.xls'] },
-    maxFiles: 1,
-  });
+      const autoMapping = detectColumnMapping(detectedHeaders);
+      setMapping(autoMapping);
 
-  const handleUpload = async () => {
+      // Check if user has existing products
+      if (user) {
+        const { count } = await supabase.from('inventory_products').select('id', { count: 'exact', head: true }).eq('user_id', user.id);
+        setHasExistingProducts((count ?? 0) > 0);
+      }
+
+      setStep('mapping');
+    } catch (err) {
+      toast({ title: 'Error al leer archivo', description: 'No se pudo interpretar el archivo. Verifica el formato.', variant: 'destructive' });
+    }
+  }, [toast, user]);
+
+  const handleMappingChange = (idx: number, field: MappedField | null) => {
+    setMapping(prev => prev.map((m, i) => i === idx ? { ...m, mappedTo: field } : m));
+  };
+
+  const handleMappingConfirm = () => {
+    const parsed = buildProducts(rawRows, mapping, 2);
+    const withDuplicates = markDuplicates(parsed);
+    setProducts(withDuplicates);
+    setStep('preview');
+  };
+
+  const handleImport = async () => {
     if (!user) return;
     setUploading(true);
-    const validRows = rows.filter(r => r.valid);
+
+    // Resolve duplicates
+    const hasDups = products.some(p => p.isDuplicate);
+    const resolved = hasDups ? resolveDuplicates(products, duplicateAction) : products;
+    const validProducts = resolved.filter(p => p.status !== 'error');
+    const errorProds = resolved.filter(p => p.status === 'error');
+
     let inserted = 0;
-    let errors = 0;
+    let errors = errorProds.length;
 
-    // Insert in batches of 50
-    for (let i = 0; i < validRows.length; i += 50) {
-      const batch = validRows.slice(i, i + 50).map(r => ({
+    try {
+      // Handle import modes
+      if (importMode === 'replace') {
+        // Delete existing products first
+        await supabase.from('inventory_products').delete().eq('user_id', user.id);
+      }
+
+      if (importMode === 'adjust') {
+        // Fetch existing products to adjust
+        const { data: existing } = await supabase.from('inventory_products').select('id, reference, stock_system').eq('user_id', user.id);
+        const existingMap = new Map((existing || []).map(p => [p.reference.toLowerCase(), p]));
+
+        for (let i = 0; i < validProducts.length; i += 50) {
+          const batch = validProducts.slice(i, i + 50);
+          const toUpdate: { id: string; stock_system: number }[] = [];
+          const toInsert: typeof batch = [];
+
+          for (const p of batch) {
+            const ex = existingMap.get(p.referencia.toLowerCase());
+            if (ex) {
+              toUpdate.push({ id: ex.id, stock_system: ex.stock_system + p.stock });
+            } else {
+              toInsert.push(p);
+            }
+          }
+
+          // Update existing
+          for (const u of toUpdate) {
+            const { error } = await supabase.from('inventory_products').update({ stock_system: u.stock_system }).eq('id', u.id);
+            if (error) errors++;
+            else inserted++;
+          }
+
+          // Insert new
+          if (toInsert.length > 0) {
+            const rows = toInsert.map(p => ({
+              user_id: user.id,
+              reference: p.referencia,
+              name: p.nombre,
+              unit: p.unidad,
+              stock_system: p.stock,
+              cost_per_unit: p.costo_unitario,
+              sale_price: p.precio_venta,
+              min_stock: p.stock_minimo,
+            }));
+            const { error } = await supabase.from('inventory_products').insert(rows);
+            if (error) errors += rows.length;
+            else inserted += rows.length;
+          }
+        }
+      } else {
+        // Initial or replace: insert all
+        for (let i = 0; i < validProducts.length; i += 50) {
+          const batch = validProducts.slice(i, i + 50).map(p => ({
+            user_id: user.id,
+            reference: p.referencia,
+            name: p.nombre,
+            unit: p.unidad,
+            stock_system: p.stock,
+            cost_per_unit: p.costo_unitario,
+            sale_price: p.precio_venta,
+            min_stock: p.stock_minimo,
+          }));
+          const { error } = await supabase.from('inventory_products').insert(batch);
+          if (error) errors += batch.length;
+          else inserted += batch.length;
+        }
+      }
+
+      // Log import
+      await supabase.from('inventory_import_logs').insert({
         user_id: user.id,
-        reference: r.reference,
-        name: r.name,
-        unit: r.unit,
-        stock_system: r.stock_system,
-        cost_per_unit: r.cost_per_unit,
-        sale_price: r.sale_price,
-        min_stock: r.min_stock,
-      }));
+        file_name: fileName,
+        rows_imported: inserted,
+        rows_errors: errors,
+        import_mode: importMode,
+        error_details: errorProds.map(p => ({ row: p.rowNumber, ref: p.referencia, issues: p.issues })),
+      });
 
-      const { error } = await supabase.from('inventory_products').insert(batch);
-      if (error) { errors += batch.length; }
-      else { inserted += batch.length; }
+    } catch (err) {
+      console.error('Import error:', err);
     }
 
-    errors += rows.filter(r => !r.valid).length;
     setResult({ inserted, errors });
+    setErrorProducts(errorProds);
     setStep('done');
     setUploading(false);
     if (inserted > 0) onComplete();
   };
 
-  const downloadTemplate = () => {
-    const csv = `referencia,nombre,unidad,stock,costo_unitario,precio_venta,stock_minimo\nREF-001,Perfil T6 Natural,metro,150,45000,72000,20\nREF-002,Lámina Lisa 1mm,unidad,80,38000,55000,10`;
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'plantilla_inventario.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const validCount = rows.filter(r => r.valid).length;
-  const invalidCount = rows.filter(r => !r.valid).length;
+  const hasDuplicates = products.some(p => p.isDuplicate);
+  const sampleRows = rawRows.slice(0, 3);
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Carga masiva de productos</DialogTitle>
-          <DialogDescription>Sube un archivo CSV con tus productos de inventario</DialogDescription>
+          <DialogTitle>
+            {step === 'upload' && 'Carga masiva de inventario'}
+            {step === 'mapping' && 'Mapeo de columnas'}
+            {step === 'preview' && 'Validación de datos'}
+            {step === 'done' && 'Importación completada'}
+          </DialogTitle>
+          <DialogDescription>
+            {step === 'upload' && 'Sube un archivo Excel o CSV — compatible con Siigo'}
+            {step === 'mapping' && 'Confirma que las columnas están correctamente asignadas'}
+            {step === 'preview' && 'Revisa los datos antes de importar'}
+            {step === 'done' && 'Resumen de la importación'}
+          </DialogDescription>
         </DialogHeader>
 
-        {step === 'upload' && (
-          <div className="space-y-4">
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
-                isDragActive ? 'border-success bg-success/5' : 'border-border hover:border-muted-foreground/30'
-              }`}
-            >
-              <input {...getInputProps()} />
-              <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground/50" />
-              <p className="text-sm font-medium">Arrastra tu archivo CSV aquí</p>
-              <p className="text-xs text-muted-foreground mt-1">o haz clic para seleccionar</p>
-            </div>
-            <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2 w-full">
-              <Download className="h-3.5 w-3.5" />
-              Descargar plantilla CSV
-            </Button>
-            <div className="text-xs text-muted-foreground space-y-1 bg-muted/30 rounded-xl p-3">
-              <p className="font-medium">Formato esperado (columnas):</p>
-              <p className="font-mono text-[10px]">{EXPECTED_HEADERS.join(', ')}</p>
-            </div>
-          </div>
+        {step === 'upload' && <StepUpload onFileSelected={processFile} />}
+
+        {step === 'mapping' && (
+          <StepMapping
+            mapping={mapping}
+            sampleRows={sampleRows}
+            fileName={fileName}
+            totalRows={rawRows.length}
+            onMappingChange={handleMappingChange}
+            onConfirm={handleMappingConfirm}
+            onBack={reset}
+          />
         )}
 
         {step === 'preview' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="text-sm font-medium">{rows.length} productos encontrados</p>
-                <p className="text-xs text-muted-foreground">
-                  <span className="text-success">{validCount} válidos</span>
-                  {invalidCount > 0 && <span className="text-destructive ml-2">{invalidCount} con errores</span>}
-                </p>
-              </div>
-            </div>
-
-            <div className="max-h-64 overflow-auto rounded-xl border border-border/50">
-              <Table>
-                <TableHeader>
-                  <TableRow className="text-xs">
-                    <TableHead>Ref.</TableHead>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead className="text-right">Stock</TableHead>
-                    <TableHead className="text-right">Costo</TableHead>
-                    <TableHead>Estado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.slice(0, 50).map((r, i) => (
-                    <TableRow key={i} className={!r.valid ? 'bg-destructive/5' : ''}>
-                      <TableCell className="font-mono text-xs">{r.reference || '—'}</TableCell>
-                      <TableCell className="text-xs">{r.name || '—'}</TableCell>
-                      <TableCell className="text-right text-xs font-mono">{r.stock_system}</TableCell>
-                      <TableCell className="text-right text-xs font-mono">${r.cost_per_unit.toLocaleString('es-CO')}</TableCell>
-                      <TableCell>
-                        {r.valid ? (
-                          <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/30">OK</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-destructive/30">{r.error}</Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {rows.length > 50 && <p className="text-xs text-muted-foreground text-center py-2">+{rows.length - 50} más...</p>}
-            </div>
-
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={reset} className="flex-1">Cancelar</Button>
-              <Button onClick={handleUpload} disabled={uploading || validCount === 0} className="flex-1 gap-2">
-                {uploading ? 'Subiendo...' : `Importar ${validCount} productos`}
-              </Button>
-            </div>
-          </div>
+          <StepPreview
+            products={products}
+            importMode={importMode}
+            duplicateAction={duplicateAction}
+            hasDuplicates={hasDuplicates}
+            hasExistingProducts={hasExistingProducts}
+            onImportModeChange={setImportMode}
+            onDuplicateActionChange={setDuplicateAction}
+            onConfirm={handleImport}
+            onBack={() => setStep('mapping')}
+            uploading={uploading}
+          />
         )}
 
         {step === 'done' && (
-          <div className="text-center space-y-4 py-6">
-            <CheckCircle2 className="h-12 w-12 mx-auto text-success" />
-            <div>
-              <p className="text-lg font-semibold">{result.inserted} productos importados</p>
-              {result.errors > 0 && (
-                <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1">
-                  <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-                  {result.errors} no se pudieron importar
-                </p>
-              )}
-            </div>
-            <Button onClick={() => { reset(); onOpenChange(false); }} className="w-full">Cerrar</Button>
-          </div>
+          <StepResult
+            inserted={result.inserted}
+            errors={result.errors}
+            errorProducts={errorProducts}
+            onClose={() => { reset(); onOpenChange(false); }}
+          />
         )}
       </DialogContent>
     </Dialog>
