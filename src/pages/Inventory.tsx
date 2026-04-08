@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Package } from 'lucide-react';
+import { Plus, Package, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import InventoryMetrics from '@/components/inventory/InventoryMetrics';
@@ -8,6 +8,7 @@ import InventoryChart from '@/components/inventory/InventoryChart';
 import InventoryTable from '@/components/inventory/InventoryTable';
 import AddProductModal from '@/components/inventory/AddProductModal';
 import AdjustStockModal from '@/components/inventory/AdjustStockModal';
+import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import AppLayout from '@/components/layout/AppLayout';
 
 export default function Inventory() {
