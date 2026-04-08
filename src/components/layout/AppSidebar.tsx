@@ -95,12 +95,14 @@ function SidebarSection({ label, items, collapsed, currentPath, currentSearch }:
                 <SidebarMenuButton asChild isActive={active}>
                   <NavLink
                     to={item.url}
+                    end
                     className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
-                      item.highlight && !active
-                        ? 'font-medium text-sidebar-foreground'
-                        : 'text-sidebar-foreground/70'
+                      active
+                        ? 'font-semibold'
+                        : item.highlight
+                          ? 'font-medium text-sidebar-foreground'
+                          : 'text-sidebar-foreground/70'
                     }`}
-                    activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
                   >
                     <item.icon className="h-4 w-4 shrink-0" />
                     {!collapsed && <span>{item.title}</span>}
@@ -145,8 +147,11 @@ export default function AppSidebar() {
                 <SidebarMenuButton asChild isActive={currentPath === '/nico'}>
                   <NavLink
                     to="/nico"
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-semibold border border-success/25 bg-success/8 text-success hover:bg-success/15 transition-colors"
-                    activeClassName="bg-success/20 border-success/40 text-success"
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-semibold border transition-colors ${
+                      currentPath === '/nico'
+                        ? 'bg-success/20 border-success/40 text-success'
+                        : 'border-success/25 bg-success/8 text-success hover:bg-success/15'
+                    }`}
                   >
                     <div className="w-5 h-5 rounded-md overflow-hidden shrink-0 ring-1 ring-success/30">
                       <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
@@ -161,8 +166,9 @@ export default function AppSidebar() {
                 <SidebarMenuButton asChild isActive={currentPath === '/dashboard'}>
                   <NavLink
                     to="/dashboard"
-                    className="flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] text-sidebar-foreground/70 transition-colors"
-                    activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                    className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
+                      currentPath === '/dashboard' ? 'font-semibold' : 'text-sidebar-foreground/70'
+                    }`}
                   >
                     <LayoutDashboard className="h-4 w-4 shrink-0" />
                     {!collapsed && <span>Dashboard</span>}
@@ -187,8 +193,9 @@ export default function AppSidebar() {
             <SidebarMenuButton asChild isActive={currentPath === '/settings'}>
               <NavLink
                 to="/settings"
-                className="flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] text-sidebar-foreground/70 transition-colors"
-                activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
+                  currentPath === '/settings' ? 'font-semibold' : 'text-sidebar-foreground/70'
+                }`}
               >
                 <Settings className="h-4 w-4 shrink-0" />
                 {!collapsed && <span>Ajustes</span>}
