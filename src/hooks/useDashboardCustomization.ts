@@ -21,7 +21,7 @@ const DEFAULT_MODULES: ModuleConfig[] = [
   { id: 'insights', label: 'Insights de Nico', visible: true, order: 0, pinned: false },
   { id: 'mainMetrics', label: 'Métricas principales', visible: true, order: 1, pinned: false },
   { id: 'invoiceTax', label: 'Facturación e impuestos', visible: true, order: 2, pinned: false },
-  { id: 'operational', label: 'Operación (CxC, Anticipos, Clientes)', visible: true, order: 3, pinned: false },
+  { id: 'operational', label: 'Top Clientes y Referencias', visible: true, order: 3, pinned: false },
   { id: 'chartsFlow', label: 'Gráficos de flujo', visible: true, order: 4, pinned: false },
   { id: 'chartsBilling', label: 'Gráficos de facturación', visible: true, order: 5, pinned: false },
   { id: 'pendingTable', label: 'Transacciones pendientes', visible: true, order: 6, pinned: false },
