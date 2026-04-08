@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { LogOut, Settings, Sparkles } from 'lucide-react';
+import { LogOut, Settings, Sparkles, Moon, Sun } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import {
@@ -45,6 +45,26 @@ export default function AppHeader() {
   const { openNico, isOpen } = useNico();
   const [companyInitial, setCompanyInitial] = useState<string | null>(null);
   const [placeholder, setPlaceholder] = useState(PAGE_PLACEHOLDERS.default);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+  };
+
+  // Initialize theme from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') {
+      document.documentElement.classList.add('dark');
+      setIsDark(true);
+    } else {
+      document.documentElement.classList.remove('dark');
+      setIsDark(false);
+    }
+  }, []);
 
   useEffect(() => {
     const updatePlaceholder = () => {
@@ -104,7 +124,16 @@ export default function AppHeader() {
         </kbd>
       </button>
 
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+          onClick={toggleTheme}
+          title={isDark ? 'Modo claro' : 'Modo oscuro'}
+        >
+          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="rounded-full h-9 w-9 p-0">
