@@ -124,7 +124,16 @@ export default function AppHeader() {
         </kbd>
       </button>
 
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+          onClick={toggleTheme}
+          title={isDark ? 'Modo claro' : 'Modo oscuro'}
+        >
+          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="rounded-full h-9 w-9 p-0">
