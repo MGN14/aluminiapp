@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   FileText,
   FileDown,
+  FileUp,
   ArrowLeftRight,
   Link2,
   BarChart3,
@@ -35,7 +36,7 @@ import nicoAvatar from '@/assets/nico-avatar.png';
 import PlanBadge from '@/components/subscription/PlanBadge';
 
 const documentItems = [
-  { title: 'Facturas de Venta', url: '/invoices?type=venta', icon: FileText },
+  { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true },
   { title: 'Facturas de Venta', url: '/invoices?type=venta', icon: FileText },
   { title: 'Facturas de Compra', url: '/invoices?type=compra', icon: FileDown },
 ];
