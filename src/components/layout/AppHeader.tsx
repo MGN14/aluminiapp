@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { LogOut, Settings, Sparkles } from 'lucide-react';
+import { LogOut, Settings, Sparkles, Moon, Sun } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import {
