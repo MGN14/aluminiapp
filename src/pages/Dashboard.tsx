@@ -518,8 +518,8 @@ export default function Dashboard() {
             )}
 
             {/* Render modules in user-defined order */}
-            {orderedModules.map(mod => (
-              <div key={mod.id}>{moduleRenderers[mod.id]()}</div>
+            {orderedModules.map((mod, idx) => (
+              <div key={mod.id}>{moduleRenderers[mod.id](idx)}</div>
             ))}
           </div>
         )}
