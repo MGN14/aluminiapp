@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { SubscriptionProvider } from "@/hooks/useSubscription";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -52,83 +52,65 @@ const App = () => (
               <Route path="/contact" element={<Contact />} />
               <Route
                 path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><Dashboard /></ProtectedRoute>}
               />
               <Route
                 path="/upload"
-                element={
-                  <ProtectedRoute>
-                    <StatementUpload />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><StatementUpload /></ProtectedRoute>}
               />
               <Route
                 path="/statement-upload"
-                element={
-                  <ProtectedRoute>
-                    <StatementUpload />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><StatementUpload /></ProtectedRoute>}
               />
               <Route
                 path="/transactions"
-                element={
-                  <ProtectedRoute>
-                    <Transactions />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><Transactions /></ProtectedRoute>}
               />
               <Route
                 path="/export"
-                element={
-                  <ProtectedRoute>
-                    <Export />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><Export /></ProtectedRoute>}
               />
               <Route
                 path="/settings"
-                element={
-                  <ProtectedRoute>
-                    <Settings />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><Settings /></ProtectedRoute>}
+              />
+              {/* Report routes */}
+              <Route
+                path="/reportes"
+                element={<Navigate to="/reportes/estado-resultados" replace />}
               />
               <Route
+                path="/reportes/estado-resultados"
+                element={<ProtectedRoute><Reports tab="pyg" /></ProtectedRoute>}
+              />
+              <Route
+                path="/reportes/anticipos"
+                element={<ProtectedRoute><Reports tab="anticipos" /></ProtectedRoute>}
+              />
+              <Route
+                path="/reportes/cuentas-por-cobrar"
+                element={<ProtectedRoute><Reports tab="cxc" /></ProtectedRoute>}
+              />
+              <Route
+                path="/reportes/cuentas-por-pagar"
+                element={<ProtectedRoute><Reports tab="cxp" /></ProtectedRoute>}
+              />
+              {/* Legacy redirect */}
+              <Route
                 path="/reports"
-                element={
-                  <ProtectedRoute>
-                    <Reports />
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/reportes/estado-resultados" replace />}
               />
               <Route
                 path="/nico"
-                element={
-                  <ProtectedRoute>
-                    <Nico />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><Nico /></ProtectedRoute>}
               />
               <Route
                 path="/invoices"
-                element={
-                  <ProtectedRoute>
-                    <Invoices />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><Invoices /></ProtectedRoute>}
               />
               <Route
                 path="/financial-health"
-                element={
-                  <ProtectedRoute>
-                    <FinancialHealth />
-                  </ProtectedRoute>
-                }
+                element={<ProtectedRoute><FinancialHealth /></ProtectedRoute>}
               />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

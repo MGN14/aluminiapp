@@ -1,6 +1,4 @@
 import AppLayout from '@/components/layout/AppLayout';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useState } from 'react';
 import PYGReport from '@/components/reports/PYGReport';
 import AdvancesReport from '@/components/reports/AdvancesReport';
 import AccountsReceivableReport from '@/components/reports/AccountsReceivableReport';
@@ -10,15 +8,20 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Lock, Loader2, Crown } from 'lucide-react';
 
-const reportOptions = [
-  { value: 'pyg', label: 'Estado de Resultados (PyG)' },
-  { value: 'anticipos', label: 'Anticipos' },
-  { value: 'cuentas_por_cobrar', label: 'Cuentas por Cobrar' },
-  { value: 'cuentas_por_pagar', label: 'Cuentas por Pagar' },
-];
+type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp';
 
-export default function Reports() {
-  const [selectedReport, setSelectedReport] = useState('pyg');
+const REPORT_TITLES: Record<ReportTab, string> = {
+  pyg: 'Estado de Resultados',
+  anticipos: 'Anticipos',
+  cxc: 'Cuentas por Cobrar',
+  cxp: 'Cuentas por Pagar',
+};
+
+interface Props {
+  tab?: ReportTab;
+}
+
+export default function Reports({ tab = 'pyg' }: Props) {
   const { plan, loading: subLoading, isAdmin, isFounder, isTrialing } = useSubscription();
   const navigate = useNavigate();
 
@@ -44,7 +47,6 @@ export default function Reports() {
           <h1 className="text-2xl font-bold text-foreground mb-2">Reportes Avanzados</h1>
           <p className="text-muted-foreground max-w-md mb-6">
             Los reportes avanzados están disponibles en el Plan Empresarial.
-            Genera estados de resultados y análisis financieros detallados.
           </p>
           <Button onClick={() => navigate('/pricing')} className="gap-2">
             <Crown className="h-4 w-4" />
@@ -58,28 +60,11 @@ export default function Reports() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl font-bold text-foreground">Reportes</h1>
-          <div className="w-full sm:w-64">
-            <Select value={selectedReport} onValueChange={setSelectedReport}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar reporte" />
-              </SelectTrigger>
-              <SelectContent>
-                {reportOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {selectedReport === 'pyg' && <PYGReport />}
-        {selectedReport === 'anticipos' && <AdvancesReport />}
-        {selectedReport === 'cuentas_por_cobrar' && <AccountsReceivableReport />}
-        {selectedReport === 'cuentas_por_pagar' && <AccountsPayableReport />}
+        <h1 className="text-2xl font-bold text-foreground">{REPORT_TITLES[tab]}</h1>
+        {tab === 'pyg' && <PYGReport />}
+        {tab === 'anticipos' && <AdvancesReport />}
+        {tab === 'cxc' && <AccountsReceivableReport />}
+        {tab === 'cxp' && <AccountsPayableReport />}
       </div>
     </AppLayout>
   );

@@ -46,10 +46,10 @@ const movementItems = [
 ];
 
 const reportItems = [
-  { title: 'Estado de resultados', url: '/reports?tab=pyg', icon: BarChart3 },
-  { title: 'Anticipos', url: '/reports?tab=anticipos', icon: Receipt },
-  { title: 'Cuentas por cobrar', url: '/reports?tab=cxc', icon: Users },
-  { title: 'Cuentas por pagar', url: '/reports?tab=cxp', icon: HandCoins },
+  { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3 },
+  { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt },
+  { title: 'Cuentas por cobrar', url: '/reportes/cuentas-por-cobrar', icon: Users },
+  { title: 'Cuentas por pagar', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
   { title: 'Visita DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 
