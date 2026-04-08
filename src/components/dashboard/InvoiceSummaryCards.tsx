@@ -235,7 +235,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     fetchData();
   }, [periodStart, periodEnd, year, cuatrimestreStart, cuatrimestreEnd]);
 
-  const metrics = useMemo((): InvoiceFiscalMetrics => {
+  const metrics = useMemo((): Omit<InvoiceFiscalMetrics, 'topReferences' | 'totalBaseRef'> => {
     const ventas = invoices.filter(i => i.type === 'venta');
     const compras = invoices.filter(i => i.type === 'compra');
     const ventasYear = allYearInvoices.filter(i => i.type === 'venta');
