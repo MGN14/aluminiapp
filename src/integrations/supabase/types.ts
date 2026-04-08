@@ -337,6 +337,39 @@ export type Database = {
           },
         ]
       }
+      inventory_import_logs: {
+        Row: {
+          created_at: string
+          error_details: Json | null
+          file_name: string
+          id: string
+          import_mode: string
+          rows_errors: number
+          rows_imported: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_details?: Json | null
+          file_name: string
+          id?: string
+          import_mode?: string
+          rows_errors?: number
+          rows_imported?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_details?: Json | null
+          file_name?: string
+          id?: string
+          import_mode?: string
+          rows_errors?: number
+          rows_imported?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       inventory_movements: {
         Row: {
           created_at: string
