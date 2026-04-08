@@ -95,12 +95,14 @@ function SidebarSection({ label, items, collapsed, currentPath, currentSearch }:
                 <SidebarMenuButton asChild isActive={active}>
                   <NavLink
                     to={item.url}
+                    end
                     className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
-                      item.highlight && !active
-                        ? 'font-medium text-sidebar-foreground'
-                        : 'text-sidebar-foreground/70'
+                      active
+                        ? 'font-semibold'
+                        : item.highlight
+                          ? 'font-medium text-sidebar-foreground'
+                          : 'text-sidebar-foreground/70'
                     }`}
-                    activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
                   >
                     <item.icon className="h-4 w-4 shrink-0" />
                     {!collapsed && <span>{item.title}</span>}
