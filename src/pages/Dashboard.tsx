@@ -618,15 +618,10 @@ export default function Dashboard() {
               Resumen financiero • {periodRange.label}
             </p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <UnifiedPeriodFilter 
-              selection={periodSelection} 
-              onSelectionChange={setPeriodSelection} 
-            />
-            <Link to="/statement-upload">
-              <Button>Subir Extracto</Button>
-            </Link>
-          </div>
+          <UnifiedPeriodFilter 
+            selection={periodSelection} 
+            onSelectionChange={setPeriodSelection} 
+          />
         </div>
 
         {/* Subscription Success Message */}
