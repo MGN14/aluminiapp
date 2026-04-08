@@ -115,7 +115,7 @@ export default function Dashboard() {
   const [invoiceMetrics, setInvoiceMetrics] = useState<InvoiceFiscalMetrics | null>(null);
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoiceData[]>([]);
   const customization = useDashboardCustomization();
-  // operationalData hook will be called after periodSelection is initialized
+  
 
   const now = new Date();
   const [periodSelection, setPeriodSelection] = useState<PeriodSelection>({
