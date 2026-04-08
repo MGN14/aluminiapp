@@ -71,7 +71,13 @@ function isItemActive(itemUrl: string, currentPath: string, currentSearch: strin
   const [basePath, query] = itemUrl.split('?');
   if (currentPath !== basePath) return false;
   if (!query) return !currentSearch || currentSearch === '?';
-  return currentSearch === `?${query}`;
+  // Match the specific query param key=value pair anywhere in the search string
+  const itemParams = new URLSearchParams(query);
+  const currentParams = new URLSearchParams(currentSearch);
+  for (const [key, value] of itemParams.entries()) {
+    if (currentParams.get(key) !== value) return false;
+  }
+  return true;
 }
 
 function SidebarSection({ label, items, collapsed, currentPath, currentSearch }: SectionProps) {
