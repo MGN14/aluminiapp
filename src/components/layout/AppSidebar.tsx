@@ -3,7 +3,6 @@ import { NavLink } from '@/components/NavLink';
 import {
   LayoutDashboard,
   FileText,
-  FileUp,
   FileDown,
   ArrowLeftRight,
   Link2,
@@ -16,6 +15,7 @@ import {
   Building2,
   Landmark,
   Bot,
+  Settings,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -35,7 +35,7 @@ import nicoAvatar from '@/assets/nico-avatar.png';
 import PlanBadge from '@/components/subscription/PlanBadge';
 
 const documentItems = [
-  { title: 'Extractos', url: '/statement-upload', icon: FileUp },
+  { title: 'Facturas de Venta', url: '/invoices?type=venta', icon: FileText },
   { title: 'Facturas de Venta', url: '/invoices?type=venta', icon: FileText },
   { title: 'Facturas de Compra', url: '/invoices?type=compra', icon: FileDown },
 ];
@@ -176,6 +176,20 @@ export default function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="px-3 py-3 border-t border-sidebar-border">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={currentPath === '/settings'}>
+              <NavLink
+                to="/settings"
+                className="flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] text-sidebar-foreground/70 transition-colors"
+                activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+              >
+                <Settings className="h-4 w-4 shrink-0" />
+                {!collapsed && <span>Ajustes</span>}
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         {!collapsed && <PlanBadge />}
       </SidebarFooter>
     </Sidebar>
