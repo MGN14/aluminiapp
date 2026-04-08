@@ -311,7 +311,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     processFile(file);
   }, [user, processFile, toast]);
 
-  const handleSave = useCallback(async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; retefuente_cliente_rate: number; retefuente_cliente_amount: number; status: string; display_name: string }) => {
+  const handleSave = useCallback(async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; retefuente_cliente_rate: number; retefuente_cliente_amount: number; status: string; display_name: string; dias_credito: number }) => {
     if (!user) return;
     setSaving(true);
     try {
@@ -343,6 +343,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
             reteica_amount: data.reteica_amount,
             retefuente_cliente_rate: data.retefuente_cliente_rate,
             retefuente_cliente_amount: data.retefuente_cliente_amount,
+            dias_credito: data.dias_credito || 0,
             cufe: data.cufe,
             payment_method: data.payment_method,
             status: data.status,
@@ -402,6 +403,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
             reteica_amount: data.reteica_amount,
             retefuente_cliente_rate: data.retefuente_cliente_rate,
             retefuente_cliente_amount: data.retefuente_cliente_amount,
+            dias_credito: data.dias_credito || 0,
             cufe: data.cufe,
             payment_method: data.payment_method,
             status: data.status,

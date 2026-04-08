@@ -403,6 +403,7 @@ export type Database = {
           counterparty_nit: string | null
           created_at: string
           cufe: string | null
+          dias_credito: number | null
           display_name: string | null
           due_date: string | null
           extracted_data: Json | null
@@ -443,6 +444,7 @@ export type Database = {
           counterparty_nit?: string | null
           created_at?: string
           cufe?: string | null
+          dias_credito?: number | null
           display_name?: string | null
           due_date?: string | null
           extracted_data?: Json | null
@@ -483,6 +485,7 @@ export type Database = {
           counterparty_nit?: string | null
           created_at?: string
           cufe?: string | null
+          dias_credito?: number | null
           display_name?: string | null
           due_date?: string | null
           extracted_data?: Json | null

@@ -6,8 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Info, AlertCircle, Receipt } from 'lucide-react';
-import { format, differenceInDays } from 'date-fns';
+import { Input } from '@/components/ui/input';
+import { Info, AlertCircle, Receipt, Search, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { format, differenceInDays, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -21,21 +22,44 @@ function formatCurrency(value: number): string {
 const currentYear = new Date().getFullYear();
 const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-interface InvoiceWithPayments {
+type AgingBucket = 'corriente' | '1-30' | '31-60' | '61-90' | '90+';
+
+interface InvoiceWithAging {
   id: string;
   invoice_number: string;
   counterparty_name: string | null;
   issue_date: string;
+  due_date: string;
   total_amount: number;
   paid_amount: number;
   pending: number;
-  days_since: number;
+  dias_credito: number;
+  days_remaining: number; // positive = days left, negative = days overdue
+  bucket: AgingBucket;
   status: 'pagada' | 'parcial' | 'pendiente';
+}
+
+const bucketConfig: Record<AgingBucket, { label: string; color: string; bgColor: string; borderColor: string; icon: typeof CheckCircle2 }> = {
+  corriente: { label: 'Corriente', color: 'text-success', bgColor: 'bg-success/10', borderColor: 'border-success/30', icon: CheckCircle2 },
+  '1-30': { label: '1–30 días', color: 'text-warning', bgColor: 'bg-warning/10', borderColor: 'border-warning/30', icon: Clock },
+  '31-60': { label: '31–60 días', color: 'text-orange-500', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30', icon: AlertTriangle },
+  '61-90': { label: '61–90 días', color: 'text-destructive', bgColor: 'bg-destructive/10', borderColor: 'border-destructive/30', icon: AlertTriangle },
+  '90+': { label: '+90 días', color: 'text-destructive', bgColor: 'bg-destructive/15', borderColor: 'border-destructive/40', icon: AlertCircle },
+};
+
+function getBucket(daysOverdue: number): AgingBucket {
+  if (daysOverdue <= 0) return 'corriente';
+  if (daysOverdue <= 30) return '1-30';
+  if (daysOverdue <= 60) return '31-60';
+  if (daysOverdue <= 90) return '61-90';
+  return '90+';
 }
 
 export default function AccountsPayableReport() {
   const { user } = useAuth();
   const [year, setYear] = useState(currentYear);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [bucketFilter, setBucketFilter] = useState<string>('all');
 
   const { data, isLoading } = useQuery({
     queryKey: ['accounts-payable', user?.id, year],
@@ -47,7 +71,7 @@ export default function AccountsPayableReport() {
 
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, total_amount, status, type')
+        .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, status, type, dias_credito')
         .eq('user_id', user.id)
         .eq('type', 'compra')
         .gte('issue_date', startDate)
@@ -85,23 +109,69 @@ export default function AccountsPayableReport() {
       });
 
       const today = new Date();
-      const payables: InvoiceWithPayments[] = invoices.map(inv => {
+      const payables: InvoiceWithAging[] = invoices.map(inv => {
         const paid = paymentsByInvoice.get(inv.id) || 0;
         const pending = Math.max(0, inv.total_amount - paid);
-        const daysSince = differenceInDays(today, new Date(inv.issue_date));
+        const diasCredito = (inv as any).dias_credito ?? 0;
+        const dueDate = inv.due_date || addDays(new Date(inv.issue_date), diasCredito).toISOString().slice(0, 10);
+        const daysRemaining = differenceInDays(new Date(dueDate), today);
+        const daysOverdue = -daysRemaining;
         let status: 'pagada' | 'parcial' | 'pendiente' = 'pendiente';
         if (pending <= 0) status = 'pagada';
         else if (paid > 0) status = 'parcial';
-        return { id: inv.id, invoice_number: inv.invoice_number, counterparty_name: inv.counterparty_name, issue_date: inv.issue_date, total_amount: inv.total_amount, paid_amount: paid, pending, days_since: daysSince, status };
+
+        return {
+          id: inv.id,
+          invoice_number: inv.invoice_number,
+          counterparty_name: inv.counterparty_name,
+          issue_date: inv.issue_date,
+          due_date: dueDate,
+          total_amount: inv.total_amount,
+          paid_amount: paid,
+          pending,
+          dias_credito: diasCredito,
+          days_remaining: daysRemaining,
+          bucket: getBucket(daysOverdue),
+          status,
+        };
       });
 
-      return { payables: payables.filter(r => r.pending > 0).sort((a, b) => b.pending - a.pending) };
+      return { payables: payables.filter(r => r.pending > 0).sort((a, b) => a.days_remaining - b.days_remaining) };
     },
     enabled: !!user,
   });
 
-  const totalPending = useMemo(() => {
-    return (data?.payables || []).reduce((s, r) => s + r.pending, 0);
+  const filtered = useMemo(() => {
+    let result = data?.payables || [];
+    if (bucketFilter !== 'all') {
+      result = result.filter(r => r.bucket === bucketFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(r =>
+        (r.counterparty_name || '').toLowerCase().includes(q) ||
+        (r.invoice_number || '').toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [data, bucketFilter, searchQuery]);
+
+  const totalPending = useMemo(() => filtered.reduce((s, r) => s + r.pending, 0), [filtered]);
+
+  const bucketSummary = useMemo(() => {
+    const all = data?.payables || [];
+    const buckets: Record<AgingBucket, { count: number; total: number }> = {
+      corriente: { count: 0, total: 0 },
+      '1-30': { count: 0, total: 0 },
+      '31-60': { count: 0, total: 0 },
+      '61-90': { count: 0, total: 0 },
+      '90+': { count: 0, total: 0 },
+    };
+    all.forEach(inv => {
+      buckets[inv.bucket].count++;
+      buckets[inv.bucket].total += inv.pending;
+    });
+    return buckets;
   }, [data]);
 
   const statusBadge = (status: 'pagada' | 'parcial' | 'pendiente') => {
@@ -118,6 +188,7 @@ export default function AccountsPayableReport() {
   return (
     <TooltipProvider>
       <div className="space-y-4">
+        {/* Header */}
         <Card>
           <CardHeader className="pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -128,7 +199,7 @@ export default function AccountsPayableReport() {
                     <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Facturas de compra registradas con saldo pendiente de pago a proveedores.</p>
+                    <p>Facturas de compra con saldo pendiente, clasificadas por antigüedad de vencimiento.</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -144,21 +215,76 @@ export default function AccountsPayableReport() {
           </CardHeader>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Cuentas por Pagar</CardTitle>
-            <div className="p-2 rounded-lg bg-warning/10">
-              <Receipt className="h-4 w-4 text-warning" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-warning">{formatCurrency(totalPending)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {data?.payables.length ?? 0} factura{(data?.payables.length ?? 0) !== 1 ? 's' : ''} pendientes • {year}
-            </p>
-          </CardContent>
-        </Card>
+        {/* Total + Aging Buckets */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {/* Total card */}
+          <Card className="col-span-2 sm:col-span-3 lg:col-span-1">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Total</CardTitle>
+              <div className="p-1.5 rounded-lg bg-warning/10">
+                <Receipt className="h-3.5 w-3.5 text-warning" />
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-lg font-bold text-warning">{formatCurrency(totalPending)}</div>
+              <p className="text-xs text-muted-foreground">{filtered.length} facturas</p>
+            </CardContent>
+          </Card>
 
+          {/* Bucket cards */}
+          {(Object.entries(bucketConfig) as [AgingBucket, typeof bucketConfig[AgingBucket]][]).map(([key, cfg]) => {
+            const summary = bucketSummary[key];
+            const Icon = cfg.icon;
+            const isActive = bucketFilter === key;
+            return (
+              <Card
+                key={key}
+                className={cn(
+                  'cursor-pointer transition-all hover:shadow-md',
+                  isActive && `ring-2 ring-offset-1 ${cfg.borderColor}`
+                )}
+                onClick={() => setBucketFilter(prev => prev === key ? 'all' : key)}
+              >
+                <CardHeader className="flex flex-row items-center justify-between pb-1 px-3 pt-3">
+                  <CardTitle className="text-xs font-medium text-muted-foreground">{cfg.label}</CardTitle>
+                  <div className={cn('p-1 rounded-md', cfg.bgColor)}>
+                    <Icon className={cn('h-3 w-3', cfg.color)} />
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0 px-3 pb-3">
+                  <div className={cn('text-sm font-bold', cfg.color)}>{formatCurrency(summary.total)}</div>
+                  <p className="text-xs text-muted-foreground">{summary.count} factura{summary.count !== 1 ? 's' : ''}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Filters */}
+        <div className="flex gap-3 flex-wrap items-end">
+          <div className="flex-1 min-w-[200px] max-w-sm">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por proveedor o número..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          </div>
+          {bucketFilter !== 'all' && (
+            <Badge
+              variant="outline"
+              className="cursor-pointer hover:bg-muted h-9 px-3 flex items-center gap-1"
+              onClick={() => setBucketFilter('all')}
+            >
+              {bucketConfig[bucketFilter as AgingBucket]?.label} ✕
+            </Badge>
+          )}
+        </div>
+
+        {/* Table */}
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -168,21 +294,23 @@ export default function AccountsPayableReport() {
                     <TableHead className="font-semibold"># Factura</TableHead>
                     <TableHead className="font-semibold">Proveedor</TableHead>
                     <TableHead className="font-semibold">Emisión</TableHead>
+                    <TableHead className="font-semibold">Vencimiento</TableHead>
                     <TableHead className="font-semibold text-right">Total</TableHead>
                     <TableHead className="font-semibold text-right">Pagado</TableHead>
                     <TableHead className="font-semibold text-right">Pendiente</TableHead>
                     <TableHead className="font-semibold text-center">Días</TableHead>
+                    <TableHead className="font-semibold text-center">Antigüedad</TableHead>
                     <TableHead className="font-semibold text-center">Estado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">Cargando datos...</TableCell>
+                      <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">Cargando datos...</TableCell>
                     </TableRow>
-                  ) : !data?.payables.length ? (
+                  ) : !filtered.length ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12">
+                      <TableCell colSpan={10} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
                           <p className="text-muted-foreground">No hay facturas de compra con saldo pendiente.</p>
@@ -190,25 +318,37 @@ export default function AccountsPayableReport() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    data.payables.map((inv) => (
-                      <TableRow key={inv.id}>
-                        <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
-                        <TableCell className="text-sm">{inv.counterparty_name || 'Sin nombre'}</TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">
-                          {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
-                        </TableCell>
-                        <TableCell className="text-right text-sm font-medium">{formatCurrency(inv.total_amount)}</TableCell>
-                        <TableCell className="text-right text-sm text-success">{formatCurrency(inv.paid_amount)}</TableCell>
-                        <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(inv.pending)}</TableCell>
-                        <TableCell className={cn(
-                          "text-center text-sm font-medium",
-                          inv.days_since > 90 ? 'text-destructive' : inv.days_since > 30 ? 'text-warning' : 'text-muted-foreground'
-                        )}>
-                          {inv.days_since}d
-                        </TableCell>
-                        <TableCell className="text-center">{statusBadge(inv.status)}</TableCell>
-                      </TableRow>
-                    ))
+                    filtered.map((inv) => {
+                      const cfg = bucketConfig[inv.bucket];
+                      const isOverdue = inv.days_remaining < 0;
+                      return (
+                        <TableRow key={inv.id}>
+                          <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
+                          <TableCell className="text-sm">{inv.counterparty_name || 'Sin nombre'}</TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {format(new Date(inv.due_date), 'dd MMM yyyy', { locale: es })}
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-medium">{formatCurrency(inv.total_amount)}</TableCell>
+                          <TableCell className="text-right text-sm text-success">{formatCurrency(inv.paid_amount)}</TableCell>
+                          <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(inv.pending)}</TableCell>
+                          <TableCell className={cn(
+                            "text-center text-sm font-semibold",
+                            isOverdue ? 'text-destructive' : 'text-success'
+                          )}>
+                            {isOverdue ? `${Math.abs(inv.days_remaining)}d vencido` : `${inv.days_remaining}d`}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="outline" className={cn('text-xs', cfg.bgColor, cfg.color, cfg.borderColor)}>
+                              {cfg.label}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center">{statusBadge(inv.status)}</TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
