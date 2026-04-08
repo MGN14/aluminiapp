@@ -274,13 +274,13 @@ export default function Dashboard() {
 
   // ── Build ordered module map ──
   const moduleRenderers: Record<DashboardModule, (idx: number) => ReactNode> = {
-    insights: () => (
-      <DashboardBlock id="insights" customization={customization}>
+    insights: (idx: number) => (
+      <DashboardBlock id="insights" customization={customization} index={idx}>
         <InsightsMiniCards periodSelection={periodSelection} hasTransactions={transactions.length > 0} />
       </DashboardBlock>
     ),
-    mainMetrics: () => (
-      <DashboardBlock id="mainMetrics" customization={customization}>
+    mainMetrics: (idx: number) => (
+      <DashboardBlock id="mainMetrics" customization={customization} index={idx}>
         {/* Apple-style Main Metrics */}
         <div className="grid gap-5 md:grid-cols-3">
           {/* Ingresos */}
@@ -339,8 +339,8 @@ export default function Dashboard() {
         </div>
       </DashboardBlock>
     ),
-    invoiceTax: () => (
-      <DashboardBlock id="invoiceTax" customization={customization}>
+    invoiceTax: (idx: number) => (
+      <DashboardBlock id="invoiceTax" customization={customization} index={idx}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 auto-rows-fr">
           <InvoiceSummaryCards
             periodStart={periodRange.start}
@@ -400,31 +400,31 @@ export default function Dashboard() {
         </div>
       </DashboardBlock>
     ),
-    operational: () => (
-      <DashboardBlock id="operational" customization={customization}>
+    operational: (idx: number) => (
+      <DashboardBlock id="operational" customization={customization} index={idx}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OperationalSummaryCards year={periodSelection.year} periodLabel={periodRange.label} />
         </div>
       </DashboardBlock>
     ),
-    chartsFlow: () => (
-      <DashboardBlock id="chartsFlow" customization={customization}>
+    chartsFlow: (idx: number) => (
+      <DashboardBlock id="chartsFlow" customization={customization} index={idx}>
         <div className="grid gap-6 lg:grid-cols-2">
           <IncomeVsExpenseChart data={incomeVsExpenseData} periodLabel={periodRange.label} />
           <ExpensesByCategoryChart data={expensesByCategoryData} periodLabel={periodRange.label} />
         </div>
       </DashboardBlock>
     ),
-    chartsBilling: () => (
-      <DashboardBlock id="chartsBilling" customization={customization}>
+    chartsBilling: (idx: number) => (
+      <DashboardBlock id="chartsBilling" customization={customization} index={idx}>
         <div className="grid gap-6 lg:grid-cols-2">
           <BilledByMonthChart data={billedByMonthData} year={periodSelection.year} />
           <BilledByClientMonthChart data={billedByClientMonth.data} clientKeys={billedByClientMonth.clientKeys} year={periodSelection.year} />
         </div>
       </DashboardBlock>
     ),
-    pendingTable: () => (
-      <DashboardBlock id="pendingTable" customization={customization}>
+    pendingTable: (idx: number) => (
+      <DashboardBlock id="pendingTable" customization={customization} index={idx}>
         <PendingTransactionsTable
           transactions={transactions.filter(tx => new Date(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type }))}
           categories={categories}
