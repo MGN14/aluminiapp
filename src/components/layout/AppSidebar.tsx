@@ -37,8 +37,8 @@ import PlanBadge from '@/components/subscription/PlanBadge';
 
 const documentItems = [
   { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true },
-  { title: 'Facturas de Venta', url: '/invoices?type=venta', icon: FileText },
-  { title: 'Facturas de Compra', url: '/invoices?type=compra', icon: FileDown },
+  { title: 'Facturas de Venta', url: '/invoices/venta', icon: FileText },
+  { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown },
 ];
 
 const movementItems = [

@@ -24,7 +24,8 @@ import Contact from "./pages/Contact";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
 import Nico from "./pages/Nico";
-import Invoices from "./pages/Invoices";
+import InvoicesVenta from "./pages/InvoicesVenta";
+import InvoicesCompra from "./pages/InvoicesCompra";
 import FinancialHealth from "./pages/FinancialHealth";
 import Inventory from "./pages/Inventory";
 import NotFound from "./pages/NotFound";
@@ -106,8 +107,17 @@ const App = () => (
                 element={<ProtectedRoute><Nico /></ProtectedRoute>}
               />
               <Route
+                path="/invoices/venta"
+                element={<ProtectedRoute><InvoicesVenta /></ProtectedRoute>}
+              />
+              <Route
+                path="/invoices/compra"
+                element={<ProtectedRoute><InvoicesCompra /></ProtectedRoute>}
+              />
+              {/* Legacy redirect */}
+              <Route
                 path="/invoices"
-                element={<ProtectedRoute><Invoices /></ProtectedRoute>}
+                element={<Navigate to="/invoices/venta" replace />}
               />
               <Route
                 path="/financial-health"
