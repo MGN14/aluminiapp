@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-// @ts-ignore - read-excel-file has conditional exports
-import readXlsxFile from 'read-excel-file/browser';
+import readXlsxFile from 'read-excel-file';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
