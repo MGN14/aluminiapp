@@ -26,6 +26,7 @@ interface FormData extends ExtractedInvoiceData {
   retefuente_cliente_amount: number;
   status: string;
   display_name: string;
+  dias_credito: number;
 }
 
 interface Props {
@@ -56,6 +57,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
     retefuente_cliente_amount: Math.round(data.subtotal_base * 2.5 / 100),
     status: 'draft',
     display_name: suggestedName || (originalFilename?.replace('.pdf', '') || ''),
+    dias_credito: 0,
   });
 
   // Fetch tax_settings once and auto-populate rates + recalculate amounts
