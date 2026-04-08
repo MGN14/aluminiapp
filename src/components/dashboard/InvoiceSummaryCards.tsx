@@ -340,7 +340,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
   const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
 
-  const totalBaseRef = invoiceItems.reduce((s, item) => s + item.line_base, 0);
+  // totalBaseRef already computed above
 
   return (
     <TooltipProvider>
