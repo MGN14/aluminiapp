@@ -84,7 +84,7 @@ export default function BulkUploadModal({ open, onOpenChange, onComplete }: Prop
         detectedHeaders = parseCSVLine(lines[0]);
         dataRows = lines.slice(1).map(l => parseCSVLine(l));
       } else {
-        const rows = await readXlsxFile(file) as unknown[][];
+        const rows = (await readXlsxFile(file)) as unknown as unknown[][];
         if (rows.length < 2) {
           toast({ title: 'Archivo vacío', description: 'El archivo no contiene datos.', variant: 'destructive' });
           return;
