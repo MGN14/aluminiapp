@@ -44,10 +44,16 @@ export default function Inventory() {
               </p>
             </div>
           </div>
-          <Button onClick={() => setShowAdd(true)} size="sm" className="gap-2 rounded-xl">
-            <Plus className="h-4 w-4" />
-            Agregar producto
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowBulk(true)} size="sm" className="gap-2 rounded-xl">
+              <Upload className="h-4 w-4" />
+              Carga masiva
+            </Button>
+            <Button onClick={() => setShowAdd(true)} size="sm" className="gap-2 rounded-xl">
+              <Plus className="h-4 w-4" />
+              Agregar producto
+            </Button>
+          </div>
         </div>
 
         {loading ? (
