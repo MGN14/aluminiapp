@@ -20,7 +20,7 @@ import InsightsMiniCards from '@/components/dashboard/InsightsMiniCards';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
-import OperationalSummaryCards from '@/components/dashboard/OperationalSummaryCards';
+import { useOperationalData, CxCCard, AnticiposCard, TopBuyersCard } from '@/components/dashboard/OperationalSummaryCards';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import InitialStateWarning from '@/components/dashboard/InitialStateWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
