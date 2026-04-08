@@ -12,6 +12,7 @@ import { format, differenceInDays, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from 'recharts';
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('es-CO', {
@@ -39,12 +40,12 @@ interface InvoiceWithAging {
   status: 'pagada' | 'parcial' | 'pendiente';
 }
 
-const bucketConfig: Record<AgingBucket, { label: string; color: string; bgColor: string; borderColor: string; icon: typeof CheckCircle2 }> = {
-  corriente: { label: 'Corriente', color: 'text-success', bgColor: 'bg-success/10', borderColor: 'border-success/30', icon: CheckCircle2 },
-  '1-30': { label: '1–30 días', color: 'text-warning', bgColor: 'bg-warning/10', borderColor: 'border-warning/30', icon: Clock },
-  '31-60': { label: '31–60 días', color: 'text-orange-500', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30', icon: AlertTriangle },
-  '61-90': { label: '61–90 días', color: 'text-destructive', bgColor: 'bg-destructive/10', borderColor: 'border-destructive/30', icon: AlertTriangle },
-  '90+': { label: '+90 días', color: 'text-destructive', bgColor: 'bg-destructive/15', borderColor: 'border-destructive/40', icon: AlertCircle },
+const bucketConfig: Record<AgingBucket, { label: string; color: string; bgColor: string; borderColor: string; icon: typeof CheckCircle2; chartColor: string }> = {
+  corriente: { label: 'Corriente', color: 'text-success', bgColor: 'bg-success/10', borderColor: 'border-success/30', icon: CheckCircle2, chartColor: 'hsl(152, 69%, 40%)' },
+  '1-30': { label: '1–30 días', color: 'text-warning', bgColor: 'bg-warning/10', borderColor: 'border-warning/30', icon: Clock, chartColor: 'hsl(45, 93%, 47%)' },
+  '31-60': { label: '31–60 días', color: 'text-orange-500', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30', icon: AlertTriangle, chartColor: 'hsl(24, 95%, 53%)' },
+  '61-90': { label: '61–90 días', color: 'text-destructive', bgColor: 'bg-destructive/10', borderColor: 'border-destructive/30', icon: AlertTriangle, chartColor: 'hsl(0, 72%, 56%)' },
+  '90+': { label: '+90 días', color: 'text-destructive', bgColor: 'bg-destructive/15', borderColor: 'border-destructive/40', icon: AlertCircle, chartColor: 'hsl(0, 84%, 40%)' },
 };
 
 function getBucket(daysOverdue: number): AgingBucket {
@@ -174,6 +175,15 @@ export default function AccountsPayableReport() {
     return buckets;
   }, [data]);
 
+  const chartData = useMemo(() => {
+    return (Object.entries(bucketConfig) as [AgingBucket, typeof bucketConfig[AgingBucket]][]).map(([key, cfg]) => ({
+      name: cfg.label,
+      monto: bucketSummary[key].total,
+      count: bucketSummary[key].count,
+      fill: cfg.chartColor,
+    }));
+  }, [bucketSummary]);
+
   const statusBadge = (status: 'pagada' | 'parcial' | 'pendiente') => {
     switch (status) {
       case 'pagada':
@@ -259,6 +269,36 @@ export default function AccountsPayableReport() {
             );
           })}
         </div>
+
+        {/* Aging Chart */}
+        {(data?.payables?.length ?? 0) > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Distribución por Antigüedad</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[220px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={v => `$${(v / 1_000_000).toFixed(1)}M`} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} width={60} />
+                    <RechartsTooltip
+                      formatter={(value: number) => [formatCurrency(value), 'Monto']}
+                      contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '13px' }}
+                      labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
+                    />
+                    <Bar dataKey="monto" radius={[6, 6, 0, 0]} maxBarSize={60}>
+                      {chartData.map((entry, index) => (
+                        <Cell key={index} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Filters */}
         <div className="flex gap-3 flex-wrap items-end">
