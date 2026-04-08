@@ -465,7 +465,7 @@ export default function Dashboard() {
     <AppLayout>
       <div className="max-w-7xl mx-auto space-y-8">
         {/* ─── Header ─── */}
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between animate-fade-in">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl overflow-hidden border-2 border-success/20 shadow-sm shrink-0">
               <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
