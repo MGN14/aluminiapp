@@ -125,6 +125,7 @@ export default function Dashboard() {
     year: now.getFullYear(),
   });
   const [periodInitialized, setPeriodInitialized] = useState(false);
+  const operationalData = useOperationalData(periodSelection.year);
 
   // ── Checkout success ──
   useEffect(() => {
