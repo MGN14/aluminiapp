@@ -311,7 +311,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     processFile(file);
   }, [user, processFile, toast]);
 
-  const handleSave = useCallback(async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; retefuente_cliente_rate: number; retefuente_cliente_amount: number; status: string; display_name: string }) => {
+  const handleSave = useCallback(async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; retefuente_cliente_rate: number; retefuente_cliente_amount: number; status: string; display_name: string; dias_credito: number }) => {
     if (!user) return;
     setSaving(true);
     try {
