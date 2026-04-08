@@ -43,6 +43,7 @@ const documentItems = [
 
 const movementItems = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
+  { title: 'Inventarios', url: '/inventarios', icon: Package },
 ];
 
 const reportItems = [
