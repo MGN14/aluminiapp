@@ -329,10 +329,12 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
   // onMetrics reporting moved to render guard below
 
+  const totalBaseRef = invoiceItems.reduce((s, item) => s + item.line_base, 0);
+
   // Always report metrics to parent even when loading or no invoices
   useEffect(() => {
-    if (!loading && onMetrics) onMetrics(metrics);
-  }, [loading, metrics, onMetrics]);
+    if (!loading && onMetrics) onMetrics({ ...metrics, topReferences, totalBaseRef });
+  }, [loading, metrics, topReferences, totalBaseRef, onMetrics]);
 
   if (loading) return null;
 
