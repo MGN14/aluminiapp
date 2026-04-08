@@ -175,6 +175,15 @@ export default function AccountsPayableReport() {
     return buckets;
   }, [data]);
 
+  const chartData = useMemo(() => {
+    return (Object.entries(bucketConfig) as [AgingBucket, typeof bucketConfig[AgingBucket]][]).map(([key, cfg]) => ({
+      name: cfg.label,
+      monto: bucketSummary[key].total,
+      count: bucketSummary[key].count,
+      fill: cfg.chartColor,
+    }));
+  }, [bucketSummary]);
+
   const statusBadge = (status: 'pagada' | 'parcial' | 'pendiente') => {
     switch (status) {
       case 'pagada':
@@ -260,6 +269,36 @@ export default function AccountsPayableReport() {
             );
           })}
         </div>
+
+        {/* Aging Chart */}
+        {(data?.payables?.length ?? 0) > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Distribución por Antigüedad</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[220px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={v => `$${(v / 1_000_000).toFixed(1)}M`} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} width={60} />
+                    <RechartsTooltip
+                      formatter={(value: number) => [formatCurrency(value), 'Monto']}
+                      contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: '13px' }}
+                      labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
+                    />
+                    <Bar dataKey="monto" radius={[6, 6, 0, 0]} maxBarSize={60}>
+                      {chartData.map((entry, index) => (
+                        <Cell key={index} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Filters */}
         <div className="flex gap-3 flex-wrap items-end">
