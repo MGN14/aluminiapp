@@ -81,6 +81,8 @@ export interface InvoiceFiscalMetrics {
   ventasCount: number;
   comprasCount: number;
   topClients: [string, number][];
+  topReferences: [string, { total: number; qty: number }][];
+  totalBaseRef: number;
 }
 
 interface Props {
