@@ -1,0 +1,89 @@
+import { useState, useCallback, useEffect } from 'react';
+
+export type DashboardModule =
+  | 'insights'
+  | 'mainMetrics'
+  | 'invoiceTax'
+  | 'operational'
+  | 'chartsFlow'
+  | 'chartsBilling'
+  | 'pendingTable';
+
+interface ModuleConfig {
+  id: DashboardModule;
+  label: string;
+  visible: boolean;
+  order: number;
+  pinned: boolean;
+}
+
+const DEFAULT_MODULES: ModuleConfig[] = [
+  { id: 'insights', label: 'Insights de Nico', visible: true, order: 0, pinned: false },
+  { id: 'mainMetrics', label: 'Métricas principales', visible: true, order: 1, pinned: false },
+  { id: 'invoiceTax', label: 'Facturación e impuestos', visible: true, order: 2, pinned: false },
+  { id: 'operational', label: 'Operación (CxC, Anticipos, Clientes)', visible: true, order: 3, pinned: false },
+  { id: 'chartsFlow', label: 'Gráficos de flujo', visible: true, order: 4, pinned: false },
+  { id: 'chartsBilling', label: 'Gráficos de facturación', visible: true, order: 5, pinned: false },
+  { id: 'pendingTable', label: 'Transacciones pendientes', visible: true, order: 6, pinned: false },
+];
+
+const STORAGE_KEY = 'dashboard-customization';
+
+function loadModules(): ModuleConfig[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as ModuleConfig[];
+      // Merge with defaults to handle new modules
+      const map = new Map(parsed.map(m => [m.id, m]));
+      return DEFAULT_MODULES.map(d => map.get(d.id) || d).sort((a, b) => a.order - b.order);
+    }
+  } catch {}
+  return DEFAULT_MODULES;
+}
+
+export function useDashboardCustomization() {
+  const [modules, setModules] = useState<ModuleConfig[]>(loadModules);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(modules));
+  }, [modules]);
+
+  const toggleVisibility = useCallback((id: DashboardModule) => {
+    setModules(prev => prev.map(m => m.id === id ? { ...m, visible: !m.visible } : m));
+  }, []);
+
+  const togglePin = useCallback((id: DashboardModule) => {
+    setModules(prev => prev.map(m => m.id === id ? { ...m, pinned: !m.pinned } : m));
+  }, []);
+
+  const moveUp = useCallback((id: DashboardModule) => {
+    setModules(prev => {
+      const idx = prev.findIndex(m => m.id === id);
+      if (idx <= 0) return prev;
+      const next = [...prev];
+      [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+      return next.map((m, i) => ({ ...m, order: i }));
+    });
+  }, []);
+
+  const moveDown = useCallback((id: DashboardModule) => {
+    setModules(prev => {
+      const idx = prev.findIndex(m => m.id === id);
+      if (idx < 0 || idx >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+      return next.map((m, i) => ({ ...m, order: i }));
+    });
+  }, []);
+
+  const resetDefaults = useCallback(() => {
+    setModules(DEFAULT_MODULES);
+  }, []);
+
+  const isVisible = useCallback((id: DashboardModule) => {
+    return modules.find(m => m.id === id)?.visible ?? true;
+  }, [modules]);
+
+  return { modules, toggleVisibility, togglePin, moveUp, moveDown, resetDefaults, isVisible };
+}
