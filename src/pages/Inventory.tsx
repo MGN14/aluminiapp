@@ -89,6 +89,7 @@ export default function Inventory() {
       </div>
 
       <AddProductModal open={showAdd} onOpenChange={setShowAdd} onSubmit={addProduct} />
+      <BulkUploadModal open={showBulk} onOpenChange={setShowBulk} onComplete={refetch} />
       <AdjustStockModal
         open={!!adjustProduct}
         onOpenChange={(open) => { if (!open) setAdjustProduct(null); }}
