@@ -229,12 +229,12 @@ export default function Transactions() {
 
     // Date range filter
     if (filters.dateFrom) {
-      const from = parseLocalDate(filters.dateFrom);
+      const from = new Date(filters.dateFrom);
       from.setHours(0, 0, 0, 0);
       result = result.filter(tx => parseLocalDate(tx.date) >= from);
     }
     if (filters.dateTo) {
-      const to = parseLocalDate(filters.dateTo);
+      const to = new Date(filters.dateTo);
       to.setHours(23, 59, 59, 999);
       result = result.filter(tx => parseLocalDate(tx.date) <= to);
     }
