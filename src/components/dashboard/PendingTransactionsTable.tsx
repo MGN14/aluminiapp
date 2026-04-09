@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -67,7 +68,7 @@ export function PendingTransactionsTable({
         if (removedIds.has(tx.id)) return false;
         return !tx.responsible_id;
       })
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      .sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
   }, [transactions, removedIds]);
 
   // Handle category change (does NOT mark as reconciled)
@@ -298,7 +299,7 @@ export function PendingTransactionsTable({
                 {pendingTransactions.map(tx => (
                   <TableRow key={tx.id}>
                     <TableCell className="font-mono text-sm">
-                      {new Date(tx.date).toLocaleDateString('es-CO', {
+                      {parseLocalDate(tx.date).toLocaleDateString('es-CO', {
                         day: '2-digit',
                         month: 'short'
                       })}

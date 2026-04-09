@@ -6,6 +6,7 @@ import { AlertCircle, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -110,7 +111,7 @@ export default function AdvancesTable({
                   return (
                     <TableRow key={tx.id}>
                       <TableCell className="text-sm whitespace-nowrap">
-                        {format(new Date(tx.date), 'dd MMM yyyy', { locale: es })}
+                        {format(parseLocalDate(tx.date), 'dd MMM yyyy', { locale: es })}
                       </TableCell>
                       <TableCell className="text-sm font-medium">{clientName}</TableCell>
                       <TableCell className="text-sm truncate max-w-[300px]">{tx.description}</TableCell>

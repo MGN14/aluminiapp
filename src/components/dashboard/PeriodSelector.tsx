@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import {
@@ -49,7 +50,7 @@ export function PeriodSelector({ selectedMonth, selectedYear, onPeriodChange }: 
       // Add years from transaction dates
       transactions?.forEach(t => {
         if (t.date) {
-          const year = new Date(t.date).getFullYear();
+          const year = parseLocalDate(t.date).getFullYear();
           if (year >= 2020 && year <= 2030) yearsSet.add(year);
         }
       });
@@ -99,7 +100,7 @@ export function PeriodSelector({ selectedMonth, selectedYear, onPeriodChange }: 
           .single();
 
         if (transaction?.date) {
-          const date = new Date(transaction.date);
+          const date = parseLocalDate(transaction.date);
           onPeriodChange(date.getMonth() + 1, date.getFullYear());
         }
       }

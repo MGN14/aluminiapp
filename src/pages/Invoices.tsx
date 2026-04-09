@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { useToast } from '@/hooks/use-toast';
 import InvoiceUploadModal from '@/components/invoices/InvoiceUploadModal';
 import DIANSummary from '@/components/invoices/DIANSummary';
@@ -410,7 +411,7 @@ function InvoiceTableCard({ invoices: filtered, loading, onResumeDraft, onViewPD
                   return (
                     <TableRow key={inv.id} className={isDraftOrError ? 'bg-warning/5' : ''}>
                       <TableCell className="text-sm">
-                        {format(new Date(displayDate), 'dd MMM yy', { locale: es })}
+                        {format(parseLocalDate(displayDate), 'dd MMM yy', { locale: es })}
                       </TableCell>
                       <TableCell className="font-medium text-sm truncate max-w-[200px]">
                         {inv.display_name || inv.invoice_number || inv.original_filename || '—'}

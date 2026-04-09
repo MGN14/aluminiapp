@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MONTH_NAMES } from '@/types/transaction';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { Receipt, AlertCircle, Info, Lightbulb, CheckCircle2, ChevronDown, ChevronRight, Banknote, ShieldCheck, History } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -532,7 +533,7 @@ export default function AccountsReceivableReport() {
                                               {detailTypeBadge(d.type)}
                                               {d.date && (
                                                 <span className="text-xs text-muted-foreground">
-                                                  {format(new Date(d.date), 'dd MMM yyyy', { locale: es })}
+                                                   {format(parseLocalDate(d.date), 'dd MMM yyyy', { locale: es })}
                                                 </span>
                                               )}
                                             </div>
@@ -669,7 +670,7 @@ export default function AccountsReceivableReport() {
                                                 {detailTypeBadge(d.type)}
                                                 {d.date && (
                                                   <span className="text-xs text-muted-foreground">
-                                                    {format(new Date(d.date), 'dd MMM yyyy', { locale: es })}
+                                                    {format(parseLocalDate(d.date), 'dd MMM yyyy', { locale: es })}
                                                   </span>
                                                 )}
                                               </div>

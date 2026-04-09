@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSubscription } from '@/hooks/useSubscription';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible } from '@/types/transaction';
+import { parseLocalDate } from '@/lib/dateUtils';
 import TransactionRow from '@/components/transactions/TransactionRow';
 import TransactionDetailModal from '@/components/transactions/TransactionDetailModal';
 import ResponsibleManagement from '@/components/management/ResponsibleManagement';
@@ -230,12 +231,12 @@ export default function Transactions() {
     if (filters.dateFrom) {
       const from = new Date(filters.dateFrom);
       from.setHours(0, 0, 0, 0);
-      result = result.filter(tx => new Date(tx.date) >= from);
+      result = result.filter(tx => parseLocalDate(tx.date) >= from);
     }
     if (filters.dateTo) {
       const to = new Date(filters.dateTo);
       to.setHours(23, 59, 59, 999);
-      result = result.filter(tx => new Date(tx.date) <= to);
+      result = result.filter(tx => parseLocalDate(tx.date) <= to);
     }
 
     // Sort logic
@@ -249,8 +250,8 @@ export default function Transactions() {
     } else {
       // Default: sort by date with created_at tiebreaker
       result.sort((a, b) => {
-        const dateA = new Date(a.date).getTime();
-        const dateB = new Date(b.date).getTime();
+        const dateA = parseLocalDate(a.date).getTime();
+        const dateB = parseLocalDate(b.date).getTime();
         const dateDiff = filters.sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
         if (dateDiff !== 0) return dateDiff;
         const createdA = new Date(a.created_at).getTime();

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo } from 'react';
 import { Transaction, Category, Responsible, SimpleTransactionType, SIMPLE_TYPES } from '@/types/transaction';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 import { TableCell, TableRow } from '@/components/ui/table';
 import {
@@ -195,7 +196,7 @@ export default function TransactionRow({
       !isReconciled && 'bg-warning/5 border-l-2 border-l-warning'
     )}>
       <TableCell className="font-medium text-sm w-[80px]">
-        {format(new Date(localTransaction.date), 'dd MMM', { locale: es })}
+        {format(parseLocalDate(localTransaction.date), 'dd MMM', { locale: es })}
       </TableCell>
       
       <TableCell className="min-w-[300px] max-w-[450px]">

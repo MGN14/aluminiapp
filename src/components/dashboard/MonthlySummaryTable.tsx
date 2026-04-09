@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -47,7 +48,7 @@ export function MonthlySummaryTable({
   // Filter transactions for the selected month
   const monthTransactions = useMemo(() => {
     return transactions.filter(tx => {
-      const txDate = new Date(tx.date);
+      const txDate = parseLocalDate(tx.date);
       return txDate >= monthPeriod.start && txDate <= monthPeriod.end;
     });
   }, [transactions, monthPeriod]);
@@ -55,7 +56,7 @@ export function MonthlySummaryTable({
   // Filter transactions for the cuatrimestre (for IVA)
   const cuatrimestreTransactions = useMemo(() => {
     return transactions.filter(tx => {
-      const txDate = new Date(tx.date);
+      const txDate = parseLocalDate(tx.date);
       return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
     });
   }, [transactions, cuatrimestre]);
@@ -170,10 +171,10 @@ export function MonthlySummaryTable({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {monthTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 20) // Show first 20
+                  {monthTransactions.sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime()).slice(0, 20) // Show first 20
               .map(tx => <TableRow key={tx.id}>
                         <TableCell className="font-mono text-sm">
-                          {new Date(tx.date).toLocaleDateString('es-CO', {
+                          {parseLocalDate(tx.date).toLocaleDateString('es-CO', {
                     day: '2-digit',
                     month: 'short'
                   })}

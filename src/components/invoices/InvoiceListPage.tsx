@@ -4,6 +4,7 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Invoice } from '@/types/invoice';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -282,7 +283,7 @@ export default function InvoiceListPage({ type }: Props) {
                       return (
                         <TableRow key={inv.id} className={isDraftOrError ? 'bg-warning/5' : ''}>
                           <TableCell className="text-sm">
-                            {format(new Date(displayDate), 'dd MMM yy', { locale: es })}
+                            {format(parseLocalDate(displayDate), 'dd MMM yy', { locale: es })}
                           </TableCell>
                           <TableCell className="font-medium text-sm truncate max-w-[200px]">
                             {inv.display_name || inv.invoice_number || inv.original_filename || '—'}

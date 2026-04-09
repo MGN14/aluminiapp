@@ -9,6 +9,7 @@ import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/components/dashboard/UnifiedPeriodFilter';
 import { PendingTransactionsTable } from '@/components/dashboard/PendingTransactionsTable';
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
@@ -174,7 +175,7 @@ export default function Dashboard() {
       }
       const { data: transaction } = await supabase.from('transactions').select('date').order('date', { ascending: false }).limit(1).single();
       if (transaction?.date) {
-        const date = new Date(transaction.date);
+        const date = parseLocalDate(transaction.date);
         const month = date.getMonth() + 1;
         setPeriodSelection({ type: 'quarter', month, quarter: Math.ceil(month / 3), year: date.getFullYear() });
       }
@@ -212,19 +213,19 @@ export default function Dashboard() {
   const periodRange = useMemo(() => getPeriodDateRange(periodSelection), [periodSelection]);
   const cuatrimestre = useMemo(() => getCuatrimestreForPeriod(periodSelection.month, periodSelection.year), [periodSelection.month, periodSelection.year]);
 
-  const periodTransactions = useMemo(() => transactions.filter(tx => { const d = new Date(tx.date); return d >= periodRange.start && d <= periodRange.end; }), [transactions, periodRange]);
-  const cuatrimestreTransactions = useMemo(() => transactions.filter(tx => { const d = new Date(tx.date); return d >= cuatrimestre.start && d <= cuatrimestre.end; }), [transactions, cuatrimestre]);
+  const periodTransactions = useMemo(() => transactions.filter(tx => { const d = parseLocalDate(tx.date); return d >= periodRange.start && d <= periodRange.end; }), [transactions, periodRange]);
+  const cuatrimestreTransactions = useMemo(() => transactions.filter(tx => { const d = parseLocalDate(tx.date); return d >= cuatrimestre.start && d <= cuatrimestre.end; }), [transactions, cuatrimestre]);
 
   const gmfMetrics = useMemo(() => {
     const yearStart = new Date(periodSelection.year, 0, 1);
     const yearEnd = new Date(periodSelection.year, 11, 31, 23, 59, 59);
-    const gmfTx = transactions.filter(tx => { const d = new Date(tx.date); return d >= yearStart && d <= yearEnd && isGMFTransaction(tx.description); });
+    const gmfTx = transactions.filter(tx => { const d = parseLocalDate(tx.date); return d >= yearStart && d <= yearEnd && isGMFTransaction(tx.description); });
     return { total: gmfTx.reduce((s, tx) => s + Math.abs(tx.amount ?? 0), 0), transactionCount: gmfTx.length, year: periodSelection.year };
   }, [transactions, periodSelection.year]);
 
   const metrics = useMemo((): Metrics => {
     if (transactions.length === 0) return { saldoActual: 0, totalIngresos: 0, totalEgresos: 0, pendingReconcile: 0, transactionCount: 0, cuatrimestreLabel: cuatrimestre.label, periodLabel: periodRange.label };
-    const sortedByDate = [...periodTransactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const sortedByDate = [...periodTransactions].sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime());
     const saldoActual = sortedByDate[0]?.balance ?? 0;
     const totalIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((s, tx) => s + (tx.amount ?? 0), 0);
     const totalEgresos = Math.abs(periodTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((s, tx) => s + (tx.amount ?? 0), 0));
@@ -238,7 +239,7 @@ export default function Dashboard() {
     const monthlyData: Record<string, { month: string; monthKey: string; ingresos: number; egresos: number }> = {};
     const dataToUse = periodSelection.type === 'month' ? transactions : periodTransactions;
     dataToUse.forEach(tx => {
-      const date = new Date(tx.date);
+      const date = parseLocalDate(tx.date);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthLabel = date.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
       if (!monthlyData[monthKey]) monthlyData[monthKey] = { month: monthLabel, monthKey, ingresos: 0, egresos: 0 };
@@ -251,7 +252,7 @@ export default function Dashboard() {
 
   const billedByMonthData = useMemo(() => {
     const months = Array.from({ length: 12 }, (_, i) => ({ month: MONTH_NAMES[i].slice(0, 3), monthKey: `${periodSelection.year}-${String(i + 1).padStart(2, '0')}`, total: 0 }));
-    salesInvoices.forEach(inv => { const mi = new Date(`${inv.issue_date}T00:00:00`).getMonth(); if (mi >= 0 && mi < 12) months[mi].total += inv.total_amount || 0; });
+    salesInvoices.forEach(inv => { const mi = parseLocalDate(inv.issue_date).getMonth(); if (mi >= 0 && mi < 12) months[mi].total += inv.total_amount || 0; });
     return months;
   }, [salesInvoices, periodSelection.year]);
 
@@ -264,7 +265,7 @@ export default function Dashboard() {
       topClients.forEach(c => { row[c] = 0; }); row.Otros = 0; return row;
     });
     let hasOthers = false;
-    salesInvoices.forEach(inv => { const mi = new Date(`${inv.issue_date}T00:00:00`).getMonth(); if (mi < 0 || mi > 11) return; const c = inv.counterparty_name?.trim() || 'Sin nombre'; const isTop = topClients.includes(c); const key = isTop ? c : 'Otros'; if (!isTop) hasOthers = true; data[mi][key] = (Number(data[mi][key]) || 0) + (inv.total_amount || 0); });
+    salesInvoices.forEach(inv => { const mi = parseLocalDate(inv.issue_date).getMonth(); if (mi < 0 || mi > 11) return; const c = inv.counterparty_name?.trim() || 'Sin nombre'; const isTop = topClients.includes(c); const key = isTop ? c : 'Otros'; if (!isTop) hasOthers = true; data[mi][key] = (Number(data[mi][key]) || 0) + (inv.total_amount || 0); });
     return { data, clientKeys: hasOthers ? [...topClients, 'Otros'] : topClients };
   }, [salesInvoices, periodSelection.year]);
 
@@ -471,7 +472,7 @@ export default function Dashboard() {
     pendingTable: (idx: number) => (
       <DashboardBlock id="pendingTable" customization={customization} index={idx}>
         <PendingTransactionsTable
-          transactions={transactions.filter(tx => new Date(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type }))}
+          transactions={transactions.filter(tx => parseLocalDate(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type }))}
           categories={categories}
           responsibles={responsibles}
           periodLabel={`Año ${periodSelection.year}`}
