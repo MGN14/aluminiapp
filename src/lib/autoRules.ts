@@ -77,23 +77,17 @@ export const AUTO_RULES: AutoRule[] = [
     hasReteica: false,
     invoiceTag: 'na',
   },
-  // Rule C: National cash deposits (Sales, needs human review)
+  // Rule C: Ingresos por ventas (transferencias, consignaciones)
   {
-    id: 'consig_efectivo',
-    name: 'Consignación nacional efectivo',
-    keywords: ['CONSIG NACIONAL EFECTIVO'],
-    type: 'ingreso',
-    categoryName: 'Ventas',
-    responsibleName: null, // Leave empty for human review
-    hasIva: true,
-    hasRetefuente: false,
-    hasReteica: true,
-  },
-  // Rule D: Correspondent banking deposits (Sales, needs human review)
-  {
-    id: 'consig_corresponsal',
-    name: 'Consignación corresponsal',
-    keywords: ['CONSIGNACION CORRESPONSAL CB', 'CONSIGNACION CORRESPONSAL'],
+    id: 'ingreso_ventas',
+    name: 'Ingreso por ventas',
+    keywords: [
+      'TRANSFERENCIA CTA SUC VIRTUAL',
+      'CONSIG NACIONAL EFECTIVO',
+      'CONSIGNACION LOCAL CAJ',
+      'CONSIGNACION CORRESPONSAL CB',
+      'CONSIGNACION CORRESPONSAL',
+    ],
     type: 'ingreso',
     categoryName: 'Ventas',
     responsibleName: null, // Leave empty for human review
