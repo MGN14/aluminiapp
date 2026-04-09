@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { invokeFunctionWithAuthRetry } from '@/lib/authRetry';
 
 export const MODULE_KEYS = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -91,7 +92,7 @@ export function useCollaborators() {
   ) => {
     if (!user) return false;
 
-    // Check role uniqueness
+    // Check role uniqueness client-side for fast feedback
     const existingWithRole = collaborators.find(c => c.role === role);
     if (existingWithRole) {
       toast({ title: 'Error', description: `Ya existe un usuario con el rol "${role}".`, variant: 'destructive' });
@@ -99,39 +100,25 @@ export function useCollaborators() {
     }
 
     try {
-      const { data: collab, error } = await supabase
-        .from('collaborators')
-        .insert({
-          owner_user_id: user.id,
-          collaborator_email: email.toLowerCase().trim(),
-          name: name.trim(),
-          role,
-          status: 'pending',
-        })
-        .select()
-        .single();
+      const { data, error } = await invokeFunctionWithAuthRetry<{ success: boolean; error?: string }>(
+        'invite-collaborator',
+        {
+          body: { email, name, role, permissions },
+        },
+        'invite-collaborator'
+      );
 
-      if (error) throw error;
+      if (error || !data?.success) {
+        const msg = (data as any)?.error || (error as any)?.message || 'No se pudo enviar la invitación.';
+        toast({ title: 'Error', description: msg, variant: 'destructive' });
+        return false;
+      }
 
-      // Insert permissions
-      const permRows = MODULE_KEYS.map(m => ({
-        collaborator_id: collab.id,
-        module_key: m.key,
-        access_level: permissions[m.key] || 'none',
-      }));
-
-      const { error: permError } = await supabase
-        .from('collaborator_permissions')
-        .insert(permRows);
-
-      if (permError) throw permError;
-
-      toast({ title: 'Invitación enviada', description: `Se invitó a ${email} como ${role}.` });
+      toast({ title: 'Invitación enviada', description: `Se invitó a ${email} como ${role}. Recibirá un correo para aceptar.` });
       await fetchCollaborators();
       return true;
     } catch (e: any) {
-      const msg = e?.message?.includes('Maximum') ? 'Máximo 2 colaboradores permitidos (3 usuarios en total).' : 'No se pudo enviar la invitación.';
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      toast({ title: 'Error', description: 'No se pudo enviar la invitación.', variant: 'destructive' });
       return false;
     }
   };
