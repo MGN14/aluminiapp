@@ -99,12 +99,19 @@ export const AUTO_RULES: AutoRule[] = [
 
 /**
  * Find the first matching rule for a transaction description.
+ * @param description - transaction description
+ * @param amount - transaction amount (used to enforce sign constraints on certain rules)
  * Returns null if no rule matches.
  */
-export function findMatchingRule(description: string): AutoRule | null {
+export function findMatchingRule(description: string, amount?: number | null): AutoRule | null {
   const descUpper = description.toUpperCase();
   
   for (const rule of AUTO_RULES) {
+    // ingreso_ventas rule requires strictly positive amount
+    if (rule.id === 'ingreso_ventas' && (amount == null || amount <= 0)) {
+      continue;
+    }
+
     const matches = rule.keywords.some(keyword => 
       descUpper.includes(keyword.toUpperCase())
     );
