@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { MONTH_NAMES, type ReportGroup } from '@/types/transaction';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 
 interface TransactionRow {
