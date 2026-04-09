@@ -104,6 +104,83 @@ export type Database = {
         }
         Relationships: []
       }
+      collaborator_permissions: {
+        Row: {
+          access_level: Database["public"]["Enums"]["module_access_level"]
+          collaborator_id: string
+          created_at: string
+          id: string
+          module_key: string
+          updated_at: string
+        }
+        Insert: {
+          access_level?: Database["public"]["Enums"]["module_access_level"]
+          collaborator_id: string
+          created_at?: string
+          id?: string
+          module_key: string
+          updated_at?: string
+        }
+        Update: {
+          access_level?: Database["public"]["Enums"]["module_access_level"]
+          collaborator_id?: string
+          created_at?: string
+          id?: string
+          module_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "collaborator_permissions_collaborator_id_fkey"
+            columns: ["collaborator_id"]
+            isOneToOne: false
+            referencedRelation: "collaborators"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      collaborators: {
+        Row: {
+          accepted_at: string | null
+          collaborator_email: string
+          collaborator_user_id: string | null
+          created_at: string
+          id: string
+          invited_at: string
+          name: string
+          owner_user_id: string
+          role: Database["public"]["Enums"]["collaborator_role"]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          collaborator_email: string
+          collaborator_user_id?: string | null
+          created_at?: string
+          id?: string
+          invited_at?: string
+          name?: string
+          owner_user_id: string
+          role: Database["public"]["Enums"]["collaborator_role"]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          collaborator_email?: string
+          collaborator_user_id?: string | null
+          created_at?: string
+          id?: string
+          invited_at?: string
+          name?: string
+          owner_user_id?: string
+          role?: Database["public"]["Enums"]["collaborator_role"]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       contact_messages: {
         Row: {
           created_at: string
@@ -1059,6 +1136,8 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      collaborator_role: "contadora" | "colaborador"
+      module_access_level: "none" | "view" | "edit"
       subscription_plan: "demo" | "basico" | "empresarial" | "pro"
       subscription_status:
         | "active"
@@ -1195,6 +1274,8 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      collaborator_role: ["contadora", "colaborador"],
+      module_access_level: ["none", "view", "edit"],
       subscription_plan: ["demo", "basico", "empresarial", "pro"],
       subscription_status: [
         "active",
