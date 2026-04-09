@@ -58,6 +58,21 @@ export default function Transactions() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_rate: 0 });
   const [filters, setFilters] = useState<TransactionFilterState>(defaultFilters);
+  // Track IDs that were pending when the "Pendientes" filter was activated,
+  // so they stay visible even after receiving a beneficiario mid-session.
+  const [pinnedPendingIds, setPinnedPendingIds] = useState<Set<string>>(new Set());
+
+  // When the user switches TO "pendientes", snapshot the current pending IDs.
+  // When they switch AWAY, clear the snapshot so re-entering recalculates.
+  const handleFiltersChange = useCallback((newFilters: TransactionFilterState) => {
+    if (newFilters.estado === 'pendientes' && filters.estado !== 'pendientes') {
+      const ids = new Set(transactions.filter(tx => !tx.responsible_id).map(tx => tx.id));
+      setPinnedPendingIds(ids);
+    } else if (newFilters.estado !== 'pendientes' && filters.estado === 'pendientes') {
+      setPinnedPendingIds(new Set());
+    }
+    setFilters(newFilters);
+  }, [filters.estado, transactions]);
 
   useEffect(() => {
     fetchStatements();
@@ -205,7 +220,7 @@ export default function Transactions() {
 
     // Estado filter
     if (filters.estado === 'pendientes') {
-      result = result.filter(tx => !tx.responsible_id);
+      result = result.filter(tx => !tx.responsible_id || pinnedPendingIds.has(tx.id));
     } else if (filters.estado === 'conciliadas') {
       result = result.filter(tx => !!tx.responsible_id);
     }
@@ -261,7 +276,7 @@ export default function Transactions() {
     }
 
     return result;
-  }, [transactions, filters]);
+  }, [transactions, filters, pinnedPendingIds]);
 
   return (
     <AppLayout>
@@ -281,7 +296,7 @@ export default function Transactions() {
                 <Badge 
                   variant="outline" 
                   className="flex items-center gap-1.5 text-destructive border-destructive cursor-pointer hover:bg-destructive/10"
-                  onClick={() => setFilters(f => ({ ...f, estado: 'pendientes' }))}
+                  onClick={() => handleFiltersChange({ ...filters, estado: 'pendientes' })}
                 >
                   <AlertCircle className="h-3 w-3" />
                   <span>{filterCounts.pendientes} sin conciliar</span>
@@ -350,7 +365,7 @@ export default function Transactions() {
           {/* Filters */}
           <TransactionFilters
             filters={filters}
-            onFiltersChange={setFilters}
+            onFiltersChange={handleFiltersChange}
             counts={filterCounts}
             categories={categories}
             responsibles={responsibles}
