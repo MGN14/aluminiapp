@@ -276,7 +276,7 @@ export default function Transactions() {
     }
 
     return result;
-  }, [transactions, filters]);
+  }, [transactions, filters, pinnedPendingIds]);
 
   return (
     <AppLayout>
@@ -365,7 +365,7 @@ export default function Transactions() {
           {/* Filters */}
           <TransactionFilters
             filters={filters}
-            onFiltersChange={setFilters}
+            onFiltersChange={handleFiltersChange}
             counts={filterCounts}
             categories={categories}
             responsibles={responsibles}
