@@ -209,10 +209,10 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
                 'h-7 w-[150px] text-xs',
                 filters.responsibleId && 'border-primary text-primary'
               )}>
-                <SelectValue placeholder="Responsable" />
+                <SelectValue placeholder="Beneficiario" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="_all">Todos los responsables</SelectItem>
+                <SelectItem value="_all">Todos los beneficiarios</SelectItem>
                 {activeResponsibles.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
                     {r.name}

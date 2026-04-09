@@ -51,7 +51,7 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
       .insert({ user_id: user.id, name: newName.trim() });
 
     if (error) {
-      toast({ title: 'Error', description: 'No se pudo crear el responsable.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'No se pudo crear el beneficiario.', variant: 'destructive' });
     } else {
       setNewName('');
       fetchResponsibles();
@@ -69,7 +69,7 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from('responsibles').delete().eq('id', id);
     if (error) {
-      toast({ title: 'No se puede eliminar', description: 'Este responsable está en uso.', variant: 'destructive' });
+      toast({ title: 'No se puede eliminar', description: 'Este beneficiario está en uso.', variant: 'destructive' });
     } else {
       fetchResponsibles();
       onUpdate?.();
@@ -86,13 +86,13 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Administrar Responsables</DialogTitle>
+          <DialogTitle>Administrar Beneficiarios</DialogTitle>
         </DialogHeader>
         
         <div className="space-y-4">
           <div className="flex gap-2">
             <Input
-              placeholder="Nombre del responsable"
+              placeholder="Nombre del beneficiario"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
@@ -131,7 +131,7 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
               ))}
               {responsibles.length === 0 && (
                 <p className="text-center text-sm text-muted-foreground py-4">
-                  No hay responsables creados
+                  No hay beneficiarios creados
                 </p>
               )}
             </div>
