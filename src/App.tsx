@@ -28,6 +28,7 @@ import InvoicesVenta from "./pages/InvoicesVenta";
 import InvoicesCompra from "./pages/InvoicesCompra";
 import FinancialHealth from "./pages/FinancialHealth";
 import Inventory from "./pages/Inventory";
+import Collaborators from "./pages/Collaborators";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -126,6 +127,10 @@ const App = () => (
               <Route
                 path="/inventarios"
                 element={<ProtectedRoute><Inventory /></ProtectedRoute>}
+              />
+              <Route
+                path="/colaboradores"
+                element={<ProtectedRoute><Collaborators /></ProtectedRoute>}
               />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
