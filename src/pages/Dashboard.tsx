@@ -472,7 +472,7 @@ export default function Dashboard() {
     pendingTable: (idx: number) => (
       <DashboardBlock id="pendingTable" customization={customization} index={idx}>
         <PendingTransactionsTable
-          transactions={transactions.filter(tx => new Date(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type }))}
+          transactions={transactions.filter(tx => parseLocalDate(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type }))}
           categories={categories}
           responsibles={responsibles}
           periodLabel={`Año ${periodSelection.year}`}
