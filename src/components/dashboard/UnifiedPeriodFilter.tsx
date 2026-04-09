@@ -61,7 +61,7 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
       
       transactions?.forEach(t => {
         if (t.date) {
-          const year = new Date(t.date).getFullYear();
+          const year = parseLocalDate(t.date).getFullYear();
           if (year >= 2020 && year <= 2030) yearsSet.add(year);
         }
       });
@@ -121,7 +121,7 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
           .single();
 
         if (transaction?.date) {
-          const date = new Date(transaction.date);
+          const date = parseLocalDate(transaction.date);
           const month = date.getMonth() + 1;
           onSelectionChange({
             type: 'quarter',
