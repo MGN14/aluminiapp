@@ -67,7 +67,7 @@ export default function AutoRulesButton() {
 
       for (let i = 0; i < transactions.length; i++) {
         const tx = transactions[i];
-        const rule = findMatchingRule(tx.description);
+        const rule = findMatchingRule(tx.description, tx.amount);
 
         if (!rule) {
           skipped++;
