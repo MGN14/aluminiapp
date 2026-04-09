@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { ExtractedInvoiceData } from '@/types/invoice';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -44,7 +45,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
   const suggestedName = [
     data.type === 'venta' ? data.buyer_name : data.seller_name,
     data.invoice_number ? `#${data.invoice_number}` : null,
-    data.issue_date ? new Date(data.issue_date).toLocaleDateString('es-CO', { month: 'short', year: 'numeric' }) : null,
+    data.issue_date ? parseLocalDate(data.issue_date).toLocaleDateString('es-CO', { month: 'short', year: 'numeric' }) : null,
   ].filter(Boolean).join(' - ') || '';
 
   const [form, setForm] = useState<FormData>({

@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/dialog';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { parseLocalDate } from '@/lib/dateUtils';
 
 interface Props {
   transaction: Transaction | null;
@@ -42,7 +43,7 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
             <div>
               <label className="text-xs text-muted-foreground">Fecha</label>
               <p className="font-medium">
-                {format(new Date(transaction.date), 'dd MMMM yyyy', { locale: es })}
+                {format(parseLocalDate(transaction.date), 'dd MMMM yyyy', { locale: es })}
               </p>
             </div>
             <div>
