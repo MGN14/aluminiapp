@@ -229,14 +229,14 @@ export default function Transactions() {
 
     // Date range filter
     if (filters.dateFrom) {
-      const from = new Date(filters.dateFrom);
+      const from = parseLocalDate(filters.dateFrom);
       from.setHours(0, 0, 0, 0);
-      result = result.filter(tx => new Date(tx.date) >= from);
+      result = result.filter(tx => parseLocalDate(tx.date) >= from);
     }
     if (filters.dateTo) {
-      const to = new Date(filters.dateTo);
+      const to = parseLocalDate(filters.dateTo);
       to.setHours(23, 59, 59, 999);
-      result = result.filter(tx => new Date(tx.date) <= to);
+      result = result.filter(tx => parseLocalDate(tx.date) <= to);
     }
 
     // Sort logic
@@ -250,8 +250,8 @@ export default function Transactions() {
     } else {
       // Default: sort by date with created_at tiebreaker
       result.sort((a, b) => {
-        const dateA = new Date(a.date).getTime();
-        const dateB = new Date(b.date).getTime();
+        const dateA = parseLocalDate(a.date).getTime();
+        const dateB = parseLocalDate(b.date).getTime();
         const dateDiff = filters.sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
         if (dateDiff !== 0) return dateDiff;
         const createdA = new Date(a.created_at).getTime();

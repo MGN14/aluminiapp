@@ -110,7 +110,7 @@ export default function AdvancesTable({
                   return (
                     <TableRow key={tx.id}>
                       <TableCell className="text-sm whitespace-nowrap">
-                        {format(new Date(tx.date), 'dd MMM yyyy', { locale: es })}
+                        {format(parseLocalDate(tx.date), 'dd MMM yyyy', { locale: es })}
                       </TableCell>
                       <TableCell className="text-sm font-medium">{clientName}</TableCell>
                       <TableCell className="text-sm truncate max-w-[300px]">{tx.description}</TableCell>

@@ -114,7 +114,7 @@ export default function Export() {
 
     const cuatrimestreIVA = transactions
       .filter(tx => {
-        const txDate = new Date(tx.date);
+        const txDate = parseLocalDate(tx.date);
         return txDate >= cuatrimestre.start && txDate <= cuatrimestre.end;
       })
       .reduce((sum, tx) => sum + (tx.iva_amount ?? 0), 0);
@@ -124,7 +124,7 @@ export default function Export() {
 
     const monthlyRetefuente = transactions
       .filter(tx => {
-        const txDate = new Date(tx.date);
+        const txDate = parseLocalDate(tx.date);
         return txDate >= currentMonth.start && txDate <= currentMonth.end;
       })
       .reduce((sum, tx) => sum + (tx.retefuente_amount ?? 0), 0);

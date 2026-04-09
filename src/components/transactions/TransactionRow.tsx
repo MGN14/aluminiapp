@@ -196,7 +196,7 @@ export default function TransactionRow({
       !isReconciled && 'bg-warning/5 border-l-2 border-l-warning'
     )}>
       <TableCell className="font-medium text-sm w-[80px]">
-        {format(new Date(localTransaction.date), 'dd MMM', { locale: es })}
+        {format(parseLocalDate(localTransaction.date), 'dd MMM', { locale: es })}
       </TableCell>
       
       <TableCell className="min-w-[300px] max-w-[450px]">

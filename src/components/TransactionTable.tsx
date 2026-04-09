@@ -102,7 +102,7 @@ export default function TransactionTable({ transactions, onTransactionUpdate }: 
           {transactions.map((transaction) => (
             <TableRow key={transaction.id} className="hover:bg-muted/30">
               <TableCell className="font-medium text-sm">
-                {format(new Date(transaction.date), 'dd MMM', { locale: es })}
+                {format(parseLocalDate(transaction.date), 'dd MMM', { locale: es })}
               </TableCell>
               <TableCell className="max-w-[300px] truncate text-sm">
                 {transaction.description}
