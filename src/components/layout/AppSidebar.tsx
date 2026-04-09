@@ -210,6 +210,7 @@ export default function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+      </SidebarContent>
 
       <SidebarFooter className="px-3 py-3 border-t border-sidebar-border">
         <SidebarMenu>
