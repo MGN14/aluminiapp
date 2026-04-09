@@ -247,13 +247,13 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const ivaCompras = ivaSource.filter(i => i.type === 'compra');
     const ivaGenerado = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
     const ivaDescontable = ivaCompras.reduce((s, i) => s + i.iva_amount, 0);
-    // IVA neto = generado - descontable - pagos DIAN (IVA a favor)
-    const ivaNeto = ivaGenerado - ivaDescontable - dianPaymentsIva;
+    // IVA a favor = descontable (compras) + generado (ventas) - pagos DIAN
+    const ivaNeto = -(ivaDescontable + ivaGenerado - dianPaymentsIva);
 
     // IVA YTD
     const ivaGeneradoYtd = ventasYear.reduce((s, i) => s + i.iva_amount, 0);
     const ivaDescontableYtd = comprasYear.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaNetoYtd = ivaGeneradoYtd - ivaDescontableYtd;
+    const ivaNetoYtd = -(ivaDescontableYtd + ivaGeneradoYtd);
 
     const totalFacturadoVentas = ventas.reduce((s, i) => s + i.total_amount, 0);
     const totalBaseVentas = ventas.reduce((s, i) => s + i.subtotal_base, 0);
