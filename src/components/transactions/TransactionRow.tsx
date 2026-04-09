@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo } from 'react';
 import { Transaction, Category, Responsible, SimpleTransactionType, SIMPLE_TYPES } from '@/types/transaction';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 import { TableCell, TableRow } from '@/components/ui/table';
 import {

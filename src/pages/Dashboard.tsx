@@ -9,6 +9,7 @@ import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/components/dashboard/UnifiedPeriodFilter';
 import { PendingTransactionsTable } from '@/components/dashboard/PendingTransactionsTable';
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';

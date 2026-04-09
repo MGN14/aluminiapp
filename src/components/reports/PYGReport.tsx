@@ -102,7 +102,7 @@ function buildMonthlyData(
   const taxFromFlags = new Array(12).fill(0);
 
   for (const tx of transactions) {
-    const m = new Date(tx.date).getMonth();
+    const m = parseLocalDate(tx.date).getMonth();
     const absAmount = Math.abs(tx.amount ?? 0);
 
     // Determine report_group

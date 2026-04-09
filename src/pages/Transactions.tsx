@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSubscription } from '@/hooks/useSubscription';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible } from '@/types/transaction';
+import { parseLocalDate } from '@/lib/dateUtils';
 import TransactionRow from '@/components/transactions/TransactionRow';
 import TransactionDetailModal from '@/components/transactions/TransactionDetailModal';
 import ResponsibleManagement from '@/components/management/ResponsibleManagement';
