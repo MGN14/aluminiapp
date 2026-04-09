@@ -17,6 +17,7 @@ import {
   Landmark,
   Bot,
   Settings,
+  UsersRound,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -186,7 +187,29 @@ export default function AppSidebar() {
         <SidebarSection label="Movimientos" items={movementItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
         <SidebarSection label="Reportes" items={reportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
         <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
-      </SidebarContent>
+
+        <SidebarSeparator className="my-1" />
+
+        {/* Colaboradores */}
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={currentPath === '/colaboradores'}>
+                  <NavLink
+                    to="/colaboradores"
+                    className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
+                      currentPath === '/colaboradores' ? 'font-semibold' : 'text-sidebar-foreground/70'
+                    }`}
+                  >
+                    <UsersRound className="h-4 w-4 shrink-0" />
+                    {!collapsed && <span>Colaboradores</span>}
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
       <SidebarFooter className="px-3 py-3 border-t border-sidebar-border">
         <SidebarMenu>
