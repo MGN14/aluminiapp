@@ -296,7 +296,7 @@ export default function Transactions() {
                 <Badge 
                   variant="outline" 
                   className="flex items-center gap-1.5 text-destructive border-destructive cursor-pointer hover:bg-destructive/10"
-                  onClick={() => setFilters(f => ({ ...f, estado: 'pendientes' }))}
+                  onClick={() => handleFiltersChange({ ...filters, estado: 'pendientes' })}
                 >
                   <AlertCircle className="h-3 w-3" />
                   <span>{filterCounts.pendientes} sin conciliar</span>
