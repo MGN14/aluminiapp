@@ -62,6 +62,18 @@ export default function Transactions() {
   // so they stay visible even after receiving a beneficiario mid-session.
   const [pinnedPendingIds, setPinnedPendingIds] = useState<Set<string>>(new Set());
 
+  // When the user switches TO "pendientes", snapshot the current pending IDs.
+  // When they switch AWAY, clear the snapshot so re-entering recalculates.
+  const handleFiltersChange = useCallback((newFilters: TransactionFilterState) => {
+    if (newFilters.estado === 'pendientes' && filters.estado !== 'pendientes') {
+      const ids = new Set(transactions.filter(tx => !tx.responsible_id).map(tx => tx.id));
+      setPinnedPendingIds(ids);
+    } else if (newFilters.estado !== 'pendientes' && filters.estado === 'pendientes') {
+      setPinnedPendingIds(new Set());
+    }
+    setFilters(newFilters);
+  }, [filters.estado, transactions]);
+
   useEffect(() => {
     fetchStatements();
     fetchCategories();
