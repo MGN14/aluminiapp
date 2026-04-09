@@ -58,6 +58,9 @@ export default function Transactions() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_rate: 0 });
   const [filters, setFilters] = useState<TransactionFilterState>(defaultFilters);
+  // Track IDs that were pending when the "Pendientes" filter was activated,
+  // so they stay visible even after receiving a beneficiario mid-session.
+  const [pinnedPendingIds, setPinnedPendingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchStatements();
