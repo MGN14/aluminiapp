@@ -220,7 +220,7 @@ export default function Transactions() {
 
     // Estado filter
     if (filters.estado === 'pendientes') {
-      result = result.filter(tx => !tx.responsible_id);
+      result = result.filter(tx => !tx.responsible_id || pinnedPendingIds.has(tx.id));
     } else if (filters.estado === 'conciliadas') {
       result = result.filter(tx => !!tx.responsible_id);
     }
