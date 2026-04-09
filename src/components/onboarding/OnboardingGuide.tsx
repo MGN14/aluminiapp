@@ -21,7 +21,7 @@ const steps = [
   {
     icon: Table,
     title: 'Revisa y clasifica',
-    description: 'Organiza tus movimientos con categorías y responsables para mayor claridad.',
+    description: 'Organiza tus movimientos con categorías y beneficiarios para mayor claridad.',
     cta: 'Ver transacciones',
     link: '/transactions',
   },

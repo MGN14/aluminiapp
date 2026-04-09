@@ -129,8 +129,8 @@ export function PendingTransactionsTable({
       setRemovedIds(prev => new Set([...prev, transactionId]));
       
       toast({
-        title: isBanco ? 'Asignado ✅' : 'Responsable asignado',
-        description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Responsable asignado. Asigna #Factura para completar.',
+        title: isBanco ? 'Asignado ✅' : 'Beneficiario asignado',
+        description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Beneficiario asignado. Asigna #Factura para completar.',
       });
       
       onTransactionUpdated();
@@ -138,7 +138,7 @@ export function PendingTransactionsTable({
       console.error('Error updating responsible:', error);
       toast({
         title: 'Error',
-        description: 'No se pudo asignar el responsable',
+        description: 'No se pudo asignar el beneficiario',
         variant: 'destructive',
       });
     } finally {
@@ -278,7 +278,7 @@ export function PendingTransactionsTable({
               ¡No tienes pendientes por conciliar! 🎉
             </h3>
             <p className="text-muted-foreground text-sm max-w-md">
-              Todas tus transacciones tienen un responsable asignado. ¡Excelente trabajo!
+              Todas tus transacciones tienen un beneficiario asignado. ¡Excelente trabajo!
             </p>
           </div>
         ) : (
@@ -290,7 +290,7 @@ export function PendingTransactionsTable({
                   <TableHead className="min-w-[250px]">Descripción</TableHead>
                   <TableHead className="text-right w-32">Monto</TableHead>
                   <TableHead className="w-40">Categoría</TableHead>
-                  <TableHead className="w-40">Responsable</TableHead>
+                  <TableHead className="w-40">Beneficiario</TableHead>
                   <TableHead className="w-40">#Factura</TableHead>
                   <TableHead className="text-center w-24">Estado</TableHead>
                 </TableRow>
@@ -332,7 +332,7 @@ export function PendingTransactionsTable({
                         onChange={(value) => handleResponsibleChange(tx.id, value)}
                         placeholder="Sin asignar"
                         emptyLabel="Sin asignar"
-                        addLabel="+ Agregar responsable"
+                        addLabel="+ Agregar beneficiario"
                         onAdd={handleAddResponsible}
                         triggerClassName="w-full h-7 text-xs"
                         disabled={updatingId === tx.id}

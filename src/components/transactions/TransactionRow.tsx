@@ -275,7 +275,7 @@ export default function TransactionRow({
             }}
             placeholder="Pendiente"
             emptyLabel="Pendiente"
-            addLabel="+ Agregar responsable"
+            addLabel="+ Agregar beneficiario"
             onAdd={handleAddResponsible}
             triggerClassName={cn('w-full', !localTransaction.responsible_id && 'border-warning/50 text-warning')}
           />

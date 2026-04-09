@@ -342,7 +342,7 @@ export default function Transactions() {
               <CategoryManagement onUpdate={() => { fetchCategories(); }} />
             </div>
             <div className="flex items-center gap-1 text-muted-foreground">
-              <span>Responsables:</span>
+              <span>Beneficiarios:</span>
               <ResponsibleManagement onUpdate={() => { fetchResponsibles(); }} />
             </div>
           </div>
@@ -399,7 +399,7 @@ export default function Transactions() {
                         <TableHead className="text-right w-[110px]">Monto</TableHead>
                         <TableHead className="w-[110px]">Tipo</TableHead>
                         <TableHead className="w-[140px]">Categoría</TableHead>
-                        <TableHead className="w-[140px]">Responsable</TableHead>
+                        <TableHead className="w-[140px]">Beneficiario</TableHead>
                         <TableHead className="w-[160px]">#Factura</TableHead>
                       </TableRow>
                     </TableHeader>
