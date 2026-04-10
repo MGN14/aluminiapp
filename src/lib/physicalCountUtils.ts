@@ -1,9 +1,10 @@
 // ── Column mapping aliases for physical inventory count files ──
 
 export const PHYSICAL_COLUMN_ALIASES: Record<string, string[]> = {
-  referencia: ['referencia', 'código producto', 'codigo producto', 'código', 'codigo', 'ref', 'sku', 'code', 'cod', 'producto'],
-  unidades_fisicas: ['unidades_fisicas', 'físico', 'fisico', 'cantidad_física', 'cantidad_fisica', 'conteo', 'inventario_fisico', 'inventario_físico', 'cantidad', 'unidades', 'stock_fisico', 'stock_físico', 'qty', 'total'],
-  nombre_producto: ['nombre producto', 'nombre', 'producto', 'descripción', 'descripcion', 'name', 'desc'],
+  referencia: ['referencia', 'código producto', 'codigo producto', 'código', 'codigo', 'ref', 'sku', 'code', 'cod'],
+  nombre_producto: ['nombre_producto', 'nombre producto', 'nombre', 'producto', 'descripción', 'descripcion', 'name', 'desc'],
+  unidad_medida: ['unidad_medida', 'unidad medida', 'unidad', 'und', 'unit', 'uom', 'medida'],
+  unidades_fisicas: ['unidades_fisicas', 'unidades fisicas', 'físico', 'fisico', 'cantidad_física', 'cantidad_fisica', 'conteo', 'inventario_fisico', 'inventario_físico', 'cantidad', 'unidades', 'stock_fisico', 'stock_físico', 'qty'],
 };
 
 export type PhysicalField = keyof typeof PHYSICAL_COLUMN_ALIASES;
@@ -18,6 +19,7 @@ export interface PhysicalCountRow {
   referencia: string;
   unidades_fisicas: number;
   nombre_producto: string;
+  unidad_medida: string;
   status: 'matched' | 'not_found' | 'error' | 'duplicate';
   issues: string[];
   rowNumber: number;
@@ -77,6 +79,7 @@ export function buildPhysicalRows(
     const issues: string[] = [];
     const ref = cleanText(getField(row, 'referencia'));
     const nombre = cleanText(getField(row, 'nombre_producto'));
+    const unidad = cleanText(getField(row, 'unidad_medida'));
     const rawQty = getField(row, 'unidades_fisicas');
     const qty = parseNumber(rawQty);
 
@@ -89,6 +92,7 @@ export function buildPhysicalRows(
       referencia: ref,
       unidades_fisicas: isNaN(qty) ? 0 : qty,
       nombre_producto: nombre,
+      unidad_medida: unidad,
       status,
       issues,
       rowNumber: startRow + i,
