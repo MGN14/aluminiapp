@@ -72,14 +72,42 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
         <TableBody>
           {sorted.map(p => {
             const sc = statusConfig[p.status];
+            const hasPhysical = p.stock_physical !== null;
+            const diff = p.difference;
+            const absDiff = Math.abs(diff);
+
+            // Difference visual states
+            let diffColor = 'text-muted-foreground';
+            let diffLabel = '';
+            if (hasPhysical) {
+              if (diff === 0) {
+                diffColor = 'text-emerald-400';
+                diffLabel = 'Alineado';
+              } else if (diff > 0) {
+                // System > Physical: missing units
+                diffColor = absDiff > 10 ? 'text-destructive' : 'text-amber-400';
+                diffLabel = absDiff > 10 ? 'Faltante crítico' : 'Faltante leve';
+              } else {
+                // Physical > System: excess physical
+                diffColor = 'text-violet-400';
+                diffLabel = 'Exceso físico';
+              }
+            }
+
             return (
               <TableRow key={p.id} className="border-b border-border/30 hover:bg-muted/30">
                 <TableCell className="font-mono text-sm font-medium">{p.reference}</TableCell>
                 <TableCell className="text-sm">{p.name}</TableCell>
                 <TableCell className="text-right font-mono text-sm">{p.stock_system}</TableCell>
                 <TableCell className="text-right font-mono text-sm text-muted-foreground">{p.stock_physical ?? '—'}</TableCell>
-                <TableCell className={`text-right font-mono text-sm ${p.difference !== 0 ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
-                  {p.difference !== 0 ? (p.difference > 0 ? `+${p.difference}` : p.difference) : '—'}
+                <TableCell className="text-right">
+                  {hasPhysical ? (
+                    <span className={`font-mono text-sm font-medium ${diffColor}`} title={diffLabel}>
+                      {diff > 0 ? `+${diff}` : diff === 0 ? '0 ✓' : diff}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-sm">—</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-right font-mono text-sm">{p.days_of_inventory >= 999 ? '∞' : `${p.days_of_inventory}d`}</TableCell>
                 <TableCell className="text-right font-mono text-sm">{p.rotation}x</TableCell>
