@@ -628,6 +628,98 @@ serve(async (req) => {
 Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturacion}/20, Impuestos: ${scoreImpuestos}/20, Cartera y anticipos: ${scoreCartera}/20, Clasificación: ${scoreClasificacion}/20`;
 
     // =============================================
+    // MODULE 8: INVENTARIO OPERATIVO
+    // =============================================
+    const rawProducts = inventoryProducts ?? [];
+    const rawMovements = inventoryMovements ?? [];
+    const hasInventory = rawProducts.length > 0;
+
+    let inventoryCtx = "";
+    if (hasInventory) {
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Enrich products with metrics
+      const enriched = rawProducts.map((p: any) => {
+        const prodMov = rawMovements.filter((m: any) => m.product_id === p.id);
+        const recentSales = prodMov
+          .filter((m: any) => m.movement_type === "salida" && new Date(m.movement_date) >= thirtyDaysAgo)
+          .reduce((s: number, m: any) => s + Math.abs(m.quantity ?? 0), 0);
+        const avgDailySales = recentSales / 30;
+        const daysOfInventory = avgDailySales > 0 ? p.stock_system / avgDailySales : 999;
+        const difference = p.stock_physical !== null ? p.stock_system - p.stock_physical : 0;
+        const valueDiff = difference * p.cost_per_unit;
+        const totalValue = p.stock_system * p.cost_per_unit;
+        const status = avgDailySales <= 0 ? "exceso" : daysOfInventory < 15 ? "critico" : daysOfInventory <= 45 ? "alerta" : daysOfInventory <= 90 ? "sano" : "exceso";
+        return { ...p, difference, valueDiff, totalValue, daysOfInventory: Math.round(daysOfInventory), avgDailySales, status };
+      });
+
+      const totalInventoryValue = enriched.reduce((s: number, p: any) => s + p.totalValue, 0);
+      const totalDifferenceValue = enriched.reduce((s: number, p: any) => s + Math.abs(p.valueDiff), 0);
+      const totalDifferenceUnits = enriched.reduce((s: number, p: any) => s + Math.abs(p.difference), 0);
+      const pctDescuadre = totalInventoryValue > 0 ? (totalDifferenceValue / totalInventoryValue) * 100 : 0;
+      const criticalProducts = enriched.filter((p: any) => p.status === "critico");
+      const excessProducts = enriched.filter((p: any) => p.status === "exceso");
+      const noMovement = enriched.filter((p: any) => p.avgDailySales === 0);
+      const productsWithDiff = enriched.filter((p: any) => p.difference !== 0).sort((a: any, b: any) => Math.abs(b.valueDiff) - Math.abs(a.valueDiff));
+      const positiveeDiff = productsWithDiff.filter((p: any) => p.difference > 0); // faltan en físico
+      const negativeDiff = productsWithDiff.filter((p: any) => p.difference < 0); // sobran en físico
+
+      const withSales = enriched.filter((p: any) => p.avgDailySales > 0);
+      const avgDays = withSales.length > 0 ? withSales.reduce((s: number, p: any) => s + p.daysOfInventory, 0) / withSales.length : 0;
+
+      inventoryCtx = `
+═══════════════════════════════════════════
+MÓDULO 8 — INVENTARIO OPERATIVO
+Fuente: inventario contable (Siigo) + conteo físico (bodega). Permite detectar diferencias operativas.
+═══════════════════════════════════════════
+
+RESUMEN GENERAL:
+Total referencias activas: ${enriched.length}
+Valor total inventario (sistema): ${fmt(totalInventoryValue)}
+Días promedio de inventario: ${Math.round(avgDays)} días
+Productos en estado crítico (< 15 días): ${criticalProducts.length}
+Productos en exceso (sin rotación): ${excessProducts.length}
+Productos sin movimiento (últimos 30 días): ${noMovement.length}
+Capital inmovilizado (sin movimiento): ${fmt(noMovement.reduce((s: number, p: any) => s + p.totalValue, 0))}
+
+ANÁLISIS DE DIFERENCIAS (Sistema vs Físico):
+Productos con diferencia: ${productsWithDiff.length} de ${enriched.length}
+Valor total de diferencias: ${fmt(totalDifferenceValue)}
+% de descuadre: ${pctDescuadre.toFixed(1)}%
+${pctDescuadre > 5 ? "⚠ ALERTA: El descuadre supera el 5%. Esto puede indicar ventas sin factura, pérdidas, robos o errores de conteo." : ""}
+
+${positiveeDiff.length > 0 ? `FALTANTES EN BODEGA (sistema > físico — posible venta sin factura, robo, pérdida):
+${positiveeDiff.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): faltan ${Math.abs(p.difference)} uds → ${fmt(Math.abs(p.valueDiff))}`).join("\n")}` : ""}
+
+${negativeDiff.length > 0 ? `EXCEDENTES EN BODEGA (físico > sistema — posible compra no registrada, error contable):
+${negativeDiff.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): sobran ${Math.abs(p.difference)} uds → ${fmt(Math.abs(p.valueDiff))}`).join("\n")}` : ""}
+
+TOP PRODUCTOS POR VALOR:
+${enriched.sort((a: any, b: any) => b.totalValue - a.totalValue).slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): ${p.stock_system} uds × ${fmt(p.cost_per_unit)} = ${fmt(p.totalValue)} | Estado: ${p.status} | Días inv: ${p.daysOfInventory}`).join("\n")}
+
+PRODUCTOS CRÍTICOS (menos de 15 días de stock):
+${criticalProducts.length > 0 ? criticalProducts.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): ${p.stock_system} uds, ~${p.daysOfInventory} días de stock`).join("\n") : "Ninguno"}
+
+INVENTARIO INMOVILIZADO (sin ventas en 30 días):
+${noMovement.length > 0 ? `${noMovement.length} productos sin rotación. Capital detenido: ${fmt(noMovement.reduce((s: number, p: any) => s + p.totalValue, 0))}
+${noMovement.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): ${p.stock_system} uds × ${fmt(p.cost_per_unit)} = ${fmt(p.totalValue)}`).join("\n")}` : "Todos los productos tienen movimiento reciente."}
+
+IMPACTO FINANCIERO DE DIFERENCIAS:
+${totalDifferenceValue > 0 ? `La diferencia entre inventario contable y físico representa ${fmt(totalDifferenceValue)}, equivalente al ${pctDescuadre.toFixed(1)}% del valor total.
+${pctDescuadre > 5 ? "Esto puede estar sobreestimando la utilidad real del negocio." : "El nivel de descuadre está dentro de parámetros aceptables."}` : "No se han detectado diferencias (no se ha cargado conteo físico o el inventario está alineado)."}
+`;
+    } else {
+      inventoryCtx = `
+═══════════════════════════════════════════
+MÓDULO 8 — INVENTARIO OPERATIVO
+═══════════════════════════════════════════
+
+No hay productos de inventario registrados. Si el negocio maneja inventario, sugiere al usuario cargar su inventario contable desde Siigo y hacer un conteo físico para detectar diferencias operativas.
+`;
+    }
+
+    // =============================================
     // BUILD FULL CONTEXT
     // =============================================
     const financialContext = `
