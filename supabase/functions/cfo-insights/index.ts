@@ -542,6 +542,74 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─── INSIGHT H: Inventario operativo ───
+    const invProducts = inventoryRes.data || [];
+    const invMovements = inventoryMovRes.data || [];
+    if (invProducts.length > 0) {
+      const totalValue = invProducts.reduce((s: number, p: any) => s + (p.stock_system ?? 0) * (p.cost_per_unit ?? 0), 0);
+      const productsWithDiff = invProducts.filter((p: any) => p.stock_physical !== null && p.stock_system !== p.stock_physical);
+      const totalDiffValue = productsWithDiff.reduce((s: number, p: any) => s + Math.abs((p.stock_system - p.stock_physical) * p.cost_per_unit), 0);
+      const pctDescuadre = totalValue > 0 ? (totalDiffValue / totalValue) * 100 : 0;
+
+      // No-movement products
+      const movProductIds = new Set(invMovements.map((m: any) => m.product_id));
+      const noMovement = invProducts.filter((p: any) => !movProductIds.has(p.id));
+      const noMovValue = noMovement.reduce((s: number, p: any) => s + (p.stock_system ?? 0) * (p.cost_per_unit ?? 0), 0);
+
+      // Critical products (low stock with sales)
+      const salesByProduct = new Map<string, number>();
+      invMovements.filter((m: any) => m.movement_type === "salida").forEach((m: any) => {
+        salesByProduct.set(m.product_id, (salesByProduct.get(m.product_id) || 0) + Math.abs(m.quantity ?? 0));
+      });
+      const criticalProducts = invProducts.filter((p: any) => {
+        const sales30 = salesByProduct.get(p.id) || 0;
+        const avgDaily = sales30 / 30;
+        return avgDaily > 0 && (p.stock_system / avgDaily) < 15;
+      });
+
+      if (totalDiffValue > 0 && pctDescuadre > 2) {
+        const topDiff = productsWithDiff
+          .sort((a: any, b: any) => Math.abs((b.stock_system - b.stock_physical) * b.cost_per_unit) - Math.abs((a.stock_system - a.stock_physical) * a.cost_per_unit))
+          .slice(0, 2)
+          .map((p: any) => p.name || p.reference)
+          .join(", ");
+
+        insights.push({
+          key: "inventario_diferencias",
+          title: pctDescuadre > 5 ? "Fuga de inventario ⚠️" : "Diferencias de inventario 📦",
+          text: `Tienes ${fmt(totalDiffValue)} en diferencias entre tu inventario contable y el conteo físico (${pctDescuadre.toFixed(1)}% del total). Los productos con mayor diferencia son: ${topDiff}.${pctDescuadre > 5 ? " Esto puede indicar ventas sin factura, pérdidas operativas o errores de conteo." : ""}`,
+          recommendation: pctDescuadre > 5
+            ? "Revisa urgentemente los productos con mayor diferencia. Un descuadre de este nivel puede estar sobreestimando tu utilidad real."
+            : "Revisa los productos con diferencia y actualiza tu conteo físico para mantener el inventario alineado.",
+          action: { label: "Ver inventario", path: "/inventory" },
+          impact: totalDiffValue,
+        });
+      }
+
+      if (noMovement.length > 0 && noMovValue > 500000) {
+        insights.push({
+          key: "inventario_inmovilizado",
+          title: "Capital detenido en inventario 📦",
+          text: `Tienes ${noMovement.length} producto${noMovement.length > 1 ? "s" : ""} sin movimiento en los últimos 30 días, con un valor de ${fmt(noMovValue)} en capital inmovilizado.`,
+          recommendation: "Evalúa si puedes liquidar ese inventario con descuentos o promociones para liberar capital de trabajo.",
+          action: { label: "Ver inventario", path: "/inventory" },
+          impact: noMovValue,
+        });
+      }
+
+      if (criticalProducts.length > 0) {
+        const names = criticalProducts.slice(0, 2).map((p: any) => p.name || p.reference).join(", ");
+        insights.push({
+          key: "inventario_critico",
+          title: "Stock crítico 🔴",
+          text: `${criticalProducts.length} producto${criticalProducts.length > 1 ? "s" : ""} con menos de 15 días de stock: ${names}. Si no reabasteces, podrías perder ventas.`,
+          recommendation: "Contacta a tus proveedores y genera órdenes de compra para los productos en riesgo de desabastecimiento.",
+          action: { label: "Ver inventario", path: "/inventory" },
+          impact: criticalProducts.reduce((s: number, p: any) => s + (p.stock_system ?? 0) * (p.cost_per_unit ?? 0), 0),
+        });
+      }
+    }
+
     // Sort by impact
     insights.sort((a, b) => (b.impact || 0) - (a.impact || 0));
 
