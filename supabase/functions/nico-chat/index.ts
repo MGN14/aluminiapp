@@ -60,7 +60,8 @@ serve(async (req) => {
       { data: profile },
       { data: initialState },
       { data: initialStateDetails },
-      // healthScores calculated inline below
+      { data: inventoryProducts },
+      { data: inventoryMovements },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -74,7 +75,6 @@ serve(async (req) => {
         .from("categories")
         .select("id, name, report_group")
         .eq("user_id", user.id),
-      // FIXED: Only fetch confirmed invoices (same as CFO insights and reports)
       supabase
         .from("invoices")
         .select("id, type, invoice_number, issue_date, due_date, subtotal_base, iva_amount, total_amount, counterparty_name, counterparty_nit, status, autoretefuente_amount, reteica_amount, retefuente_cliente_amount, retefuente_cliente_rate, seller_name, buyer_name, payment_method")
@@ -118,7 +118,19 @@ serve(async (req) => {
         .from("initial_state_details")
         .select("field_type, responsible_name, amount, responsible_id, invoice_id")
         .eq("user_id", user.id),
-      // Score is now calculated inline below
+      supabase
+        .from("inventory_products")
+        .select("id, reference, name, unit, stock_system, stock_physical, cost_per_unit, sale_price, min_stock")
+        .eq("user_id", user.id)
+        .eq("active", true)
+        .order("reference"),
+      supabase
+        .from("inventory_movements")
+        .select("id, product_id, movement_type, quantity, movement_date")
+        .eq("user_id", user.id)
+        .gte("movement_date", since)
+        .order("movement_date", { ascending: false })
+        .limit(1000),
     ]);
 
     const fmt = (n: number) =>
