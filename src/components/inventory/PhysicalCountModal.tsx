@@ -23,18 +23,6 @@ interface Props {
 
 type Step = 'upload' | 'mapping' | 'preview' | 'done';
 
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  for (const char of line) {
-    if (char === '"') { inQuotes = !inQuotes; }
-    else if ((char === ',' || char === ';') && !inQuotes) { result.push(current.trim()); current = ''; }
-    else { current += char; }
-  }
-  result.push(current.trim());
-  return result;
-}
 
 export default function PhysicalCountModal({ open, onOpenChange, onComplete }: Props) {
   const { user } = useAuth();
@@ -58,34 +46,22 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
   };
 
   const processFile = useCallback(async (file: File) => {
-    const isCSV = file.name.toLowerCase().endsWith('.csv');
+    if (!file.name.toLowerCase().endsWith('.xlsx') && !file.name.toLowerCase().endsWith('.xls')) {
+      toast({ title: 'Formato no soportado', description: 'Solo se aceptan archivos Excel (.xlsx)', variant: 'destructive' });
+      return;
+    }
     try {
-      let detectedHeaders: string[];
-      let dataRows: unknown[][];
-
-      if (isCSV) {
-        const text = await file.text();
-        const lines = text.split(/\r?\n/).filter(l => l.trim());
-        if (lines.length < 2) {
-          toast({ title: 'Archivo vacío', variant: 'destructive' });
-          return;
-        }
-        detectedHeaders = parseCSVLine(lines[0]);
-        dataRows = lines.slice(1).map(l => parseCSVLine(l));
-      } else {
-        const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as string) as any;
-        const data = await file.arrayBuffer();
-        const wb = XLSX.read(data, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const jsonRows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
-        if (jsonRows.length < 2) {
-          toast({ title: 'Archivo vacío', variant: 'destructive' });
-          return;
-        }
-        detectedHeaders = (jsonRows[0] as unknown[]).map((c: unknown) => String(c ?? ''));
-        dataRows = jsonRows.slice(1) as unknown[][];
+      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as string) as any;
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const jsonRows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      if (jsonRows.length < 2) {
+        toast({ title: 'Archivo vacío', variant: 'destructive' });
+        return;
       }
-
+      const detectedHeaders = (jsonRows[0] as unknown[]).map((c: unknown) => String(c ?? ''));
+      let dataRows = jsonRows.slice(1) as unknown[][];
       dataRows = dataRows.filter(row => row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== ''));
       setHeaders(detectedHeaders);
       setRawRows(dataRows);
@@ -102,7 +78,7 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'text/csv': ['.csv'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'], 'application/vnd.ms-excel': ['.xls'] },
+    accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'], 'application/vnd.ms-excel': ['.xls'] },
     maxFiles: 1,
   });
 
@@ -180,15 +156,22 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
   const errorCount = rows.filter(r => r.status === 'error').length;
   const dupCount = rows.filter(r => r.status === 'duplicate').length;
 
-  const downloadTemplate = () => {
-    const csv = `referencia,unidades_fisicas,nombre_producto\nREF-001,148,Perfil T6 Natural\nREF-002,82,Lámina Lisa 1mm`;
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'plantilla_inventario_fisico.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+  const downloadTemplate = async () => {
+    try {
+      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as string) as any;
+      const data = [
+        ['referencia', 'nombre_producto', 'unidad_medida', 'unidades_fisicas'],
+        ['REF-001', 'Perfil T6 Natural', 'unidad', 148],
+        ['REF-002', 'Lámina Lisa 1mm', 'metro', 82],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 18 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Conteo Físico');
+      XLSX.writeFile(wb, 'plantilla_inventario_fisico.xlsx');
+    } catch {
+      toast({ title: 'Error al generar plantilla', variant: 'destructive' });
+    }
   };
 
   const downloadErrors = () => {
@@ -240,7 +223,7 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
               <input {...getInputProps()} />
               <ClipboardCheck className="h-8 w-8 mx-auto mb-3 text-amber-400/60" />
               <p className="text-sm font-medium">Arrastra tu archivo de conteo físico</p>
-              <p className="text-xs text-muted-foreground mt-1">Excel o CSV con referencia y unidades contadas</p>
+              <p className="text-xs text-muted-foreground mt-1">Archivo Excel (.xlsx) con referencia, nombre, unidad y unidades contadas</p>
             </div>
             <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2 w-full">
               <Download className="h-3.5 w-3.5" />
