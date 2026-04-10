@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Package, Upload } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import InventoryMetrics from '@/components/inventory/InventoryMetrics';
@@ -9,12 +9,14 @@ import InventoryTable from '@/components/inventory/InventoryTable';
 import AddProductModal from '@/components/inventory/AddProductModal';
 import AdjustStockModal from '@/components/inventory/AdjustStockModal';
 import BulkUploadModal from '@/components/inventory/BulkUploadModal';
+import PhysicalCountModal from '@/components/inventory/PhysicalCountModal';
 import AppLayout from '@/components/layout/AppLayout';
 
 export default function Inventory() {
   const { products, movements, metrics, loading, addProduct, addMovement, refetch } = useInventoryData();
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [showPhysical, setShowPhysical] = useState(false);
   const [adjustProduct, setAdjustProduct] = useState<ProductWithMetrics | null>(null);
   const [adjustMode, setAdjustMode] = useState<'adjust' | 'entrada' | 'salida'>('adjust');
 
@@ -44,10 +46,19 @@ export default function Inventory() {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowPhysical(true)}
+              size="sm"
+              className="gap-2 rounded-xl border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+            >
+              <ClipboardCheck className="h-4 w-4" />
+              Inventario físico
+            </Button>
             <Button variant="outline" onClick={() => setShowBulk(true)} size="sm" className="gap-2 rounded-xl">
               <Upload className="h-4 w-4" />
-              Carga masiva
+              Carga Siigo
             </Button>
             <Button onClick={() => setShowAdd(true)} size="sm" className="gap-2 rounded-xl">
               <Plus className="h-4 w-4" />
@@ -90,6 +101,7 @@ export default function Inventory() {
 
       <AddProductModal open={showAdd} onOpenChange={setShowAdd} onSubmit={addProduct} />
       <BulkUploadModal open={showBulk} onOpenChange={setShowBulk} onComplete={refetch} />
+      <PhysicalCountModal open={showPhysical} onOpenChange={setShowPhysical} onComplete={refetch} />
       <AdjustStockModal
         open={!!adjustProduct}
         onOpenChange={(open) => { if (!open) setAdjustProduct(null); }}
