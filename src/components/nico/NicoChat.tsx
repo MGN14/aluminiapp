@@ -13,8 +13,8 @@ const SUGGESTIONS = [
   '¿Tengo inconsistencias fiscales?',
   '¿Cuánto debo provisionar de IVA?',
   '¿Quién me debe plata?',
-  '¿Tengo anticipos sin facturar?',
-  '¿Cómo puedo optimizar mis impuestos?',
+  '¿Cómo va mi inventario?',
+  '¿Dónde estoy perdiendo plata?',
 ];
 
 export default function NicoChat() {

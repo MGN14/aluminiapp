@@ -1,10 +1,11 @@
-import { BarChart3, DollarSign, Receipt, TrendingUp } from 'lucide-react';
+import { BarChart3, DollarSign, Receipt, TrendingUp, Package } from 'lucide-react';
 
 const QUICK_ACTIONS = [
   { label: 'Analiza mis gastos', icon: BarChart3, query: 'Analiza mis gastos del último mes, identifica los más altos y si hay alguno fuera de lo normal.' },
   { label: '¿Quién me debe?', icon: DollarSign, query: '¿Quién me debe plata? Dame el detalle de mis cuentas por cobrar.' },
   { label: '¿Cuánto debo de IVA?', icon: Receipt, query: '¿Cuánto debo provisionar para IVA este período?' },
   { label: '¿Cómo va mi flujo?', icon: TrendingUp, query: '¿Cómo va mi flujo de caja este mes comparado con el anterior?' },
+  { label: '¿Cómo va mi inventario?', icon: Package, query: '¿Cómo va mi inventario? ¿Hay diferencias entre el sistema y el conteo físico? ¿Dónde puedo estar perdiendo plata por inventario?' },
 ];
 
 interface NicoQuickActionsProps {

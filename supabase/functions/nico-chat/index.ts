@@ -60,7 +60,8 @@ serve(async (req) => {
       { data: profile },
       { data: initialState },
       { data: initialStateDetails },
-      // healthScores calculated inline below
+      { data: inventoryProducts },
+      { data: inventoryMovements },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -74,7 +75,6 @@ serve(async (req) => {
         .from("categories")
         .select("id, name, report_group")
         .eq("user_id", user.id),
-      // FIXED: Only fetch confirmed invoices (same as CFO insights and reports)
       supabase
         .from("invoices")
         .select("id, type, invoice_number, issue_date, due_date, subtotal_base, iva_amount, total_amount, counterparty_name, counterparty_nit, status, autoretefuente_amount, reteica_amount, retefuente_cliente_amount, retefuente_cliente_rate, seller_name, buyer_name, payment_method")
@@ -118,7 +118,19 @@ serve(async (req) => {
         .from("initial_state_details")
         .select("field_type, responsible_name, amount, responsible_id, invoice_id")
         .eq("user_id", user.id),
-      // Score is now calculated inline below
+      supabase
+        .from("inventory_products")
+        .select("id, reference, name, unit, stock_system, stock_physical, cost_per_unit, sale_price, min_stock")
+        .eq("user_id", user.id)
+        .eq("active", true)
+        .order("reference"),
+      supabase
+        .from("inventory_movements")
+        .select("id, product_id, movement_type, quantity, movement_date")
+        .eq("user_id", user.id)
+        .gte("movement_date", since)
+        .order("movement_date", { ascending: false })
+        .limit(1000),
     ]);
 
     const fmt = (n: number) =>
@@ -616,6 +628,98 @@ serve(async (req) => {
 Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturacion}/20, Impuestos: ${scoreImpuestos}/20, Cartera y anticipos: ${scoreCartera}/20, Clasificación: ${scoreClasificacion}/20`;
 
     // =============================================
+    // MODULE 8: INVENTARIO OPERATIVO
+    // =============================================
+    const rawProducts = inventoryProducts ?? [];
+    const rawMovements = inventoryMovements ?? [];
+    const hasInventory = rawProducts.length > 0;
+
+    let inventoryCtx = "";
+    if (hasInventory) {
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Enrich products with metrics
+      const enriched = rawProducts.map((p: any) => {
+        const prodMov = rawMovements.filter((m: any) => m.product_id === p.id);
+        const recentSales = prodMov
+          .filter((m: any) => m.movement_type === "salida" && new Date(m.movement_date) >= thirtyDaysAgo)
+          .reduce((s: number, m: any) => s + Math.abs(m.quantity ?? 0), 0);
+        const avgDailySales = recentSales / 30;
+        const daysOfInventory = avgDailySales > 0 ? p.stock_system / avgDailySales : 999;
+        const difference = p.stock_physical !== null ? p.stock_system - p.stock_physical : 0;
+        const valueDiff = difference * p.cost_per_unit;
+        const totalValue = p.stock_system * p.cost_per_unit;
+        const status = avgDailySales <= 0 ? "exceso" : daysOfInventory < 15 ? "critico" : daysOfInventory <= 45 ? "alerta" : daysOfInventory <= 90 ? "sano" : "exceso";
+        return { ...p, difference, valueDiff, totalValue, daysOfInventory: Math.round(daysOfInventory), avgDailySales, status };
+      });
+
+      const totalInventoryValue = enriched.reduce((s: number, p: any) => s + p.totalValue, 0);
+      const totalDifferenceValue = enriched.reduce((s: number, p: any) => s + Math.abs(p.valueDiff), 0);
+      const totalDifferenceUnits = enriched.reduce((s: number, p: any) => s + Math.abs(p.difference), 0);
+      const pctDescuadre = totalInventoryValue > 0 ? (totalDifferenceValue / totalInventoryValue) * 100 : 0;
+      const criticalProducts = enriched.filter((p: any) => p.status === "critico");
+      const excessProducts = enriched.filter((p: any) => p.status === "exceso");
+      const noMovement = enriched.filter((p: any) => p.avgDailySales === 0);
+      const productsWithDiff = enriched.filter((p: any) => p.difference !== 0).sort((a: any, b: any) => Math.abs(b.valueDiff) - Math.abs(a.valueDiff));
+      const positiveeDiff = productsWithDiff.filter((p: any) => p.difference > 0); // faltan en físico
+      const negativeDiff = productsWithDiff.filter((p: any) => p.difference < 0); // sobran en físico
+
+      const withSales = enriched.filter((p: any) => p.avgDailySales > 0);
+      const avgDays = withSales.length > 0 ? withSales.reduce((s: number, p: any) => s + p.daysOfInventory, 0) / withSales.length : 0;
+
+      inventoryCtx = `
+═══════════════════════════════════════════
+MÓDULO 8 — INVENTARIO OPERATIVO
+Fuente: inventario contable (Siigo) + conteo físico (bodega). Permite detectar diferencias operativas.
+═══════════════════════════════════════════
+
+RESUMEN GENERAL:
+Total referencias activas: ${enriched.length}
+Valor total inventario (sistema): ${fmt(totalInventoryValue)}
+Días promedio de inventario: ${Math.round(avgDays)} días
+Productos en estado crítico (< 15 días): ${criticalProducts.length}
+Productos en exceso (sin rotación): ${excessProducts.length}
+Productos sin movimiento (últimos 30 días): ${noMovement.length}
+Capital inmovilizado (sin movimiento): ${fmt(noMovement.reduce((s: number, p: any) => s + p.totalValue, 0))}
+
+ANÁLISIS DE DIFERENCIAS (Sistema vs Físico):
+Productos con diferencia: ${productsWithDiff.length} de ${enriched.length}
+Valor total de diferencias: ${fmt(totalDifferenceValue)}
+% de descuadre: ${pctDescuadre.toFixed(1)}%
+${pctDescuadre > 5 ? "⚠ ALERTA: El descuadre supera el 5%. Esto puede indicar ventas sin factura, pérdidas, robos o errores de conteo." : ""}
+
+${positiveeDiff.length > 0 ? `FALTANTES EN BODEGA (sistema > físico — posible venta sin factura, robo, pérdida):
+${positiveeDiff.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): faltan ${Math.abs(p.difference)} uds → ${fmt(Math.abs(p.valueDiff))}`).join("\n")}` : ""}
+
+${negativeDiff.length > 0 ? `EXCEDENTES EN BODEGA (físico > sistema — posible compra no registrada, error contable):
+${negativeDiff.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): sobran ${Math.abs(p.difference)} uds → ${fmt(Math.abs(p.valueDiff))}`).join("\n")}` : ""}
+
+TOP PRODUCTOS POR VALOR:
+${enriched.sort((a: any, b: any) => b.totalValue - a.totalValue).slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): ${p.stock_system} uds × ${fmt(p.cost_per_unit)} = ${fmt(p.totalValue)} | Estado: ${p.status} | Días inv: ${p.daysOfInventory}`).join("\n")}
+
+PRODUCTOS CRÍTICOS (menos de 15 días de stock):
+${criticalProducts.length > 0 ? criticalProducts.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): ${p.stock_system} uds, ~${p.daysOfInventory} días de stock`).join("\n") : "Ninguno"}
+
+INVENTARIO INMOVILIZADO (sin ventas en 30 días):
+${noMovement.length > 0 ? `${noMovement.length} productos sin rotación. Capital detenido: ${fmt(noMovement.reduce((s: number, p: any) => s + p.totalValue, 0))}
+${noMovement.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): ${p.stock_system} uds × ${fmt(p.cost_per_unit)} = ${fmt(p.totalValue)}`).join("\n")}` : "Todos los productos tienen movimiento reciente."}
+
+IMPACTO FINANCIERO DE DIFERENCIAS:
+${totalDifferenceValue > 0 ? `La diferencia entre inventario contable y físico representa ${fmt(totalDifferenceValue)}, equivalente al ${pctDescuadre.toFixed(1)}% del valor total.
+${pctDescuadre > 5 ? "Esto puede estar sobreestimando la utilidad real del negocio." : "El nivel de descuadre está dentro de parámetros aceptables."}` : "No se han detectado diferencias (no se ha cargado conteo físico o el inventario está alineado)."}
+`;
+    } else {
+      inventoryCtx = `
+═══════════════════════════════════════════
+MÓDULO 8 — INVENTARIO OPERATIVO
+═══════════════════════════════════════════
+
+No hay productos de inventario registrados. Si el negocio maneja inventario, sugiere al usuario cargar su inventario contable desde Siigo y hacer un conteo físico para detectar diferencias operativas.
+`;
+    }
+
+    // =============================================
     // BUILD FULL CONTEXT
     // =============================================
     const financialContext = `
@@ -758,6 +862,9 @@ MÓDULO 7 — SALUD FINANCIERA (Score Visita DIAN)
 
 ${healthScoreCtx}
 
+
+${inventoryCtx}
+
 ═══════════════════════════════════════════
 INFORMACIÓN DEL NEGOCIO
 ═══════════════════════════════════════════
@@ -780,7 +887,7 @@ Eres un verdadero auxiliar financiero inteligente. Tu misión es ayudar al empre
 - Prevenir multas e inconsistencias contables
 
 CONOCIMIENTO DE MÓDULOS:
-Tienes acceso a siete fuentes de datos distintas y debes diferenciarlas siempre:
+Tienes acceso a ocho fuentes de datos distintas y debes diferenciarlas siempre:
 
 1. FLUJO DE CAJA (Extractos bancarios): Movimientos reales del banco. Cuando el usuario pregunta "¿cuánto gasté?", "¿cuánto entró?", "¿cuánto tengo?", usa estos datos. Son entradas y salidas reales de dinero.
 
@@ -795,6 +902,8 @@ Tienes acceso a siete fuentes de datos distintas y debes diferenciarlas siempre:
 6. ESTADO INICIAL FINANCIERO: Saldos de apertura del negocio que se suman a los acumulados.
 
 7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 5 factores (conciliación, facturación soportada, impuestos, cartera/anticipos, clasificación) sobre 100 puntos.
+
+8. INVENTARIO OPERATIVO: Cruce entre inventario contable (Siigo) e inventario físico (bodega). Permite detectar diferencias operativas como ventas sin factura, robos, pérdidas, errores de conteo, o compras no registradas. Los datos incluyen valor total del inventario, diferencias por referencia, productos críticos (sin stock), inventario inmovilizado (sin rotación) y el impacto financiero de las diferencias.
 
 CAPACIDADES DE ANÁLISIS:
 
@@ -835,15 +944,26 @@ F) Salud financiera:
 - Interpretar el score de Visita DIAN y dar recomendaciones para mejorar cada factor
 - Explicar qué factores están bien y cuáles necesitan atención
 
+G) Análisis de inventario operativo:
+- Valor total de inventario y diferencias respecto al conteo físico
+- Detección de fuga operativa: productos donde sistema > físico (posible robo, venta sin factura, pérdida)
+- Detección de excedentes: productos donde físico > sistema (posible compra no registrada, error contable)
+- Top productos con mayor diferencia monetaria
+- Inventario inmovilizado (capital detenido sin rotación)
+- Productos en estado crítico (menos de 15 días de stock)
+- Impacto financiero de las diferencias en la utilidad real
+- Si el descuadre > 5%, alertar que la utilidad puede estar sobreestimada
+
 REGLAS DE ANÁLISIS:
 - Si el usuario pregunta sobre facturación, ventas facturadas o clientes, responde con datos del módulo de FACTURACIÓN DIAN.
 - Si pregunta sobre flujo de caja, gastos, ingresos bancarios o proveedores por pagos, responde con datos del FLUJO DE CAJA.
 - Si pregunta sobre impuestos, IVA, retenciones o DIAN, responde con datos de OBLIGACIONES FISCALES.
+- Si pregunta sobre inventario, stock, diferencias físicas, faltantes, sobrantes o productos, responde con datos del INVENTARIO OPERATIVO.
 - Si la pregunta es ambigua, aclara brevemente de qué fuente estás tomando los datos. Ejemplo: "Según tus facturas DIAN, facturaste $X. En el banco, ingresaron $Y."
 - Si detectas discrepancias entre lo facturado y lo recibido en banco, menciónalo como un dato relevante.
 - Analiza la conciliación: si hay muchas transacciones sin factura asociada, sugiérelo como punto de mejora.
 - Siempre que sea relevante, menciona alertas e inconsistencias detectadas de forma proactiva.
-- Cuando el usuario pregunte de forma general ("¿cómo va mi negocio?", "dame un diagnóstico"), ofrece un panorama completo que integre flujo de caja, facturación, cartera, salud financiera e inconsistencias.
+- Cuando el usuario pregunte de forma general ("¿cómo va mi negocio?", "dame un diagnóstico", "¿dónde estoy perdiendo plata?", "¿por qué no me cuadra la caja?"), ofrece un panorama completo que integre flujo de caja, facturación, cartera, salud financiera, inconsistencias E INVENTARIO. Si hay diferencias de inventario, SIEMPRE menciónalas como posible fuente de pérdida.
 - Los datos de CxC ya incluyen la deducción de retefuente del cliente y los pagos (directos, matches manuales y anticipos vinculados). No deduzcas dos veces.
 - Los anticipos solo incluyen ingresos con categoría "Ventas", responsable asignado y sin factura. No incluyen transferencias ni ingresos de categorías diferentes.
 

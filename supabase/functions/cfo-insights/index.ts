@@ -112,6 +112,8 @@ Deno.serve(async (req) => {
       initialStateRes,
       initialDetailsRes,
       responsiblesRes,
+      inventoryRes,
+      inventoryMovRes,
     ] = await Promise.all([
       // Current period transactions
       admin
@@ -129,7 +131,7 @@ Deno.serve(async (req) => {
         .is("deleted_at", null)
         .gte("date", prevPeriodStart)
         .lte("date", prevPeriodEnd),
-      // Invoices in the period (confirmed) - include retefuente fields
+      // Invoices in the period (confirmed)
       admin
         .from("invoices")
         .select("id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, reteica_amount, autoretefuente_amount, retefuente_cliente_amount, retefuente_cliente_rate, status, due_date")
@@ -145,7 +147,7 @@ Deno.serve(async (req) => {
         .eq("status", "confirmed")
         .gte("issue_date", ivaStart)
         .lte("issue_date", ivaEnd),
-      // Year invoices (for YTD) - include retefuente fields
+      // Year invoices (for YTD)
       admin
         .from("invoices")
         .select("id, type, issue_date, subtotal_base, total_amount, counterparty_name, reteica_amount, autoretefuente_amount, retefuente_cliente_amount, retefuente_cliente_rate, status")
@@ -158,7 +160,7 @@ Deno.serve(async (req) => {
         .from("invoice_transaction_matches")
         .select("invoice_id, matched_amount")
         .eq("user_id", userId),
-      // Anticipos: income transactions with responsible, no invoice (year-wide)
+      // Anticipos
       admin
         .from("transactions")
         .select("id, date, amount, responsible_id, category, category_id, categories!transactions_category_id_fkey(name)")
@@ -180,17 +182,29 @@ Deno.serve(async (req) => {
         .select("saldo_bancos, cuentas_por_cobrar, cuentas_por_pagar, anticipos_de_clientes, iva_a_favor, iva_por_pagar, retefuente_por_pagar, ica_por_pagar")
         .eq("user_id", userId)
         .maybeSingle(),
-      // Initial state details (anticipos_de_clientes)
+      // Initial state details
       admin
         .from("initial_state_details")
         .select("id, invoice_id, amount, responsible_name, field_type")
         .eq("user_id", userId)
         .eq("field_type", "anticipos_de_clientes"),
-      // Responsibles for name lookup
+      // Responsibles
       admin
         .from("responsibles")
         .select("id, name")
         .eq("user_id", userId),
+      // Inventory products
+      admin
+        .from("inventory_products")
+        .select("id, reference, name, stock_system, stock_physical, cost_per_unit")
+        .eq("user_id", userId)
+        .eq("active", true),
+      // Inventory movements (last 30 days for rotation)
+      admin
+        .from("inventory_movements")
+        .select("product_id, movement_type, quantity, movement_date")
+        .eq("user_id", userId)
+        .gte("movement_date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
     ]);
 
     const txCurrent = txCurrentRes.data || [];
@@ -524,6 +538,74 @@ Deno.serve(async (req) => {
           action: { label: "Conciliar", path: "/transactions" },
           impact: montoPendiente > 0 ? montoPendiente : pendientes.length * 1000,
           trend: "down" as const,
+        });
+      }
+    }
+
+    // ─── INSIGHT H: Inventario operativo ───
+    const invProducts = inventoryRes.data || [];
+    const invMovements = inventoryMovRes.data || [];
+    if (invProducts.length > 0) {
+      const totalValue = invProducts.reduce((s: number, p: any) => s + (p.stock_system ?? 0) * (p.cost_per_unit ?? 0), 0);
+      const productsWithDiff = invProducts.filter((p: any) => p.stock_physical !== null && p.stock_system !== p.stock_physical);
+      const totalDiffValue = productsWithDiff.reduce((s: number, p: any) => s + Math.abs((p.stock_system - p.stock_physical) * p.cost_per_unit), 0);
+      const pctDescuadre = totalValue > 0 ? (totalDiffValue / totalValue) * 100 : 0;
+
+      // No-movement products
+      const movProductIds = new Set(invMovements.map((m: any) => m.product_id));
+      const noMovement = invProducts.filter((p: any) => !movProductIds.has(p.id));
+      const noMovValue = noMovement.reduce((s: number, p: any) => s + (p.stock_system ?? 0) * (p.cost_per_unit ?? 0), 0);
+
+      // Critical products (low stock with sales)
+      const salesByProduct = new Map<string, number>();
+      invMovements.filter((m: any) => m.movement_type === "salida").forEach((m: any) => {
+        salesByProduct.set(m.product_id, (salesByProduct.get(m.product_id) || 0) + Math.abs(m.quantity ?? 0));
+      });
+      const criticalProducts = invProducts.filter((p: any) => {
+        const sales30 = salesByProduct.get(p.id) || 0;
+        const avgDaily = sales30 / 30;
+        return avgDaily > 0 && (p.stock_system / avgDaily) < 15;
+      });
+
+      if (totalDiffValue > 0 && pctDescuadre > 2) {
+        const topDiff = productsWithDiff
+          .sort((a: any, b: any) => Math.abs((b.stock_system - b.stock_physical) * b.cost_per_unit) - Math.abs((a.stock_system - a.stock_physical) * a.cost_per_unit))
+          .slice(0, 2)
+          .map((p: any) => p.name || p.reference)
+          .join(", ");
+
+        insights.push({
+          key: "inventario_diferencias",
+          title: pctDescuadre > 5 ? "Fuga de inventario ⚠️" : "Diferencias de inventario 📦",
+          text: `Tienes ${fmt(totalDiffValue)} en diferencias entre tu inventario contable y el conteo físico (${pctDescuadre.toFixed(1)}% del total). Los productos con mayor diferencia son: ${topDiff}.${pctDescuadre > 5 ? " Esto puede indicar ventas sin factura, pérdidas operativas o errores de conteo." : ""}`,
+          recommendation: pctDescuadre > 5
+            ? "Revisa urgentemente los productos con mayor diferencia. Un descuadre de este nivel puede estar sobreestimando tu utilidad real."
+            : "Revisa los productos con diferencia y actualiza tu conteo físico para mantener el inventario alineado.",
+          action: { label: "Ver inventario", path: "/inventory" },
+          impact: totalDiffValue,
+        });
+      }
+
+      if (noMovement.length > 0 && noMovValue > 500000) {
+        insights.push({
+          key: "inventario_inmovilizado",
+          title: "Capital detenido en inventario 📦",
+          text: `Tienes ${noMovement.length} producto${noMovement.length > 1 ? "s" : ""} sin movimiento en los últimos 30 días, con un valor de ${fmt(noMovValue)} en capital inmovilizado.`,
+          recommendation: "Evalúa si puedes liquidar ese inventario con descuentos o promociones para liberar capital de trabajo.",
+          action: { label: "Ver inventario", path: "/inventory" },
+          impact: noMovValue,
+        });
+      }
+
+      if (criticalProducts.length > 0) {
+        const names = criticalProducts.slice(0, 2).map((p: any) => p.name || p.reference).join(", ");
+        insights.push({
+          key: "inventario_critico",
+          title: "Stock crítico 🔴",
+          text: `${criticalProducts.length} producto${criticalProducts.length > 1 ? "s" : ""} con menos de 15 días de stock: ${names}. Si no reabasteces, podrías perder ventas.`,
+          recommendation: "Contacta a tus proveedores y genera órdenes de compra para los productos en riesgo de desabastecimiento.",
+          action: { label: "Ver inventario", path: "/inventory" },
+          impact: criticalProducts.reduce((s: number, p: any) => s + (p.stock_system ?? 0) * (p.cost_per_unit ?? 0), 0),
         });
       }
     }
