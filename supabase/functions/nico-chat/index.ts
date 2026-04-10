@@ -862,6 +862,9 @@ MÓDULO 7 — SALUD FINANCIERA (Score Visita DIAN)
 
 ${healthScoreCtx}
 
+
+${inventoryCtx}
+
 ═══════════════════════════════════════════
 INFORMACIÓN DEL NEGOCIO
 ═══════════════════════════════════════════
