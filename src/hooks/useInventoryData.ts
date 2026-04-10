@@ -106,7 +106,7 @@ export function useInventoryData() {
         const totalSales30d = recentSales;
         const avgStock = p.stock_system > 0 ? p.stock_system : 1;
         const rotation = totalSales30d / avgStock;
-        const difference = p.stock_physical !== null ? p.stock_physical - p.stock_system : 0;
+        const difference = p.stock_physical !== null ? p.stock_system - p.stock_physical : 0;
 
         return {
           ...p,
