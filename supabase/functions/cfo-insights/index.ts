@@ -112,6 +112,8 @@ Deno.serve(async (req) => {
       initialStateRes,
       initialDetailsRes,
       responsiblesRes,
+      inventoryRes,
+      inventoryMovRes,
     ] = await Promise.all([
       // Current period transactions
       admin
@@ -129,7 +131,7 @@ Deno.serve(async (req) => {
         .is("deleted_at", null)
         .gte("date", prevPeriodStart)
         .lte("date", prevPeriodEnd),
-      // Invoices in the period (confirmed) - include retefuente fields
+      // Invoices in the period (confirmed)
       admin
         .from("invoices")
         .select("id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, reteica_amount, autoretefuente_amount, retefuente_cliente_amount, retefuente_cliente_rate, status, due_date")
@@ -145,7 +147,7 @@ Deno.serve(async (req) => {
         .eq("status", "confirmed")
         .gte("issue_date", ivaStart)
         .lte("issue_date", ivaEnd),
-      // Year invoices (for YTD) - include retefuente fields
+      // Year invoices (for YTD)
       admin
         .from("invoices")
         .select("id, type, issue_date, subtotal_base, total_amount, counterparty_name, reteica_amount, autoretefuente_amount, retefuente_cliente_amount, retefuente_cliente_rate, status")
@@ -158,7 +160,7 @@ Deno.serve(async (req) => {
         .from("invoice_transaction_matches")
         .select("invoice_id, matched_amount")
         .eq("user_id", userId),
-      // Anticipos: income transactions with responsible, no invoice (year-wide)
+      // Anticipos
       admin
         .from("transactions")
         .select("id, date, amount, responsible_id, category, category_id, categories!transactions_category_id_fkey(name)")
@@ -180,17 +182,29 @@ Deno.serve(async (req) => {
         .select("saldo_bancos, cuentas_por_cobrar, cuentas_por_pagar, anticipos_de_clientes, iva_a_favor, iva_por_pagar, retefuente_por_pagar, ica_por_pagar")
         .eq("user_id", userId)
         .maybeSingle(),
-      // Initial state details (anticipos_de_clientes)
+      // Initial state details
       admin
         .from("initial_state_details")
         .select("id, invoice_id, amount, responsible_name, field_type")
         .eq("user_id", userId)
         .eq("field_type", "anticipos_de_clientes"),
-      // Responsibles for name lookup
+      // Responsibles
       admin
         .from("responsibles")
         .select("id, name")
         .eq("user_id", userId),
+      // Inventory products
+      admin
+        .from("inventory_products")
+        .select("id, reference, name, stock_system, stock_physical, cost_per_unit")
+        .eq("user_id", userId)
+        .eq("active", true),
+      // Inventory movements (last 30 days for rotation)
+      admin
+        .from("inventory_movements")
+        .select("product_id, movement_type, quantity, movement_date")
+        .eq("user_id", userId)
+        .gte("movement_date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
     ]);
 
     const txCurrent = txCurrentRes.data || [];
