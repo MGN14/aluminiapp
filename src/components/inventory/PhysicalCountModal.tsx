@@ -261,7 +261,7 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
                 <div key={idx} className="flex items-center gap-3 text-sm">
                   <span className="font-mono text-xs bg-muted/40 rounded px-2 py-1 min-w-[140px] truncate">{m.excelHeader}</span>
                   <span className="text-muted-foreground">→</span>
-                  <Select value={m.mappedTo || '__none''} onValueChange={(v) => handleMappingChange(idx, v === '__none' ? null : v as PhysicalField)}>
+                  <Select value={m.mappedTo || '__none'} onValueChange={(v) => handleMappingChange(idx, v === '__none' ? null : v as PhysicalField)}>
                     <SelectTrigger className="h-8 text-xs w-48">
                       <SelectValue placeholder="No mapear" />
                     </SelectTrigger>
