@@ -36,6 +36,20 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
     else { setSortKey(key); setSortAsc(true); }
   };
 
+  const askNicoAboutProduct = (product: ProductWithMetrics) => {
+    const diffText = product.difference === 0 
+      ? 'está alineado con el conteo físico'
+      : product.difference > 0 
+        ? `tiene ${product.difference} unidades faltantes respecto al físico`
+        : `tiene ${Math.abs(product.difference)} unidades de exceso físico`;
+    
+    const query = `Analiza el producto ${product.reference} (${product.name}). Stock sistema: ${product.stock_system}, Stock físico: ${product.stock_physical ?? 'no contado'}. El inventario ${diffText}. ¿Qué puede estar causando esta diferencia y qué debería hacer?`;
+    
+    window.dispatchEvent(new CustomEvent('nico-prefill', { 
+      detail: { query, pageContext: { page: 'inventory' } }
+    }));
+  };
+
   if (!products.length) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-4 rounded-2xl border border-border/50 bg-muted/10">
