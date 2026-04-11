@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertCircle, Link2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { AlertCircle, Link2, Filter, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { format } from 'date-fns';
+import { format, parseISO, isAfter, isBefore, isEqual } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { supabase } from '@/integrations/supabase/client';
@@ -50,6 +51,36 @@ export default function AdvancesTable({
   const queryClient = useQueryClient();
   const [reconciling, setReconciling] = useState<string | null>(null);
 
+  // Filtros chiquitos y elegantes
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((tx) => {
+      const txDate = parseLocalDate(tx.date);
+      const amount = Math.abs(tx.amount ?? 0);
+
+      if (dateFrom && isBefore(txDate, parseLocalDate(dateFrom)) && !isEqual(txDate, parseLocalDate(dateFrom))) return false;
+      if (dateTo && isAfter(txDate, parseLocalDate(dateTo)) && !isEqual(txDate, parseLocalDate(dateTo))) return false;
+      if (minAmount && amount < parseFloat(minAmount)) return false;
+      if (maxAmount && amount > parseFloat(maxAmount)) return false;
+
+      return true;
+    });
+  }, [transactions, dateFrom, dateTo, minAmount, maxAmount]);
+
+  const clearFilters = () => {
+    setDateFrom('');
+    setDateTo('');
+    setMinAmount('');
+    setMaxAmount('');
+  };
+
+  const hasActiveFilters = dateFrom || dateTo || minAmount || maxAmount;
+
   const handleReconcile = async (txId: string, invoiceId: string) => {
     if (!user) return;
     try {
@@ -71,6 +102,96 @@ export default function AdvancesTable({
   return (
     <Card>
       <CardContent className="p-0">
+        {/* Filtros chiquitos y elegantes */}
+        <div className="px-4 py-3 border-b border-border/50 bg-muted/30">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              <Filter className="h-3 w-3" />
+              Filtros
+              {hasActiveFilters && (
+                <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary" />
+              )}
+            </Button>
+            
+            {showFilters && (
+              <>
+                <div className="h-4 w-px bg-border mx-1" />
+                
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="h-7 w-32 text-xs px-2"
+                    placeholder="Desde"
+                  />
+                  <span className="text-muted-foreground text-xs">→</span>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="h-7 w-32 text-xs px-2"
+                    placeholder="Hasta"
+                  />
+                </div>
+
+                <div className="h-4 w-px bg-border mx-1" />
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    value={minAmount}
+                    onChange={(e) => setMinAmount(e.target.value)}
+                    className="h-7 w-28 text-xs px-2"
+                    placeholder="Mín $"
+                  />
+                  <span className="text-muted-foreground text-xs">-</span>
+                  <Input
+                    type="number"
+                    value={maxAmount}
+                    onChange={(e) => setMaxAmount(e.target.value)}
+                    className="h-7 w-28 text-xs px-2"
+                    placeholder="Máx $"
+                  />
+                </div>
+
+                {hasActiveFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                    onClick={clearFilters}
+                  >
+                    <X className="h-3 w-3" />
+                    Limpiar
+                  </Button>
+                )}
+              </>
+            )}
+            
+            {!showFilters && hasActiveFilters && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                {dateFrom && <span className="bg-muted px-1.5 py-0.5 rounded">{format(parseLocalDate(dateFrom), 'dd/MM')}</span>}
+                {dateFrom && dateTo && <span>-</span>}
+                {dateTo && <span className="bg-muted px-1.5 py-0.5 rounded">{format(parseLocalDate(dateTo), 'dd/MM')}</span>}
+                {(dateFrom || dateTo) && (minAmount || maxAmount) && <span className="mx-1">•</span>}
+                {minAmount && <span className="bg-muted px-1.5 py-0.5 rounded">${parseFloat(minAmount).toLocaleString()}</span>}
+                {minAmount && maxAmount && <span>-</span>}
+                {maxAmount && <span className="bg-muted px-1.5 py-0.5 rounded">${parseFloat(maxAmount).toLocaleString()}</span>}
+              </div>
+            )}
+            
+            <div className="ml-auto text-xs text-muted-foreground">
+              {filteredTransactions.length} de {transactions.length} anticipos
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -91,17 +212,27 @@ export default function AdvancesTable({
                     Cargando datos...
                   </TableCell>
                 </TableRow>
-              ) : !transactions.length ? (
+              ) : !filteredTransactions.length ? (
                 <TableRow>
                   <TableCell colSpan={showReconcile ? 7 : 6} className="text-center py-12">
                     <div className="flex flex-col items-center gap-2">
                       <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
-                      <p className="text-muted-foreground">No hay anticipos para este periodo.</p>
+                      <p className="text-muted-foreground">
+                        {!transactions.length 
+                          ? 'No hay anticipos para este periodo.'
+                          : 'Ningún anticipo coincide con los filtros.'
+                        }
+                      </p>
+                      {hasActiveFilters && transactions.length > 0 && (
+                        <Button variant="ghost" size="sm" className="h-7 text-xs mt-1" onClick={clearFilters}>
+                          Limpiar filtros
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
               ) : (
-                transactions.map((tx) => {
+                filteredTransactions.map((tx) => {
                   const clientName = tx.owner || (tx.responsible_id ? respMap.get(tx.responsible_id) : null) || 'Sin asignar';
                   const accountName = statementsMap.get(tx.statement_id) || '-';
                   const cleanNotes = (tx.notes || '')
