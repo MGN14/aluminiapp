@@ -208,17 +208,27 @@ export default function AdvancesTable({
                     Cargando datos...
                   </TableCell>
                 </TableRow>
-              ) : !transactions.length ? (
+              ) : !filteredTransactions.length ? (
                 <TableRow>
                   <TableCell colSpan={showReconcile ? 7 : 6} className="text-center py-12">
                     <div className="flex flex-col items-center gap-2">
                       <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
-                      <p className="text-muted-foreground">No hay anticipos para este periodo.</p>
+                      <p className="text-muted-foreground">
+                        {!transactions.length 
+                          ? 'No hay anticipos para este periodo.'
+                          : 'Ningún anticipo coincide con los filtros.'
+                        }
+                      </p>
+                      {hasActiveFilters && transactions.length > 0 && (
+                        <Button variant="ghost" size="sm" className="h-7 text-xs mt-1" onClick={clearFilters}>
+                          Limpiar filtros
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
               ) : (
-                transactions.map((tx) => {
+                filteredTransactions.map((tx) => {
                   const clientName = tx.owner || (tx.responsible_id ? respMap.get(tx.responsible_id) : null) || 'Sin asignar';
                   const accountName = statementsMap.get(tx.statement_id) || '-';
                   const cleanNotes = (tx.notes || '')
