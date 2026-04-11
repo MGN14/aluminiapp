@@ -141,6 +141,15 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onAdjust(p)} title="Ajustar">
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-primary hover:text-primary hover:bg-primary/10" 
+                      onClick={() => askNicoAboutProduct(p)} 
+                      title="Preguntar a Nico"
+                    >
+                      <Bot className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
