@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Package, ArrowUpDown, Plus, Minus, Eye } from 'lucide-react';
+import { Package, ArrowUpDown, Plus, Minus, Eye, Bot } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
