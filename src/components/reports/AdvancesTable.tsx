@@ -102,6 +102,92 @@ export default function AdvancesTable({
   return (
     <Card>
       <CardContent className="p-0">
+        {/* Filtros chiquitos y elegantes */}
+        <div className="px-4 py-3 border-b border-border/50 bg-muted/30">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              <Filter className="h-3 w-3" />
+              Filtros
+              {hasActiveFilters && (
+                <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary" />
+              )}
+            </Button>
+            
+            {showFilters && (
+              <>
+                <div className="h-4 w-px bg-border mx-1" />
+                
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="h-7 w-32 text-xs px-2"
+                    placeholder="Desde"
+                  />
+                  <span className="text-muted-foreground text-xs">→</span>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="h-7 w-32 text-xs px-2"
+                    placeholder="Hasta"
+                  />
+                </div>
+
+                <div className="h-4 w-px bg-border mx-1" />
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    value={minAmount}
+                    onChange={(e) => setMinAmount(e.target.value)}
+                    className="h-7 w-28 text-xs px-2"
+                    placeholder="Mín $"
+                  />
+                  <span className="text-muted-foreground text-xs">-</span>
+                  <Input
+                    type="number"
+                    value={maxAmount}
+                    onChange={(e) => setMaxAmount(e.target.value)}
+                    className="h-7 w-28 text-xs px-2"
+                    placeholder="Máx $"
+                  />
+                </div>
+
+                {hasActiveFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                    onClick={clearFilters}
+                  >
+                    <X className="h-3 w-3" />
+                    Limpiar
+                  </Button>
+                )}
+              </>
+            )}
+            
+            {!showFilters && hasActiveFilters && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                {dateFrom && <span className="bg-muted px-1.5 py-0.5 rounded">{format(parseLocalDate(dateFrom), 'dd/MM')}</span>}
+                {dateFrom && dateTo && <span>-</span>}
+                {dateTo && <span className="bg-muted px-1.5 py-0.5 rounded">{format(parseLocalDate(dateTo), 'dd/MM')}</span>}
+                {(dateFrom || dateTo) && (minAmount || maxAmount) && <span className="mx-1">•</span>}
+                {minAmount && <span className="bg-muted px-1.5 py-0.5 rounded">${parseFloat(minAmount).toLocaleString()}</span>}
+                {minAmount && maxAmount && <span>-</span>}
+                {maxAmount && <span className="bg-muted px-1.5 py-0.5 rounded">${parseFloat(maxAmount).toLocaleString()}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
