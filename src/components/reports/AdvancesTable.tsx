@@ -185,6 +185,10 @@ export default function AdvancesTable({
                 {maxAmount && <span className="bg-muted px-1.5 py-0.5 rounded">${parseFloat(maxAmount).toLocaleString()}</span>}
               </div>
             )}
+            
+            <div className="ml-auto text-xs text-muted-foreground">
+              {filteredTransactions.length} de {transactions.length} anticipos
+            </div>
           </div>
         </div>
 
