@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Package, ArrowUpDown, Plus, Minus, Eye } from 'lucide-react';
+import { Package, ArrowUpDown, Plus, Minus, Eye, Bot } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,20 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
   const toggleSort = (key: typeof sortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else { setSortKey(key); setSortAsc(true); }
+  };
+
+  const askNicoAboutProduct = (product: ProductWithMetrics) => {
+    const diffText = product.difference === 0 
+      ? 'está alineado con el conteo físico'
+      : product.difference > 0 
+        ? `tiene ${product.difference} unidades faltantes respecto al físico`
+        : `tiene ${Math.abs(product.difference)} unidades de exceso físico`;
+    
+    const query = `Analiza el producto ${product.reference} (${product.name}). Stock sistema: ${product.stock_system}, Stock físico: ${product.stock_physical ?? 'no contado'}. El inventario ${diffText}. ¿Qué puede estar causando esta diferencia y qué debería hacer?`;
+    
+    window.dispatchEvent(new CustomEvent('nico-prefill', { 
+      detail: { query, pageContext: { page: 'inventory' } }
+    }));
   };
 
   if (!products.length) {
@@ -126,6 +140,15 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
                     </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onAdjust(p)} title="Ajustar">
                       <Eye className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-primary hover:text-primary hover:bg-primary/10" 
+                      onClick={() => askNicoAboutProduct(p)} 
+                      title="Preguntar a Nico"
+                    >
+                      <Bot className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 </TableCell>
