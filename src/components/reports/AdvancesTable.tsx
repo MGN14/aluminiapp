@@ -51,6 +51,36 @@ export default function AdvancesTable({
   const queryClient = useQueryClient();
   const [reconciling, setReconciling] = useState<string | null>(null);
 
+  // Filtros chiquitos y elegantes
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((tx) => {
+      const txDate = parseLocalDate(tx.date);
+      const amount = Math.abs(tx.amount ?? 0);
+
+      if (dateFrom && isBefore(txDate, parseLocalDate(dateFrom)) && !isEqual(txDate, parseLocalDate(dateFrom))) return false;
+      if (dateTo && isAfter(txDate, parseLocalDate(dateTo)) && !isEqual(txDate, parseLocalDate(dateTo))) return false;
+      if (minAmount && amount < parseFloat(minAmount)) return false;
+      if (maxAmount && amount > parseFloat(maxAmount)) return false;
+
+      return true;
+    });
+  }, [transactions, dateFrom, dateTo, minAmount, maxAmount]);
+
+  const clearFilters = () => {
+    setDateFrom('');
+    setDateTo('');
+    setMinAmount('');
+    setMaxAmount('');
+  };
+
+  const hasActiveFilters = dateFrom || dateTo || minAmount || maxAmount;
+
   const handleReconcile = async (txId: string, invoiceId: string) => {
     if (!user) return;
     try {
