@@ -107,7 +107,7 @@ export default function AppHeader() {
   };
 
   return (
-    <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 gap-3">
+    <header className="h-14 bg-transparent flex items-center justify-between px-4 gap-3">
       <SidebarTrigger className="h-8 w-8 shrink-0" />
 
       {/* Nico Search Input */}

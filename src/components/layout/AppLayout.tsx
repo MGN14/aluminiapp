@@ -33,7 +33,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <AppSidebar />
           <div className="flex-1 flex flex-col min-w-0">
             <TrialBanner />
-            <AppHeader />
+            <div className="sticky top-0 z-30 bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
+              <AppHeader />
+            </div>
             <main className="flex-1 container mx-auto px-4 py-6 sm:px-6 lg:px-8">
               {children}
             </main>
