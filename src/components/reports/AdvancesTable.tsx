@@ -146,71 +146,12 @@ export default function AdvancesTable({
   return (
     <Card>
       <CardContent className="p-0">
-        {/* Filtros minimalistas - siempre visibles */}
-        <div className="px-4 py-2 border-b border-border/50 bg-muted/30">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-6 w-28 text-xs px-2"
-                placeholder="Desde"
-              />
-              <span className="text-muted-foreground text-xs">→</span>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-6 w-28 text-xs px-2"
-                placeholder="Hasta"
-              />
-            </div>
-
-            <div className="h-3 w-px bg-border" />
-
-            <div className="flex items-center gap-1.5">
-              <Input
-                type="number"
-                value={minAmount}
-                onChange={(e) => setMinAmount(e.target.value)}
-                className="h-6 w-24 text-xs px-2"
-                placeholder="Mín $"
-              />
-              <span className="text-muted-foreground text-xs">-</span>
-              <Input
-                type="number"
-                value={maxAmount}
-                onChange={(e) => setMaxAmount(e.target.value)}
-                className="h-6 w-24 text-xs px-2"
-                placeholder="Máx $"
-              />
-            </div>
-
-            {hasActiveFilters && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 text-xs text-muted-foreground hover:text-destructive px-2"
-                onClick={clearFilters}
-              >
-                <X className="h-3 w-3" />
-                Limpiar
-              </Button>
-            )}
-            
-            <div className="ml-auto text-xs text-muted-foreground">
-              {filteredAndSortedTransactions.length} de {transactions.length} anticipos
-            </div>
-          </div>
-        </div>
-
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/80">
                 <TableHead 
-                  className="font-semibold cursor-pointer hover:bg-muted/50 transition-colors"
+                  className="font-semibold cursor-pointer hover:bg-muted/50 transition-colors select-none"
                   onClick={() => handleSort('date')}
                 >
                   <div className="flex items-center gap-1.5">
@@ -221,7 +162,7 @@ export default function AdvancesTable({
                 <TableHead className="font-semibold">Cliente</TableHead>
                 <TableHead className="font-semibold min-w-[250px]">Descripción</TableHead>
                 <TableHead 
-                  className="font-semibold text-right cursor-pointer hover:bg-muted/50 transition-colors"
+                  className="font-semibold text-right cursor-pointer hover:bg-muted/50 transition-colors select-none"
                   onClick={() => handleSort('amount')}
                 >
                   <div className="flex items-center justify-end gap-1.5">
@@ -247,16 +188,8 @@ export default function AdvancesTable({
                     <div className="flex flex-col items-center gap-2">
                       <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
                       <p className="text-muted-foreground">
-                        {!transactions.length 
-                          ? 'No hay anticipos para este periodo.'
-                          : 'Ningún anticipo coincide con los filtros.'
-                        }
+                        No hay anticipos para este periodo.
                       </p>
-                      {hasActiveFilters && transactions.length > 0 && (
-                        <Button variant="ghost" size="sm" className="h-7 text-xs mt-1" onClick={clearFilters}>
-                          Limpiar filtros
-                        </Button>
-                      )}
                     </div>
                   </TableCell>
                 </TableRow>
