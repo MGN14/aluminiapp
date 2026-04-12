@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { AlertCircle, Link2, Filter, X } from 'lucide-react';
+import { AlertCircle, Link2, X, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format, parseISO, isAfter, isBefore, isEqual } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -39,6 +39,9 @@ interface AdvancesTableProps {
   showReconcile: boolean;
 }
 
+type SortColumn = 'date' | 'amount' | null;
+type SortDirection = 'asc' | 'desc';
+
 export default function AdvancesTable({
   transactions,
   statementsMap,
@@ -51,15 +54,39 @@ export default function AdvancesTable({
   const queryClient = useQueryClient();
   const [reconciling, setReconciling] = useState<string | null>(null);
 
-  // Filtros chiquitos y elegantes
+  // Filtros chiquitos y elegantes - siempre visibles
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
 
-  const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
+  // Ordenamiento
+  const [sortColumn, setSortColumn] = useState<SortColumn>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      // Alternar dirección si ya está ordenado por esta columna
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Nueva columna, iniciar con dirección por defecto
+      setSortColumn(column);
+      setSortDirection(column === 'date' ? 'desc' : 'desc');
+    }
+  };
+
+  const getSortIcon = (column: SortColumn) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ArrowUp className="h-3 w-3 text-primary" />
+      : <ArrowDown className="h-3 w-3 text-primary" />;
+  };
+
+  const filteredAndSortedTransactions = useMemo(() => {
+    // Primero filtrar
+    let result = transactions.filter((tx) => {
       const txDate = parseLocalDate(tx.date);
       const amount = Math.abs(tx.amount ?? 0);
 
@@ -70,7 +97,24 @@ export default function AdvancesTable({
 
       return true;
     });
-  }, [transactions, dateFrom, dateTo, minAmount, maxAmount]);
+
+    // Luego ordenar
+    if (sortColumn === 'date') {
+      result = result.sort((a, b) => {
+        const dateA = parseLocalDate(a.date).getTime();
+        const dateB = parseLocalDate(b.date).getTime();
+        return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+      });
+    } else if (sortColumn === 'amount') {
+      result = result.sort((a, b) => {
+        const amountA = Math.abs(a.amount ?? 0);
+        const amountB = Math.abs(b.amount ?? 0);
+        return sortDirection === 'asc' ? amountA - amountB : amountB - amountA;
+      });
+    }
+
+    return result;
+  }, [transactions, dateFrom, dateTo, minAmount, maxAmount, sortColumn, sortDirection]);
 
   const clearFilters = () => {
     setDateFrom('');
@@ -102,92 +146,61 @@ export default function AdvancesTable({
   return (
     <Card>
       <CardContent className="p-0">
-        {/* Filtros chiquitos y elegantes */}
-        <div className="px-4 py-3 border-b border-border/50 bg-muted/30">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setShowFilters(!showFilters)}
-            >
-              <Filter className="h-3 w-3" />
-              Filtros
-              {hasActiveFilters && (
-                <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary" />
-              )}
-            </Button>
-            
-            {showFilters && (
-              <>
-                <div className="h-4 w-px bg-border mx-1" />
-                
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    className="h-7 w-32 text-xs px-2"
-                    placeholder="Desde"
-                  />
-                  <span className="text-muted-foreground text-xs">→</span>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    className="h-7 w-32 text-xs px-2"
-                    placeholder="Hasta"
-                  />
-                </div>
+        {/* Filtros minimalistas - siempre visibles */}
+        <div className="px-4 py-2 border-b border-border/50 bg-muted/30">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-6 w-28 text-xs px-2"
+                placeholder="Desde"
+              />
+              <span className="text-muted-foreground text-xs">→</span>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-6 w-28 text-xs px-2"
+                placeholder="Hasta"
+              />
+            </div>
 
-                <div className="h-4 w-px bg-border mx-1" />
+            <div className="h-3 w-px bg-border" />
 
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    value={minAmount}
-                    onChange={(e) => setMinAmount(e.target.value)}
-                    className="h-7 w-28 text-xs px-2"
-                    placeholder="Mín $"
-                  />
-                  <span className="text-muted-foreground text-xs">-</span>
-                  <Input
-                    type="number"
-                    value={maxAmount}
-                    onChange={(e) => setMaxAmount(e.target.value)}
-                    className="h-7 w-28 text-xs px-2"
-                    placeholder="Máx $"
-                  />
-                </div>
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="number"
+                value={minAmount}
+                onChange={(e) => setMinAmount(e.target.value)}
+                className="h-6 w-24 text-xs px-2"
+                placeholder="Mín $"
+              />
+              <span className="text-muted-foreground text-xs">-</span>
+              <Input
+                type="number"
+                value={maxAmount}
+                onChange={(e) => setMaxAmount(e.target.value)}
+                className="h-6 w-24 text-xs px-2"
+                placeholder="Máx $"
+              />
+            </div>
 
-                {hasActiveFilters && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
-                    onClick={clearFilters}
-                  >
-                    <X className="h-3 w-3" />
-                    Limpiar
-                  </Button>
-                )}
-              </>
-            )}
-            
-            {!showFilters && hasActiveFilters && (
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                {dateFrom && <span className="bg-muted px-1.5 py-0.5 rounded">{format(parseLocalDate(dateFrom), 'dd/MM')}</span>}
-                {dateFrom && dateTo && <span>-</span>}
-                {dateTo && <span className="bg-muted px-1.5 py-0.5 rounded">{format(parseLocalDate(dateTo), 'dd/MM')}</span>}
-                {(dateFrom || dateTo) && (minAmount || maxAmount) && <span className="mx-1">•</span>}
-                {minAmount && <span className="bg-muted px-1.5 py-0.5 rounded">${parseFloat(minAmount).toLocaleString()}</span>}
-                {minAmount && maxAmount && <span>-</span>}
-                {maxAmount && <span className="bg-muted px-1.5 py-0.5 rounded">${parseFloat(maxAmount).toLocaleString()}</span>}
-              </div>
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 text-xs text-muted-foreground hover:text-destructive px-2"
+                onClick={clearFilters}
+              >
+                <X className="h-3 w-3" />
+                Limpiar
+              </Button>
             )}
             
             <div className="ml-auto text-xs text-muted-foreground">
-              {filteredTransactions.length} de {transactions.length} anticipos
+              {filteredAndSortedTransactions.length} de {transactions.length} anticipos
             </div>
           </div>
         </div>
@@ -196,10 +209,26 @@ export default function AdvancesTable({
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/80">
-                <TableHead className="font-semibold">Fecha</TableHead>
+                <TableHead 
+                  className="font-semibold cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => handleSort('date')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    Fecha
+                    {getSortIcon('date')}
+                  </div>
+                </TableHead>
                 <TableHead className="font-semibold">Cliente</TableHead>
                 <TableHead className="font-semibold min-w-[250px]">Descripción</TableHead>
-                <TableHead className="font-semibold text-right">Monto</TableHead>
+                <TableHead 
+                  className="font-semibold text-right cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => handleSort('amount')}
+                >
+                  <div className="flex items-center justify-end gap-1.5">
+                    Monto
+                    {getSortIcon('amount')}
+                  </div>
+                </TableHead>
                 <TableHead className="font-semibold">Cuenta</TableHead>
                 <TableHead className="font-semibold">Observaciones</TableHead>
                 {showReconcile && <TableHead className="font-semibold">Conciliar</TableHead>}
@@ -212,7 +241,7 @@ export default function AdvancesTable({
                     Cargando datos...
                   </TableCell>
                 </TableRow>
-              ) : !filteredTransactions.length ? (
+              ) : !filteredAndSortedTransactions.length ? (
                 <TableRow>
                   <TableCell colSpan={showReconcile ? 7 : 6} className="text-center py-12">
                     <div className="flex flex-col items-center gap-2">
@@ -232,7 +261,7 @@ export default function AdvancesTable({
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredTransactions.map((tx) => {
+                filteredAndSortedTransactions.map((tx) => {
                   const clientName = tx.owner || (tx.responsible_id ? respMap.get(tx.responsible_id) : null) || 'Sin asignar';
                   const accountName = statementsMap.get(tx.statement_id) || '-';
                   const cleanNotes = (tx.notes || '')
