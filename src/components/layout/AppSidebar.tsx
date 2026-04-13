@@ -53,6 +53,9 @@ const documentItems: NavItem[] = [
   { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true },
   { title: 'Facturas de Venta', url: '/invoices/venta', icon: FileText },
   { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown },
+];
+
+const documentItemsGerencial: NavItem[] = [
   { title: 'Movimientos en efectivo', url: '/coming-soon?mod=movimientos-efectivo', icon: Banknote, comingSoon: true },
   { title: 'Remisiones', url: '/coming-soon?mod=remisiones', icon: ClipboardList, comingSoon: true },
 ];
@@ -60,6 +63,9 @@ const documentItems: NavItem[] = [
 const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
   { title: 'Inventarios', url: '/inventarios', icon: Package },
+];
+
+const movementItemsGerencial: NavItem[] = [
   { title: 'Inventario real', url: '/coming-soon?mod=inventario-real', icon: PackageSearch, comingSoon: true },
 ];
 
@@ -69,6 +75,9 @@ const reportItems: NavItem[] = [
   { title: 'Cuentas por cobrar', url: '/reportes/cuentas-por-cobrar', icon: Users },
   { title: 'Cuentas por pagar', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
   { title: 'Visita DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
+];
+
+const reportItemsGerencial: NavItem[] = [
   { title: 'PYG Real', url: '/coming-soon?mod=pyg-real', icon: TrendingUp, comingSoon: true },
 ];
 
