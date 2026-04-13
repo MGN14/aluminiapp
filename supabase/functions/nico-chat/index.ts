@@ -62,6 +62,8 @@ serve(async (req) => {
       { data: initialStateDetails },
       { data: inventoryProducts },
       { data: inventoryMovements },
+      { data: businessMemory },
+      { data: businessPatterns },
     ] = await Promise.all([
       supabase
         .from("transactions")
