@@ -234,9 +234,9 @@ export default function AppSidebar() {
 
         <SidebarSeparator className="my-1" />
 
-        <SidebarSection label="Documentos" items={documentItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
-        <SidebarSection label="Movimientos" items={movementItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
-        <SidebarSection label="Reportes" items={reportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Documentos" items={documentItems} gerencialItems={documentItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Movimientos" items={movementItems} gerencialItems={movementItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Reportes" items={reportItems} gerencialItems={reportItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
         <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
 
         <SidebarSeparator className="my-1" />
