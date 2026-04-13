@@ -161,6 +161,7 @@ export default function AppSidebar() {
   const location = useLocation();
   const currentPath = location.pathname;
   const currentSearch = location.search;
+  const { isGerencial } = useModuleContext();
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
@@ -219,10 +220,10 @@ export default function AppSidebar() {
 
         <SidebarSeparator className="my-1" />
 
-        <SidebarSection label="Documentos" items={documentItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
-        <SidebarSection label="Movimientos" items={movementItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
-        <SidebarSection label="Reportes" items={reportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
-        <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
+        <SidebarSection label="Documentos" items={documentItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Movimientos" items={movementItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Reportes" items={reportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
 
         <SidebarSeparator className="my-1" />
 
