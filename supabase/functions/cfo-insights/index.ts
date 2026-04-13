@@ -649,6 +649,39 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─── INSIGHT I: Predictions (upcoming events) ───
+    if (predictions.length > 0) {
+      const upcoming = predictions.filter((p: any) => p.days_until >= 0 && p.days_until <= 14);
+      if (upcoming.length > 0) {
+        const top = upcoming[0];
+        insights.push({
+          key: "prediccion",
+          title: "Evento próximo 🔮",
+          text: `Basado en tu historial, en ~${top.days_until} días podrías tener un ${top.type === "egreso_recurrente" ? "egreso" : "movimiento"} de ~${fmt(top.estimated_amount)} (${top.description.substring(0, 60)}).`,
+          recommendation: "Anticipa este evento en tu planeación de caja para evitar sorpresas de liquidez.",
+          action: { label: "Ver reportes", path: "/reports" },
+          impact: top.estimated_amount * 0.5,
+          insightType: "prediction",
+        });
+      }
+    }
+
+    // ─── INSIGHT J: Learning notification ───
+    if (patterns.length > 0) {
+      const newLearnings = patterns.filter((p: any) => p.occurrences >= 2 && p.occurrences <= 3);
+      if (newLearnings.length > 0) {
+        insights.push({
+          key: "aprendizaje",
+          title: "Nico aprendió algo 🧠",
+          text: `Nico detectó ${newLearnings.length} patrón${newLearnings.length > 1 ? "es" : ""} nuevo${newLearnings.length > 1 ? "s" : ""} en tu negocio. Con más datos, reducirá alertas falsas y anticipará eventos.`,
+          recommendation: "Sigue subiendo extractos y facturas para que Nico entienda mejor tu negocio.",
+          action: { label: "Hablar con Nico", path: "/nico" },
+          impact: 100,
+          insightType: "learning",
+        });
+      }
+    }
+
     // Sort by impact
     insights.sort((a, b) => (b.impact || 0) - (a.impact || 0));
 
@@ -657,7 +690,7 @@ Deno.serve(async (req) => {
 
     console.log(`[cfo-insights] generated ${result.length} insights`);
 
-    return new Response(JSON.stringify({ insights: result }), {
+    return new Response(JSON.stringify({ insights: result, patterns_count: patterns.length, predictions_count: predictions.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
