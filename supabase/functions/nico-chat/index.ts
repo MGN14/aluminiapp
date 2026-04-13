@@ -876,106 +876,85 @@ ${healthScoreCtx}
 
 
 ${inventoryCtx}
-
-═══════════════════════════════════════════
-MÓDULO 9 — MEMORIA DEL NEGOCIO (Aprendizaje Adaptativo)
-═══════════════════════════════════════════
-
-${(() => {
-  const memory = businessMemory ?? [];
-  if (memory.length === 0) return "No se ha generado memoria del negocio aún. Se actualizará automáticamente.";
-  
-  const memMap: Record<string, any> = {};
-  memory.forEach((m: any) => { memMap[m.metric_key] = m.metric_value; });
-  
-  const general = memMap.general;
-  const topCl = memMap.top_clients || [];
-  const topProv = memMap.top_providers || [];
-  const season = memMap.seasonality || [];
-  const preds = memMap.predictions || [];
-  
-  let ctx = "";
-  if (general) {
-    ctx += `MÉTRICAS HISTÓRICAS:
-Transacciones totales: ${general.total_transactions}
-Ingreso promedio por transacción: ${fmt(general.avg_ingreso)}
-Egreso promedio por transacción: ${fmt(general.avg_egreso)}
-Ingreso mensual promedio: ${fmt(general.avg_monthly_ingresos)}
-Egreso mensual promedio: ${fmt(general.avg_monthly_egresos)}
-Meses con datos: ${general.months_with_data} (${general.first_month} a ${general.last_month})
-Ciclo promedio de ingresos: cada ${general.avg_income_cycle_days} días
-`;
-  }
-  
-  if (topCl.length > 0) {
-    ctx += `\nTOP CLIENTES HISTÓRICOS:\n${topCl.slice(0, 5).map((c: any, i: number) => \`\${i + 1}. \${c.name}: \${fmt(c.amount)}\`).join("\\n")}\n`;
-  }
-  if (topProv.length > 0) {
-    ctx += `\nTOP PROVEEDORES HISTÓRICOS:\n${topProv.slice(0, 5).map((p: any, i: number) => \`\${i + 1}. \${p.name}: \${fmt(p.amount)}\`).join("\\n")}\n`;
-  }
-  if (season.length > 0) {
-    const monthNames2 = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-    ctx += `\nESTACIONALIDAD (meses con mayor ingreso promedio):\n${season.map((s: any) => \`\${monthNames2[s.month - 1]}: \${fmt(s.avg_ingresos)}\`).join(", ")}\n`;
-  }
-  
-  return ctx;
-})()}
-
-═══════════════════════════════════════════
-MÓDULO 10 — PATRONES DETECTADOS
-═══════════════════════════════════════════
-
-${(() => {
-  const patterns = businessPatterns ?? [];
-  if (patterns.length === 0) return "No se han detectado patrones aún. Se actualizarán automáticamente con más datos.";
-  
-  const active = patterns.filter((p: any) => p.occurrences >= 3);
-  const newP = patterns.filter((p: any) => p.occurrences >= 2 && p.occurrences < 3);
-  
-  let ctx = `Patrones activos: ${active.length} | Patrones emergentes: ${newP.length}\n`;
-  
-  if (active.length > 0) {
-    ctx += `\nPATRONES CONFIRMADOS (3+ ocurrencias):\n`;
-    active.slice(0, 10).forEach((p: any, i: number) => {
-      ctx += \`\${i + 1}. [\${p.pattern_type}] \${p.description} | Rango: \${fmt(p.amount_min)}-\${fmt(p.amount_max)} | Cada ~\${p.frequency_days} días | \${p.occurrences} ocurrencias | Confianza: \${Math.round(p.confidence * 100)}% | Última: \${p.last_occurrence}\n\`;
-    });
-  }
-  
-  if (newP.length > 0) {
-    ctx += `\nPATRONES EMERGENTES (2 ocurrencias, aún no confirmados):\n`;
-    newP.slice(0, 5).forEach((p: any, i: number) => {
-      ctx += \`\${i + 1}. [\${p.pattern_type}] \${p.description} | Rango: \${fmt(p.amount_min)}-\${fmt(p.amount_max)}\n\`;
-    });
-  }
-  
-  // Predictions
-  const memory = businessMemory ?? [];
-  const predsMem = memory.find((m: any) => m.metric_key === "predictions");
-  const preds = predsMem?.metric_value || [];
-  if (Array.isArray(preds) && preds.length > 0) {
-    ctx += `\nPREDICCIONES (próximos eventos estimados):\n`;
-    preds.slice(0, 5).forEach((p: any, i: number) => {
-      ctx += \`🔮 \${i + 1}. \${p.description}: ~\${fmt(p.estimated_amount)} estimado para \${p.estimated_date} (en \${p.days_until} días, confianza \${Math.round(p.confidence * 100)}%)\n\`;
-    });
-  }
-  
-  ctx += `\nIMPORTANTE PARA ANÁLISIS:
-- Los patrones confirmados son eventos recurrentes NORMALES del negocio. NO los trates como anomalías.
-- Si un egreso grande coincide con un patrón (por monto y frecuencia), menciónalo como "evento esperado" en vez de "alerta".
-- Los patrones emergentes aún no son confiables. Menciónalos como "posible tendencia".
-- Usa las predicciones para anticipar necesidades de caja y eventos financieros.
-- Si el usuario pregunta "¿qué viene?", usa las predicciones para dar contexto.
-`;
-  
-  return ctx;
-})()}
-
-═══════════════════════════════════════════
-INFORMACIÓN DEL NEGOCIO
-═══════════════════════════════════════════
-Empresa: ${profile?.company_name || "No registrada"}
-Contacto: ${profile?.full_name || "No registrado"}
 `.trim();
+
+    // Build business memory context OUTSIDE the template
+    const memoryArr = businessMemory ?? [];
+    let memoryCtx = "No se ha generado memoria del negocio aún.";
+    if (memoryArr.length > 0) {
+      const memMap: Record<string, any> = {};
+      memoryArr.forEach((m: any) => { memMap[m.metric_key] = m.metric_value; });
+      const general = memMap.general;
+      const topCl = memMap.top_clients || [];
+      const topProv = memMap.top_providers || [];
+      const season = memMap.seasonality || [];
+      const monthN2 = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+      
+      let mc = "";
+      if (general) {
+        mc += "MÉTRICAS HISTÓRICAS:\n";
+        mc += "Transacciones totales: " + general.total_transactions + "\n";
+        mc += "Ingreso promedio: " + fmt(general.avg_ingreso) + "\n";
+        mc += "Egreso promedio: " + fmt(general.avg_egreso) + "\n";
+        mc += "Ingreso mensual promedio: " + fmt(general.avg_monthly_ingresos) + "\n";
+        mc += "Egreso mensual promedio: " + fmt(general.avg_monthly_egresos) + "\n";
+        mc += "Meses con datos: " + general.months_with_data + " (" + general.first_month + " a " + general.last_month + ")\n";
+        mc += "Ciclo promedio de ingresos: cada " + general.avg_income_cycle_days + " días\n";
+      }
+      if (topCl.length > 0) {
+        mc += "\nTOP CLIENTES HISTÓRICOS:\n";
+        topCl.slice(0, 5).forEach((c: any, i: number) => { mc += (i + 1) + ". " + c.name + ": " + fmt(c.amount) + "\n"; });
+      }
+      if (topProv.length > 0) {
+        mc += "\nTOP PROVEEDORES HISTÓRICOS:\n";
+        topProv.slice(0, 5).forEach((p: any, i: number) => { mc += (i + 1) + ". " + p.name + ": " + fmt(p.amount) + "\n"; });
+      }
+      if (season.length > 0) {
+        mc += "\nESTACIONALIDAD: " + season.map((s: any) => monthN2[s.month - 1] + ": " + fmt(s.avg_ingresos)).join(", ") + "\n";
+      }
+      memoryCtx = mc;
+    }
+
+    // Build patterns context
+    const patternsArr = businessPatterns ?? [];
+    let patternsCtx = "No se han detectado patrones aún.";
+    if (patternsArr.length > 0) {
+      const active = patternsArr.filter((p: any) => p.occurrences >= 3);
+      const newP = patternsArr.filter((p: any) => p.occurrences >= 2 && p.occurrences < 3);
+      let pc = "Patrones activos: " + active.length + " | Emergentes: " + newP.length + "\n";
+      
+      if (active.length > 0) {
+        pc += "\nPATRONES CONFIRMADOS (3+ ocurrencias):\n";
+        active.slice(0, 10).forEach((p: any, i: number) => {
+          pc += (i + 1) + ". [" + p.pattern_type + "] " + p.description + " | " + fmt(p.amount_min) + "-" + fmt(p.amount_max) + " | Cada ~" + p.frequency_days + " días | " + p.occurrences + " occ | Confianza: " + Math.round(p.confidence * 100) + "%\n";
+        });
+      }
+      if (newP.length > 0) {
+        pc += "\nPATRONES EMERGENTES (2 ocurrencias):\n";
+        newP.slice(0, 5).forEach((p: any, i: number) => {
+          pc += (i + 1) + ". [" + p.pattern_type + "] " + p.description + " | " + fmt(p.amount_min) + "-" + fmt(p.amount_max) + "\n";
+        });
+      }
+      
+      const predsMem = memoryArr.find((m: any) => m.metric_key === "predictions");
+      const predsVal = predsMem?.metric_value || [];
+      if (Array.isArray(predsVal) && predsVal.length > 0) {
+        pc += "\nPREDICCIONES:\n";
+        predsVal.slice(0, 5).forEach((p: any, i: number) => {
+          pc += "🔮 " + (i + 1) + ". " + p.description + ": ~" + fmt(p.estimated_amount) + " estimado para " + p.estimated_date + " (en " + p.days_until + " días)\n";
+        });
+      }
+      
+      pc += "\nREGLAS: Patrones confirmados = eventos normales. Egresos fuera de patrón = anomalías reales. Usa predicciones para anticipar caja.\n";
+      patternsCtx = pc;
+    }
+
+    const financialContext = baseFinancialContext
+      + "\n\n═══════════════════════════════════════════\nMÓDULO 9 — MEMORIA DEL NEGOCIO\n═══════════════════════════════════════════\n\n" + memoryCtx
+      + "\n\n═══════════════════════════════════════════\nMÓDULO 10 — PATRONES DETECTADOS\n═══════════════════════════════════════════\n\n" + patternsCtx
+      + "\n\n═══════════════════════════════════════════\nINFORMACIÓN DEL NEGOCIO\n═══════════════════════════════════════════\n"
+      + "Empresa: " + (profile?.company_name || "No registrada") + "\n"
+      + "Contacto: " + (profile?.full_name || "No registrado");
 
     // =============================================
     // SYSTEM PROMPT
