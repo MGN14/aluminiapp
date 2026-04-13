@@ -18,6 +18,10 @@ import {
   Bot,
   Settings,
   UsersRound,
+  Banknote,
+  ClipboardList,
+  PackageSearch,
+  TrendingUp,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -35,27 +39,40 @@ import {
 } from '@/components/ui/sidebar';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import PlanBadge from '@/components/subscription/PlanBadge';
+import { useModuleContext } from '@/hooks/useModuleContext';
 
-const documentItems = [
+interface NavItem {
+  title: string;
+  url: string;
+  icon: React.ComponentType<any>;
+  highlight?: boolean;
+  comingSoon?: boolean;
+}
+
+const documentItems: NavItem[] = [
   { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true },
   { title: 'Facturas de Venta', url: '/invoices/venta', icon: FileText },
   { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown },
+  { title: 'Movimientos en efectivo', url: '/coming-soon?mod=movimientos-efectivo', icon: Banknote, comingSoon: true },
+  { title: 'Remisiones', url: '/coming-soon?mod=remisiones', icon: ClipboardList, comingSoon: true },
 ];
 
-const movementItems = [
+const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
   { title: 'Inventarios', url: '/inventarios', icon: Package },
+  { title: 'Inventario real', url: '/coming-soon?mod=inventario-real', icon: PackageSearch, comingSoon: true },
 ];
 
-const reportItems = [
+const reportItems: NavItem[] = [
   { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3 },
   { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt },
   { title: 'Cuentas por cobrar', url: '/reportes/cuentas-por-cobrar', icon: Users },
   { title: 'Cuentas por pagar', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
   { title: 'Visita DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
+  { title: 'PYG Real', url: '/coming-soon?mod=pyg-real', icon: TrendingUp, comingSoon: true },
 ];
 
-const exportItems = [
+const exportItems: NavItem[] = [
   { title: 'Exportar movimientos', url: '/export', icon: Download },
   { title: 'Informe para banco', url: '/export?tipo=banco', icon: Building2 },
   { title: 'Informe para DIAN', url: '/export?tipo=dian', icon: Landmark },
@@ -63,10 +80,11 @@ const exportItems = [
 
 interface SectionProps {
   label: string;
-  items: { title: string; url: string; icon: React.ComponentType<any>; highlight?: boolean }[];
+  items: NavItem[];
   collapsed: boolean;
   currentPath: string;
   currentSearch: string;
+  isGerencial: boolean;
 }
 
 function isItemActive(itemUrl: string, currentPath: string, currentSearch: string) {
@@ -82,7 +100,7 @@ function isItemActive(itemUrl: string, currentPath: string, currentSearch: strin
   return true;
 }
 
-function SidebarSection({ label, items, collapsed, currentPath, currentSearch }: SectionProps) {
+function SidebarSection({ label, items, collapsed, currentPath, currentSearch, isGerencial }: SectionProps) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.08em] text-sidebar-foreground/40 font-semibold px-3 mb-0.5">
@@ -92,22 +110,40 @@ function SidebarSection({ label, items, collapsed, currentPath, currentSearch }:
         <SidebarMenu>
           {items.map((item) => {
             const active = isItemActive(item.url, currentPath, currentSearch);
+            const glowing = item.comingSoon && isGerencial;
             return (
               <SidebarMenuItem key={item.url}>
                 <SidebarMenuButton asChild isActive={active}>
                   <NavLink
                     to={item.url}
                     end
-                    className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
+                    className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-all duration-200 ${
                       active
                         ? 'font-semibold'
-                        : item.highlight
-                          ? 'font-medium text-sidebar-foreground'
-                          : 'text-sidebar-foreground/70'
-                    }`}
+                        : item.comingSoon
+                          ? glowing
+                            ? 'text-accent font-medium'
+                            : 'text-sidebar-foreground/50'
+                          : item.highlight
+                            ? 'font-medium text-sidebar-foreground'
+                            : 'text-sidebar-foreground/70'
+                    } ${glowing ? 'bg-accent/5' : ''}`}
                   >
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    {!collapsed && <span>{item.title}</span>}
+                    <item.icon className={`h-4 w-4 shrink-0 ${glowing ? 'text-accent' : ''}`} />
+                    {!collapsed && (
+                      <span className="flex items-center gap-2">
+                        {item.title}
+                        {item.comingSoon && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none ${
+                            glowing
+                              ? 'bg-accent/15 text-accent'
+                              : 'bg-muted text-muted-foreground'
+                          }`}>
+                            Próximamente
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
