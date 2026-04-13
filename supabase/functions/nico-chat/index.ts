@@ -878,6 +878,99 @@ ${healthScoreCtx}
 ${inventoryCtx}
 
 ═══════════════════════════════════════════
+MÓDULO 9 — MEMORIA DEL NEGOCIO (Aprendizaje Adaptativo)
+═══════════════════════════════════════════
+
+${(() => {
+  const memory = businessMemory ?? [];
+  if (memory.length === 0) return "No se ha generado memoria del negocio aún. Se actualizará automáticamente.";
+  
+  const memMap: Record<string, any> = {};
+  memory.forEach((m: any) => { memMap[m.metric_key] = m.metric_value; });
+  
+  const general = memMap.general;
+  const topCl = memMap.top_clients || [];
+  const topProv = memMap.top_providers || [];
+  const season = memMap.seasonality || [];
+  const preds = memMap.predictions || [];
+  
+  let ctx = "";
+  if (general) {
+    ctx += `MÉTRICAS HISTÓRICAS:
+Transacciones totales: ${general.total_transactions}
+Ingreso promedio por transacción: ${fmt(general.avg_ingreso)}
+Egreso promedio por transacción: ${fmt(general.avg_egreso)}
+Ingreso mensual promedio: ${fmt(general.avg_monthly_ingresos)}
+Egreso mensual promedio: ${fmt(general.avg_monthly_egresos)}
+Meses con datos: ${general.months_with_data} (${general.first_month} a ${general.last_month})
+Ciclo promedio de ingresos: cada ${general.avg_income_cycle_days} días
+`;
+  }
+  
+  if (topCl.length > 0) {
+    ctx += `\nTOP CLIENTES HISTÓRICOS:\n${topCl.slice(0, 5).map((c: any, i: number) => \`\${i + 1}. \${c.name}: \${fmt(c.amount)}\`).join("\\n")}\n`;
+  }
+  if (topProv.length > 0) {
+    ctx += `\nTOP PROVEEDORES HISTÓRICOS:\n${topProv.slice(0, 5).map((p: any, i: number) => \`\${i + 1}. \${p.name}: \${fmt(p.amount)}\`).join("\\n")}\n`;
+  }
+  if (season.length > 0) {
+    const monthNames2 = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+    ctx += `\nESTACIONALIDAD (meses con mayor ingreso promedio):\n${season.map((s: any) => \`\${monthNames2[s.month - 1]}: \${fmt(s.avg_ingresos)}\`).join(", ")}\n`;
+  }
+  
+  return ctx;
+})()}
+
+═══════════════════════════════════════════
+MÓDULO 10 — PATRONES DETECTADOS
+═══════════════════════════════════════════
+
+${(() => {
+  const patterns = businessPatterns ?? [];
+  if (patterns.length === 0) return "No se han detectado patrones aún. Se actualizarán automáticamente con más datos.";
+  
+  const active = patterns.filter((p: any) => p.occurrences >= 3);
+  const newP = patterns.filter((p: any) => p.occurrences >= 2 && p.occurrences < 3);
+  
+  let ctx = `Patrones activos: ${active.length} | Patrones emergentes: ${newP.length}\n`;
+  
+  if (active.length > 0) {
+    ctx += `\nPATRONES CONFIRMADOS (3+ ocurrencias):\n`;
+    active.slice(0, 10).forEach((p: any, i: number) => {
+      ctx += \`\${i + 1}. [\${p.pattern_type}] \${p.description} | Rango: \${fmt(p.amount_min)}-\${fmt(p.amount_max)} | Cada ~\${p.frequency_days} días | \${p.occurrences} ocurrencias | Confianza: \${Math.round(p.confidence * 100)}% | Última: \${p.last_occurrence}\n\`;
+    });
+  }
+  
+  if (newP.length > 0) {
+    ctx += `\nPATRONES EMERGENTES (2 ocurrencias, aún no confirmados):\n`;
+    newP.slice(0, 5).forEach((p: any, i: number) => {
+      ctx += \`\${i + 1}. [\${p.pattern_type}] \${p.description} | Rango: \${fmt(p.amount_min)}-\${fmt(p.amount_max)}\n\`;
+    });
+  }
+  
+  // Predictions
+  const memory = businessMemory ?? [];
+  const predsMem = memory.find((m: any) => m.metric_key === "predictions");
+  const preds = predsMem?.metric_value || [];
+  if (Array.isArray(preds) && preds.length > 0) {
+    ctx += `\nPREDICCIONES (próximos eventos estimados):\n`;
+    preds.slice(0, 5).forEach((p: any, i: number) => {
+      ctx += \`🔮 \${i + 1}. \${p.description}: ~\${fmt(p.estimated_amount)} estimado para \${p.estimated_date} (en \${p.days_until} días, confianza \${Math.round(p.confidence * 100)}%)\n\`;
+    });
+  }
+  
+  ctx += `\nIMPORTANTE PARA ANÁLISIS:
+- Los patrones confirmados son eventos recurrentes NORMALES del negocio. NO los trates como anomalías.
+- Si un egreso grande coincide con un patrón (por monto y frecuencia), menciónalo como "evento esperado" en vez de "alerta".
+- Los patrones emergentes aún no son confiables. Menciónalos como "posible tendencia".
+- Usa las predicciones para anticipar necesidades de caja y eventos financieros.
+- Si el usuario pregunta "¿qué viene?", usa las predicciones para dar contexto.
+`;
+  
+  return ctx;
+})()}
+
+═══════════════════════════════════════════
 INFORMACIÓN DEL NEGOCIO
 ═══════════════════════════════════════════
 Empresa: ${profile?.company_name || "No registrada"}
