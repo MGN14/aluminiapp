@@ -114,6 +114,8 @@ Deno.serve(async (req) => {
       responsiblesRes,
       inventoryRes,
       inventoryMovRes,
+      patternsRes,
+      memoryRes,
     ] = await Promise.all([
       // Current period transactions
       admin
