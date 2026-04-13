@@ -90,6 +90,7 @@ const exportItems: NavItem[] = [
 interface SectionProps {
   label: string;
   items: NavItem[];
+  gerencialItems?: NavItem[];
   collapsed: boolean;
   currentPath: string;
   currentSearch: string;
@@ -109,7 +110,11 @@ function isItemActive(itemUrl: string, currentPath: string, currentSearch: strin
   return true;
 }
 
-function SidebarSection({ label, items, collapsed, currentPath, currentSearch, isGerencial }: SectionProps) {
+function SidebarSection({ label, items, gerencialItems, collapsed, currentPath, currentSearch, isGerencial }: SectionProps) {
+  const allItems = isGerencial && gerencialItems 
+    ? [...items, ...gerencialItems] 
+    : items;
+
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.08em] text-sidebar-foreground/40 font-semibold px-3 mb-0.5">
@@ -117,7 +122,7 @@ function SidebarSection({ label, items, collapsed, currentPath, currentSearch, i
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {items.map((item) => {
+          {allItems.map((item) => {
             const active = isItemActive(item.url, currentPath, currentSearch);
             const glowing = item.comingSoon && isGerencial;
             return (
