@@ -62,6 +62,8 @@ serve(async (req) => {
       { data: initialStateDetails },
       { data: inventoryProducts },
       { data: inventoryMovements },
+      { data: businessMemory },
+      { data: businessPatterns },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -131,6 +133,16 @@ serve(async (req) => {
         .gte("movement_date", since)
         .order("movement_date", { ascending: false })
         .limit(1000),
+      supabase
+        .from("business_memory")
+        .select("metric_key, metric_value")
+        .eq("user_id", user.id),
+      supabase
+        .from("business_patterns")
+        .select("pattern_type, description, amount_min, amount_max, frequency_days, last_occurrence, entities, occurrences, confidence, status")
+        .eq("user_id", user.id)
+        .order("confidence", { ascending: false })
+        .limit(30),
     ]);
 
     const fmt = (n: number) =>
@@ -722,7 +734,7 @@ No hay productos de inventario registrados. Si el negocio maneja inventario, sug
     // =============================================
     // BUILD FULL CONTEXT
     // =============================================
-    const financialContext = `
+    const baseFinancialContext = `
 ═══════════════════════════════════════════
 MÓDULO 1 — FLUJO DE CAJA (Extractos bancarios)
 Fuente: movimientos reales del banco. Refleja entradas y salidas de dinero.
@@ -864,13 +876,85 @@ ${healthScoreCtx}
 
 
 ${inventoryCtx}
-
-═══════════════════════════════════════════
-INFORMACIÓN DEL NEGOCIO
-═══════════════════════════════════════════
-Empresa: ${profile?.company_name || "No registrada"}
-Contacto: ${profile?.full_name || "No registrado"}
 `.trim();
+
+    // Build business memory context OUTSIDE the template
+    const memoryArr = businessMemory ?? [];
+    let memoryCtx = "No se ha generado memoria del negocio aún.";
+    if (memoryArr.length > 0) {
+      const memMap: Record<string, any> = {};
+      memoryArr.forEach((m: any) => { memMap[m.metric_key] = m.metric_value; });
+      const general = memMap.general;
+      const topCl = memMap.top_clients || [];
+      const topProv = memMap.top_providers || [];
+      const season = memMap.seasonality || [];
+      const monthN2 = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+      
+      let mc = "";
+      if (general) {
+        mc += "MÉTRICAS HISTÓRICAS:\n";
+        mc += "Transacciones totales: " + general.total_transactions + "\n";
+        mc += "Ingreso promedio: " + fmt(general.avg_ingreso) + "\n";
+        mc += "Egreso promedio: " + fmt(general.avg_egreso) + "\n";
+        mc += "Ingreso mensual promedio: " + fmt(general.avg_monthly_ingresos) + "\n";
+        mc += "Egreso mensual promedio: " + fmt(general.avg_monthly_egresos) + "\n";
+        mc += "Meses con datos: " + general.months_with_data + " (" + general.first_month + " a " + general.last_month + ")\n";
+        mc += "Ciclo promedio de ingresos: cada " + general.avg_income_cycle_days + " días\n";
+      }
+      if (topCl.length > 0) {
+        mc += "\nTOP CLIENTES HISTÓRICOS:\n";
+        topCl.slice(0, 5).forEach((c: any, i: number) => { mc += (i + 1) + ". " + c.name + ": " + fmt(c.amount) + "\n"; });
+      }
+      if (topProv.length > 0) {
+        mc += "\nTOP PROVEEDORES HISTÓRICOS:\n";
+        topProv.slice(0, 5).forEach((p: any, i: number) => { mc += (i + 1) + ". " + p.name + ": " + fmt(p.amount) + "\n"; });
+      }
+      if (season.length > 0) {
+        mc += "\nESTACIONALIDAD: " + season.map((s: any) => monthN2[s.month - 1] + ": " + fmt(s.avg_ingresos)).join(", ") + "\n";
+      }
+      memoryCtx = mc;
+    }
+
+    // Build patterns context
+    const patternsArr = businessPatterns ?? [];
+    let patternsCtx = "No se han detectado patrones aún.";
+    if (patternsArr.length > 0) {
+      const active = patternsArr.filter((p: any) => p.occurrences >= 3);
+      const newP = patternsArr.filter((p: any) => p.occurrences >= 2 && p.occurrences < 3);
+      let pc = "Patrones activos: " + active.length + " | Emergentes: " + newP.length + "\n";
+      
+      if (active.length > 0) {
+        pc += "\nPATRONES CONFIRMADOS (3+ ocurrencias):\n";
+        active.slice(0, 10).forEach((p: any, i: number) => {
+          pc += (i + 1) + ". [" + p.pattern_type + "] " + p.description + " | " + fmt(p.amount_min) + "-" + fmt(p.amount_max) + " | Cada ~" + p.frequency_days + " días | " + p.occurrences + " occ | Confianza: " + Math.round(p.confidence * 100) + "%\n";
+        });
+      }
+      if (newP.length > 0) {
+        pc += "\nPATRONES EMERGENTES (2 ocurrencias):\n";
+        newP.slice(0, 5).forEach((p: any, i: number) => {
+          pc += (i + 1) + ". [" + p.pattern_type + "] " + p.description + " | " + fmt(p.amount_min) + "-" + fmt(p.amount_max) + "\n";
+        });
+      }
+      
+      const predsMem = memoryArr.find((m: any) => m.metric_key === "predictions");
+      const predsVal = predsMem?.metric_value || [];
+      if (Array.isArray(predsVal) && predsVal.length > 0) {
+        pc += "\nPREDICCIONES:\n";
+        predsVal.slice(0, 5).forEach((p: any, i: number) => {
+          pc += "🔮 " + (i + 1) + ". " + p.description + ": ~" + fmt(p.estimated_amount) + " estimado para " + p.estimated_date + " (en " + p.days_until + " días)\n";
+        });
+      }
+      
+      pc += "\nREGLAS: Patrones confirmados = eventos normales. Egresos fuera de patrón = anomalías reales. Usa predicciones para anticipar caja.\n";
+      patternsCtx = pc;
+    }
+
+    const financialContext = baseFinancialContext
+      + "\n\n═══════════════════════════════════════════\nMÓDULO 9 — MEMORIA DEL NEGOCIO\n═══════════════════════════════════════════\n\n" + memoryCtx
+      + "\n\n═══════════════════════════════════════════\nMÓDULO 10 — PATRONES DETECTADOS\n═══════════════════════════════════════════\n\n" + patternsCtx
+      + "\n\n═══════════════════════════════════════════\nINFORMACIÓN DEL NEGOCIO\n═══════════════════════════════════════════\n"
+      + "Empresa: " + (profile?.company_name || "No registrada") + "\n"
+      + "Contacto: " + (profile?.full_name || "No registrado");
 
     // =============================================
     // SYSTEM PROMPT
@@ -878,16 +962,25 @@ Contacto: ${profile?.full_name || "No registrado"}
     const systemPrompt = `Eres Nico, el copiloto financiero y contable de AluminIA. Actúas como un director financiero y un contador público cercano al dueño del negocio. Tu español es impecable: cuidas la puntuación, la gramática, las tildes y la ortografía en cada respuesta. Usas español colombiano natural, con la claridad de un ejecutivo senior.
 
 ROL Y MISIÓN:
-Eres un verdadero auxiliar financiero inteligente. Tu misión es ayudar al empresario a:
-- Entender sus números con claridad
+Eres un verdadero auxiliar financiero inteligente que APRENDE del negocio del usuario. Tu misión es:
+- Entender sus números con claridad y mejorar tus análisis con el tiempo
+- Detectar patrones recurrentes y dejar de tratarlos como anomalías
+- Anticipar eventos financieros basándote en el historial
 - Tomar mejores decisiones financieras basadas en datos
 - Optimizar su carga tributaria dentro de la ley colombiana
 - Detectar errores fiscales antes de que generen sanciones de la DIAN
 - Identificar oportunidades de ahorro y eficiencia operativa
 - Prevenir multas e inconsistencias contables
 
+INTELIGENCIA ADAPTATIVA — REGLAS CLAVE:
+1. Si existe un PATRÓN CONFIRMADO que coincide con un evento actual (por monto y frecuencia), NO lo trates como anomalía. Dilo como "evento esperado" o "dentro del patrón habitual".
+2. Si un egreso grande NO coincide con ningún patrón, ENTONCES sí es una anomalía real y debes alertar.
+3. Cuando respondas preguntas generales, incluye patrones relevantes y predicciones como parte del análisis.
+4. Si detectaste aprendizajes nuevos (patrones emergentes con 2 ocurrencias), compártelos de forma natural: "Estoy notando que..." o "Parece que cada X días..."
+5. Usa las predicciones para anticipar: "Basado en tu historial, en X días podrías tener un egreso de $Y por..."
+
 CONOCIMIENTO DE MÓDULOS:
-Tienes acceso a ocho fuentes de datos distintas y debes diferenciarlas siempre:
+Tienes acceso a diez fuentes de datos distintas y debes diferenciarlas siempre:
 
 1. FLUJO DE CAJA (Extractos bancarios): Movimientos reales del banco. Cuando el usuario pregunta "¿cuánto gasté?", "¿cuánto entró?", "¿cuánto tengo?", usa estos datos. Son entradas y salidas reales de dinero.
 
@@ -903,7 +996,11 @@ Tienes acceso a ocho fuentes de datos distintas y debes diferenciarlas siempre:
 
 7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 5 factores (conciliación, facturación soportada, impuestos, cartera/anticipos, clasificación) sobre 100 puntos.
 
-8. INVENTARIO OPERATIVO: Cruce entre inventario contable (Siigo) e inventario físico (bodega). Permite detectar diferencias operativas como ventas sin factura, robos, pérdidas, errores de conteo, o compras no registradas. Los datos incluyen valor total del inventario, diferencias por referencia, productos críticos (sin stock), inventario inmovilizado (sin rotación) y el impacto financiero de las diferencias.
+8. INVENTARIO OPERATIVO: Cruce entre inventario contable (Siigo) e inventario físico (bodega). Permite detectar diferencias operativas como ventas sin factura, robos, pérdidas, errores de conteo, o compras no registradas.
+
+9. MEMORIA DEL NEGOCIO: Métricas históricas acumuladas (promedios, ciclos, estacionalidad, top clientes y proveedores). Te permiten contextualizar cada evento contra el comportamiento normal del negocio.
+
+10. PATRONES Y PREDICCIONES: Eventos recurrentes detectados automáticamente y predicciones de próximos eventos. Usa esta información para dar análisis más inteligentes y reducir falsas alarmas.
 
 CAPACIDADES DE ANÁLISIS:
 

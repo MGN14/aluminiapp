@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
-import { ArrowRight, AlertTriangle, Zap, ShieldCheck, Info, Upload } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Zap, ShieldCheck, Info, Upload, Brain, Repeat, Sparkles } from 'lucide-react';
 import { PeriodSelection } from './UnifiedPeriodFilter';
 import { supabase } from '@/integrations/supabase/client';
 import nicoAvatar from '@/assets/nico-avatar.png';
@@ -14,11 +14,18 @@ interface Insight {
   text: string;
   impact: number;
   trend?: 'up' | 'down' | null;
+  insightType?: 'anomaly' | 'pattern' | 'prediction' | 'learning' | null;
 }
 
-type InsightColor = 'red' | 'orange' | 'blue' | 'green' | 'gray';
+type InsightColor = 'red' | 'orange' | 'blue' | 'green' | 'gray' | 'purple';
 
 function getInsightColor(insight: Insight): InsightColor {
+  // New adaptive types first
+  if (insight.insightType === 'pattern') return 'green';
+  if (insight.insightType === 'prediction') return 'purple';
+  if (insight.insightType === 'learning') return 'purple';
+  if (insight.insightType === 'anomaly') return 'red';
+  
   if (insight.key === 'conciliacion' && insight.trend === 'up') return 'green';
   if (insight.key === 'conciliacion' && insight.trend === 'down') return 'red';
   if (insight.key === 'flujo' && insight.trend === 'down') return 'red';
@@ -37,20 +44,33 @@ const COLOR_STYLES: Record<InsightColor, { border: string; bg: string; iconColor
   orange: { border: 'border-l-warning', bg: 'bg-warning/5', iconColor: 'text-warning', badge: 'bg-warning/10 text-warning' },
   blue: { border: 'border-l-primary', bg: 'bg-primary/5', iconColor: 'text-primary', badge: 'bg-primary/10 text-primary' },
   green: { border: 'border-l-success', bg: 'bg-success/5', iconColor: 'text-success', badge: 'bg-success/10 text-success' },
+  purple: { border: 'border-l-[hsl(var(--accent))]', bg: 'bg-accent/5', iconColor: 'text-accent-foreground', badge: 'bg-accent/10 text-accent-foreground' },
   gray: { border: 'border-l-muted-foreground', bg: 'bg-muted/30', iconColor: 'text-muted-foreground', badge: 'bg-muted text-muted-foreground' },
 };
 
 const BADGE_LABELS: Record<InsightColor, string> = {
-  red: 'Alerta', orange: 'Riesgo', blue: 'Oportunidad', green: 'Positivo', gray: 'Info',
+  red: 'Alerta', orange: 'Riesgo', blue: 'Oportunidad', green: 'Positivo', purple: 'Nico IA', gray: 'Info',
 };
 
-function getIcon(color: InsightColor) {
+function getIcon(color: InsightColor, insightType?: string | null) {
+  if (insightType === 'pattern') return Repeat;
+  if (insightType === 'prediction') return Sparkles;
+  if (insightType === 'learning') return Brain;
   switch (color) {
     case 'red': case 'orange': return AlertTriangle;
     case 'green': return ShieldCheck;
     case 'blue': return Zap;
+    case 'purple': return Brain;
     default: return Info;
   }
+}
+
+function getInsightBadge(insight: Insight, color: InsightColor): string {
+  if (insight.insightType === 'pattern') return '🔁 Patrón';
+  if (insight.insightType === 'prediction') return '🔮 Predicción';
+  if (insight.insightType === 'learning') return '🧠 Aprendizaje';
+  if (insight.insightType === 'anomaly') return '⚠️ Anomalía';
+  return BADGE_LABELS[color];
 }
 
 interface Props {
@@ -61,11 +81,30 @@ interface Props {
 export default function InsightsMiniCards({ periodSelection, hasTransactions }: Props) {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [patternsCount, setPatternsCount] = useState(0);
 
   useEffect(() => {
     if (!hasTransactions) { setLoading(false); return; }
     fetchInsights();
+    // Trigger memory update in background
+    triggerMemoryUpdate();
   }, [periodSelection.type, periodSelection.month, periodSelection.quarter, periodSelection.year, hasTransactions]);
+
+  const triggerMemoryUpdate = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      // Fire and forget - don't block UI
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-business-memory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({}),
+      }).catch(() => {});
+    } catch {}
+  };
 
   const fetchInsights = async () => {
     setLoading(true);
@@ -81,6 +120,7 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
       if (error) throw error;
       const sorted = (data?.insights || []).sort((a: Insight, b: Insight) => b.impact - a.impact);
       setInsights(sorted.slice(0, 3));
+      setPatternsCount(data?.patterns_count || 0);
     } catch {
       setInsights([]);
     } finally {
@@ -134,7 +174,15 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
           <div className="w-7 h-7 rounded-full overflow-hidden border border-success/30 flex-shrink-0">
             <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
           </div>
-          <h3 className="text-sm font-semibold text-foreground">Nico analizó tu negocio hoy</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-foreground">Nico analizó tu negocio hoy</h3>
+            {patternsCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-accent/10 text-[10px] font-medium text-accent-foreground">
+                <Brain className="h-2.5 w-2.5" />
+                {patternsCount} patrones
+              </span>
+            )}
+          </div>
         </div>
         <Link to="/financial-health">
           <Button variant="ghost" size="sm" className="text-xs gap-1 text-primary">
@@ -147,7 +195,8 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
         {insights.map((insight) => {
           const color = getInsightColor(insight);
           const styles = COLOR_STYLES[color];
-          const Icon = getIcon(color);
+          const Icon = getIcon(color, insight.insightType);
+          const badgeLabel = getInsightBadge(insight, color);
           return (
             <Link key={insight.key} to="/financial-health" className="block">
               <Card className={`border-l-4 ${styles.border} ${styles.bg} hover:shadow-md transition-all duration-200 h-full cursor-pointer`}>
@@ -155,7 +204,7 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
                   <div className="flex items-center gap-2">
                     <Icon className={`h-3.5 w-3.5 ${styles.iconColor}`} />
                     <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${styles.badge}`}>
-                      {BADGE_LABELS[color]}
+                      {badgeLabel}
                     </span>
                   </div>
                   <h4 className="text-xs font-semibold text-foreground line-clamp-1">{insight.title}</h4>

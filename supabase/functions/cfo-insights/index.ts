@@ -114,6 +114,8 @@ Deno.serve(async (req) => {
       responsiblesRes,
       inventoryRes,
       inventoryMovRes,
+      patternsRes,
+      memoryRes,
     ] = await Promise.all([
       // Current period transactions
       admin
@@ -205,6 +207,20 @@ Deno.serve(async (req) => {
         .select("product_id, movement_type, quantity, movement_date")
         .eq("user_id", userId)
         .gte("movement_date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
+      // Business patterns for smart alerting
+      admin
+        .from("business_patterns")
+        .select("pattern_type, description, amount_min, amount_max, frequency_days, last_occurrence, entities, occurrences, confidence, status")
+        .eq("user_id", userId)
+        .gte("occurrences", 3)
+        .order("confidence", { ascending: false })
+        .limit(20),
+      // Business memory for predictions
+      admin
+        .from("business_memory")
+        .select("metric_key, metric_value")
+        .eq("user_id", userId)
+        .in("metric_key", ["predictions", "general"]),
     ]);
 
     const txCurrent = txCurrentRes.data || [];
@@ -218,6 +234,10 @@ Deno.serve(async (req) => {
     const initialState = initialStateRes.data || null;
     const initialDetails = initialDetailsRes.data || [];
     const allResponsibles = responsiblesRes.data || [];
+    const patterns = patternsRes.data || [];
+    const memoryData = memoryRes.data || [];
+    const predictionsEntry = memoryData.find((m: any) => m.metric_key === "predictions");
+    const predictions = Array.isArray(predictionsEntry?.metric_value) ? predictionsEntry.metric_value : [];
 
     // Build responsible name lookup
     const respNameById = new Map<string, string>();
@@ -489,23 +509,42 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ─── INSIGHT F: Mayor egreso / outlier ───
+    // ─── INSIGHT F: Mayor egreso / outlier (PATTERN-AWARE) ───
     const egresosTx = txCurrent.filter((t: any) => (t.amount ?? 0) < 0);
     if (egresosTx.length >= 3) {
-      const sorted = [...egresosTx].sort((a: any, b: any) => (a.amount ?? 0) - (b.amount ?? 0)); // most negative first
+      const sorted = [...egresosTx].sort((a: any, b: any) => (a.amount ?? 0) - (b.amount ?? 0));
       const biggest = sorted[0];
       const avgEgreso = egresos / egresosTx.length;
       const biggestAbs = Math.abs(biggest.amount ?? 0);
 
       if (biggestAbs > avgEgreso * 2.5) {
-        insights.push({
-          key: "outlier",
-          title: "Egreso fuera de lo normal 🔍",
-          text: `"${(biggest.description || "").substring(0, 60)}" por ${fmt(biggestAbs)} es ${(biggestAbs / avgEgreso).toFixed(1)}x el promedio de tus egresos en el periodo.`,
-          recommendation: "Revisa si este egreso es recurrente o fue un gasto excepcional. Entenderlo te ayuda a planear mejor.",
-          action: { label: "Ver transacciones", path: "/transactions" },
-          impact: biggestAbs,
+        // Check if this matches a known pattern
+        const matchingPattern = patterns.find((p: any) => {
+          if (p.pattern_type !== "egreso_recurrente") return false;
+          return biggestAbs >= p.amount_min * 0.8 && biggestAbs <= p.amount_max * 1.2;
         });
+
+        if (matchingPattern) {
+          insights.push({
+            key: "pattern_match",
+            title: "Egreso esperado 🔁",
+            text: `"${(biggest.description || "").substring(0, 60)}" por ${fmt(biggestAbs)} coincide con un patrón recurrente de tu negocio (cada ~${matchingPattern.frequency_days} días, ${matchingPattern.occurrences} ocurrencias).`,
+            recommendation: "Este es un egreso habitual de tu negocio. Nico lo tiene registrado como patrón.",
+            action: { label: "Ver transacciones", path: "/transactions" },
+            impact: biggestAbs * 0.3,
+            insightType: "pattern",
+          });
+        } else {
+          insights.push({
+            key: "outlier",
+            title: "Egreso fuera de lo normal ⚠️",
+            text: `"${(biggest.description || "").substring(0, 60)}" por ${fmt(biggestAbs)} es ${(biggestAbs / avgEgreso).toFixed(1)}x el promedio. No coincide con ningún patrón conocido.`,
+            recommendation: "Revisa si este egreso es excepcional. Si se repite, Nico lo clasificará como patrón.",
+            action: { label: "Ver transacciones", path: "/transactions" },
+            impact: biggestAbs,
+            insightType: "anomaly",
+          });
+        }
       }
     }
 
@@ -610,6 +649,39 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─── INSIGHT I: Predictions (upcoming events) ───
+    if (predictions.length > 0) {
+      const upcoming = predictions.filter((p: any) => p.days_until >= 0 && p.days_until <= 14);
+      if (upcoming.length > 0) {
+        const top = upcoming[0];
+        insights.push({
+          key: "prediccion",
+          title: "Evento próximo 🔮",
+          text: `Basado en tu historial, en ~${top.days_until} días podrías tener un ${top.type === "egreso_recurrente" ? "egreso" : "movimiento"} de ~${fmt(top.estimated_amount)} (${top.description.substring(0, 60)}).`,
+          recommendation: "Anticipa este evento en tu planeación de caja para evitar sorpresas de liquidez.",
+          action: { label: "Ver reportes", path: "/reports" },
+          impact: top.estimated_amount * 0.5,
+          insightType: "prediction",
+        });
+      }
+    }
+
+    // ─── INSIGHT J: Learning notification ───
+    if (patterns.length > 0) {
+      const newLearnings = patterns.filter((p: any) => p.occurrences >= 2 && p.occurrences <= 3);
+      if (newLearnings.length > 0) {
+        insights.push({
+          key: "aprendizaje",
+          title: "Nico aprendió algo 🧠",
+          text: `Nico detectó ${newLearnings.length} patrón${newLearnings.length > 1 ? "es" : ""} nuevo${newLearnings.length > 1 ? "s" : ""} en tu negocio. Con más datos, reducirá alertas falsas y anticipará eventos.`,
+          recommendation: "Sigue subiendo extractos y facturas para que Nico entienda mejor tu negocio.",
+          action: { label: "Hablar con Nico", path: "/nico" },
+          impact: 100,
+          insightType: "learning",
+        });
+      }
+    }
+
     // Sort by impact
     insights.sort((a, b) => (b.impact || 0) - (a.impact || 0));
 
@@ -618,7 +690,7 @@ Deno.serve(async (req) => {
 
     console.log(`[cfo-insights] generated ${result.length} insights`);
 
-    return new Response(JSON.stringify({ insights: result }), {
+    return new Response(JSON.stringify({ insights: result, patterns_count: patterns.length, predictions_count: predictions.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
