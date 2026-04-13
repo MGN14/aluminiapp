@@ -734,7 +734,7 @@ No hay productos de inventario registrados. Si el negocio maneja inventario, sug
     // =============================================
     // BUILD FULL CONTEXT
     // =============================================
-    const financialContext = `
+    const baseFinancialContext = `
 ═══════════════════════════════════════════
 MÓDULO 1 — FLUJO DE CAJA (Extractos bancarios)
 Fuente: movimientos reales del banco. Refleja entradas y salidas de dinero.
