@@ -74,6 +74,84 @@ export type Database = {
         }
         Relationships: []
       }
+      business_memory: {
+        Row: {
+          created_at: string
+          id: string
+          metric_key: string
+          metric_value: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          metric_key: string
+          metric_value?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          metric_key?: string
+          metric_value?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      business_patterns: {
+        Row: {
+          amount_max: number
+          amount_min: number
+          confidence: number
+          created_at: string
+          description: string
+          entities: Json
+          frequency_days: number
+          id: string
+          last_occurrence: string | null
+          occurrences: number
+          pattern_type: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_max?: number
+          amount_min?: number
+          confidence?: number
+          created_at?: string
+          description?: string
+          entities?: Json
+          frequency_days?: number
+          id?: string
+          last_occurrence?: string | null
+          occurrences?: number
+          pattern_type: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount_max?: number
+          amount_min?: number
+          confidence?: number
+          created_at?: string
+          description?: string
+          entities?: Json
+          frequency_days?: number
+          id?: string
+          last_occurrence?: string | null
+          occurrences?: number
+          pattern_type?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       categories: {
         Row: {
           active: boolean
