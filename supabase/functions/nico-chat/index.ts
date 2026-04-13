@@ -133,6 +133,16 @@ serve(async (req) => {
         .gte("movement_date", since)
         .order("movement_date", { ascending: false })
         .limit(1000),
+      supabase
+        .from("business_memory")
+        .select("metric_key, metric_value")
+        .eq("user_id", user.id),
+      supabase
+        .from("business_patterns")
+        .select("pattern_type, description, amount_min, amount_max, frequency_days, last_occurrence, entities, occurrences, confidence, status")
+        .eq("user_id", user.id)
+        .order("confidence", { ascending: false })
+        .limit(30),
     ]);
 
     const fmt = (n: number) =>
