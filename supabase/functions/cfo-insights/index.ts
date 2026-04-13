@@ -234,6 +234,10 @@ Deno.serve(async (req) => {
     const initialState = initialStateRes.data || null;
     const initialDetails = initialDetailsRes.data || [];
     const allResponsibles = responsiblesRes.data || [];
+    const patterns = patternsRes.data || [];
+    const memoryData = memoryRes.data || [];
+    const predictionsEntry = memoryData.find((m: any) => m.metric_key === "predictions");
+    const predictions = Array.isArray(predictionsEntry?.metric_value) ? predictionsEntry.metric_value : [];
 
     // Build responsible name lookup
     const respNameById = new Map<string, string>();
