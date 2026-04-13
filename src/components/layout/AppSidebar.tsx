@@ -53,6 +53,9 @@ const documentItems: NavItem[] = [
   { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true },
   { title: 'Facturas de Venta', url: '/invoices/venta', icon: FileText },
   { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown },
+];
+
+const documentItemsGerencial: NavItem[] = [
   { title: 'Movimientos en efectivo', url: '/coming-soon?mod=movimientos-efectivo', icon: Banknote, comingSoon: true },
   { title: 'Remisiones', url: '/coming-soon?mod=remisiones', icon: ClipboardList, comingSoon: true },
 ];
@@ -60,6 +63,9 @@ const documentItems: NavItem[] = [
 const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
   { title: 'Inventarios', url: '/inventarios', icon: Package },
+];
+
+const movementItemsGerencial: NavItem[] = [
   { title: 'Inventario real', url: '/coming-soon?mod=inventario-real', icon: PackageSearch, comingSoon: true },
 ];
 
@@ -69,6 +75,9 @@ const reportItems: NavItem[] = [
   { title: 'Cuentas por cobrar', url: '/reportes/cuentas-por-cobrar', icon: Users },
   { title: 'Cuentas por pagar', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
   { title: 'Visita DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
+];
+
+const reportItemsGerencial: NavItem[] = [
   { title: 'PYG Real', url: '/coming-soon?mod=pyg-real', icon: TrendingUp, comingSoon: true },
 ];
 
@@ -81,6 +90,7 @@ const exportItems: NavItem[] = [
 interface SectionProps {
   label: string;
   items: NavItem[];
+  gerencialItems?: NavItem[];
   collapsed: boolean;
   currentPath: string;
   currentSearch: string;
@@ -100,7 +110,11 @@ function isItemActive(itemUrl: string, currentPath: string, currentSearch: strin
   return true;
 }
 
-function SidebarSection({ label, items, collapsed, currentPath, currentSearch, isGerencial }: SectionProps) {
+function SidebarSection({ label, items, gerencialItems, collapsed, currentPath, currentSearch, isGerencial }: SectionProps) {
+  const allItems = isGerencial && gerencialItems 
+    ? [...items, ...gerencialItems] 
+    : items;
+
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.08em] text-sidebar-foreground/40 font-semibold px-3 mb-0.5">
@@ -108,7 +122,7 @@ function SidebarSection({ label, items, collapsed, currentPath, currentSearch, i
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {items.map((item) => {
+          {allItems.map((item) => {
             const active = isItemActive(item.url, currentPath, currentSearch);
             const glowing = item.comingSoon && isGerencial;
             return (
@@ -220,9 +234,9 @@ export default function AppSidebar() {
 
         <SidebarSeparator className="my-1" />
 
-        <SidebarSection label="Documentos" items={documentItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
-        <SidebarSection label="Movimientos" items={movementItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
-        <SidebarSection label="Reportes" items={reportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Documentos" items={documentItems} gerencialItems={documentItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Movimientos" items={movementItems} gerencialItems={movementItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Reportes" items={reportItems} gerencialItems={reportItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
         <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
 
         <SidebarSeparator className="my-1" />
