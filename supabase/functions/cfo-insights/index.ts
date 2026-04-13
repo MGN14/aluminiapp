@@ -509,23 +509,42 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ─── INSIGHT F: Mayor egreso / outlier ───
+    // ─── INSIGHT F: Mayor egreso / outlier (PATTERN-AWARE) ───
     const egresosTx = txCurrent.filter((t: any) => (t.amount ?? 0) < 0);
     if (egresosTx.length >= 3) {
-      const sorted = [...egresosTx].sort((a: any, b: any) => (a.amount ?? 0) - (b.amount ?? 0)); // most negative first
+      const sorted = [...egresosTx].sort((a: any, b: any) => (a.amount ?? 0) - (b.amount ?? 0));
       const biggest = sorted[0];
       const avgEgreso = egresos / egresosTx.length;
       const biggestAbs = Math.abs(biggest.amount ?? 0);
 
       if (biggestAbs > avgEgreso * 2.5) {
-        insights.push({
-          key: "outlier",
-          title: "Egreso fuera de lo normal 🔍",
-          text: `"${(biggest.description || "").substring(0, 60)}" por ${fmt(biggestAbs)} es ${(biggestAbs / avgEgreso).toFixed(1)}x el promedio de tus egresos en el periodo.`,
-          recommendation: "Revisa si este egreso es recurrente o fue un gasto excepcional. Entenderlo te ayuda a planear mejor.",
-          action: { label: "Ver transacciones", path: "/transactions" },
-          impact: biggestAbs,
+        // Check if this matches a known pattern
+        const matchingPattern = patterns.find((p: any) => {
+          if (p.pattern_type !== "egreso_recurrente") return false;
+          return biggestAbs >= p.amount_min * 0.8 && biggestAbs <= p.amount_max * 1.2;
         });
+
+        if (matchingPattern) {
+          insights.push({
+            key: "pattern_match",
+            title: "Egreso esperado 🔁",
+            text: `"${(biggest.description || "").substring(0, 60)}" por ${fmt(biggestAbs)} coincide con un patrón recurrente de tu negocio (cada ~${matchingPattern.frequency_days} días, ${matchingPattern.occurrences} ocurrencias).`,
+            recommendation: "Este es un egreso habitual de tu negocio. Nico lo tiene registrado como patrón.",
+            action: { label: "Ver transacciones", path: "/transactions" },
+            impact: biggestAbs * 0.3,
+            insightType: "pattern",
+          });
+        } else {
+          insights.push({
+            key: "outlier",
+            title: "Egreso fuera de lo normal ⚠️",
+            text: `"${(biggest.description || "").substring(0, 60)}" por ${fmt(biggestAbs)} es ${(biggestAbs / avgEgreso).toFixed(1)}x el promedio. No coincide con ningún patrón conocido.`,
+            recommendation: "Revisa si este egreso es excepcional. Si se repite, Nico lo clasificará como patrón.",
+            action: { label: "Ver transacciones", path: "/transactions" },
+            impact: biggestAbs,
+            insightType: "anomaly",
+          });
+        }
       }
     }
 
