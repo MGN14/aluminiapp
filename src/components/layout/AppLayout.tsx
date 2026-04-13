@@ -4,6 +4,7 @@ import AppSidebar from './AppSidebar';
 import AppHeader from './AppHeader';
 import NicoDrawer from '@/components/nico/NicoDrawer';
 import { NicoProvider, useNico } from '@/hooks/useNicoContext';
+import { ModuleProvider } from '@/hooks/useModuleContext';
 import TrialBanner from '@/components/subscription/TrialBanner';
 
 interface AppLayoutProps {
@@ -27,23 +28,25 @@ function KeyboardShortcut() {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   return (
-    <NicoProvider>
-      <SidebarProvider>
-        <div className="min-h-screen flex w-full bg-background">
-          <AppSidebar />
-          <div className="flex-1 flex flex-col min-w-0">
-            <TrialBanner />
-            <div className="sticky top-0 z-30 bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
-              <AppHeader />
+    <ModuleProvider>
+      <NicoProvider>
+        <SidebarProvider>
+          <div className="min-h-screen flex w-full bg-background">
+            <AppSidebar />
+            <div className="flex-1 flex flex-col min-w-0">
+              <TrialBanner />
+              <div className="sticky top-0 z-30 bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
+                <AppHeader />
+              </div>
+              <main className="flex-1 container mx-auto px-4 py-6 sm:px-6 lg:px-8">
+                {children}
+              </main>
             </div>
-            <main className="flex-1 container mx-auto px-4 py-6 sm:px-6 lg:px-8">
-              {children}
-            </main>
           </div>
-        </div>
-        <NicoDrawer />
-        <KeyboardShortcut />
-      </SidebarProvider>
-    </NicoProvider>
+          <NicoDrawer />
+          <KeyboardShortcut />
+        </SidebarProvider>
+      </NicoProvider>
+    </ModuleProvider>
   );
 }
