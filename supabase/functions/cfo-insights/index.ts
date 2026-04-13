@@ -207,6 +207,20 @@ Deno.serve(async (req) => {
         .select("product_id, movement_type, quantity, movement_date")
         .eq("user_id", userId)
         .gte("movement_date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
+      // Business patterns for smart alerting
+      admin
+        .from("business_patterns")
+        .select("pattern_type, description, amount_min, amount_max, frequency_days, last_occurrence, entities, occurrences, confidence, status")
+        .eq("user_id", userId)
+        .gte("occurrences", 3)
+        .order("confidence", { ascending: false })
+        .limit(20),
+      // Business memory for predictions
+      admin
+        .from("business_memory")
+        .select("metric_key, metric_value")
+        .eq("user_id", userId)
+        .in("metric_key", ["predictions", "general"]),
     ]);
 
     const txCurrent = txCurrentRes.data || [];
