@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useNico } from '@/hooks/useNicoContext';
+import { useModuleContext } from '@/hooks/useModuleContext';
 
 const PAGE_PLACEHOLDERS: Record<string, string> = {
   dashboard: '¿Cómo va mi negocio este mes?',
@@ -43,6 +44,7 @@ function getPlaceholder(pathname: string): string {
 export default function AppHeader() {
   const { user, signOut } = useAuth();
   const { openNico, isOpen } = useNico();
+  const { mode, setMode } = useModuleContext();
   const [companyInitial, setCompanyInitial] = useState<string | null>(null);
   const [placeholder, setPlaceholder] = useState(PAGE_PLACEHOLDERS.default);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
@@ -123,6 +125,30 @@ export default function AppHeader() {
           ⌘K
         </kbd>
       </button>
+
+      {/* Module Toggle */}
+      <div className="hidden md:flex items-center bg-muted/60 rounded-lg p-0.5 shrink-0">
+        <button
+          onClick={() => setMode('dian')}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
+            mode === 'dian'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Módulo DIAN
+        </button>
+        <button
+          onClick={() => setMode('gerencial')}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
+            mode === 'gerencial'
+              ? 'bg-accent/15 text-accent shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Módulo Gerencial
+        </button>
+      </div>
 
       <div className="flex items-center gap-1 shrink-0">
         <Button
