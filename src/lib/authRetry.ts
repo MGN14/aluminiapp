@@ -106,8 +106,13 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
 ): Promise<{ data: T | null; error: unknown | null }> {
   const label = debugLabel ?? `invoke:${functionName}`;
 
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
   const invoke = async (accessToken?: string) => {
     const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
       ...(options.headers as Record<string, string> | undefined),
     };
 
@@ -115,10 +120,26 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
       headers.Authorization = `Bearer ${accessToken}`;
     }
 
-    return supabase.functions.invoke(functionName, {
-      ...options,
+    const url = `${supabaseUrl}/functions/v1/${functionName}`;
+    const method = options.body ? 'POST' : 'POST';
+
+    const res = await fetch(url, {
+      method,
       headers,
+      body: options.body != null ? JSON.stringify(options.body) : undefined,
     });
+
+    if (!res.ok) {
+      const errorBody = await res.text();
+      const status = res.status;
+      const err = new Error(errorBody || `Edge Function returned ${status}`) as any;
+      err.status = status;
+      err.message = `Edge Function returned a non-2xx status code`;
+      return { data: null, error: err };
+    }
+
+    const data = await res.json();
+    return { data, error: null };
   };
 
   // Attempt 1 with current token (if any)
@@ -138,44 +159,48 @@ export async function invokeFunctionWithAuthRetry<T = unknown>(
       authError('invoke_no_token_after_refresh', { label });
       return { data: null, error: new Error('No active session') };
     }
-    // If refresh failed but we still have a token, try with it anyway
   }
 
-  const attempt1 = await invoke(tokenToUse);
-  if (!attempt1.error) return { data: attempt1.data as T, error: null };
+  try {
+    const attempt1 = await invoke(tokenToUse);
+    if (!attempt1.error) return { data: attempt1.data as T, error: null };
 
-  if (!isUnauthorized(attempt1.error)) {
-    authError('invoke_error', {
+    if (!isUnauthorized(attempt1.error)) {
+      authError('invoke_error', {
+        label,
+        status: (attempt1.error as any)?.status,
+        message: (attempt1.error as any)?.message,
+      });
+      return { data: null, error: attempt1.error };
+    }
+
+    authLog('invoke_unauthorized', { label, error: attempt1.error });
+
+    // Refresh once, then retry
+    const refreshedToken = await refreshAccessTokenOnce(label);
+
+    if (!refreshedToken) {
+      authError('refresh_failed', { label }); emitSessionExpired({ reason: `${label}:refresh_failed` });
+      return { data: null, error: attempt1.error };
+    }
+
+    const attempt2 = await invoke(refreshedToken);
+    if (!attempt2.error) return { data: attempt2.data as T, error: null };
+
+    if (isUnauthorized(attempt2.error)) {
+      emitSessionExpired({ reason: `${label}:unauthorized_after_retry` });
+    }
+
+    authError('invoke_error_after_retry', {
       label,
-      status: (attempt1.error as any)?.status ?? (attempt1.error as any)?.context?.status,
-      message: (attempt1.error as any)?.message,
+      status: (attempt2.error as any)?.status,
+      message: (attempt2.error as any)?.message,
     });
-    return { data: null, error: attempt1.error };
+    return { data: null, error: attempt2.error };
+  } catch (fetchErr) {
+    authError('invoke_fetch_error', { label, message: String(fetchErr) });
+    return { data: null, error: fetchErr };
   }
-
-  authLog('invoke_unauthorized', { label, error: attempt1.error });
-
-  // Refresh once, then retry
-  const refreshedToken = await refreshAccessTokenOnce(label);
-
-  if (!refreshedToken) {
-    authError('refresh_failed', { label }); emitSessionExpired({ reason: `${label}:refresh_failed` });
-    return { data: null, error: attempt1.error };
-  }
-
-  const attempt2 = await invoke(refreshedToken);
-  if (!attempt2.error) return { data: attempt2.data as T, error: null };
-
-  if (isUnauthorized(attempt2.error)) {
-    emitSessionExpired({ reason: `${label}:unauthorized_after_retry` });
-  }
-
-  authError('invoke_error_after_retry', {
-    label,
-    status: (attempt2.error as any)?.status ?? (attempt2.error as any)?.context?.status,
-    message: (attempt2.error as any)?.message,
-  });
-  return { data: null, error: attempt2.error };
 }
 
 export async function fetchWithAuthRetry(
