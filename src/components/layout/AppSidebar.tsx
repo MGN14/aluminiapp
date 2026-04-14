@@ -47,6 +47,7 @@ interface NavItem {
   icon: React.ComponentType<any>;
   highlight?: boolean;
   comingSoon?: boolean;
+  gerencial?: boolean;
 }
 
 const documentItems: NavItem[] = [
@@ -55,9 +56,17 @@ const documentItems: NavItem[] = [
   { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown },
 ];
 
+const documentItemsGerencial: NavItem[] = [
+  { title: 'Movimientos en efectivo', url: '/coming-soon?mod=movimientos-efectivo', icon: Banknote, comingSoon: true, gerencial: true },
+];
+
 const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
   { title: 'Inventarios', url: '/inventarios', icon: Package },
+];
+
+const movementItemsGerencial: NavItem[] = [
+  { title: 'Inventario real', url: '/coming-soon?mod=inventario-real', icon: PackageSearch, comingSoon: true, gerencial: true },
 ];
 
 const reportItems: NavItem[] = [
@@ -68,17 +77,18 @@ const reportItems: NavItem[] = [
   { title: 'Visita DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 
+const reportItemsGerencial: NavItem[] = [
+  { title: 'PYG Real', url: '/coming-soon?mod=pyg-real', icon: TrendingUp, comingSoon: true, gerencial: true },
+];
+
 const exportItems: NavItem[] = [
   { title: 'Exportar movimientos', url: '/export', icon: Download },
   { title: 'Informe para banco', url: '/export?tipo=banco', icon: Building2 },
   { title: 'Informe para DIAN', url: '/export?tipo=dian', icon: Landmark },
 ];
 
-const gerencialModules: NavItem[] = [
-  { title: 'Movimientos en efectivo', url: '/coming-soon?mod=movimientos-efectivo', icon: Banknote, comingSoon: true },
-  { title: 'Remisiones', url: '/coming-soon?mod=remisiones', icon: ClipboardList, comingSoon: true },
-  { title: 'Inventario real', url: '/coming-soon?mod=inventario-real', icon: PackageSearch, comingSoon: true },
-  { title: 'PYG Real', url: '/coming-soon?mod=pyg-real', icon: TrendingUp, comingSoon: true },
+const logisticaItemsGerencial: NavItem[] = [
+  { title: 'Remisiones', url: '/coming-soon?mod=remisiones', icon: ClipboardList, comingSoon: true, gerencial: true },
 ];
 
 function isItemActive(itemUrl: string, currentPath: string, currentSearch: string) {
@@ -93,15 +103,79 @@ function isItemActive(itemUrl: string, currentPath: string, currentSearch: strin
   return true;
 }
 
-interface SectionProps {
-  label: string;
-  items: NavItem[];
+function SidebarNavItem({ item, collapsed, currentPath, currentSearch }: {
+  item: NavItem;
   collapsed: boolean;
   currentPath: string;
   currentSearch: string;
+}) {
+  const active = isItemActive(item.url, currentPath, currentSearch);
+
+  if (item.gerencial) {
+    return (
+      <SidebarMenuItem>
+        <SidebarMenuButton asChild isActive={active}>
+          <NavLink
+            to={item.url}
+            end
+            className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors border
+              ${active
+                ? 'bg-accent/20 border-accent/40 text-accent'
+                : 'border-accent/20 bg-accent/5 text-accent/80 hover:bg-accent/10 hover:border-accent/30'
+              }`}
+          >
+            <Zap className="h-3.5 w-3.5 shrink-0 text-accent" />
+            {!collapsed && (
+              <span className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="truncate">{item.title}</span>
+                {item.comingSoon && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none bg-accent/15 text-accent shrink-0">
+                    Próximamente
+                  </span>
+                )}
+              </span>
+            )}
+          </NavLink>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  }
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={active}>
+        <NavLink
+          to={item.url}
+          end
+          className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
+            active
+              ? 'font-semibold'
+              : item.highlight
+                ? 'font-medium text-sidebar-foreground'
+                : 'text-sidebar-foreground/70'
+          }`}
+        >
+          <item.icon className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>{item.title}</span>}
+        </NavLink>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
 }
 
-function SidebarSection({ label, items, collapsed, currentPath, currentSearch }: SectionProps) {
+interface SectionProps {
+  label: string;
+  items: NavItem[];
+  gerencialItems?: NavItem[];
+  collapsed: boolean;
+  currentPath: string;
+  currentSearch: string;
+  isGerencial: boolean;
+}
+
+function SidebarSection({ label, items, gerencialItems, collapsed, currentPath, currentSearch, isGerencial }: SectionProps) {
+  const allItems = isGerencial && gerencialItems ? [...items, ...gerencialItems] : items;
+
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.08em] text-sidebar-foreground/40 font-semibold px-3 mb-0.5">
@@ -109,85 +183,18 @@ function SidebarSection({ label, items, collapsed, currentPath, currentSearch }:
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {items.map((item) => {
-            const active = isItemActive(item.url, currentPath, currentSearch);
-            return (
-              <SidebarMenuItem key={item.url}>
-                <SidebarMenuButton asChild isActive={active}>
-                  <NavLink
-                    to={item.url}
-                    end
-                    className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-all duration-200 ${
-                      active
-                        ? 'font-semibold'
-                        : item.highlight
-                          ? 'font-medium text-sidebar-foreground'
-                          : 'text-sidebar-foreground/70'
-                    }`}
-                  >
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    {!collapsed && <span>{item.title}</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            );
-          })}
+          {allItems.map((item) => (
+            <SidebarNavItem
+              key={item.url}
+              item={item}
+              collapsed={collapsed}
+              currentPath={currentPath}
+              currentSearch={currentSearch}
+            />
+          ))}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
-  );
-}
-
-function GerencialSection({ collapsed, currentPath, currentSearch }: { collapsed: boolean; currentPath: string; currentSearch: string }) {
-  return (
-    <>
-      <SidebarSeparator className="my-1.5" />
-      <SidebarGroup>
-        <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.08em] font-semibold px-3 mb-1 flex items-center gap-1.5">
-          <Zap className="h-3 w-3 text-accent" />
-          <span className="text-accent/80">Módulo Gerencial</span>
-        </SidebarGroupLabel>
-        {!collapsed && (
-          <p className="px-3 text-[10px] text-accent/50 -mt-0.5 mb-1.5 leading-tight">
-            La realidad operativa de tu negocio
-          </p>
-        )}
-        <SidebarGroupContent>
-          <SidebarMenu>
-            {gerencialModules.map((item) => {
-              const active = isItemActive(item.url, currentPath, currentSearch);
-              return (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild isActive={active}>
-                    <NavLink
-                      to={item.url}
-                      end
-                      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-200 border
-                        ${active
-                          ? 'bg-accent/20 border-accent/40 text-accent shadow-sm'
-                          : 'border-accent/15 bg-accent/5 text-accent/90 hover:bg-accent/12 hover:border-accent/30 hover:scale-[1.02] hover:shadow-sm hover:shadow-accent/10'
-                        }`}
-                    >
-                      <Zap className="h-3.5 w-3.5 shrink-0 text-accent" />
-                      {!collapsed && (
-                        <span className="flex items-center gap-2 flex-1 min-w-0">
-                          <span className="truncate">{item.title}</span>
-                          {item.comingSoon && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none bg-accent/15 text-accent shrink-0">
-                              Próximamente
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-    </>
   );
 }
 
@@ -213,6 +220,7 @@ export default function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-2 gap-0.5">
+        {/* Principal */}
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -253,14 +261,14 @@ export default function AppSidebar() {
 
         <SidebarSeparator className="my-1" />
 
-        <SidebarSection label="Documentos" items={documentItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
-        <SidebarSection label="Movimientos" items={movementItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
-        <SidebarSection label="Reportes" items={reportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
-        <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
+        <SidebarSection label="Documentos" items={documentItems} gerencialItems={documentItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Movimientos" items={movementItems} gerencialItems={movementItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Reportes" items={reportItems} gerencialItems={reportItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
 
-        {/* Gerencial section – only rendered in gerencial mode */}
+        {/* Logística – only in gerencial mode */}
         {isGerencial && (
-          <GerencialSection collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} />
+          <SidebarSection label="Logística" items={[]} gerencialItems={logisticaItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
         )}
 
         <SidebarSeparator className="my-1" />
