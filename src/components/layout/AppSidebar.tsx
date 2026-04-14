@@ -208,7 +208,7 @@ export default function AppSidebar() {
   const { isGerencial } = useModuleContext();
 
   // Force sidebar open when gerencial mode is active so gerencial items are always visible
-  React.useEffect(() => {
+  useEffect(() => {
     if (isGerencial && state === 'collapsed') {
       setOpen(true);
     }
