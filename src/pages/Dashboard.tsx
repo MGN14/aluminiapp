@@ -119,12 +119,17 @@ export default function Dashboard() {
   
 
   const now = new Date();
-  const [periodSelection, setPeriodSelection] = useState<PeriodSelection>({
-    type: 'quarter',
+  const savedPeriodType = localStorage.getItem('dashboard_period_type') as PeriodSelection['type'] | null;
+  const [periodSelection, setPeriodSelectionRaw] = useState<PeriodSelection>({
+    type: savedPeriodType || 'year',
     month: now.getMonth() + 1,
     quarter: Math.ceil((now.getMonth() + 1) / 3),
     year: now.getFullYear(),
   });
+  const setPeriodSelection = useCallback((sel: PeriodSelection) => {
+    setPeriodSelectionRaw(sel);
+    localStorage.setItem('dashboard_period_type', sel.type);
+  }, []);
   const [periodInitialized, setPeriodInitialized] = useState(false);
   const operationalData = useOperationalData(periodSelection.year);
 
@@ -167,9 +172,10 @@ export default function Dashboard() {
 
   const initializePeriodFromData = async () => {
     try {
+      const preferredType = savedPeriodType || 'year';
       const { data: statement } = await supabase.from('bank_statements').select('statement_month, statement_year').order('uploaded_at', { ascending: false }).limit(1).single();
       if (statement?.statement_month && statement?.statement_year) {
-        setPeriodSelection({ type: 'quarter', month: statement.statement_month, quarter: Math.ceil(statement.statement_month / 3), year: statement.statement_year });
+        setPeriodSelectionRaw({ type: preferredType, month: statement.statement_month, quarter: Math.ceil(statement.statement_month / 3), year: statement.statement_year });
         setPeriodInitialized(true);
         return;
       }
@@ -177,7 +183,7 @@ export default function Dashboard() {
       if (transaction?.date) {
         const date = parseLocalDate(transaction.date);
         const month = date.getMonth() + 1;
-        setPeriodSelection({ type: 'quarter', month, quarter: Math.ceil(month / 3), year: date.getFullYear() });
+        setPeriodSelectionRaw({ type: preferredType, month, quarter: Math.ceil(month / 3), year: date.getFullYear() });
       }
       setPeriodInitialized(true);
     } catch (error) { console.error('Error initializing period:', error); setPeriodInitialized(true); }
