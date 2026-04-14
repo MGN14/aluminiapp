@@ -121,16 +121,16 @@ function SidebarNavItem({ item, collapsed, currentPath, currentSearch }: {
             end
             className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors border
               ${active
-                ? 'bg-accent/20 border-accent/40 text-accent'
-                : 'border-accent/20 bg-accent/5 text-accent/80 hover:bg-accent/10 hover:border-accent/30'
+                ? 'bg-primary/15 border-primary/40 text-primary'
+                : 'border-primary/20 bg-primary/5 text-primary/80 hover:bg-primary/10 hover:border-primary/30'
               }`}
           >
-            <Zap className="h-3.5 w-3.5 shrink-0 text-accent" />
+            <Zap className="h-3.5 w-3.5 shrink-0 text-primary" />
             {!collapsed && (
               <span className="flex items-center gap-2 flex-1 min-w-0">
                 <span className="truncate">{item.title}</span>
                 {item.comingSoon && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none bg-accent/15 text-accent shrink-0">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none bg-primary/15 text-primary shrink-0">
                     Próximamente
                   </span>
                 )}
