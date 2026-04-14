@@ -384,6 +384,34 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+          {/* Impuesto de Renta Estimado */}
+          {(() => {
+            const neto = metrics.totalIngresos - metrics.totalEgresos;
+            const rentaEstimada = neto > 0 ? neto * 0.35 : 0;
+            return (
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Impuesto de Renta Estimado</CardTitle>
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-accent/10">
+                    <Receipt className="h-4 w-4 text-accent-foreground" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xl font-bold text-foreground">
+                    {formatCurrency(rentaEstimada)}
+                  </div>
+                  <div className="flex items-center text-xs text-muted-foreground mt-1 gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {periodRange.label}
+                  </div>
+                  <div className="flex items-start gap-1 mt-3 p-2 bg-muted/40 rounded-lg text-[10px] text-muted-foreground">
+                    <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                    <span>Aproximado. Verifica este valor con tu contador.</span>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
           {/* Pendientes Conciliar */}
           <Card className="border-0 shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
