@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { NavLink } from '@/components/NavLink';
 import {
@@ -199,12 +200,19 @@ function SidebarSection({ label, items, gerencialItems, collapsed, currentPath, 
 }
 
 export default function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, setOpen } = useSidebar();
   const collapsed = state === 'collapsed';
   const location = useLocation();
   const currentPath = location.pathname;
   const currentSearch = location.search;
   const { isGerencial } = useModuleContext();
+
+  // Force sidebar open when gerencial mode is active so gerencial items are always visible
+  useEffect(() => {
+    if (isGerencial && state === 'collapsed') {
+      setOpen(true);
+    }
+  }, [isGerencial, state, setOpen]);
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
