@@ -106,8 +106,9 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
         .single();
 
       if (statement?.statement_month && statement?.statement_year) {
+        const savedType = (localStorage.getItem('dashboard_period_type') as PeriodType) || 'year';
         onSelectionChange({
-          type: 'quarter',
+          type: savedType,
           month: statement.statement_month,
           quarter: Math.ceil(statement.statement_month / 3),
           year: statement.statement_year,
@@ -123,8 +124,9 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
         if (transaction?.date) {
           const date = parseLocalDate(transaction.date);
           const month = date.getMonth() + 1;
+          const savedType = (localStorage.getItem('dashboard_period_type') as PeriodType) || 'year';
           onSelectionChange({
-            type: 'quarter',
+            type: savedType,
             month,
             quarter: Math.ceil(month / 3),
             year: date.getFullYear(),
