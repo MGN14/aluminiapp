@@ -187,12 +187,15 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
 
     setSaving(true);
     try {
-      // Generate consecutive remision number
+      // Generate consecutive remision number per module
+      const prefix = isGerencial ? 'REMG' : 'REM';
+      const moduleOriginVal = isGerencial ? 'gerencial' : 'dian';
       const { count } = await supabase
         .from('remisiones')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
-      const number = `REM-${(count || 0) + 1}`;
+        .eq('user_id', user.id)
+        .eq('module_origin', moduleOriginVal);
+      const number = `${prefix}-${(count || 0) + 1}`;
 
       const { data: remision, error: remError } = await supabase
         .from('remisiones')
