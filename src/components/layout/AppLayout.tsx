@@ -4,7 +4,6 @@ import AppSidebar from './AppSidebar';
 import AppHeader from './AppHeader';
 import NicoDrawer from '@/components/nico/NicoDrawer';
 import { NicoProvider, useNico } from '@/hooks/useNicoContext';
-import { ModuleProvider } from '@/hooks/useModuleContext';
 import TrialBanner from '@/components/subscription/TrialBanner';
 
 interface AppLayoutProps {
@@ -28,8 +27,7 @@ function KeyboardShortcut() {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   return (
-    <ModuleProvider>
-      <NicoProvider>
+    <NicoProvider>
         <SidebarProvider>
           <div className="min-h-screen flex w-full bg-background">
             <AppSidebar />
@@ -47,6 +45,5 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <KeyboardShortcut />
         </SidebarProvider>
       </NicoProvider>
-    </ModuleProvider>
   );
 }

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { SubscriptionProvider } from "@/hooks/useSubscription";
+import { ModuleProvider } from "@/hooks/useModuleContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
@@ -39,6 +40,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <SubscriptionProvider>
+        <ModuleProvider>
         <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -147,6 +149,7 @@ const App = () => (
             </Routes>
           </BrowserRouter>
         </TooltipProvider>
+        </ModuleProvider>
       </SubscriptionProvider>
     </AuthProvider>
   </QueryClientProvider>
