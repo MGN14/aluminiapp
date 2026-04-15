@@ -74,6 +74,10 @@ export interface InvoiceFiscalMetrics {
   retefuenteYear: number;
   retefuenteMonthCount: number;
   retefuenteYearCount: number;
+  // Next payment (previous calendar month)
+  retefuenteNextPayment: number;
+  reteicaNextPayment: number;
+  nextPaymentMonthLabel: string;
   // Facturación
   totalFacturadoVentas: number;
   totalBaseVentas: number;
