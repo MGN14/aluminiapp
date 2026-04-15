@@ -956,6 +956,83 @@ export type Database = {
         }
         Relationships: []
       }
+      remision_items: {
+        Row: {
+          created_at: string
+          id: string
+          product_name: string
+          reference: string
+          remision_id: string
+          total_cost: number
+          unit_cost: number
+          units: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          product_name?: string
+          reference?: string
+          remision_id: string
+          total_cost?: number
+          unit_cost?: number
+          units?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          product_name?: string
+          reference?: string
+          remision_id?: string
+          total_cost?: number
+          unit_cost?: number
+          units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "remision_items_remision_id_fkey"
+            columns: ["remision_id"]
+            isOneToOne: false
+            referencedRelation: "remisiones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      remisiones: {
+        Row: {
+          beneficiary: string
+          created_at: string
+          date: string
+          id: string
+          notes: string | null
+          number: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          beneficiary?: string
+          created_at?: string
+          date?: string
+          id?: string
+          notes?: string | null
+          number?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          beneficiary?: string
+          created_at?: string
+          date?: string
+          id?: string
+          notes?: string | null
+          number?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       responsibles: {
         Row: {
           active: boolean
