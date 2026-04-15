@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, History } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck, History, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import InventoryMetrics from '@/components/inventory/InventoryMetrics';
@@ -10,10 +10,14 @@ import AddProductModal from '@/components/inventory/AddProductModal';
 import AdjustStockModal from '@/components/inventory/AdjustStockModal';
 import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import PhysicalCountModal from '@/components/inventory/PhysicalCountModal';
+import MaestroProductos from '@/components/inventory/MaestroProductos';
 import AppLayout from '@/components/layout/AppLayout';
+
+type Tab = 'inventario' | 'maestro';
 
 export default function Inventory() {
   const { products, movements, metrics, loading, addProduct, addMovement, refetch } = useInventoryData();
+  const [tab, setTab] = useState<Tab>('inventario');
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [showPhysical, setShowPhysical] = useState(false);
@@ -33,8 +37,26 @@ export default function Inventory() {
   return (
     <AppLayout>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8">
+        {/* Tabs */}
+        <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit">
+          <button
+            onClick={() => setTab('inventario')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${tab === 'inventario' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Package className="h-4 w-4" />
+            Inventario
+          </button>
+          <button
+            onClick={() => setTab('maestro')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${tab === 'maestro' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <BookOpen className="h-4 w-4" />
+            Maestro de Productos
+          </button>
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between animate-fade-in">
+        {tab === 'inventario' && <div className="flex items-center justify-between animate-fade-in">
           <div className="flex items-center gap-4">
             <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-500/10 flex items-center justify-center border border-white/[0.06]">
               <Package className="h-6 w-6 text-blue-400" />
@@ -65,9 +87,23 @@ export default function Inventory() {
               Agregar producto
             </Button>
           </div>
-        </div>
+        </div>}
 
-        {loading ? (
+        {/* Maestro tab */}
+        {tab === 'maestro' && (
+          <div className="animate-fade-in">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-foreground">Maestro de Productos</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Tabla maestra de referencias — Siigo, Local, Proveedor A/B/C y unidad de medida.
+                Solo el administrador puede editar.
+              </p>
+            </div>
+            <MaestroProductos />
+          </div>
+        )}
+
+        {tab === 'inventario' && (loading ? (
           <div className="flex items-center justify-center py-32">
             <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
           </div>
@@ -144,7 +180,7 @@ export default function Inventory() {
               </div>
             )}
           </>
-        )}
+        ))}
       </div>
 
       <AddProductModal open={showAdd} onOpenChange={setShowAdd} onSubmit={addProduct} />
