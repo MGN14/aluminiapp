@@ -112,10 +112,12 @@ export default function Dashboard() {
   const { toast } = useToast();
   const { checkSubscription, plan } = useSubscription();
   const { openNico } = useNico();
+  const { isGerencial } = useModuleContext();
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_city: null, reteica_rate: 0 });
   const [invoiceMetrics, setInvoiceMetrics] = useState<InvoiceFiscalMetrics | null>(null);
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoiceData[]>([]);
+  const [cashMovements, setCashMovements] = useState<{ type: string; amount: number; date: string }[]>([]);
   const customization = useDashboardCustomization();
   
 
