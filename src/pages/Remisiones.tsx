@@ -79,7 +79,7 @@ function calcScore(remision: any, invoiceItems: any[]): { score: number; label: 
 
 export default function Remisiones() {
   const { user } = useAuth();
-  const { isGerencial } = useModuleContext();
+  const { isGerencial, mode } = useModuleContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newOpen, setNewOpen] = useState(false);
@@ -88,9 +88,12 @@ export default function Remisiones() {
   const [moverId, setMoverId] = useState<string | null>(null);
   const [scoreDetail, setScoreDetail] = useState<{ label: string; detail: string; color: string } | null>(null);
 
-  const moduleOrigin = isGerencial ? 'gerencial' : 'dian';
+  // Leer módulo directamente del localStorage como fuente de verdad
+  const savedMode = localStorage.getItem('aluminia_module_mode');
+  const effectiveGerencial = isGerencial || mode === 'gerencial' || savedMode === 'gerencial';
+  const moduleOrigin = effectiveGerencial ? 'gerencial' : 'dian';
 
-  // Forzar re-fetch cuando cambia el módulo
+  // Re-fetch cuando cambia el módulo
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ['remisiones', user?.id] });
   }, [moduleOrigin, user?.id]);
@@ -129,7 +132,7 @@ export default function Remisiones() {
         issue_date: i.invoices?.issue_date,
       }));
     },
-    enabled: !!user?.id && !isGerencial,
+    enabled: !!user?.id && !effectiveGerencial,
   });
 
   const handleDelete = async (id: string, number: string) => {
@@ -182,7 +185,7 @@ export default function Remisiones() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Remisiones</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              {isGerencial ? 'Despachos con seguimiento interno' : 'Despachos con seguimiento fiscal — cruzados contra facturas emitidas'}
+              {effectiveGerencial ? 'Despachos con seguimiento interno' : 'Despachos con seguimiento fiscal — cruzados contra facturas emitidas'}
             </p>
           </div>
           <Button onClick={() => setNewOpen(true)} className="gap-2">
@@ -229,7 +232,7 @@ export default function Remisiones() {
                     <TableHead className="text-right">Unidades</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                     <TableHead>Estado</TableHead>
-                    {!isGerencial && <TableHead>Score Fiscal</TableHead>}
+                    {!effectiveGerencial && <TableHead>Score Fiscal</TableHead>}
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -240,7 +243,7 @@ export default function Remisiones() {
                     const itemsValor = items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
                     const valor = r.total_manual ? Number(r.total_manual) : itemsValor;
                     const status = STATUS_LABELS[r.status] || STATUS_LABELS.pendiente;
-                    const score = !isGerencial ? calcScore(r, invoiceItems) : null;
+                    const score = !effectiveGerencial ? calcScore(r, invoiceItems) : null;
                     const ScoreIcon = score?.icon;
 
                     return (
@@ -265,7 +268,7 @@ export default function Remisiones() {
                             <Badge variant={status.variant}>{status.label}</Badge>
                           )}
                         </TableCell>
-                        {!isGerencial && score && (
+                        {!effectiveGerencial && score && (
                           <TableCell>
                             <button
                               onClick={() => setScoreDetail({ label: score.label, detail: score.detail, color: score.color })}
@@ -284,7 +287,7 @@ export default function Remisiones() {
                             <Button variant="ghost" size="icon" onClick={() => setEditingStatusId(editingStatusId === r.id ? null : r.id)} title="Cambiar estado">
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            {isGerencial && (
+                            {effectiveGerencial && (
                               <Button variant="ghost" size="icon" onClick={() => setMoverId(r.id)} title="Mover a Módulo DIAN">
                                 <ArrowRightLeft className="h-4 w-4 text-blue-500" />
                               </Button>
