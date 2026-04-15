@@ -53,39 +53,63 @@ export default function MaestroProductos() {
   });
 
   const downloadTemplate = async () => {
-    // Buscar qué referencias ya están en el maestro
+    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as string) as any;
+
     const maestroRefs = new Set(productos.map(p => p.ref_siigo));
 
-    // Combinar: refs del maestro existente + refs del inventario que aún no están
-    const rows: string[][] = [
-      ['Ref_Siigo', 'Descripcion', 'Ref_Local', 'Ref_Proveedor_A', 'Ref_Proveedor_B', 'Ref_Proveedor_C', 'Unidad'],
-    ];
+    const rows: any[] = [];
 
-    // Primero las del inventario que no están en el maestro
+    // Refs del inventario que aún no están en el maestro
     inventoryProducts.forEach((p: any) => {
       if (!maestroRefs.has(p.reference)) {
-        rows.push([p.reference, p.name, '', '', '', '', p.unit || 'und']);
+        rows.push({
+          'Ref_Siigo (NO EDITAR)': p.reference,
+          'Descripcion': p.name,
+          'Ref_Local': '',
+          'Ref_Proveedor_A': '',
+          'Ref_Proveedor_B': '',
+          'Ref_Proveedor_C': '',
+          'Unidad': p.unit || 'und',
+        });
       }
     });
 
-    // Luego las que ya están en el maestro (para actualizar)
+    // Refs ya en el maestro
     productos.forEach(p => {
-      rows.push([
-        p.ref_siigo, p.description,
-        p.ref_local || '', p.ref_proveedor_a || '',
-        p.ref_proveedor_b || '', p.ref_proveedor_c || '',
-        p.unit,
-      ]);
+      rows.push({
+        'Ref_Siigo (NO EDITAR)': p.ref_siigo,
+        'Descripcion': p.description,
+        'Ref_Local': p.ref_local || '',
+        'Ref_Proveedor_A': p.ref_proveedor_a || '',
+        'Ref_Proveedor_B': p.ref_proveedor_b || '',
+        'Ref_Proveedor_C': p.ref_proveedor_c || '',
+        'Unidad': p.unit,
+      });
     });
 
-    const tsv = rows.map(r => r.join('\t')).join('\n');
-    const blob = new Blob(['\uFEFF' + tsv], { type: 'text/tab-separated-values;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Maestro_Productos_AluminIA.xls';
-    a.click();
-    URL.revokeObjectURL(url);
+    if (rows.length === 0) {
+      rows.push({
+        'Ref_Siigo (NO EDITAR)': 'PC635',
+        'Descripcion': 'Ejemplo: Pisavidrio Curvo Liviano',
+        'Ref_Local': 'PC635-MATE',
+        'Ref_Proveedor_A': 'PISAVIDRIO CURVO 635',
+        'Ref_Proveedor_B': 'PV-635M',
+        'Ref_Proveedor_C': '',
+        'Unidad': 'und',
+      });
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // Ajustar anchos de columna
+    ws['!cols'] = [
+      { wch: 22 }, { wch: 35 }, { wch: 18 },
+      { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 10 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Maestro');
+    XLSX.writeFile(wb, 'Maestro_Productos_AluminIA.xlsx');
   };
 
   const [search, setSearch] = useState('');
