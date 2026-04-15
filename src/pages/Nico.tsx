@@ -1,16 +1,20 @@
+import { useState } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import NicoChat from '@/components/nico/NicoChat';
+import NicoPronosticos from '@/components/nico/NicoPronosticos';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Lock, Loader2 } from 'lucide-react';
+import { Lock, Loader2, MessageSquare, TrendingUp } from 'lucide-react';
+
+type Tab = 'chat' | 'pronosticos';
 
 export default function NicoPage() {
-  const { plan, trialExpired, loading: subLoading, isAdmin, isFounder, isTrialing } = useSubscription();
+  const { plan, loading: subLoading, isAdmin, isFounder, isTrialing } = useSubscription();
   const navigate = useNavigate();
+  const [tab, setTab] = useState<Tab>('chat');
 
-  // Gate: block for demo with expired trial (not trialing, not paid)
   const hasAccess = isAdmin || isFounder || isTrialing || ['basico', 'pro', 'empresarial', 'admin'].includes(plan);
 
   if (subLoading) {
@@ -33,11 +37,8 @@ export default function NicoPage() {
           <h1 className="text-2xl font-bold text-foreground mb-2">Coach Financiero con IA</h1>
           <p className="text-muted-foreground max-w-md mb-6">
             Nico está disponible en los planes Básico y Empresarial.
-            Activa tu plan para acceder a análisis financiero inteligente.
           </p>
-          <Button onClick={() => navigate('/pricing')} className="gap-2">
-            Activar Plan
-          </Button>
+          <Button onClick={() => navigate('/pricing')}>Activar Plan</Button>
         </div>
       </AppLayout>
     );
@@ -58,15 +59,44 @@ export default function NicoPage() {
             </div>
           </div>
           <p className="text-muted-foreground text-sm mt-3 max-w-lg">
-            Pregúntale a Nico cualquier cosa sobre tus ingresos, gastos, proveedores o tendencias.
-            Usa tus datos reales para darte respuestas ejecutivas y accionables.
+            Pregúntale a Nico sobre tus finanzas o consultá los pronósticos basados en tu historial real.
           </p>
         </div>
 
-        {/* Chat */}
-        <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
-          <NicoChat />
+        {/* Tabs */}
+        <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit mb-5">
+          <button
+            onClick={() => setTab('chat')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              tab === 'chat' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Consultar a Nico
+          </button>
+          <button
+            onClick={() => setTab('pronosticos')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              tab === 'pronosticos' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <TrendingUp className="h-4 w-4" />
+            Pronósticos
+          </button>
         </div>
+
+        {/* Contenido */}
+        {tab === 'chat' && (
+          <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+            <NicoChat />
+          </div>
+        )}
+
+        {tab === 'pronosticos' && (
+          <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
+            <NicoPronosticos />
+          </div>
+        )}
       </div>
     </AppLayout>
   );
