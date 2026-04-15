@@ -16,21 +16,27 @@ function formatPct(value: number) {
   return `${sign}${value.toFixed(1)}%`;
 }
 
-// Calcula tendencia lineal simple (regresión mínimos cuadrados)
-function linearTrend(values: number[]): { slope: number; next: number } {
+// Tendencia lineal (mínimos cuadrados)
+function linearTrend(values: number[]): { slope: number; intercept: number } {
   const n = values.length;
-  if (n < 2) return { slope: 0, next: values[0] || 0 };
+  if (n < 2) return { slope: 0, intercept: values[0] || 0 };
   const xMean = (n - 1) / 2;
   const yMean = values.reduce((a, b) => a + b, 0) / n;
   let num = 0, den = 0;
-  values.forEach((y, x) => {
-    num += (x - xMean) * (y - yMean);
-    den += (x - xMean) ** 2;
-  });
+  values.forEach((y, x) => { num += (x - xMean) * (y - yMean); den += (x - xMean) ** 2; });
   const slope = den !== 0 ? num / den : 0;
-  const intercept = yMean - slope * xMean;
-  const next = intercept + slope * n;
-  return { slope, next };
+  return { slope, intercept: yMean - slope * xMean };
+}
+
+// Proyección robusta: pondera promedio histórico (70%) + tendencia (30%)
+// Nunca baja de 40% del promedio histórico para evitar proyecciones irreales
+function projectMonth(values: number[], offset: number): number {
+  if (values.length === 0) return 0;
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const { slope, intercept } = linearTrend(values);
+  const trendVal = intercept + slope * (values.length + offset);
+  const projected = avg * 0.7 + trendVal * 0.3;
+  return Math.max(avg * 0.4, projected);
 }
 
 export default function NicoPronosticos() {
@@ -44,7 +50,7 @@ export default function NicoPronosticos() {
       if (!user?.id) return [];
       const { data } = await supabase
         .from('transactions')
-        .select('date, amount, type, category_id, categories!transactions_category_id_fkey(name, report_group)')
+        .select('date, amount, type, description, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
         .eq('user_id', user.id)
         .is('deleted_at', null)
         .gte('date', `${currentYear - 1}-01-01`)
@@ -57,11 +63,15 @@ export default function NicoPronosticos() {
   const pronosticos = useMemo(() => {
     if (transactions.length === 0) return null;
 
-    // Agrupar por mes: array de 12 posiciones para el año actual + meses previos del año pasado
-    const monthlyIngresos: number[] = new Array(12).fill(0);
-    const monthlyEgresos: number[] = new Array(12).fill(0);
-    const prevYearIngresos: number[] = new Array(12).fill(0);
-    const prevYearEgresos: number[] = new Array(12).fill(0);
+    const monthlyIngresos = new Array(12).fill(0);
+    const monthlyEgresos = new Array(12).fill(0);
+    const prevYearIngresos = new Array(12).fill(0);
+    const prevYearEgresos = new Array(12).fill(0);
+
+    // Impuestos acumulados año actual
+    let retefuenteAcum = 0;
+    let reteicaAcum = 0;
+    let gmf4x1000Acum = 0;
 
     transactions.forEach((tx: any) => {
       const date = new Date(tx.date);
@@ -73,152 +83,112 @@ export default function NicoPronosticos() {
       if (year === currentYear) {
         if (isIngreso) monthlyIngresos[month] += amount;
         else monthlyEgresos[month] += amount;
+        if (tx.has_retefuente && tx.retefuente_amount > 0) retefuenteAcum += tx.retefuente_amount;
+        if (tx.has_reteica && tx.reteica_amount > 0) reteicaAcum += tx.reteica_amount;
+        const desc = (tx.description || '').toUpperCase();
+        if (desc.includes('4X1000') || desc.includes('GMF') || desc.includes('IMPTO GOBIERNO') || desc.includes('GRAVAMEN')) {
+          gmf4x1000Acum += amount;
+        }
       } else if (year === currentYear - 1) {
         if (isIngreso) prevYearIngresos[month] += amount;
         else prevYearEgresos[month] += amount;
       }
     });
 
-    // Solo meses con datos hasta el mes actual
-    const mesesConDatos = currentMonth; // meses anteriores al actual
-    const ingresosHistoricos = monthlyIngresos.slice(0, mesesConDatos);
-    const egresosHistoricos = monthlyEgresos.slice(0, mesesConDatos);
+    // Histórico: incluir mes actual parcial si tiene datos
+    const mesesHistorico = currentMonth + (monthlyIngresos[currentMonth] > 0 ? 1 : 0);
+    const ingresosHistoricos = monthlyIngresos.slice(0, mesesHistorico);
+    const egresosHistoricos = monthlyEgresos.slice(0, mesesHistorico);
 
-    // Si hay muy pocos meses, usar también el año anterior
-    const ingresosParaTendencia = ingresosHistoricos.length >= 3
+    // Completar con año anterior si hay pocos meses
+    const ingresosBase = ingresosHistoricos.length >= 3
       ? ingresosHistoricos
-      : [...prevYearIngresos.slice(-3), ...ingresosHistoricos];
-    const egresosParaTendencia = egresosHistoricos.length >= 3
+      : [...prevYearIngresos.slice(-(3 - ingresosHistoricos.length)), ...ingresosHistoricos];
+    const egresosBase = egresosHistoricos.length >= 3
       ? egresosHistoricos
-      : [...prevYearEgresos.slice(-3), ...egresosHistoricos];
+      : [...prevYearEgresos.slice(-(3 - egresosHistoricos.length)), ...egresosHistoricos];
 
-    const trendIngresos = linearTrend(ingresosParaTendencia);
-    const trendEgresos = linearTrend(egresosParaTendencia);
+    const avgIngresos = ingresosBase.length > 0 ? ingresosBase.reduce((a, b) => a + b, 0) / ingresosBase.length : 0;
+    const avgEgresos = egresosBase.length > 0 ? egresosBase.reduce((a, b) => a + b, 0) / egresosBase.length : 0;
 
-    // Pronóstico próximo mes
-    const proxMesIngresos = Math.max(0, trendIngresos.next);
-    const proxMesEgresos = Math.max(0, trendEgresos.next);
+    // Próximo mes
+    const proxMesIngresos = projectMonth(ingresosBase, 0);
+    const proxMesEgresos = projectMonth(egresosBase, 0);
     const proxMesNeto = proxMesIngresos - proxMesEgresos;
 
-    // Promedio actual
-    const avgIngresos = ingresosHistoricos.length > 0
-      ? ingresosHistoricos.reduce((a, b) => a + b, 0) / ingresosHistoricos.length
-      : 0;
-    const avgEgresos = egresosHistoricos.length > 0
-      ? egresosHistoricos.reduce((a, b) => a + b, 0) / egresosHistoricos.length
-      : 0;
-
-    // Variación % vs promedio
     const varIngresos = avgIngresos > 0 ? ((proxMesIngresos - avgIngresos) / avgIngresos) * 100 : 0;
     const varEgresos = avgEgresos > 0 ? ((proxMesEgresos - avgEgresos) / avgEgresos) * 100 : 0;
 
-    // Pronóstico 3 meses (tendencia extendida)
-    const trend3Ingresos = ingresosParaTendencia.map((_, i) =>
-      Math.max(0, trendIngresos.slope * (ingresosParaTendencia.length + i) + (avgIngresos - trendIngresos.slope * (ingresosParaTendencia.length / 2)))
-    ).slice(0, 3);
-    const trend3Egresos = egresosParaTendencia.map((_, i) =>
-      Math.max(0, trendEgresos.slope * (egresosParaTendencia.length + i) + (avgEgresos - trendEgresos.slope * (egresosParaTendencia.length / 2)))
-    ).slice(0, 3);
-
-    const total3MIngresos = [proxMesIngresos, ...trend3Ingresos.slice(0, 2)].reduce((a, b) => a + b, 0);
-    const total3MEgresos = [proxMesEgresos, ...trend3Egresos.slice(0, 2)].reduce((a, b) => a + b, 0);
-    const neto3M = total3MIngresos - total3MEgresos;
-
-    // Alertas inteligentes
-    const alertas: { tipo: 'warning' | 'danger' | 'success'; mensaje: string }[] = [];
-
-    if (proxMesNeto < 0) {
-      alertas.push({ tipo: 'danger', mensaje: `La tendencia sugiere resultado neto negativo el próximo mes (${formatCurrency(proxMesNeto)}). Revisá tus gastos.` });
-    }
-    if (trendEgresos.slope > trendIngresos.slope && trendEgresos.slope > 0) {
-      alertas.push({ tipo: 'warning', mensaje: 'Tus egresos crecen más rápido que tus ingresos. Si continúa esta tendencia, el margen se reducirá.' });
-    }
-    if (varIngresos < -15) {
-      alertas.push({ tipo: 'warning', mensaje: `Se proyectan ingresos ${Math.abs(varIngresos).toFixed(0)}% por debajo de tu promedio. ¿Hay estacionalidad o cuentas por cobrar pendientes?` });
-    }
-    if (proxMesNeto > 0 && varIngresos > 10) {
-      alertas.push({ tipo: 'success', mensaje: `Buena tendencia — se proyectan ingresos ${varIngresos.toFixed(0)}% por encima del promedio.` });
-    }
+    // 3 meses
+    const ing3 = [0, 1, 2].map(i => projectMonth(ingresosBase, i));
+    const egr3 = [0, 1, 2].map(i => projectMonth(egresosBase, i));
+    const total3MIngresos = ing3.reduce((a, b) => a + b, 0);
+    const total3MEgresos = egr3.reduce((a, b) => a + b, 0);
 
     const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const proxMesNombre = mesesNombres[(currentMonth) % 12];
-    const mes2Nombre = mesesNombres[(currentMonth + 1) % 12];
-    const mes3Nombre = mesesNombres[(currentMonth + 2) % 12];
 
-    // ── Cierre del año ──────────────────────────────────────────
-    // Proyectar cada mes restante con la tendencia
+    // Cierre del año: real para meses pasados, proyectado para futuros
     const mesAMes = Array.from({ length: 12 }, (_, m) => {
       const esReal = m < currentMonth;
-      const esFuturo = m >= currentMonth;
       let ingProy = monthlyIngresos[m];
       let egrProy = monthlyEgresos[m];
-      if (esFuturo) {
+      if (!esReal) {
         const offset = m - currentMonth;
-        ingProy = Math.max(0, trendIngresos.next + trendIngresos.slope * offset);
-        egrProy = Math.max(0, trendEgresos.next + trendEgresos.slope * offset);
+        ingProy = projectMonth(ingresosBase, offset);
+        egrProy = projectMonth(egresosBase, offset);
       }
       return { mes: mesesNombres[m], ingresos: ingProy, egresos: egrProy, neto: ingProy - egrProy, esReal };
     });
 
-    const cierreIngresosTotal = mesAMes.reduce((s, m) => s + m.ingresos, 0);
-    const cierreEgresosTotal = mesAMes.reduce((s, m) => s + m.egresos, 0);
-    const cierreNetoTotal = cierreIngresosTotal - cierreEgresosTotal;
-    const cierreRentaEstimada = cierreNetoTotal > 0 ? cierreNetoTotal * 0.35 : 0;
+    const cierreIngresos = mesAMes.reduce((s, m) => s + m.ingresos, 0);
+    const cierreEgresos = mesAMes.reduce((s, m) => s + m.egresos, 0);
+    const cierreNeto = cierreIngresos - cierreEgresos;
+    const cierreRenta = cierreNeto > 0 ? cierreNeto * 0.35 : 0;
+
+    // Proyección impuestos al cierre (proporción sobre meses restantes)
+    const mesesRestantes = 12 - currentMonth;
+    const mesesTranscurridos = Math.max(currentMonth, 1);
+    const retefuenteProyAnio = retefuenteAcum + (retefuenteAcum / mesesTranscurridos) * mesesRestantes;
+    const reteicaProyAnio = reteicaAcum + (reteicaAcum / mesesTranscurridos) * mesesRestantes;
+    const gmfProyAnio = gmf4x1000Acum + (gmf4x1000Acum / mesesTranscurridos) * mesesRestantes;
 
     // Comparación vs año anterior
     const prevAnioIngresos = prevYearIngresos.reduce((a, b) => a + b, 0);
-    const prevAnioEgresos = prevYearEgresos.reduce((a, b) => a + b, 0);
-    const prevAnioNeto = prevAnioIngresos - prevAnioEgresos;
-    const varAnioIngresos = prevAnioIngresos > 0 ? ((cierreIngresosTotal - prevAnioIngresos) / prevAnioIngresos) * 100 : 0;
-    const varAnioNeto = prevAnioNeto > 0 ? ((cierreNetoTotal - prevAnioNeto) / prevAnioNeto) * 100 : 0;
-
-    // Cuánto falta para superar el año anterior
+    const prevAnioNeto = prevAnioIngresos - prevYearEgresos.reduce((a, b) => a + b, 0);
+    const varAnioIngresos = prevAnioIngresos > 0 ? ((cierreIngresos - prevAnioIngresos) / prevAnioIngresos) * 100 : 0;
+    const varAnioNeto = prevAnioNeto !== 0 ? ((cierreNeto - prevAnioNeto) / Math.abs(prevAnioNeto)) * 100 : 0;
     const faltaParaSuperarAnio = Math.max(0, prevAnioIngresos - monthlyIngresos.reduce((a, b) => a + b, 0));
 
-    // Diciembre específico
-    const diciembreProy = mesAMes[11];
-
-    // Alertas de cierre
-    if (cierreNetoTotal < 0) {
-      alertas.push({ tipo: 'danger', mensaje: `La proyección indica cierre del año con pérdida neta de ${formatCurrency(Math.abs(cierreNetoTotal))}. Se requiere acción urgente.` });
-    }
-    if (faltaParaSuperarAnio > 0) {
-      alertas.push({ tipo: 'warning', mensaje: `Para superar las ventas del ${currentYear - 1} te faltan ${formatCurrency(faltaParaSuperarAnio)} en ingresos.` });
-    }
-    if (cierreRentaEstimada > 0) {
-      alertas.push({ tipo: 'warning', mensaje: `Impuesto de renta estimado al cierre del año: ${formatCurrency(cierreRentaEstimada)}. Provisioná con tu contador.` });
-    }
+    // Alertas
+    const alertas: { tipo: 'warning' | 'danger' | 'success'; mensaje: string }[] = [];
+    if (proxMesNeto < 0) alertas.push({ tipo: 'danger', mensaje: `Tendencia sugiere resultado neto negativo el próximo mes (${formatCurrency(proxMesNeto)}). Revisá tus gastos.` });
+    if (varEgresos > 15) alertas.push({ tipo: 'warning', mensaje: `Egresos proyectados ${varEgresos.toFixed(0)}% por encima del promedio. Revisá si hay gastos extraordinarios.` });
+    if (varIngresos < -15) alertas.push({ tipo: 'warning', mensaje: `Ingresos proyectados ${Math.abs(varIngresos).toFixed(0)}% por debajo del promedio. ¿Hay CxC pendientes?` });
+    if (proxMesNeto > 0 && varIngresos > 10) alertas.push({ tipo: 'success', mensaje: `Buena tendencia — ingresos proyectados ${varIngresos.toFixed(0)}% por encima del promedio.` });
+    if (cierreNeto < 0) alertas.push({ tipo: 'danger', mensaje: `Proyección indica cierre del año con pérdida neta de ${formatCurrency(Math.abs(cierreNeto))}. Se requiere acción urgente.` });
+    if (faltaParaSuperarAnio > 0) alertas.push({ tipo: 'warning', mensaje: `Para superar las ventas del ${currentYear - 1} te faltan ${formatCurrency(faltaParaSuperarAnio)} en ingresos.` });
 
     return {
-      proxMes: { ingresos: proxMesIngresos, egresos: proxMesEgresos, neto: proxMesNeto, nombre: proxMesNombre },
-      tresMeses: { ingresos: total3MIngresos, egresos: total3MEgresos, neto: neto3M, meses: [proxMesNombre, mes2Nombre, mes3Nombre] },
+      proxMes: { ingresos: proxMesIngresos, egresos: proxMesEgresos, neto: proxMesNeto, nombre: mesesNombres[currentMonth % 12] },
+      tresMeses: { ingresos: total3MIngresos, egresos: total3MEgresos, neto: total3MIngresos - total3MEgresos, meses: [0, 1, 2].map(i => mesesNombres[(currentMonth + i) % 12]) },
       variaciones: { ingresos: varIngresos, egresos: varEgresos },
       alertas,
       confianza: Math.min(ingresosHistoricos.filter(v => v > 0).length * 15, 90),
-      cierreAnio: { ingresos: cierreIngresosTotal, egresos: cierreEgresosTotal, neto: cierreNetoTotal, renta: cierreRentaEstimada, varIngresos: varAnioIngresos, varNeto: varAnioNeto },
+      cierreAnio: { ingresos: cierreIngresos, egresos: cierreEgresos, neto: cierreNeto, renta: cierreRenta, varIngresos: varAnioIngresos, varNeto: varAnioNeto },
+      impuestosCierre: { retefuente: retefuenteProyAnio, reteica: reteicaProyAnio, gmf: gmfProyAnio },
       mesAMes,
-      diciembre: diciembreProy,
     };
   }, [transactions, currentMonth, currentYear]);
 
-  if (isLoading) {
-    return <div className="text-center py-12 text-muted-foreground text-sm">Analizando tendencias...</div>;
-  }
-
-  if (!pronosticos) {
-    return (
-      <div className="text-center py-12 text-muted-foreground text-sm">
-        Necesito al menos 2 meses de datos para generar pronósticos.
-      </div>
-    );
-  }
+  if (isLoading) return <div className="text-center py-12 text-muted-foreground text-sm">Analizando tendencias...</div>;
+  if (!pronosticos) return <div className="text-center py-12 text-muted-foreground text-sm">Necesito al menos 2 meses de datos para generar pronósticos.</div>;
 
   return (
     <div className="space-y-5">
       {/* Confianza */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Zap className="h-3.5 w-3.5 text-accent" />
-        <span>Pronóstico basado en regresión de tendencia · Confianza: <strong>{pronosticos.confianza}%</strong></span>
+        <span>Pronóstico basado en promedio ponderado + tendencia · Confianza: <strong>{pronosticos.confianza}%</strong></span>
       </div>
 
       {/* Alertas */}
@@ -230,88 +200,57 @@ export default function NicoPronosticos() {
               a.tipo === 'warning' ? 'bg-yellow-50 text-yellow-800 dark:bg-yellow-950/20 dark:text-yellow-400' :
               'bg-green-50 text-green-800 dark:bg-green-950/20 dark:text-green-400'
             }`}>
-              {a.tipo === 'danger' ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /> :
-               a.tipo === 'warning' ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /> :
-               <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />}
+              {a.tipo === 'success' ? <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" /> : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />}
               <span>{a.mensaje}</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* Pronóstico próximo mes */}
+      {/* Próximo mes */}
       <div>
         <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
           <Calendar className="h-4 w-4 text-accent" />
           Próximo mes — {pronosticos.proxMes.nombre}
         </h3>
         <div className="grid grid-cols-3 gap-3">
-          <Card className="border-0 shadow-sm">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
-                Ingresos est.
-              </div>
-              <p className="text-lg font-bold text-green-600">{formatCurrency(pronosticos.proxMes.ingresos)}</p>
-              <p className={`text-xs mt-1 ${pronosticos.variaciones.ingresos >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                {formatPct(pronosticos.variaciones.ingresos)} vs promedio
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-0 shadow-sm">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                <TrendingDown className="h-3 w-3 text-red-500" />
-                Egresos est.
-              </div>
-              <p className="text-lg font-bold text-red-500">{formatCurrency(pronosticos.proxMes.egresos)}</p>
-              <p className={`text-xs mt-1 ${pronosticos.variaciones.egresos <= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                {formatPct(pronosticos.variaciones.egresos)} vs promedio
-              </p>
-            </CardContent>
-          </Card>
-          <Card className={`border-0 shadow-sm ${pronosticos.proxMes.neto >= 0 ? 'bg-green-50 dark:bg-green-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                <Wallet className="h-3 w-3" />
-                Resultado neto
-              </div>
-              <p className={`text-lg font-bold ${pronosticos.proxMes.neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(pronosticos.proxMes.neto)}
-              </p>
-              <p className="text-xs mt-1 text-muted-foreground">proyectado</p>
-            </CardContent>
-          </Card>
+          <Card className="border-0 shadow-sm"><CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1"><TrendingUp className="h-3 w-3 text-green-500" />Ingresos est.</div>
+            <p className="text-lg font-bold text-green-600">{formatCurrency(pronosticos.proxMes.ingresos)}</p>
+            <p className={`text-xs mt-1 ${pronosticos.variaciones.ingresos >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatPct(pronosticos.variaciones.ingresos)} vs promedio</p>
+          </CardContent></Card>
+          <Card className="border-0 shadow-sm"><CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1"><TrendingDown className="h-3 w-3 text-red-500" />Egresos est.</div>
+            <p className="text-lg font-bold text-red-500">{formatCurrency(pronosticos.proxMes.egresos)}</p>
+            <p className={`text-xs mt-1 ${pronosticos.variaciones.egresos <= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatPct(pronosticos.variaciones.egresos)} vs promedio</p>
+          </CardContent></Card>
+          <Card className={`border-0 shadow-sm ${pronosticos.proxMes.neto >= 0 ? 'bg-green-50 dark:bg-green-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}><CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1"><Wallet className="h-3 w-3" />Resultado neto</div>
+            <p className={`text-lg font-bold ${pronosticos.proxMes.neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(pronosticos.proxMes.neto)}</p>
+            <p className="text-xs mt-1 text-muted-foreground">proyectado</p>
+          </CardContent></Card>
         </div>
       </div>
 
-      {/* Pronóstico 3 meses */}
+      {/* 3 meses */}
       <div>
         <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-accent" />
-          Acumulado 3 meses — {pronosticos['tresMeses'].meses.join(', ')}
+          Acumulado 3 meses — {pronosticos.tresMeses.meses.join(', ')}
         </h3>
         <div className="grid grid-cols-3 gap-3">
-          <Card className="border-0 shadow-sm">
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-muted-foreground mb-1">Ingresos acum.</p>
-              <p className="text-lg font-bold text-green-600">{formatCurrency(pronosticos['tresMeses'].ingresos)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-0 shadow-sm">
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-muted-foreground mb-1">Egresos acum.</p>
-              <p className="text-lg font-bold text-red-500">{formatCurrency(pronosticos['tresMeses'].egresos)}</p>
-            </CardContent>
-          </Card>
-          <Card className={`border-0 shadow-sm ${pronosticos['tresMeses'].neto >= 0 ? 'bg-green-50 dark:bg-green-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}>
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-muted-foreground mb-1">Neto acum.</p>
-              <p className={`text-lg font-bold ${pronosticos['tresMeses'].neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(pronosticos['tresMeses'].neto)}
-              </p>
-            </CardContent>
-          </Card>
+          <Card className="border-0 shadow-sm"><CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground mb-1">Ingresos acum.</p>
+            <p className="text-lg font-bold text-green-600">{formatCurrency(pronosticos.tresMeses.ingresos)}</p>
+          </CardContent></Card>
+          <Card className="border-0 shadow-sm"><CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground mb-1">Egresos acum.</p>
+            <p className="text-lg font-bold text-red-500">{formatCurrency(pronosticos.tresMeses.egresos)}</p>
+          </CardContent></Card>
+          <Card className={`border-0 shadow-sm ${pronosticos.tresMeses.neto >= 0 ? 'bg-green-50 dark:bg-green-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}><CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground mb-1">Neto acum.</p>
+            <p className={`text-lg font-bold ${pronosticos.tresMeses.neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(pronosticos.tresMeses.neto)}</p>
+          </CardContent></Card>
         </div>
       </div>
 
@@ -319,37 +258,28 @@ export default function NicoPronosticos() {
       <div>
         <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
           <Flag className="h-4 w-4 text-accent" />
-          Cierre del año {new Date().getFullYear()} — Proyección al 31 de diciembre
+          Cierre del año {currentYear} — Proyección al 31 de diciembre
         </h3>
 
-        {/* KPIs de cierre */}
         <div className="grid grid-cols-2 gap-3 mb-4">
-          <Card className="border-0 shadow-sm">
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-muted-foreground mb-1">Ingresos proyectados totales</p>
-              <p className="text-xl font-bold text-green-600">{formatCurrency(pronosticos.cierreAnio.ingresos)}</p>
-              <p className={`text-xs mt-1 ${pronosticos.cierreAnio.varIngresos >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                {formatPct(pronosticos.cierreAnio.varIngresos)} vs {new Date().getFullYear() - 1}
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-0 shadow-sm">
-            <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-muted-foreground mb-1">Egresos proyectados totales</p>
-              <p className="text-xl font-bold text-red-500">{formatCurrency(pronosticos.cierreAnio.egresos)}</p>
-            </CardContent>
-          </Card>
+          <Card className="border-0 shadow-sm"><CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground mb-1">Ingresos proyectados totales</p>
+            <p className="text-xl font-bold text-green-600">{formatCurrency(pronosticos.cierreAnio.ingresos)}</p>
+            <p className={`text-xs mt-1 ${pronosticos.cierreAnio.varIngresos >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+              {formatPct(pronosticos.cierreAnio.varIngresos)} vs {currentYear - 1}
+            </p>
+          </CardContent></Card>
+          <Card className="border-0 shadow-sm"><CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground mb-1">Egresos proyectados totales</p>
+            <p className="text-xl font-bold text-red-500">{formatCurrency(pronosticos.cierreAnio.egresos)}</p>
+          </CardContent></Card>
           <Card className={`border-0 shadow-sm col-span-2 ${pronosticos.cierreAnio.neto >= 0 ? 'bg-green-50 dark:bg-green-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}>
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Resultado neto proyectado al cierre</p>
-                  <p className={`text-2xl font-bold ${pronosticos.cierreAnio.neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {formatCurrency(pronosticos.cierreAnio.neto)}
-                  </p>
-                  <p className={`text-xs mt-1 ${pronosticos.cierreAnio.varNeto >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {formatPct(pronosticos.cierreAnio.varNeto)} vs {new Date().getFullYear() - 1}
-                  </p>
+                  <p className={`text-2xl font-bold ${pronosticos.cierreAnio.neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(pronosticos.cierreAnio.neto)}</p>
+                  <p className={`text-xs mt-1 ${pronosticos.cierreAnio.varNeto >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatPct(pronosticos.cierreAnio.varNeto)} vs {currentYear - 1}</p>
                 </div>
                 {pronosticos.cierreAnio.renta > 0 && (
                   <div className="text-right">
@@ -362,26 +292,32 @@ export default function NicoPronosticos() {
           </Card>
         </div>
 
-        {/* Diciembre específico */}
-        <div className="rounded-lg border border-accent/30 bg-accent/5 p-4 mb-4">
-          <p className="text-xs font-semibold text-accent mb-2">📅 Diciembre proyectado</p>
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div>
-              <p className="text-xs text-muted-foreground">Ingresos</p>
-              <p className="text-base font-bold text-green-600">{formatCurrency(pronosticos.diciembre.ingresos)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Egresos</p>
-              <p className="text-base font-bold text-red-500">{formatCurrency(pronosticos.diciembre.egresos)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Neto</p>
-              <p className={`text-base font-bold ${pronosticos.diciembre.neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(pronosticos.diciembre.neto)}
-              </p>
+        {/* Impuestos proyectados al cierre */}
+        {(pronosticos.impuestosCierre.retefuente > 0 || pronosticos.impuestosCierre.reteica > 0 || pronosticos.impuestosCierre.gmf > 0) && (
+          <div className="rounded-lg border bg-muted/30 p-4 mb-4">
+            <p className="text-xs font-semibold text-foreground mb-3">Impuestos proyectados al 31 de diciembre</p>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {pronosticos.impuestosCierre.retefuente > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Retefuente</p>
+                  <p className="text-sm font-bold text-orange-500">{formatCurrency(pronosticos.impuestosCierre.retefuente)}</p>
+                </div>
+              )}
+              {pronosticos.impuestosCierre.reteica > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Reteica</p>
+                  <p className="text-sm font-bold text-orange-500">{formatCurrency(pronosticos.impuestosCierre.reteica)}</p>
+                </div>
+              )}
+              {pronosticos.impuestosCierre.gmf > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">4x1000 (GMF)</p>
+                  <p className="text-sm font-bold text-orange-500">{formatCurrency(pronosticos.impuestosCierre.gmf)}</p>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        )}
 
         {/* Tabla mes a mes */}
         <div className="rounded-lg border overflow-hidden">
@@ -396,16 +332,13 @@ export default function NicoPronosticos() {
             </thead>
             <tbody>
               {pronosticos.mesAMes.map((m, i) => (
-                <tr key={i} className={`border-t border-border ${!m.esReal ? 'opacity-70 italic' : ''}`}>
-                  <td className="px-3 py-2 font-medium flex items-center gap-1">
-                    {m.mes}
-                    {!m.esReal && <span className="text-[10px] text-muted-foreground">(proy.)</span>}
+                <tr key={i} className={`border-t border-border ${!m.esReal ? 'opacity-70' : ''}`}>
+                  <td className="px-3 py-2 font-medium">
+                    {m.mes} {!m.esReal && <span className="text-[10px] text-muted-foreground italic">(proy.)</span>}
                   </td>
                   <td className="text-right px-3 py-2 text-green-600">{formatCurrency(m.ingresos)}</td>
                   <td className="text-right px-3 py-2 text-red-500">{formatCurrency(m.egresos)}</td>
-                  <td className={`text-right px-3 py-2 font-medium ${m.neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {formatCurrency(m.neto)}
-                  </td>
+                  <td className={`text-right px-3 py-2 font-medium ${m.neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(m.neto)}</td>
                 </tr>
               ))}
             </tbody>
@@ -414,7 +347,7 @@ export default function NicoPronosticos() {
       </div>
 
       <p className="text-xs text-muted-foreground italic">
-        * Pronósticos basados en regresión lineal de datos históricos. Los meses marcados como (proy.) son estimaciones. No garantizan resultados futuros. Consultá con tu contador para decisiones importantes.
+        * Proyecciones basadas en promedio histórico ponderado con tendencia lineal. Meses marcados (proy.) son estimaciones. No garantizan resultados futuros.
       </p>
     </div>
   );
