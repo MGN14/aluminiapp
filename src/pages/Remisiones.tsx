@@ -47,6 +47,7 @@ export default function Remisiones() {
         .from('remisiones')
         .select(`
           id, date, number, beneficiary, notes, status, created_at,
+          total_manual,
           remision_items(id, reference, product_name, units, unit_cost, total_cost)
         `)
         .eq('user_id', user.id)
@@ -70,7 +71,10 @@ export default function Remisiones() {
 
   const totalRemisiones = remisiones.length;
   const totalUnidades = remisiones.reduce((s, r) => s + (r.remision_items?.reduce((si: number, i: any) => si + Number(i.units), 0) || 0), 0);
-  const totalValor = remisiones.reduce((s, r) => s + (r.remision_items?.reduce((si: number, i: any) => si + Number(i.total_cost || 0), 0) || 0), 0);
+  const totalValor = remisiones.reduce((s, r: any) => {
+    const itemsValor = r.remision_items?.reduce((si: number, i: any) => si + Number(i.total_cost || 0), 0) || 0;
+    return s + (r.total_manual ? Number(r.total_manual) : itemsValor);
+  }, 0);
 
   return (
     <AppLayout>
@@ -146,7 +150,8 @@ export default function Remisiones() {
                   {remisiones.map((r: any) => {
                     const items = r.remision_items || [];
                     const unidades = items.reduce((s: number, i: any) => s + Number(i.units), 0);
-                    const valor = items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
+                    const itemsValor = items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
+                    const valor = (r as any).total_manual ? Number((r as any).total_manual) : itemsValor;
                     const status = STATUS_LABELS[r.status] || STATUS_LABELS.pendiente;
                     return (
                       <TableRow key={r.id}>
