@@ -103,7 +103,7 @@ function DashboardBlock({ id, customization, children, index = 0 }: { id: Dashbo
 }
 
 // ── Main Component ─────────────────────────────────────────
-export default function Dashboard() {
+function DashboardContent() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
@@ -173,13 +173,28 @@ export default function Dashboard() {
 
   // Fetch cash movements for gerencial mode
   const fetchCashMovements = useCallback(async () => {
-    if (!isGerencial) { setCashMovements([]); return; }
+    if (!isGerencial) {
+      setCashMovements([]);
+      return;
+    }
+
     try {
-      const { data, error } = await supabase.from('cash_movements').select('type, amount, date');
+      const yearStart = `${periodSelection.year}-01-01`;
+      const yearEnd = `${periodSelection.year}-12-31`;
+      const { data, error } = await supabase
+        .from('cash_movements')
+        .select('type, amount, date')
+        .gte('date', yearStart)
+        .lte('date', yearEnd)
+        .order('date', { ascending: true });
+
       if (error) throw error;
       setCashMovements((data as { type: string; amount: number; date: string }[]) || []);
-    } catch (e) { console.error('Error fetching cash movements:', e); setCashMovements([]); }
-  }, [isGerencial]);
+    } catch (e) {
+      console.error('Error fetching cash movements:', e);
+      setCashMovements([]);
+    }
+  }, [isGerencial, periodSelection.year]);
 
   useEffect(() => { fetchCashMovements(); }, [fetchCashMovements]);
 
@@ -547,29 +562,26 @@ export default function Dashboard() {
   // ── Loading state ──
   if (loading || !periodInitialized) {
     return (
-      <AppLayout>
-        <div className="max-w-7xl mx-auto space-y-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div><Skeleton className="h-8 w-48 mb-2" /><Skeleton className="h-4 w-64" /></div>
-            <Skeleton className="h-10 w-48" />
-          </div>
-          <div className="grid gap-5 md:grid-cols-3">
-            {[1, 2, 3].map(i => (
-              <Card key={i} className="border-0 shadow-sm">
-                <CardContent className="p-6"><Skeleton className="h-4 w-20 mb-4" /><Skeleton className="h-10 w-40 mb-2" /><Skeleton className="h-3 w-24" /></CardContent>
-              </Card>
-            ))}
-          </div>
+      <div className="max-w-7xl mx-auto space-y-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div><Skeleton className="h-8 w-48 mb-2" /><Skeleton className="h-4 w-64" /></div>
+          <Skeleton className="h-10 w-48" />
         </div>
-      </AppLayout>
+        <div className="grid gap-5 md:grid-cols-3">
+          {[1, 2, 3].map(i => (
+            <Card key={i} className="border-0 shadow-sm">
+              <CardContent className="p-6"><Skeleton className="h-4 w-20 mb-4" /><Skeleton className="h-10 w-40 mb-2" /><Skeleton className="h-3 w-24" /></CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
     );
   }
 
   const orderedModules = customization.modules.sort((a, b) => a.order - b.order);
 
   return (
-    <AppLayout>
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="max-w-7xl mx-auto space-y-8">
         {/* ─── Header ─── */}
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between animate-fade-in">
           <div className="flex items-center gap-3.5">
@@ -629,7 +641,14 @@ export default function Dashboard() {
             ))}
           </div>
         )}
-      </div>
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <AppLayout>
+      <DashboardContent />
     </AppLayout>
   );
 }
