@@ -58,7 +58,7 @@ const documentItems: NavItem[] = [
 ];
 
 const documentItemsGerencial: NavItem[] = [
-  { title: 'Movimientos en efectivo', url: '/cash-movements', icon: Banknote, gerencial: true },
+  { title: 'Movimientos en efectivo', url: '/coming-soon?mod=movimientos-efectivo', icon: Banknote, comingSoon: true, gerencial: true },
 ];
 
 const movementItems: NavItem[] = [
@@ -78,9 +78,7 @@ const reportItems: NavItem[] = [
   { title: 'Visita DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 
-const reportItemsGerencial: NavItem[] = [
-  { title: 'PYG Real', url: '/coming-soon?mod=pyg-real', icon: TrendingUp, comingSoon: true, gerencial: true },
-];
+const reportItemsGerencial: NavItem[] = [];
 
 const exportItems: NavItem[] = [
   { title: 'Exportar movimientos', url: '/export', icon: Download },
