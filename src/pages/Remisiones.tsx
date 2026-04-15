@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -89,6 +89,11 @@ export default function Remisiones() {
   const [scoreDetail, setScoreDetail] = useState<{ label: string; detail: string; color: string } | null>(null);
 
   const moduleOrigin = isGerencial ? 'gerencial' : 'dian';
+
+  // Forzar re-fetch cuando cambia el módulo
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ['remisiones', user?.id] });
+  }, [moduleOrigin, user?.id]);
 
   const { data: remisiones = [], isLoading } = useQuery({
     queryKey: ['remisiones', user?.id, moduleOrigin],
