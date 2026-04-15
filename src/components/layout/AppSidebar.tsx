@@ -67,9 +67,7 @@ const movementItems: NavItem[] = [
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList },
 ];
 
-const movementItemsGerencial: NavItem[] = [
-  { title: 'Inventario real', url: '/coming-soon?mod=inventario-real', icon: PackageSearch, comingSoon: true, gerencial: true },
-];
+const movementItemsGerencial: NavItem[] = [];
 
 const reportItems: NavItem[] = [
   { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3 },
