@@ -88,9 +88,7 @@ export default function Remisiones() {
   const [moverId, setMoverId] = useState<string | null>(null);
   const [scoreDetail, setScoreDetail] = useState<{ label: string; detail: string; color: string } | null>(null);
 
-  // Leer módulo directamente del localStorage como fuente de verdad
-  const savedMode = localStorage.getItem('aluminia_module_mode');
-  const effectiveGerencial = isGerencial || mode === 'gerencial' || savedMode === 'gerencial';
+  const effectiveGerencial = mode === 'gerencial';
   const moduleOrigin = effectiveGerencial ? 'gerencial' : 'dian';
 
   // Re-fetch cuando cambia el módulo
@@ -190,7 +188,7 @@ export default function Remisiones() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">
-              Módulo: {moduleOrigin} | localStorage: {localStorage.getItem('aluminia_module_mode') || 'null'}
+              Módulo activo: {mode}
             </span>
             <Button onClick={() => setNewOpen(true)} className="gap-2">
               <Plus className="h-4 w-4" />Nueva Remisión
