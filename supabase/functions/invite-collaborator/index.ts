@@ -5,13 +5,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function generateTempPassword(length = 12): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-  return Array.from(array, (b) => chars[b % chars.length]).join("");
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -28,14 +21,6 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
-
-    if (!resendApiKey) {
-      return new Response(JSON.stringify({ error: "RESEND_API_KEY not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     // Verify caller
     const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
@@ -67,7 +52,7 @@ Deno.serve(async (req) => {
       .eq("owner_user_id", caller.id);
     if (countError) throw countError;
     if ((count ?? 0) >= 2) {
-      return new Response(JSON.stringify({ error: "Maximum of 2 collaborators (3 total users) reached" }), {
+      return new Response(JSON.stringify({ error: "Máximo de 2 colaboradores alcanzado." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -87,33 +72,29 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Generate temporary password
-    const tempPassword = generateTempPassword();
+    const origin = req.headers.get("origin") || "https://aluminiapp.lovable.app";
 
-    // Create user in Supabase Auth with temp password
-    let userId: string | null = null;
-    const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
-      email: normalizedEmail,
-      password: tempPassword,
-      email_confirm: true,
-      user_metadata: {
-        full_name: name.trim(),
-        invited_by: caller.id,
-        collaborator_role: role,
-      },
-    });
+    // Check if user already exists in auth
+    const { data: { users: allUsers } } = await adminClient.auth.admin.listUsers();
+    const existingUser = allUsers?.find(u => u.email === normalizedEmail);
 
-    if (createError) {
-      if (createError.message?.includes("already been registered") || createError.message?.includes("already exists")) {
-        // User already exists — look them up
-        const { data: { users } } = await adminClient.auth.admin.listUsers();
-        const existing = users?.find(u => u.email === normalizedEmail);
-        userId = existing?.id ?? null;
-      } else {
-        throw createError;
-      }
-    } else {
-      userId = newUser?.user?.id ?? null;
+    let userId: string | null = existingUser?.id ?? null;
+
+    if (!existingUser) {
+      // New user: send magic link invite via Supabase (no Resend needed)
+      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
+        normalizedEmail,
+        {
+          redirectTo: `${origin}/login`,
+          data: {
+            full_name: name.trim(),
+            invited_by: caller.id,
+            collaborator_role: role,
+          },
+        }
+      );
+      if (inviteError) throw inviteError;
+      userId = inviteData?.user?.id ?? null;
     }
 
     // Insert collaborator record
@@ -125,8 +106,8 @@ Deno.serve(async (req) => {
         collaborator_user_id: userId,
         name: name.trim(),
         role,
-        status: userId ? "active" : "pending",
-        accepted_at: userId ? new Date().toISOString() : null,
+        status: existingUser ? "active" : "pending",
+        accepted_at: existingUser ? new Date().toISOString() : null,
       })
       .select()
       .single();
@@ -143,60 +124,44 @@ Deno.serve(async (req) => {
       .insert(permRows);
     if (permError) throw permError;
 
-    // Determine login URL
-    const origin = req.headers.get("origin") || "https://aluminiapp.lovable.app";
-    const loginUrl = `${origin}/login`;
-
-    // Send invite email via Resend
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h1 style="color: #1a1a2e; font-size: 24px;">Te invitaron a AluminIA</h1>
-        <p style="color: #444; font-size: 16px; line-height: 1.6;">
-          Hola <strong>${name.trim()}</strong>,
-        </p>
-        <p style="color: #444; font-size: 16px; line-height: 1.6;">
-          Has sido invitado como <strong>${role}</strong> a AluminIA.
-        </p>
-        <div style="background: #f4f4f8; border-radius: 8px; padding: 16px; margin: 24px 0;">
-          <p style="margin: 0 0 8px; color: #666; font-size: 14px;">Tu contraseña temporal:</p>
-          <p style="margin: 0; font-size: 20px; font-weight: bold; color: #1a1a2e; letter-spacing: 1px;">${tempPassword}</p>
-        </div>
-        <p style="color: #444; font-size: 14px; line-height: 1.6;">
-          Inicia sesión con tu correo electrónico y la contraseña temporal. Te recomendamos cambiarla después de iniciar sesión.
-        </p>
-        <a href="${loginUrl}" style="display: inline-block; background: #6366f1; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-size: 16px; margin-top: 16px;">
-          Iniciar sesión
-        </a>
-        <p style="color: #999; font-size: 12px; margin-top: 32px;">
-          Si no esperabas esta invitación, puedes ignorar este correo.
-        </p>
-      </div>
-    `;
-
-    const resendRes = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${resendApiKey}`,
-      },
-      body: JSON.stringify({
-        from: "onboarding@resend.dev",
-        to: [normalizedEmail],
-        subject: "Te invitaron a AluminIA",
-        html: emailHtml,
-      }),
-    });
-
-    if (!resendRes.ok) {
-      const resendError = await resendRes.text();
-      console.error("Resend API error:", resendError);
-      // Don't fail the whole flow — collaborator record is created
+    // If user already exists, send a notification email via Resend (optional)
+    const resendApiKey = Deno.env.get("RESEND_API_KEY");
+    if (existingUser && resendApiKey) {
+      const loginUrl = `${origin}/login`;
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${resendApiKey}`,
+        },
+        body: JSON.stringify({
+          from: "onboarding@resend.dev",
+          to: [normalizedEmail],
+          subject: "Te agregaron a AluminIA",
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h1 style="color: #1a1a2e;">Acceso a AluminIA</h1>
+              <p>Hola <strong>${name.trim()}</strong>,</p>
+              <p>Te han dado acceso como <strong>${role}</strong> en AluminIA.</p>
+              <p>Ya podés iniciar sesión con tu cuenta existente:</p>
+              <a href="${loginUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:16px;margin-top:16px;">
+                Iniciar sesión
+              </a>
+            </div>
+          `,
+        }),
+      }).catch(() => {}); // Silent fail — user already has access
     }
 
-    return new Response(JSON.stringify({ success: true, collaborator_id: collab.id }), {
+    return new Response(JSON.stringify({
+      success: true,
+      collaborator_id: collab.id,
+      method: existingUser ? "existing_user" : "invite_link_sent"
+    }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (err) {
     console.error("Error in invite-collaborator:", err);
     return new Response(JSON.stringify({ error: (err as Error).message }), {
