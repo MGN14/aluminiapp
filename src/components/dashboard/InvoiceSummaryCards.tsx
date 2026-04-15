@@ -183,6 +183,14 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
           .order('issue_date', { ascending: false });
       }
 
+      // Previous month invoices query
+      const prevMonthQuery = supabase
+        .from('invoices')
+        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
+        .eq('status', 'confirmed')
+        .gte('issue_date', prevMonthStart)
+        .lte('issue_date', prevMonthEnd);
+
       const [
         periodResult,
         yearResult,
@@ -191,6 +199,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         dianResult,
         retefuenteManualPeriodResult,
         retefuenteManualYearResult,
+        prevMonthResult,
       ] = await Promise.all([
         periodQuery,
         yearQuery,
@@ -199,6 +208,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         dianPaymentsQuery,
         retefuenteManualPeriodQuery,
         retefuenteManualYearQuery,
+        prevMonthQuery,
       ]);
 
       if (!periodResult.error && periodResult.data) setInvoices(periodResult.data);
@@ -217,6 +227,12 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         setCuatrimestreInvoices(cuatrimestreResult.data);
       } else {
         setCuatrimestreInvoices([]);
+      }
+
+      if (!prevMonthResult.error && prevMonthResult.data) {
+        setPrevMonthInvoices(prevMonthResult.data);
+      } else {
+        setPrevMonthInvoices([]);
       }
 
       if (!retefuenteManualPeriodResult.error && retefuenteManualPeriodResult.data) {
