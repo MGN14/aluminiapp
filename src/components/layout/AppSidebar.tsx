@@ -58,7 +58,7 @@ const documentItems: NavItem[] = [
 ];
 
 const documentItemsGerencial: NavItem[] = [
-  { title: 'Movimientos en efectivo', url: '/coming-soon?mod=movimientos-efectivo', icon: Banknote, comingSoon: true, gerencial: true },
+  { title: 'Movimientos en efectivo', url: '/cash-movements', icon: Banknote, gerencial: true },
 ];
 
 const movementItems: NavItem[] = [
