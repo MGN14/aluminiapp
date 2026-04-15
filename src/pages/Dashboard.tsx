@@ -245,14 +245,25 @@ export default function Dashboard() {
   }, [transactions, periodSelection.year]);
 
   const metrics = useMemo((): Metrics => {
-    if (transactions.length === 0) return { saldoActual: 0, totalIngresos: 0, totalEgresos: 0, pendingReconcile: 0, transactionCount: 0, cuatrimestreLabel: cuatrimestre.label, periodLabel: periodRange.label };
+    if (transactions.length === 0 && cashMovements.length === 0) return { saldoActual: 0, totalIngresos: 0, totalEgresos: 0, pendingReconcile: 0, transactionCount: 0, cuatrimestreLabel: cuatrimestre.label, periodLabel: periodRange.label };
     const sortedByDate = [...periodTransactions].sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime());
     const saldoActual = sortedByDate[0]?.balance ?? 0;
-    const totalIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((s, tx) => s + (tx.amount ?? 0), 0);
-    const totalEgresos = Math.abs(periodTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((s, tx) => s + (tx.amount ?? 0), 0));
+    let totalIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((s, tx) => s + (tx.amount ?? 0), 0);
+    let totalEgresos = Math.abs(periodTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((s, tx) => s + (tx.amount ?? 0), 0));
+
+    // In gerencial mode, add cash movements for the period
+    if (isGerencial && cashMovements.length > 0) {
+      const periodCash = cashMovements.filter(cm => {
+        const d = parseLocalDate(cm.date);
+        return d >= periodRange.start && d <= periodRange.end;
+      });
+      totalIngresos += periodCash.filter(cm => cm.type === 'ingreso').reduce((s, cm) => s + cm.amount, 0);
+      totalEgresos += periodCash.filter(cm => cm.type === 'egreso').reduce((s, cm) => s + cm.amount, 0);
+    }
+
     const pendingReconcile = periodTransactions.filter(tx => !tx.responsible_id).length;
     return { saldoActual, totalIngresos, totalEgresos, pendingReconcile, transactionCount: periodTransactions.length, cuatrimestreLabel: `Q${periodSelection.quarter} ${periodSelection.year}`, periodLabel: periodRange.label };
-  }, [transactions, periodTransactions, cuatrimestre, periodRange, periodSelection]);
+  }, [transactions, periodTransactions, cuatrimestre, periodRange, periodSelection, isGerencial, cashMovements]);
 
   const handleInvoiceMetrics = useCallback((m: InvoiceFiscalMetrics) => setInvoiceMetrics(m), []);
 
