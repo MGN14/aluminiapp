@@ -19,8 +19,8 @@ import { BilledByMonthChart } from '@/components/dashboard/BilledByMonthChart';
 import { BilledByClientMonthChart } from '@/components/dashboard/BilledByClientMonthChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import InsightsMiniCards from '@/components/dashboard/InsightsMiniCards';
-import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
-import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
+import { ReteicaMonthlyCard } from '@/components/dashboard/ReteicaCards';
+import { RetefuenteMonthlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
 import { useOperationalData, CxCCard, AnticiposCard, TopBuyersCard } from '@/components/dashboard/OperationalSummaryCards';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
@@ -469,12 +469,10 @@ function DashboardContent() {
               <Link to="/transactions" className="text-xs hover:underline mt-1 inline-block text-primary">Ver transacciones →</Link>
             </CardContent>
           </Card>
-          {/* Retefuente */}
-          <RetefuenteMonthlyCard total={invoiceMetrics?.retefuenteMonth ?? 0} periodLabel={periodRange.label} transactionCount={invoiceMetrics?.retefuenteMonthCount ?? 0} />
-          <RetefuenteYearlyCard total={invoiceMetrics?.retefuenteYear ?? 0} year={periodSelection.year} transactionCount={invoiceMetrics?.retefuenteYearCount ?? 0} />
-          {/* RETEICA */}
-          {(invoiceMetrics?.reteicaMonth ?? 0) > 0 && <ReteicaMonthlyCard total={invoiceMetrics?.reteicaMonth ?? 0} periodLabel={periodRange.label} transactionCount={invoiceMetrics?.reteicaMonthCount ?? 0} city={reteicaConfig.reteica_city || undefined} rate={reteicaConfig.reteica_rate} />}
-          {(invoiceMetrics?.reteicaYear ?? 0) > 0 && <ReteicaYearlyCard total={invoiceMetrics?.reteicaYear ?? 0} year={periodSelection.year} transactionCount={invoiceMetrics?.reteicaYearCount ?? 0} />}
+          {/* Retefuente - siempre mes anterior */}
+          <RetefuenteMonthlyCard total={invoiceMetrics?.retefuenteNextPayment ?? 0} periodLabel={`Pago correspondiente a ${invoiceMetrics?.nextPaymentMonthLabel ?? ''}`} transactionCount={0} />
+          {/* RETEICA - siempre mes anterior, solo si > 0 */}
+          {(invoiceMetrics?.reteicaNextPayment ?? 0) > 0 && <ReteicaMonthlyCard total={invoiceMetrics?.reteicaNextPayment ?? 0} periodLabel={`Pago correspondiente a ${invoiceMetrics?.nextPaymentMonthLabel ?? ''}`} transactionCount={0} />}
           {/* GMF */}
           <GMFAccumulatedCard total={gmfMetrics.total} year={gmfMetrics.year} transactionCount={gmfMetrics.transactionCount} />
           {/* CxC & Anticipos */}

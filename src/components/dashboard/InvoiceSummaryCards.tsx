@@ -74,6 +74,10 @@ export interface InvoiceFiscalMetrics {
   retefuenteYear: number;
   retefuenteMonthCount: number;
   retefuenteYearCount: number;
+  // Next payment (previous calendar month)
+  retefuenteNextPayment: number;
+  reteicaNextPayment: number;
+  nextPaymentMonthLabel: string;
   // Facturación
   totalFacturadoVentas: number;
   totalBaseVentas: number;
@@ -99,6 +103,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [allYearInvoices, setAllYearInvoices] = useState<InvoiceRow[]>([]);
   const [cuatrimestreInvoices, setCuatrimestreInvoices] = useState<InvoiceRow[]>([]);
+  const [prevMonthInvoices, setPrevMonthInvoices] = useState<InvoiceRow[]>([]);
   const [retefuenteManualPeriodTransactions, setRetefuenteManualPeriodTransactions] = useState<ManualTaxTransaction[]>([]);
   const [retefuenteManualYearTransactions, setRetefuenteManualYearTransactions] = useState<ManualTaxTransaction[]>([]);
   const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
@@ -112,6 +117,14 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       const endStr = periodEnd.toISOString().split('T')[0];
       const yearStartStr = `${year}-01-01`;
       const yearEndStr = `${year}-12-31`;
+
+      // Previous calendar month (always relative to today, not the filter)
+      const now = new Date();
+      const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth(); // 1-12
+      const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+      const prevMonthStart = `${prevMonthYear}-${String(prevMonth).padStart(2, '0')}-01`;
+      const prevMonthEndDate = new Date(prevMonthYear, prevMonth, 0);
+      const prevMonthEnd = `${prevMonthYear}-${String(prevMonth).padStart(2, '0')}-${String(prevMonthEndDate.getDate()).padStart(2, '0')}`;
 
       // Fetch all queries in parallel
       const periodQuery = supabase
@@ -170,6 +183,14 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
           .order('issue_date', { ascending: false });
       }
 
+      // Previous month invoices query
+      const prevMonthQuery = supabase
+        .from('invoices')
+        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
+        .eq('status', 'confirmed')
+        .gte('issue_date', prevMonthStart)
+        .lte('issue_date', prevMonthEnd);
+
       const [
         periodResult,
         yearResult,
@@ -178,6 +199,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         dianResult,
         retefuenteManualPeriodResult,
         retefuenteManualYearResult,
+        prevMonthResult,
       ] = await Promise.all([
         periodQuery,
         yearQuery,
@@ -186,6 +208,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         dianPaymentsQuery,
         retefuenteManualPeriodQuery,
         retefuenteManualYearQuery,
+        prevMonthQuery,
       ]);
 
       if (!periodResult.error && periodResult.data) setInvoices(periodResult.data);
@@ -204,6 +227,12 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         setCuatrimestreInvoices(cuatrimestreResult.data);
       } else {
         setCuatrimestreInvoices([]);
+      }
+
+      if (!prevMonthResult.error && prevMonthResult.data) {
+        setPrevMonthInvoices(prevMonthResult.data);
+      } else {
+        setPrevMonthInvoices([]);
       }
 
       if (!retefuenteManualPeriodResult.error && retefuenteManualPeriodResult.data) {
@@ -293,6 +322,20 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3) as [string, number][];
 
+    // Next payment: previous calendar month (independent of filter)
+    const prevMonthVentas = prevMonthInvoices.filter(i => i.type === 'venta');
+    const prevMonthCompras = prevMonthInvoices.filter(i => i.type === 'compra');
+    const retefuenteNextPayment =
+      prevMonthVentas.reduce((s, i) => s + (i.autoretefuente_amount ?? 0), 0) +
+      prevMonthCompras.reduce((s, i) => s + Math.round(i.subtotal_base * retefuenteCompraRate), 0);
+    const reteicaNextPayment = prevMonthVentas.reduce((s, i) => s + (i.reteica_amount ?? 0), 0);
+
+    const nowDate = new Date();
+    const pm = nowDate.getMonth() === 0 ? 12 : nowDate.getMonth();
+    const pmYear = nowDate.getMonth() === 0 ? nowDate.getFullYear() - 1 : nowDate.getFullYear();
+    const MONTH_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const nextPaymentMonthLabel = `${MONTH_FULL[pm - 1]} ${pmYear}`;
+
     return {
       ivaGenerado, ivaDescontable, ivaNeto,
       ivaGeneradoYtd, ivaDescontableYtd, ivaNetoYtd,
@@ -305,11 +348,12 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       retefuenteYear: autoretefuenteYear + retefuenteCompraYear + retefuenteManualYear,
       retefuenteMonthCount: autoretefuenteMonthCount + retefuenteCompraMonthCount + retefuenteManualMonthCount,
       retefuenteYearCount: autoretefuenteYearCount + retefuenteCompraYearCount + retefuenteManualYearCount,
+      retefuenteNextPayment, reteicaNextPayment, nextPaymentMonthLabel,
       totalFacturadoVentas, totalBaseVentas, totalFacturadoCompras,
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
     };
-  }, [invoices, allYearInvoices, cuatrimestreInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions]);
+  }, [invoices, allYearInvoices, cuatrimestreInvoices, prevMonthInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions]);
 
   // Top references from invoice items
   const topReferences = useMemo(() => {
