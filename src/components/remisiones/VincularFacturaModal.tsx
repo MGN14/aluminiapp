@@ -42,7 +42,7 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
         .from('invoices')
         .select('id, invoice_number, issue_date, total_amount, counterparty_name, display_name')
         .eq('user_id', user.id)
-        .eq('transaction_type', 'venta')
+        .eq('type', 'venta')
         .order('issue_date', { ascending: false });
       return data || [];
     },
