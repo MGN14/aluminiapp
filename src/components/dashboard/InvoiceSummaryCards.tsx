@@ -103,6 +103,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [allYearInvoices, setAllYearInvoices] = useState<InvoiceRow[]>([]);
   const [cuatrimestreInvoices, setCuatrimestreInvoices] = useState<InvoiceRow[]>([]);
+  const [prevMonthInvoices, setPrevMonthInvoices] = useState<InvoiceRow[]>([]);
   const [retefuenteManualPeriodTransactions, setRetefuenteManualPeriodTransactions] = useState<ManualTaxTransaction[]>([]);
   const [retefuenteManualYearTransactions, setRetefuenteManualYearTransactions] = useState<ManualTaxTransaction[]>([]);
   const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
