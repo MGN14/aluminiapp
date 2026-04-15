@@ -277,10 +277,10 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
               ].map(({ label, value, set }) => (
                 <div key={label} className="space-y-1">
                   <Label className="text-xs">{label}</Label>
-                  <Select value={value} onValueChange={set}>
+                  <Select value={value || '__none__'} onValueChange={(v) => set(v === '__none__' ? '' : v)}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— No usar —</SelectItem>
+                      <SelectItem value="__none__">— No usar —</SelectItem>
                       {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
                     </SelectContent>
                   </Select>
