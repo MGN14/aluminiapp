@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
+import CalendarioTributario from '@/components/dian/CalendarioTributario';
 import { Card, CardContent } from '@/components/ui/card';
 import { TrendingUp, AlertTriangle, Info } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -402,6 +403,14 @@ export default function FinancialHealth() {
             </CardContent>
           </Card>
         )}
+      {/* Calendario Tributario */}
+      <div>
+        <h2 className="text-lg font-bold text-foreground mb-4 flex items-center gap-2">
+          📅 Calendario Tributario 2026
+        </h2>
+        <CalendarioTributario />
+      </div>
+
       </div>
     </AppLayout>
   );
