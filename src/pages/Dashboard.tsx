@@ -5,6 +5,7 @@ import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, Wallet, Receipt, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles, Package } from 'lucide-react';
 import { useNico } from '@/hooks/useNicoContext';
+import { useModuleContext } from '@/hooks/useModuleContext';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
