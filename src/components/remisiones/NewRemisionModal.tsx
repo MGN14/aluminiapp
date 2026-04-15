@@ -280,7 +280,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                   <Select value={value} onValueChange={set}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— No usar —</SelectItem>
+                      <SelectItem value="__none__">— No usar —</SelectItem>
                       {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
                     </SelectContent>
                   </Select>
