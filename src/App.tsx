@@ -29,6 +29,7 @@ import InvoicesCompra from "./pages/InvoicesCompra";
 import FinancialHealth from "./pages/FinancialHealth";
 import Inventory from "./pages/Inventory";
 import Collaborators from "./pages/Collaborators";
+import CashMovements from "./pages/CashMovements";
 import ComingSoon from "./pages/ComingSoon";
 import NotFound from "./pages/NotFound";
 
@@ -132,6 +133,10 @@ const App = () => (
               <Route
                 path="/colaboradores"
                 element={<ProtectedRoute><Collaborators /></ProtectedRoute>}
+              />
+              <Route
+                path="/cash-movements"
+                element={<ProtectedRoute><CashMovements /></ProtectedRoute>}
               />
               <Route
                 path="/coming-soon"

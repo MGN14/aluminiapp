@@ -1,0 +1,305 @@
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import AppLayout from '@/components/layout/AppLayout';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { CalendarIcon, Trash2, TrendingUp, TrendingDown, Plus } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { useToast } from '@/hooks/use-toast';
+
+const CATEGORIES = [
+  'Ventas en efectivo',
+  'Compra de mercancía',
+  'Gastos operativos',
+  'Nómina',
+  'Servicios',
+  'Transporte',
+  'Otros',
+];
+
+interface CashMovement {
+  id: string;
+  date: string;
+  type: string;
+  amount: number;
+  description: string;
+  category: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
+}
+
+export default function CashMovements() {
+  const [movements, setMovements] = useState<CashMovement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  // Form state
+  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [type, setType] = useState<'ingreso' | 'egreso'>('ingreso');
+  const [amount, setAmount] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const fetchMovements = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('cash_movements')
+        .select('*')
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setMovements((data as CashMovement[]) || []);
+    } catch (e) {
+      console.error('Error fetching cash movements:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchMovements(); }, [fetchMovements]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!date || !amount || !description.trim()) {
+      toast({ title: 'Campos requeridos', description: 'Completa fecha, monto y descripción.', variant: 'destructive' });
+      return;
+    }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      toast({ title: 'Monto inválido', description: 'El monto debe ser mayor a 0.', variant: 'destructive' });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No autenticado');
+
+      const { error } = await supabase.from('cash_movements').insert({
+        user_id: user.id,
+        date: format(date, 'yyyy-MM-dd'),
+        type,
+        amount: numAmount,
+        description: description.trim(),
+        category: category || null,
+        notes: notes.trim() || null,
+      });
+      if (error) throw error;
+
+      toast({ title: 'Movimiento registrado' });
+      setAmount('');
+      setDescription('');
+      setCategory('');
+      setNotes('');
+      fetchMovements();
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const { error } = await supabase.from('cash_movements').delete().eq('id', id);
+      if (error) throw error;
+      setMovements(prev => prev.filter(m => m.id !== id));
+      toast({ title: 'Movimiento eliminado' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const totals = useMemo(() => {
+    const ingresos = movements.filter(m => m.type === 'ingreso').reduce((s, m) => s + m.amount, 0);
+    const egresos = movements.filter(m => m.type === 'egreso').reduce((s, m) => s + m.amount, 0);
+    return { ingresos, egresos, neto: ingresos - egresos };
+  }, [movements]);
+
+  return (
+    <AppLayout>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Movimientos en Efectivo</h1>
+          <p className="text-muted-foreground text-sm mt-1">Registra ingresos y egresos de caja que no pasan por el banco.</p>
+        </div>
+
+        {/* Totals */}
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center"><TrendingUp className="h-5 w-5 text-success" /></div>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Ingresos</p>
+                <p className="text-xl font-bold text-success">{formatCurrency(totals.ingresos)}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-destructive/10 flex items-center justify-center"><TrendingDown className="h-5 w-5 text-destructive" /></div>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Egresos</p>
+                <p className="text-xl font-bold text-destructive">{formatCurrency(totals.egresos)}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${totals.neto >= 0 ? 'bg-success/10' : 'bg-destructive/10'}`}>
+                {totals.neto >= 0 ? <TrendingUp className="h-5 w-5 text-success" /> : <TrendingDown className="h-5 w-5 text-destructive" />}
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Neto</p>
+                <p className={`text-xl font-bold ${totals.neto >= 0 ? 'text-success' : 'text-destructive'}`}>{formatCurrency(totals.neto)}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Form */}
+        <Card className="border-0 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Registrar movimiento</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* Fecha */}
+              <div className="space-y-1.5">
+                <Label>Fecha</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !date && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {date ? format(date, 'PPP', { locale: es }) : 'Seleccionar'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={date} onSelect={setDate} initialFocus className="p-3 pointer-events-auto" />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Tipo */}
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <div className="flex gap-2">
+                  <Button type="button" variant={type === 'ingreso' ? 'default' : 'outline'} className={cn("flex-1", type === 'ingreso' && 'bg-success hover:bg-success/90 text-success-foreground')} onClick={() => setType('ingreso')}>
+                    Ingreso
+                  </Button>
+                  <Button type="button" variant={type === 'egreso' ? 'default' : 'outline'} className={cn("flex-1", type === 'egreso' && 'bg-destructive hover:bg-destructive/90 text-destructive-foreground')} onClick={() => setType('egreso')}>
+                    Egreso
+                  </Button>
+                </div>
+              </div>
+
+              {/* Monto */}
+              <div className="space-y-1.5">
+                <Label>Monto</Label>
+                <Input type="number" min="0" step="1" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
+              </div>
+
+              {/* Descripción */}
+              <div className="space-y-1.5">
+                <Label>Descripción</Label>
+                <Input placeholder="Ej: Pago proveedor materiales" value={description} onChange={e => setDescription(e.target.value)} />
+              </div>
+
+              {/* Categoría */}
+              <div className="space-y-1.5">
+                <Label>Categoría</Label>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Notas */}
+              <div className="space-y-1.5">
+                <Label>Notas (opcional)</Label>
+                <Textarea placeholder="Notas adicionales..." value={notes} onChange={e => setNotes(e.target.value)} rows={1} />
+              </div>
+
+              <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
+                <Button type="submit" disabled={saving} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  {saving ? 'Guardando...' : 'Registrar movimiento'}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Table */}
+        <Card className="border-0 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Movimientos registrados</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <p className="text-sm text-muted-foreground">Cargando...</p>
+            ) : movements.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No hay movimientos registrados aún.</p>
+            ) : (
+              <div className="overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Monto</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Categoría</TableHead>
+                      <TableHead>Notas</TableHead>
+                      <TableHead className="w-10"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {movements.map(m => (
+                      <TableRow key={m.id}>
+                        <TableCell className="whitespace-nowrap">{format(new Date(m.date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</TableCell>
+                        <TableCell>
+                          <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", m.type === 'ingreso' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive')}>
+                            {m.type === 'ingreso' ? 'Ingreso' : 'Egreso'}
+                          </span>
+                        </TableCell>
+                        <TableCell className={cn("font-medium", m.type === 'ingreso' ? 'text-success' : 'text-destructive')}>
+                          {formatCurrency(m.amount)}
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate">{m.description}</TableCell>
+                        <TableCell className="text-muted-foreground text-sm">{m.category || '—'}</TableCell>
+                        <TableCell className="text-muted-foreground text-sm max-w-[150px] truncate">{m.notes || '—'}</TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(m.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </AppLayout>
+  );
+}
