@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Pencil, Trash2, Lock, Search, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Lock, Search, Upload, Download } from 'lucide-react';
 
 const UNIDADES = ['und', 'm', 'm²', 'm³', 'kg', 'lb', 'ton', 'l', 'ml', 'caja', 'par', 'rollo', 'paquete', 'juego', 'kit', 'otro'];
 
@@ -35,6 +35,58 @@ export default function MaestroProductos() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canEdit = isAdmin || isFounder;
+
+  // Fetch inventory products para la plantilla
+  const { data: inventoryProducts = [] } = useQuery({
+    queryKey: ['inventory-for-template', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data } = await supabase
+        .from('inventory_products')
+        .select('reference, name, unit')
+        .eq('user_id', user.id)
+        .eq('active', true)
+        .order('reference');
+      return data || [];
+    },
+    enabled: !!user?.id,
+  });
+
+  const downloadTemplate = async () => {
+    // Buscar qué referencias ya están en el maestro
+    const maestroRefs = new Set(productos.map(p => p.ref_siigo));
+
+    // Combinar: refs del maestro existente + refs del inventario que aún no están
+    const rows: string[][] = [
+      ['Ref_Siigo', 'Descripcion', 'Ref_Local', 'Ref_Proveedor_A', 'Ref_Proveedor_B', 'Ref_Proveedor_C', 'Unidad'],
+    ];
+
+    // Primero las del inventario que no están en el maestro
+    inventoryProducts.forEach((p: any) => {
+      if (!maestroRefs.has(p.reference)) {
+        rows.push([p.reference, p.name, '', '', '', '', p.unit || 'und']);
+      }
+    });
+
+    // Luego las que ya están en el maestro (para actualizar)
+    productos.forEach(p => {
+      rows.push([
+        p.ref_siigo, p.description,
+        p.ref_local || '', p.ref_proveedor_a || '',
+        p.ref_proveedor_b || '', p.ref_proveedor_c || '',
+        p.unit,
+      ]);
+    });
+
+    const tsv = rows.map(r => r.join('\t')).join('\n');
+    const blob = new Blob(['\uFEFF' + tsv], { type: 'text/tab-separated-values;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Maestro_Productos_AluminIA.xls';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -162,7 +214,11 @@ export default function MaestroProductos() {
           <Input placeholder="Buscar por referencia o descripción..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
         {canEdit && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
+              <Download className="h-4 w-4" />
+              Descargar plantilla
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setImportOpen(true)} className="gap-2">
               <Upload className="h-4 w-4" />
               Importar
