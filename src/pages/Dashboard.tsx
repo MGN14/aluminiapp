@@ -427,8 +427,10 @@ function DashboardContent() {
           </Card>
           {/* Impuesto de Renta Estimado */}
           {(() => {
-            const neto = metrics.totalIngresos - metrics.totalEgresos;
-            const rentaEstimada = neto > 0 ? neto * 0.35 : 0;
+            const dianIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((s, tx) => s + (tx.amount ?? 0), 0);
+            const dianEgresos = Math.abs(periodTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((s, tx) => s + (tx.amount ?? 0), 0));
+            const dianNeto = dianIngresos - dianEgresos;
+            const rentaEstimada = dianNeto > 0 ? dianNeto * 0.35 : 0;
             return (
               <Card className="border-0 shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
