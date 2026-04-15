@@ -33,13 +33,13 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange }: 
   const { data: remision, isLoading } = useQuery({
     queryKey: ['remision-detail', remisionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('remisiones')
+      const { data, error } = await (supabase
+        .from('remisiones') as any)
         .select(`id, date, number, beneficiary, notes, status, remision_items(id, reference, product_name, units, unit_cost, total_cost)`)
         .eq('id', remisionId)
         .single();
       if (error) throw error;
-      return data;
+      return data as any;
     },
     enabled: !!remisionId,
   });
