@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useModuleContext } from '@/hooks/useModuleContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -159,6 +160,7 @@ interface PYGRow {
 
 export default function PYGReport() {
   const { user } = useAuth();
+  const { isGerencial } = useModuleContext();
   const [year, setYear] = useState(currentYear);
   const [compare, setCompare] = useState(false);
 
@@ -167,6 +169,22 @@ export default function PYGReport() {
     compare ? user?.id : undefined,
     year - 1
   );
+
+  // Fetch cash movements only in Módulo Gerencial
+  const { data: cashMovements } = useQuery({
+    queryKey: ['cash-movements-pyg', user?.id, year, isGerencial],
+    queryFn: async () => {
+      if (!user?.id || !isGerencial) return [];
+      const { data } = await supabase
+        .from('cash_movements')
+        .select('date, type, amount')
+        .eq('user_id', user.id)
+        .gte('date', `${year}-01-01`)
+        .lte('date', `${year}-12-31`);
+      return data || [];
+    },
+    enabled: !!user?.id && isGerencial,
+  });
 
   const rows = useMemo(() => {
     if (!currentData) return [];
@@ -179,8 +197,21 @@ export default function PYGReport() {
     const sumArr = (arr: MonthlyArr) => arr.reduce((a, b) => a + b, 0);
     const subArr = (a: MonthlyArr, b: MonthlyArr) => a.map((v, i) => v - b[i]);
 
-    const cIngresos = cur.groups.ingresos;
-    const cCostos = cur.groups.costos_operacionales;
+    // Add cash movements to ingresos and costos_operacionales in Módulo Gerencial
+    const cIngresos = [...cur.groups.ingresos];
+    const cCostos = [...cur.groups.costos_operacionales];
+
+    if (isGerencial && cashMovements && cashMovements.length > 0) {
+      for (const cm of cashMovements) {
+        const m = parseLocalDate(cm.date).getMonth();
+        const amount = Number(cm.amount) || 0;
+        if (cm.type === 'ingreso') {
+          cIngresos[m] += amount;
+        } else if (cm.type === 'egreso') {
+          cCostos[m] += amount;
+        }
+      }
+    }
     const cUtilidadBruta = subArr(cIngresos, cCostos);
     const cGastos = cur.groups.gastos_operativos;
     const cEbitda = subArr(cUtilidadBruta, cGastos);
@@ -254,7 +285,7 @@ export default function PYGReport() {
     ];
 
     return result;
-  }, [currentData, previousData]);
+  }, [currentData, previousData, cashMovements, isGerencial]);
 
   const isLoading = loadingCurrent || (compare && loadingPrevious);
 
