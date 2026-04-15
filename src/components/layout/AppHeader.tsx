@@ -129,7 +129,7 @@ export default function AppHeader() {
       {/* Module Toggle */}
       <div className="hidden md:flex items-center bg-muted/60 rounded-lg p-0.5 shrink-0">
         <button
-          onClick={() => setMode('dian')}
+          onClick={() => { localStorage.setItem('aluminia_module_mode', 'dian'); setMode('dian'); }}
           className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
             mode === 'dian'
               ? 'bg-background text-foreground shadow-sm'
@@ -139,7 +139,7 @@ export default function AppHeader() {
           Módulo DIAN
         </button>
         <button
-          onClick={() => setMode('gerencial')}
+          onClick={() => { localStorage.setItem('aluminia_module_mode', 'gerencial'); setMode('gerencial'); }}
           className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
             mode === 'gerencial'
               ? 'bg-accent/15 text-accent shadow-sm'
