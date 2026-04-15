@@ -31,6 +31,6 @@ export function ModuleProvider({ children }: { children: ReactNode }) {
 
 export function useModuleContext() {
   const ctx = useContext(ModuleContext);
-  if (!ctx) throw new Error('useModuleContext must be used within ModuleProvider');
+  if (!ctx) return { mode: 'dian' as ModuleMode, setMode: () => {}, isDian: true, isGerencial: false };
   return ctx;
 }
