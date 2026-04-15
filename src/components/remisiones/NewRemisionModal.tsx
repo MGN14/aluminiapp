@@ -50,6 +50,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
   const [nameCol, setNameCol] = useState('');
   const [unitsCol, setUnitsCol] = useState('');
   const [costCol, setCostCol] = useState('');
+  const [totalRemision, setTotalRemision] = useState('');
   const [saving, setSaving] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
@@ -67,6 +68,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
     setNameCol('');
     setUnitsCol('');
     setCostCol('');
+    setTotalRemision('');
     setSaving(false);
   };
 
@@ -84,24 +86,45 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as string[][];
-        if (rows.length < 2) {
+        const allRows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as string[][];
+        if (allRows.length < 2) {
           toast({ title: 'Archivo vacío', description: 'El archivo no tiene datos suficientes.', variant: 'destructive' });
           return;
         }
-        const hdrs = rows[0].map((cell, index) => {
-          const label = String(cell ?? '').trim();
-          return label || `Columna ${index + 1}`;
+
+        // Detectar fila de headers real: primera fila con 3+ celdas no vacías
+        let headerRowIdx = 0;
+        for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+          const nonEmpty = allRows[i].filter(c => String(c).trim() !== '').length;
+          if (nonEmpty >= 3) { headerRowIdx = i; break; }
+        }
+
+        // Filtrar columnas vacías: solo columnas donde al menos 30% de filas tiene datos
+        const rawHdrs = allRows[headerRowIdx].map(String);
+        const allDataRows = allRows.slice(headerRowIdx + 1).filter(r => r.some(c => String(c).trim() !== ''));
+        const totalDataRows = allDataRows.length || 1;
+
+        const colIndices: number[] = [];
+        const hdrs: string[] = [];
+        rawHdrs.forEach((h, idx) => {
+          const filled = allDataRows.filter(r => String(r[idx] || '').trim() !== '').length;
+          const hasHeader = h.trim() !== '';
+          if (hasHeader || filled / totalDataRows >= 0.3) {
+            colIndices.push(idx);
+            hdrs.push(h.trim() || `Col ${idx + 1}`);
+          }
         });
-        const dataRows = rows.slice(1).filter(r => r.some(c => String(c).trim() !== ''));
+
+        const dataRows = allDataRows.map(r => colIndices.map(i => String(r[i] || '')));
         setHeaders(hdrs);
-        setRawRows(dataRows.map(r => r.map(String)));
+        setRawRows(dataRows);
+
         // Auto-detect columns
         const lower = hdrs.map(h => h.toLowerCase());
         setRefCol(hdrs[lower.findIndex(h => h.includes('ref') || h.includes('cod'))] || hdrs[0] || '');
-        setNameCol(hdrs[lower.findIndex(h => h.includes('nombre') || h.includes('product') || h.includes('descrip'))] || hdrs[1] || '');
-        setUnitsCol(hdrs[lower.findIndex(h => h.includes('uni') || h.includes('cant') || h.includes('qty'))] || hdrs[2] || '');
-        setCostCol(hdrs[lower.findIndex(h => h.includes('costo') || h.includes('precio') || h.includes('valor') || h.includes('price'))] || '');
+        setNameCol(hdrs[lower.findIndex(h => h.includes('descrip') || h.includes('nombre') || h.includes('product'))] || hdrs[1] || '');
+        setUnitsCol(hdrs[lower.findIndex(h => h.includes('und') || h.includes('uni') || h.includes('cant') || h.includes('qty'))] || '');
+        setCostCol(hdrs[lower.findIndex(h => h.includes('precio') || h.includes('costo') || h.includes('valor') || h.includes('price'))] || '');
         setStep('excel');
       } catch {
         toast({ title: 'Error al leer el archivo', variant: 'destructive' });
@@ -167,7 +190,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
 
       const { data: remision, error: remError } = await supabase
         .from('remisiones')
-        .insert({ user_id: user.id, date, number, beneficiary, notes, status })
+        .insert({ user_id: user.id, date, number, beneficiary, notes, status, total_manual: totalRemision ? parseFloat(totalRemision) : null })
         .select('id')
         .single();
 
@@ -231,6 +254,10 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
               />
             </div>
             <div className="col-span-2 space-y-2">
+              <Label>Total de la remisión <span className="text-xs text-muted-foreground">(opcional)</span></Label>
+              <Input type="number" placeholder="Ej: 5000000" value={totalRemision} onChange={e => setTotalRemision(e.target.value)} />
+            </div>
+            <div className="space-y-2">
               <Label>Notas <span className="text-xs text-muted-foreground">(opcional)</span></Label>
               <Textarea placeholder="Observaciones adicionales..." value={notes} onChange={e => setNotes(e.target.value)} rows={2} />
             </div>
