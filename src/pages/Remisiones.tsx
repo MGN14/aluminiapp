@@ -8,12 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Package, Eye, Trash2, Pencil, ArrowRightLeft, AlertTriangle, CheckCircle, AlertCircle, XCircle } from 'lucide-react';
+import { Plus, Package, Eye, Trash2, Pencil, ArrowRightLeft, AlertTriangle, CheckCircle, AlertCircle, XCircle, Link } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import NewRemisionModal from '@/components/remisiones/NewRemisionModal';
 import RemisionDetailModal from '@/components/remisiones/RemisionDetailModal';
+import VincularFacturaModal from '@/components/remisiones/VincularFacturaModal';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -87,6 +88,7 @@ export default function Remisiones() {
   const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
   const [moverId, setMoverId] = useState<string | null>(null);
   const [scoreDetail, setScoreDetail] = useState<{ label: string; detail: string; color: string } | null>(null);
+  const [vincularRemision, setVincularRemision] = useState<{ id: string; number: string } | null>(null);
 
   const effectiveGerencial = mode === 'gerencial';
   const moduleOrigin = effectiveGerencial ? 'gerencial' : 'dian';
@@ -295,6 +297,11 @@ export default function Remisiones() {
                                 <ArrowRightLeft className="h-4 w-4 text-blue-500" />
                               </Button>
                             )}
+                            {!effectiveGerencial && (
+                              <Button variant="ghost" size="icon" onClick={() => setVincularRemision({ id: r.id, number: r.number })} title="Vincular a factura">
+                                <Link className="h-4 w-4 text-blue-500" />
+                              </Button>
+                            )}
                             <Button variant="ghost" size="icon" onClick={() => handleDelete(r.id, r.number)} title="Eliminar">
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -351,6 +358,15 @@ export default function Remisiones() {
           remisionId={detailId}
           open={!!detailId}
           onOpenChange={(o) => { if (!o) setDetailId(null); }}
+        />
+      )}
+
+      {vincularRemision && (
+        <VincularFacturaModal
+          remisionId={vincularRemision.id}
+          remisionNumber={vincularRemision.number}
+          open={!!vincularRemision}
+          onOpenChange={(o) => { if (!o) setVincularRemision(null); }}
         />
       )}
     </AppLayout>
