@@ -322,6 +322,20 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3) as [string, number][];
 
+    // Next payment: previous calendar month (independent of filter)
+    const prevMonthVentas = prevMonthInvoices.filter(i => i.type === 'venta');
+    const prevMonthCompras = prevMonthInvoices.filter(i => i.type === 'compra');
+    const retefuenteNextPayment =
+      prevMonthVentas.reduce((s, i) => s + (i.autoretefuente_amount ?? 0), 0) +
+      prevMonthCompras.reduce((s, i) => s + Math.round(i.subtotal_base * retefuenteCompraRate), 0);
+    const reteicaNextPayment = prevMonthVentas.reduce((s, i) => s + (i.reteica_amount ?? 0), 0);
+
+    const nowDate = new Date();
+    const pm = nowDate.getMonth() === 0 ? 12 : nowDate.getMonth();
+    const pmYear = nowDate.getMonth() === 0 ? nowDate.getFullYear() - 1 : nowDate.getFullYear();
+    const MONTH_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const nextPaymentMonthLabel = `${MONTH_FULL[pm - 1]} ${pmYear}`;
+
     return {
       ivaGenerado, ivaDescontable, ivaNeto,
       ivaGeneradoYtd, ivaDescontableYtd, ivaNetoYtd,
@@ -334,6 +348,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       retefuenteYear: autoretefuenteYear + retefuenteCompraYear + retefuenteManualYear,
       retefuenteMonthCount: autoretefuenteMonthCount + retefuenteCompraMonthCount + retefuenteManualMonthCount,
       retefuenteYearCount: autoretefuenteYearCount + retefuenteCompraYearCount + retefuenteManualYearCount,
+      retefuenteNextPayment, reteicaNextPayment, nextPaymentMonthLabel,
       totalFacturadoVentas, totalBaseVentas, totalFacturadoCompras,
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
