@@ -53,8 +53,8 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
   const { data: linked = [] } = useQuery({
     queryKey: ['remision-invoices', remisionId],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('remision_invoices')
+      const { data } = await (supabase
+        .from('remision_invoices') as any)
         .select('invoice_id')
         .eq('remision_id', remisionId);
       return (data || []).map((r: any) => r.invoice_id);
@@ -76,14 +76,14 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
     setSaving(true);
     if (linked.includes(invoiceId)) {
       // Desvincular
-      await supabase.from('remision_invoices')
+      await (supabase.from('remision_invoices') as any)
         .delete()
         .eq('remision_id', remisionId)
         .eq('invoice_id', invoiceId);
       toast({ title: 'Factura desvinculada' });
     } else {
       // Vincular
-      await supabase.from('remision_invoices')
+      await (supabase.from('remision_invoices') as any)
         .insert({ remision_id: remisionId, invoice_id: invoiceId, user_id: user.id });
       toast({ title: 'Factura vinculada correctamente' });
     }

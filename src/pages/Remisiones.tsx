@@ -109,8 +109,8 @@ export default function Remisiones() {
     queryKey: ['remisiones', user?.id, moduleOrigin],
     queryFn: async () => {
       if (!user?.id) return [];
-      const { data, error } = await supabase
-        .from('remisiones')
+      const { data, error } = await (supabase
+        .from('remisiones') as any)
         .select(`id, date, number, beneficiary, notes, status, created_at, total_manual, module_origin,
           remision_items(id, reference, product_name, units, unit_cost, total_cost),
           remision_invoices(invoice_id, invoices(id, invoice_number, total_amount, invoice_items(quantity, reference, item_code, line_total)))`)
@@ -118,7 +118,7 @@ export default function Remisiones() {
         .eq('module_origin', moduleOrigin)
         .order('date', { ascending: false });
       if (error) throw error;
-      return data || [];
+      return (data || []) as any[];
     },
     enabled: !!user?.id,
   });
@@ -148,7 +148,7 @@ export default function Remisiones() {
 
   const handleMoverDIAN = async () => {
     if (!moverId) return;
-    const { error } = await supabase.from('remisiones').update({ module_origin: 'dian' }).eq('id', moverId);
+    const { error } = await (supabase.from('remisiones') as any).update({ module_origin: 'dian' }).eq('id', moverId);
     if (error) {
       toast({ title: 'No se pudo mover', variant: 'destructive' });
     } else {
