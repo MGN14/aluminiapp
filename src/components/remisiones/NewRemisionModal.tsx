@@ -89,7 +89,10 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
           toast({ title: 'Archivo vacío', description: 'El archivo no tiene datos suficientes.', variant: 'destructive' });
           return;
         }
-        const hdrs = rows[0].map(String);
+        const hdrs = rows[0].map((cell, index) => {
+          const label = String(cell ?? '').trim();
+          return label || `Columna ${index + 1}`;
+        });
         const dataRows = rows.slice(1).filter(r => r.some(c => String(c).trim() !== ''));
         setHeaders(hdrs);
         setRawRows(dataRows.map(r => r.map(String)));
