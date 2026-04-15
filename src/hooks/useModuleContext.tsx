@@ -12,7 +12,15 @@ interface ModuleContextValue {
 const ModuleContext = createContext<ModuleContextValue | undefined>(undefined);
 
 export function ModuleProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ModuleMode>('dian');
+  const [mode, setModeState] = useState<ModuleMode>(() => {
+    const saved = localStorage.getItem('aluminia_module_mode');
+    return (saved === 'gerencial' ? 'gerencial' : 'dian') as ModuleMode;
+  });
+
+  const setMode = (newMode: ModuleMode) => {
+    localStorage.setItem('aluminia_module_mode', newMode);
+    setModeState(newMode);
+  };
 
   return (
     <ModuleContext.Provider value={{ mode, setMode, isDian: mode === 'dian', isGerencial: mode === 'gerencial' }}>
@@ -23,6 +31,6 @@ export function ModuleProvider({ children }: { children: ReactNode }) {
 
 export function useModuleContext() {
   const ctx = useContext(ModuleContext);
-  if (!ctx) return { mode: 'dian' as ModuleMode, setMode: () => {}, isDian: true, isGerencial: false };
+  if (!ctx) throw new Error('useModuleContext must be used within ModuleProvider');
   return ctx;
 }
