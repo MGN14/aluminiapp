@@ -473,7 +473,10 @@ function DashboardContent() {
           <RetefuenteMonthlyCard total={invoiceMetrics?.retefuenteNextPayment ?? 0} periodLabel={`Pago correspondiente a ${invoiceMetrics?.nextPaymentMonthLabel ?? ''}`} transactionCount={0} />
           {/* RETEICA - siempre mes anterior, solo si > 0 */}
           {(invoiceMetrics?.reteicaNextPayment ?? 0) > 0 && <ReteicaMonthlyCard total={invoiceMetrics?.reteicaNextPayment ?? 0} periodLabel={`Pago correspondiente a ${invoiceMetrics?.nextPaymentMonthLabel ?? ''}`} transactionCount={0} />}
-          {/* GMF */}
+          {/* Retefuente Acumulada */}
+          <RetefuenteYearlyCard total={invoiceMetrics?.retefuenteYear ?? 0} year={periodSelection.year} transactionCount={invoiceMetrics?.retefuenteYearCount ?? 0} />
+          {/* Reteica Acumulada */}
+          {(invoiceMetrics?.reteicaYear ?? 0) > 0 && <ReteicaYearlyCard total={invoiceMetrics?.reteicaYear ?? 0} year={periodSelection.year} transactionCount={invoiceMetrics?.reteicaYearCount ?? 0} />}
           <GMFAccumulatedCard total={gmfMetrics.total} year={gmfMetrics.year} transactionCount={gmfMetrics.transactionCount} />
           {/* CxC & Anticipos */}
           {!operationalData.loading && (
