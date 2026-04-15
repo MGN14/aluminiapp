@@ -956,6 +956,45 @@ export type Database = {
         }
         Relationships: []
       }
+      remision_invoices: {
+        Row: {
+          created_at: string | null
+          id: string
+          invoice_id: string
+          remision_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          invoice_id: string
+          remision_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          invoice_id?: string
+          remision_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "remision_invoices_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "remision_invoices_remision_id_fkey"
+            columns: ["remision_id"]
+            isOneToOne: false
+            referencedRelation: "remisiones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       remision_items: {
         Row: {
           created_at: string
@@ -1003,9 +1042,11 @@ export type Database = {
           created_at: string
           date: string
           id: string
+          module_origin: string
           notes: string | null
           number: string
           status: string
+          total_manual: number | null
           updated_at: string
           user_id: string
         }
@@ -1014,9 +1055,11 @@ export type Database = {
           created_at?: string
           date?: string
           id?: string
+          module_origin?: string
           notes?: string | null
           number?: string
           status?: string
+          total_manual?: number | null
           updated_at?: string
           user_id: string
         }
@@ -1025,9 +1068,11 @@ export type Database = {
           created_at?: string
           date?: string
           id?: string
+          module_origin?: string
           notes?: string | null
           number?: string
           status?: string
+          total_manual?: number | null
           updated_at?: string
           user_id?: string
         }
