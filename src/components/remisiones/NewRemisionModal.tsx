@@ -185,8 +185,12 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
 
     setSaving(true);
     try {
-      // Generate remision number
-      const number = `REM-${Date.now().toString().slice(-6)}`;
+      // Generate consecutive remision number
+      const { count } = await supabase
+        .from('remisiones')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+      const number = `REM-${(count || 0) + 1}`;
 
       const { data: remision, error: remError } = await supabase
         .from('remisiones')

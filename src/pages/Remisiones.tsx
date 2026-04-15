@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Package, Eye, Trash2 } from 'lucide-react';
+import { Plus, Package, Eye, Trash2, Pencil } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import NewRemisionModal from '@/components/remisiones/NewRemisionModal';
 import RemisionDetailModal from '@/components/remisiones/RemisionDetailModal';
@@ -38,6 +39,7 @@ export default function Remisiones() {
   const queryClient = useQueryClient();
   const [newOpen, setNewOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
 
   const { data: remisiones = [], isLoading } = useQuery({
     queryKey: ['remisiones', user?.id],
@@ -58,15 +60,26 @@ export default function Remisiones() {
     enabled: !!user?.id,
   });
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar esta remisión?')) return;
+  const handleDelete = async (id: string, number: string) => {
+    if (!confirm(`¿Querés eliminar la ${number}? Esta acción no se puede deshacer.`)) return;
     const { error } = await supabase.from('remisiones').delete().eq('id', id);
     if (error) {
-      toast({ title: 'Error al eliminar', variant: 'destructive' });
+      toast({ title: 'No se pudo eliminar', description: 'Intentá de nuevo en un momento.', variant: 'destructive' });
     } else {
-      toast({ title: 'Remisión eliminada' });
+      toast({ title: `${number} eliminada correctamente` });
       queryClient.invalidateQueries({ queryKey: ['remisiones'] });
     }
+  };
+
+  const handleStatusChange = async (id: string, newStatus: string) => {
+    const { error } = await supabase.from('remisiones').update({ status: newStatus }).eq('id', id);
+    if (error) {
+      toast({ title: 'No se pudo actualizar el estado', variant: 'destructive' });
+    } else {
+      toast({ title: `Estado actualizado a ${STATUS_LABELS[newStatus]?.label}` });
+      queryClient.invalidateQueries({ queryKey: ['remisiones'] });
+    }
+    setEditingStatusId(null);
   };
 
   const totalRemisiones = remisiones.length;
@@ -162,14 +175,30 @@ export default function Remisiones() {
                         <TableCell className="text-right">{unidades.toLocaleString('es-CO')}</TableCell>
                         <TableCell className="text-right">{formatCurrency(valor)}</TableCell>
                         <TableCell>
-                          <Badge variant={status.variant}>{status.label}</Badge>
+                          {editingStatusId === r.id ? (
+                            <Select defaultValue={r.status} onValueChange={(v) => handleStatusChange(r.id, v)}>
+                              <SelectTrigger className="h-7 text-xs w-36">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pendiente">Pendiente</SelectItem>
+                                <SelectItem value="despachado">Despachado</SelectItem>
+                                <SelectItem value="cancelado">Cancelado</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant={status.variant}>{status.label}</Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => setDetailId(r.id)}>
+                            <Button variant="ghost" size="icon" onClick={() => setDetailId(r.id)} title="Ver detalle">
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDelete(r.id)}>
+                            <Button variant="ghost" size="icon" onClick={() => setEditingStatusId(editingStatusId === r.id ? null : r.id)} title="Cambiar estado">
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDelete(r.id, r.number)} title="Eliminar">
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
