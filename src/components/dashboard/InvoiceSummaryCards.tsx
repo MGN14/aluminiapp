@@ -115,14 +115,16 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const fetchData = async () => {
       const startStr = periodStart.toISOString().split('T')[0];
       const endStr = periodEnd.toISOString().split('T')[0];
+      const yearStartStr = `${year}-01-01`;
+      const yearEndStr = `${year}-12-31`;
+
       // Previous calendar month (always relative to today, not the filter)
       const now = new Date();
       const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth(); // 1-12
       const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
       const prevMonthStart = `${prevMonthYear}-${String(prevMonth).padStart(2, '0')}-01`;
-      const prevMonthEndDate = new Date(prevMonthYear, prevMonth, 0); // last day
+      const prevMonthEndDate = new Date(prevMonthYear, prevMonth, 0);
       const prevMonthEnd = `${prevMonthYear}-${String(prevMonth).padStart(2, '0')}-${String(prevMonthEndDate.getDate()).padStart(2, '0')}`;
-      const yearEndStr = `${year}-12-31`;
 
       // Fetch all queries in parallel
       const periodQuery = supabase
