@@ -87,7 +87,7 @@ const exportItems: NavItem[] = [
 ];
 
 const logisticaItemsGerencial: NavItem[] = [
-  { title: 'Remisiones', url: '/coming-soon?mod=remisiones', icon: ClipboardList, comingSoon: true, gerencial: true },
+  { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, gerencial: true },
 ];
 
 function isItemActive(itemUrl: string, currentPath: string, currentSearch: string) {

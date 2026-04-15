@@ -29,8 +29,8 @@ import InvoicesCompra from "./pages/InvoicesCompra";
 import FinancialHealth from "./pages/FinancialHealth";
 import Inventory from "./pages/Inventory";
 import Collaborators from "./pages/Collaborators";
-import CashMovements from "./pages/CashMovements";
 import ComingSoon from "./pages/ComingSoon";
+import Remisiones from "./pages/Remisiones";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -135,12 +135,12 @@ const App = () => (
                 element={<ProtectedRoute><Collaborators /></ProtectedRoute>}
               />
               <Route
-                path="/cash-movements"
-                element={<ProtectedRoute><CashMovements /></ProtectedRoute>}
-              />
-              <Route
                 path="/coming-soon"
                 element={<ProtectedRoute><ComingSoon /></ProtectedRoute>}
+              />
+              <Route
+                path="/remisiones"
+                element={<ProtectedRoute><Remisiones /></ProtectedRoute>}
               />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
