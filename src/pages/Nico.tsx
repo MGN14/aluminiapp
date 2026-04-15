@@ -1,19 +1,21 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import NicoChat from '@/components/nico/NicoChat';
 import NicoPronosticos from '@/components/nico/NicoPronosticos';
+import NicoPatrones from '@/components/nico/NicoPatrones';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Lock, Loader2, MessageSquare, TrendingUp } from 'lucide-react';
+import { Lock, Loader2, MessageSquare, TrendingUp, Layers } from 'lucide-react';
 
-type Tab = 'chat' | 'pronosticos';
+type Tab = 'chat' | 'pronosticos' | 'patrones';
 
 export default function NicoPage() {
   const { plan, loading: subLoading, isAdmin, isFounder, isTrialing } = useSubscription();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('chat');
+  const [preguntaPreload, setPreguntaPreload] = useState<string>('');
 
   const hasAccess = isAdmin || isFounder || isTrialing || ['basico', 'pro', 'empresarial', 'admin'].includes(plan);
 
@@ -83,18 +85,36 @@ export default function NicoPage() {
             <TrendingUp className="h-4 w-4" />
             Pronósticos
           </button>
+          <button
+            onClick={() => setTab('patrones')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              tab === 'patrones' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            Patrones
+          </button>
         </div>
 
         {/* Contenido */}
         {tab === 'chat' && (
           <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
-            <NicoChat />
+            <NicoChat initialMessage={preguntaPreload} onMessageSent={() => setPreguntaPreload('')} />
           </div>
         )}
 
         {tab === 'pronosticos' && (
           <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
             <NicoPronosticos />
+          </div>
+        )}
+
+        {tab === 'patrones' && (
+          <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
+            <NicoPatrones onPreguntarNico={(pregunta) => {
+              setPreguntaPreload(pregunta);
+              setTab('chat');
+            }} />
           </div>
         )}
       </div>
