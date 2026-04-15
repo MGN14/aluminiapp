@@ -32,6 +32,7 @@ import Inventory from "./pages/Inventory";
 import Collaborators from "./pages/Collaborators";
 import ComingSoon from "./pages/ComingSoon";
 import Remisiones from "./pages/Remisiones";
+import CashMovements from "./pages/CashMovements";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -135,6 +136,10 @@ const App = () => (
               <Route
                 path="/colaboradores"
                 element={<ProtectedRoute><Collaborators /></ProtectedRoute>}
+              />
+              <Route
+                path="/cash-movements"
+                element={<ProtectedRoute><CashMovements /></ProtectedRoute>}
               />
               <Route
                 path="/coming-soon"
