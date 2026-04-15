@@ -173,13 +173,28 @@ function DashboardContent() {
 
   // Fetch cash movements for gerencial mode
   const fetchCashMovements = useCallback(async () => {
-    if (!isGerencial) { setCashMovements([]); return; }
+    if (!isGerencial) {
+      setCashMovements([]);
+      return;
+    }
+
     try {
-      const { data, error } = await supabase.from('cash_movements').select('type, amount, date');
+      const yearStart = `${periodSelection.year}-01-01`;
+      const yearEnd = `${periodSelection.year}-12-31`;
+      const { data, error } = await supabase
+        .from('cash_movements')
+        .select('type, amount, date')
+        .gte('date', yearStart)
+        .lte('date', yearEnd)
+        .order('date', { ascending: true });
+
       if (error) throw error;
       setCashMovements((data as { type: string; amount: number; date: string }[]) || []);
-    } catch (e) { console.error('Error fetching cash movements:', e); setCashMovements([]); }
-  }, [isGerencial]);
+    } catch (e) {
+      console.error('Error fetching cash movements:', e);
+      setCashMovements([]);
+    }
+  }, [isGerencial, periodSelection.year]);
 
   useEffect(() => { fetchCashMovements(); }, [fetchCashMovements]);
 
