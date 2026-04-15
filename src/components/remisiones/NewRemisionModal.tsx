@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useModuleContext } from '@/hooks/useModuleContext';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,7 @@ function formatCurrency(value: number) {
 
 export default function NewRemisionModal({ open, onOpenChange, onComplete }: Props) {
   const { user } = useAuth();
+  const { isGerencial } = useModuleContext();
   const { toast } = useToast();
 
   const [step, setStep] = useState<'form' | 'excel' | 'preview'>('form');
@@ -194,7 +196,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
 
       const { data: remision, error: remError } = await supabase
         .from('remisiones')
-        .insert({ user_id: user.id, date, number, beneficiary, notes, status, total_manual: totalRemision ? parseFloat(totalRemision) : null })
+        .insert({ user_id: user.id, date, number, beneficiary, notes, status, total_manual: totalRemision ? parseFloat(totalRemision) : null, module_origin: isGerencial ? 'gerencial' : 'dian' })
         .select('id')
         .single();
 
