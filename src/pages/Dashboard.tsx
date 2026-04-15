@@ -171,6 +171,18 @@ export default function Dashboard() {
 
   useEffect(() => { fetchSalesInvoices(); }, [fetchSalesInvoices]);
 
+  // Fetch cash movements for gerencial mode
+  const fetchCashMovements = useCallback(async () => {
+    if (!isGerencial) { setCashMovements([]); return; }
+    try {
+      const { data, error } = await supabase.from('cash_movements').select('type, amount, date');
+      if (error) throw error;
+      setCashMovements((data as { type: string; amount: number; date: string }[]) || []);
+    } catch (e) { console.error('Error fetching cash movements:', e); setCashMovements([]); }
+  }, [isGerencial]);
+
+  useEffect(() => { fetchCashMovements(); }, [fetchCashMovements]);
+
   useEffect(() => { fetchTransactions(); fetchCategories(); fetchResponsibles(); fetchReteicaConfig(); initializePeriodFromData(); }, []);
 
   const initializePeriodFromData = async () => {
