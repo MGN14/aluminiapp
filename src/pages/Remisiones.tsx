@@ -29,50 +29,57 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secon
   cancelado: { label: 'Cancelado', variant: 'destructive' },
 };
 
-function calcScore(remision: any, invoiceItems: any[]): { score: number; label: string; color: string; icon: any; detail: string } {
+function calcScore(remision: any): { score: number; label: string; color: string; icon: any; detail: string } {
   const remItems = remision.remision_items || [];
   const remTotal = remision.total_manual ? Number(remision.total_manual) : remItems.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
   const remUnits = remItems.reduce((s: number, i: any) => s + Number(i.units), 0);
   const remRefs = new Set(remItems.map((i: any) => String(i.reference).toLowerCase().trim()));
 
-  // Filtrar invoice_items del mismo año de la remisión
-  const remYear = remision.date?.slice(0, 4);
-  const relevantInv = invoiceItems.filter(i => i.issue_date?.slice(0, 4) === remYear);
+  // Usar SOLO las facturas vinculadas específicamente
+  const linkedInvoices = (remision.remision_invoices || []).map((ri: any) => ri.invoices).filter(Boolean);
 
-  // Score de valor (50%)
-  const invoicedTotal = relevantInv.reduce((s: number, i: any) => s + Number(i.line_total || 0), 0);
+  if (linkedInvoices.length === 0) {
+    return { score: 0, label: 'Sin factura vinculada', color: 'text-red-600', icon: XCircle, detail: 'No hay facturas vinculadas a esta remisión. Usá el botón de enlace para asociar las facturas correspondientes.' };
+  }
+
+  // Items de todas las facturas vinculadas
+  const allLinkedItems = linkedInvoices.flatMap((inv: any) => inv.invoice_items || []);
+
+  // Score de valor (50%) — suma total de facturas vinculadas vs total remisión
+  const invoicedTotal = linkedInvoices.reduce((s: number, inv: any) => s + Number(inv.total_amount || 0), 0);
   const valueRatio = remTotal > 0 ? Math.min(invoicedTotal / remTotal, 1) : 0;
   const valueScore = valueRatio * 50;
 
-  // Score de unidades (50%)
-  const invoicedUnits = relevantInv.reduce((s: number, i: any) => s + Number(i.quantity || 0), 0);
+  // Score de unidades (50%) — unidades en items de facturas vinculadas
+  const invoicedUnits = allLinkedItems.reduce((s: number, i: any) => s + Number(i.quantity || 0), 0);
   const unitsRatio = remUnits > 0 ? Math.min(invoicedUnits / remUnits, 1) : 0;
   const unitsScore = unitsRatio * 50;
 
   const score = Math.round(valueScore + unitsScore);
 
-  // Detectar caso especial: valor ok pero referencias no coinciden
-  const invRefs = new Set(relevantInv.map((i: any) => String(i.reference || i.item_code || '').toLowerCase().trim()).filter(Boolean));
+  // Detectar: valor ok pero referencias no coinciden
+  const invRefs = new Set(allLinkedItems.map((i: any) => String(i.reference || i.item_code || '').toLowerCase().trim()).filter(Boolean));
   const refMatch = remRefs.size > 0 ? [...remRefs].filter(r => invRefs.has(r)).length / remRefs.size : 0;
-  const valueOkRefsNot = valueRatio >= 0.8 && refMatch < 0.5;
+  const valueOkRefsNot = valueRatio >= 0.8 && refMatch < 0.5 && allLinkedItems.length > 0;
 
   let label: string, color: string, icon: any, detail: string;
+  const facturas = linkedInvoices.length;
 
   if (valueOkRefsNot) {
     label = 'Valor cubierto, refs. distintas'; color = 'text-yellow-600'; icon = AlertTriangle;
-    detail = `El valor total está cubierto (${Math.round(valueRatio * 100)}%) pero las referencias no coinciden. Puede ser válido si facturaste productos equivalentes — documentá la justificación ante una revisión DIAN.`;
+    detail = `${facturas} factura(s) vinculada(s). El valor está cubierto (${Math.round(valueRatio * 100)}%) pero las referencias no coinciden con la remisión. Puede ser válido — documentá la justificación ante una revisión DIAN.`;
   } else if (score >= 80) {
     label = 'Bien respaldada'; color = 'text-green-600'; icon = CheckCircle;
-    detail = `Remisión bien respaldada fiscalmente. Valor cubierto: ${Math.round(valueRatio * 100)}%, unidades: ${Math.round(unitsRatio * 100)}%.`;
+    detail = `${facturas} factura(s) vinculada(s). Valor cubierto: ${Math.round(valueRatio * 100)}%, unidades: ${Math.round(unitsRatio * 100)}%. Remisión bien respaldada fiscalmente.`;
   } else if (score >= 50) {
     label = 'Respaldo parcial'; color = 'text-yellow-600'; icon = AlertCircle;
-    detail = `Respaldo parcial. Valor cubierto: ${Math.round(valueRatio * 100)}%, unidades: ${Math.round(unitsRatio * 100)}%. Revisá si hay facturas complementarias pendientes.`;
+    detail = `${facturas} factura(s) vinculada(s). Valor cubierto: ${Math.round(valueRatio * 100)}%, unidades: ${Math.round(unitsRatio * 100)}%. Revisá si hay facturas complementarias pendientes.`;
   } else if (score >= 20) {
     label = 'Alerta fiscal'; color = 'text-orange-600'; icon = AlertTriangle;
-    detail = `Alerta fiscal — esta remisión tiene poco respaldo en facturas. Valor cubierto: ${Math.round(valueRatio * 100)}%, unidades: ${Math.round(unitsRatio * 100)}%.`;
+    detail = `${facturas} factura(s) vinculada(s). Valor cubierto: ${Math.round(valueRatio * 100)}%, unidades: ${Math.round(unitsRatio * 100)}%. Esta remisión tiene poco respaldo fiscal.`;
   } else {
-    label = 'Sin factura'; color = 'text-red-600'; icon = XCircle;
-    detail = `Remisión sin factura asociada — riesgo alto ante la DIAN. No se encontraron facturas que respalden este despacho.`;
+    label = 'Cobertura insuficiente'; color = 'text-red-600'; icon = XCircle;
+    detail = `${facturas} factura(s) vinculada(s) pero la cobertura es muy baja. Valor cubierto: ${Math.round(valueRatio * 100)}%. Vinculá más facturas o verificá los montos.`;
   }
 
   return { score, label, color, icon, detail };
@@ -105,7 +112,8 @@ export default function Remisiones() {
       const { data, error } = await supabase
         .from('remisiones')
         .select(`id, date, number, beneficiary, notes, status, created_at, total_manual, module_origin,
-          remision_items(id, reference, product_name, units, unit_cost, total_cost)`)
+          remision_items(id, reference, product_name, units, unit_cost, total_cost),
+          remision_invoices(invoice_id, invoices(id, invoice_number, total_amount, invoice_items(quantity, reference, item_code, line_total)))`)
         .eq('user_id', user.id)
         .eq('module_origin', moduleOrigin)
         .order('date', { ascending: false });
@@ -115,25 +123,6 @@ export default function Remisiones() {
     enabled: !!user?.id,
   });
 
-  // En módulo DIAN, traer invoice_items para el score
-  const { data: invoiceItems = [] } = useQuery({
-    queryKey: ['invoice-items-score', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return [];
-      const { data } = await supabase
-        .from('invoice_items')
-        .select('reference, item_code, quantity, line_total, invoices!inner(issue_date, user_id)')
-        .eq('user_id', user.id);
-      return (data || []).map((i: any) => ({
-        reference: i.reference,
-        item_code: i.item_code,
-        quantity: i.quantity,
-        line_total: i.line_total,
-        issue_date: i.invoices?.issue_date,
-      }));
-    },
-    enabled: !!user?.id && !effectiveGerencial,
-  });
 
   const handleDelete = async (id: string, number: string) => {
     if (!confirm(`¿Querés eliminar la ${number}? Esta acción no se puede deshacer.`)) return;
@@ -248,7 +237,7 @@ export default function Remisiones() {
                     const itemsValor = items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
                     const valor = r.total_manual ? Number(r.total_manual) : itemsValor;
                     const status = STATUS_LABELS[r.status] || STATUS_LABELS.pendiente;
-                    const score = !effectiveGerencial ? calcScore(r, invoiceItems) : null;
+                    const score = !effectiveGerencial ? calcScore(r) : null;
                     const ScoreIcon = score?.icon;
 
                     return (
