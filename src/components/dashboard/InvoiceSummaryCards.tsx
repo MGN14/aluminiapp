@@ -353,7 +353,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
     };
-  }, [invoices, allYearInvoices, cuatrimestreInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions]);
+  }, [invoices, allYearInvoices, cuatrimestreInvoices, prevMonthInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions]);
 
   // Top references from invoice items
   const topReferences = useMemo(() => {
