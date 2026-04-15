@@ -188,9 +188,14 @@ export default function Remisiones() {
               {effectiveGerencial ? 'Despachos con seguimiento interno' : 'Despachos con seguimiento fiscal — cruzados contra facturas emitidas'}
             </p>
           </div>
-          <Button onClick={() => setNewOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" />Nueva Remisión
-          </Button>
+          <div className="flex items-center gap-3">
+            <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">
+              Módulo: {moduleOrigin} | localStorage: {localStorage.getItem('aluminia_module_mode') || 'null'}
+            </span>
+            <Button onClick={() => setNewOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" />Nueva Remisión
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
