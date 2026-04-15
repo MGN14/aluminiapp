@@ -64,6 +64,7 @@ const documentItemsGerencial: NavItem[] = [
 const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
   { title: 'Inventarios', url: '/inventarios', icon: Package },
+  { title: 'Remisiones', url: '/remisiones', icon: ClipboardList },
 ];
 
 const movementItemsGerencial: NavItem[] = [
@@ -86,9 +87,7 @@ const exportItems: NavItem[] = [
   { title: 'Informe para DIAN', url: '/export?tipo=dian', icon: Landmark },
 ];
 
-const logisticaItemsGerencial: NavItem[] = [
-  { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, gerencial: true },
-];
+const logisticaItemsGerencial: NavItem[] = [];
 
 function isItemActive(itemUrl: string, currentPath: string, currentSearch: string) {
   const [basePath, query] = itemUrl.split('?');

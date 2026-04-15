@@ -177,7 +177,7 @@ export default function Remisiones() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Remisiones</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              {isGerencial ? 'Despachos internos y operativos — no vinculados a facturación' : 'Despachos con seguimiento fiscal — cruzados contra facturas emitidas'}
+              {isGerencial ? 'Despachos con seguimiento interno' : 'Despachos con seguimiento fiscal — cruzados contra facturas emitidas'}
             </p>
           </div>
           <Button onClick={() => setNewOpen(true)} className="gap-2">
