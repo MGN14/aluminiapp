@@ -1,8 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { TrendingUp, TrendingDown, AlertTriangle, Info, Package, Users, Receipt, Repeat, BarChart2, ChevronRight, Zap } from 'lucide-react';
+import { AlertTriangle, Info, Package, Users, Receipt, Repeat, BarChart2, ChevronRight, Zap, Sparkles, CheckCircle2, Plus } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { useReconciliationRules } from '@/hooks/useReconciliationRules';
+import CrearReglaModal, { ReglaPatronSugerido } from './CrearReglaModal';
 
 interface Patron {
   id: string;
@@ -12,6 +16,11 @@ interface Patron {
   severidad: 'info' | 'warning' | 'alert';
   confianza: number;
   preguntaNico?: string;
+  automatable?: boolean;
+  suggestedKeyword?: string;
+  suggestedAmountMin?: number;
+  suggestedAmountMax?: number;
+  suggestedType?: 'ingreso' | 'egreso';
 }
 
 function formatCurrency(v: number) {
@@ -36,6 +45,8 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
   const { user } = useAuth();
   const currentYear = new Date().getFullYear();
   const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const { rules } = useReconciliationRules();
+  const [reglaModal, setReglaModal] = useState<{ open: boolean; patron?: ReglaPatronSugerido }>({ open: false });
 
   // Patrones guardados por Nico en DB
   const { data: nicoPatterns = [] } = useQuery({
@@ -113,14 +124,19 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         : p.pattern_type?.includes('inventory') ? 'inventario'
         : p.pattern_type?.includes('anomal') ? 'operativo'
         : 'financiero';
+      const confianza = Math.round(p.confidence * 100);
+      const isRecurring = p.pattern_type?.includes('recurring') || p.pattern_type?.includes('expense') || p.pattern_type?.includes('subscription');
       resultado.push({
         id: p.id,
         tipo,
         titulo: p.pattern_type?.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Patrón detectado',
         descripcion: p.description,
         severidad: p.confidence >= 0.8 ? 'alert' : p.confidence >= 0.5 ? 'warning' : 'info',
-        confianza: Math.round(p.confidence * 100),
+        confianza,
         preguntaNico: `Cuéntame más sobre este patrón: ${p.description}`,
+        // All high-confidence DB patterns from Nico are candidates for automation rules
+        automatable: confianza >= 90,
+        suggestedType: isRecurring ? 'egreso' : undefined,
       });
     });
 
@@ -208,6 +224,9 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
           severidad: pct > 50 ? 'alert' : 'warning',
           confianza: 90,
           preguntaNico: `¿Cómo puedo optimizar mis gastos en "${catNombre}" que representan el ${pct.toFixed(0)}% de mis egresos?`,
+          automatable: true,
+          suggestedKeyword: catNombre.toUpperCase(),
+          suggestedType: 'egreso',
         });
       }
     }
@@ -321,6 +340,8 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         severidad: pctSinCat > 40 ? 'alert' : 'warning',
         confianza: 100,
         preguntaNico: `¿Cuáles son las transacciones sin categorizar más importantes que debería clasificar primero?`,
+        automatable: true,
+        suggestedType: 'egreso',
       });
     }
 
@@ -347,8 +368,98 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
 
   const tipos = Object.keys(TIPO_CONFIG) as (keyof typeof TIPO_CONFIG)[];
 
+  // High-confidence automatable patterns (suggestions for rules)
+  const sugerencias = patrones.filter(p => p.automatable && p.confianza >= 90);
+
+  const openCrearRegla = (p: Patron) => {
+    setReglaModal({
+      open: true,
+      patron: {
+        id: p.id,
+        titulo: p.titulo,
+        descripcion: p.descripcion,
+        confianza: p.confianza,
+        suggestedKeyword: p.suggestedKeyword,
+        suggestedAmountMin: p.suggestedAmountMin,
+        suggestedAmountMax: p.suggestedAmountMax,
+        suggestedType: p.suggestedType,
+      },
+    });
+  };
+
   return (
     <div className="space-y-5">
+      {/* ── AUTOMATIZACIONES SUGERIDAS ─────────────────────────── */}
+      {sugerencias.length > 0 && (
+        <div className="rounded-xl border border-success/30 bg-success/5 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center gap-2.5 px-4 py-3 bg-success/10 border-b border-success/20">
+            <div className="w-7 h-7 rounded-lg bg-success/20 flex items-center justify-center shrink-0">
+              <Sparkles className="h-4 w-4 text-success" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-success">
+                {sugerencias.length} patrón{sugerencias.length > 1 ? 'es' : ''} con alta confianza detectado{sugerencias.length > 1 ? 's' : ''}
+              </p>
+              <p className="text-xs text-success/70">
+                Crea reglas para que Nico los concilie automáticamente cuando subas un extracto
+              </p>
+            </div>
+            <Badge variant="outline" className="border-success/40 text-success text-[10px] shrink-0">
+              Nuevo
+            </Badge>
+          </div>
+
+          {/* Suggestions list */}
+          <div className="divide-y divide-success/10">
+            {sugerencias.map(p => {
+              const existingRule = rules.find(r => r.pattern_ref === p.id || r.name === p.titulo);
+              return (
+                <div key={p.id} className="flex items-start gap-3 px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                      <span className="text-sm font-medium text-foreground">{p.titulo}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/15 text-success font-medium">
+                        {p.confianza}% confianza
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+                      {p.descripcion}
+                    </p>
+                  </div>
+                  <div className="shrink-0 pt-0.5">
+                    {existingRule ? (
+                      <div className="flex items-center gap-1.5 text-xs text-success font-medium">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Regla activa</span>
+                      </div>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1.5 border-success/40 text-success hover:bg-success/10 hover:border-success"
+                        onClick={() => openCrearRegla(p)}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Crear regla
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Footer: existing rules count */}
+          {rules.filter(r => r.active).length > 0 && (
+            <div className="px-4 py-2.5 bg-muted/30 border-t border-success/10 text-xs text-muted-foreground flex items-center gap-1.5">
+              <Zap className="h-3 w-3 text-success" />
+              {rules.filter(r => r.active).length} regla{rules.filter(r => r.active).length > 1 ? 's' : ''} activa{rules.filter(r => r.active).length > 1 ? 's' : ''} — se aplican automáticamente al subir extracto
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Zap className="h-3.5 w-3.5 text-accent" />
         <span><strong>{patrones.length} patrones</strong> detectados — {nicoPatterns.length} de Nico + {patrones.length - nicoPatterns.length} calculados</span>
@@ -411,6 +522,13 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
           Necesito más datos de transacciones, facturas e inventario para detectar patrones.
         </div>
       )}
+
+      {/* Crear Regla Modal */}
+      <CrearReglaModal
+        open={reglaModal.open}
+        onClose={() => setReglaModal({ open: false })}
+        patron={reglaModal.patron}
+      />
     </div>
   );
 }

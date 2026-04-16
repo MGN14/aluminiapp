@@ -9,12 +9,13 @@ import StatementConfigModal from '@/components/statements/StatementConfigModal';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FileText, Check, Clock, AlertCircle, Info, Pencil } from 'lucide-react';
+import { FileText, Check, Clock, AlertCircle, Info, Pencil, Zap } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useReconciliationRules } from '@/hooks/useReconciliationRules';
 
 interface Statement {
   id: string;
@@ -37,6 +38,7 @@ export default function StatementUpload() {
   const navigate = useNavigate();
   const [statements, setStatements] = useState<Statement[]>([]);
   const [loading, setLoading] = useState(true);
+  const { applyRulesToStatement, rules } = useReconciliationRules();
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -109,10 +111,34 @@ export default function StatementUpload() {
       const result = await response.json();
       await fetchStatements();
 
-      toast({
-        title: '¡Transacciones extraídas!',
-        description: `Se encontraron ${result.transactions_count} transacciones. Configura el extracto para continuar.`,
-      });
+      // Auto-apply Nico reconciliation rules to the freshly parsed transactions
+      const activeRules = rules.filter(r => r.active && r.category_id);
+      if (activeRules.length > 0) {
+        try {
+          const applied = await applyRulesToStatement(statementId);
+          if (applied > 0) {
+            toast({
+              title: '¡Transacciones extraídas!',
+              description: `${result.transactions_count} transacciones encontradas. Nico aplicó ${applied} regla${applied > 1 ? 's' : ''} de conciliación automáticamente. 🎉`,
+            });
+          } else {
+            toast({
+              title: '¡Transacciones extraídas!',
+              description: `Se encontraron ${result.transactions_count} transacciones. Configura el extracto para continuar.`,
+            });
+          }
+        } catch {
+          toast({
+            title: '¡Transacciones extraídas!',
+            description: `Se encontraron ${result.transactions_count} transacciones. Configura el extracto para continuar.`,
+          });
+        }
+      } else {
+        toast({
+          title: '¡Transacciones extraídas!',
+          description: `Se encontraron ${result.transactions_count} transacciones. Configura el extracto para continuar.`,
+        });
+      }
 
       // Open mandatory config modal after successful processing
       setPendingStatementId(statementId);
@@ -171,6 +197,16 @@ export default function StatementUpload() {
           </Alert>
 
           <PDFUploader onUploadComplete={handleUploadComplete} />
+
+          {/* Nico rules indicator */}
+          {rules.filter(r => r.active).length > 0 && (
+            <div className="mt-4 flex items-center gap-2 text-xs text-success bg-success/5 border border-success/20 rounded-lg px-4 py-2.5">
+              <Zap className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                <strong>{rules.filter(r => r.active).length} regla{rules.filter(r => r.active).length > 1 ? 's' : ''} de Nico activa{rules.filter(r => r.active).length > 1 ? 's' : ''}</strong> — se aplicarán automáticamente al procesar el extracto
+              </span>
+            </div>
+          )}
         </section>
 
         {statements.length > 0 && (
