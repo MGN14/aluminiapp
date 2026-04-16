@@ -179,10 +179,10 @@ export default function MaestroProductos() {
         updated_at: new Date().toISOString(),
       };
       if (editId) {
-        await supabase.from('product_master').update(payload).eq('id', editId);
+        await (supabase.from('product_master') as any).update(payload).eq('id', editId);
         toast({ title: 'Producto actualizado' });
       } else {
-        await supabase.from('product_master').insert({ ...payload, active: true });
+        await (supabase.from('product_master') as any).insert({ ...payload, active: true });
         toast({ title: 'Producto agregado al maestro' });
       }
       queryClient.invalidateQueries({ queryKey: ['product-master'] });
@@ -196,7 +196,7 @@ export default function MaestroProductos() {
 
   const handleDelete = async (id: string, ref: string) => {
     if (!confirm(`¿Eliminar "${ref}" del maestro?`)) return;
-    await supabase.from('product_master').update({ active: false }).eq('id', id);
+    await (supabase.from('product_master') as any).update({ active: false }).eq('id', id);
     queryClient.invalidateQueries({ queryKey: ['product-master'] });
     toast({ title: `${ref} eliminado del maestro` });
   };
@@ -220,7 +220,7 @@ export default function MaestroProductos() {
 
     if (rows.length === 0) { toast({ title: 'No se encontraron filas válidas', variant: 'destructive' }); return; }
     setSaving(true);
-    const { error } = await supabase.from('product_master').upsert(rows, { onConflict: 'user_id,ref_siigo' });
+    const { error } = await (supabase.from('product_master') as any).upsert(rows, { onConflict: 'user_id,ref_siigo' });
     setSaving(false);
     if (error) { toast({ title: 'Error al importar', description: error.message, variant: 'destructive' }); return; }
     toast({ title: `${rows.length} productos importados al maestro` });
