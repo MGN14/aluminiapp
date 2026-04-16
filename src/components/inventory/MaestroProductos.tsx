@@ -124,14 +124,14 @@ export default function MaestroProductos() {
     queryKey: ['product-master', user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
-      const { data, error } = await supabase
-        .from('product_master')
+      const { data, error } = await (supabase
+        .from('product_master') as any)
         .select('*')
         .eq('user_id', user.id)
         .eq('active', true)
         .order('ref_siigo');
       if (error) throw error;
-      return data as ProductMaster[];
+      return (data ?? []) as ProductMaster[];
     },
     enabled: !!user?.id,
   });

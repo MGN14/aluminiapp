@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import nicoAvatar from '@/assets/nico-avatar.png';
+import NicoMessageContent from './NicoMessageContent';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -17,15 +18,29 @@ const SUGGESTIONS = [
   '¿Dónde estoy perdiendo plata?',
 ];
 
-export default function NicoChat() {
+interface NicoChatProps {
+  initialMessage?: string;
+  onMessageSent?: () => void;
+}
+
+export default function NicoChat({ initialMessage, onMessageSent }: NicoChatProps) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const initialSent = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (initialMessage && !initialSent.current) {
+      initialSent.current = true;
+      send(initialMessage);
+      onMessageSent?.();
+    }
+  }, [initialMessage]);
 
   const send = async (text: string) => {
     const question = text.trim();
@@ -178,9 +193,14 @@ export default function NicoChat() {
                   : 'bg-card text-foreground border border-border rounded-bl-sm'
               )}
             >
-              {msg.content}
-              {msg.role === 'assistant' && i === messages.length - 1 && isLoading && (
-                <span className="inline-block w-1.5 h-4 bg-success/60 ml-1 animate-pulse rounded-sm" />
+              {msg.role === 'assistant' ? (
+                <NicoMessageContent
+                  content={msg.content}
+                  isStreaming={i === messages.length - 1 && isLoading}
+                  isLastMessage={i === messages.length - 1}
+                />
+              ) : (
+                msg.content
               )}
             </div>
           </div>
