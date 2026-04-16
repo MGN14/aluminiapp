@@ -496,7 +496,7 @@ function DashboardContent() {
             <TopBuyersCard topBuyers={operationalData.topBuyers} totalComprasBase={operationalData.totalComprasBase} year={periodSelection.year} />
           )}
           {/* Top 3 Referencias Vendidas */}
-          {invoiceMetrics && (invoiceMetrics.topReferences?.length ?? 0) > 0 && (
+          {invoiceMetrics && (
             <Card className="border-0 shadow-sm">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div className="flex items-center gap-2">
@@ -508,23 +508,36 @@ function DashboardContent() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {invoiceMetrics.topReferences.map(([name, { total, qty }], index) => {
-                    const pct = (invoiceMetrics.totalBaseRef ?? 0) > 0 ? ((total / invoiceMetrics.totalBaseRef) * 100).toFixed(0) : '0';
-                    const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
-                    return (
-                      <div key={name} className="flex items-center gap-3">
-                        <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
-                        <span className="text-sm text-foreground truncate flex-1">{name}</span>
-                        <div className="text-right shrink-0">
-                          <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
-                          <span className="text-xs text-muted-foreground ml-1">({pct}%)</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{periodSelection.year}</div>
+                {(invoiceMetrics.topReferences?.length ?? 0) > 0 ? (
+                  <>
+                    <div className="space-y-3">
+                      {invoiceMetrics.topReferences.map(([name, { total, qty }], index) => {
+                        const pct = (invoiceMetrics.totalBaseRef ?? 0) > 0 ? ((total / invoiceMetrics.totalBaseRef) * 100).toFixed(0) : '0';
+                        const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
+                        return (
+                          <div key={name} className="flex items-center gap-3">
+                            <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-foreground truncate">{name}</p>
+                              <p className="text-[10px] text-muted-foreground">{qty} {qty === 1 ? 'unidad' : 'unidades'}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</p>
+                              <p className="text-[10px] text-muted-foreground">{pct}% del total</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{periodRange.label}</div>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
+                    <Package className="h-8 w-8 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">Sin referencias en este período</p>
+                    <p className="text-xs text-muted-foreground/70">Las referencias se leen de los ítems de tus facturas de venta</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
