@@ -920,6 +920,51 @@ export type Database = {
         }
         Relationships: []
       }
+      product_master: {
+        Row: {
+          active: boolean
+          created_at: string | null
+          description: string
+          id: string
+          ref_local: string | null
+          ref_proveedor_a: string | null
+          ref_proveedor_b: string | null
+          ref_proveedor_c: string | null
+          ref_siigo: string
+          unit: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string | null
+          description: string
+          id?: string
+          ref_local?: string | null
+          ref_proveedor_a?: string | null
+          ref_proveedor_b?: string | null
+          ref_proveedor_c?: string | null
+          ref_siigo: string
+          unit?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string | null
+          description?: string
+          id?: string
+          ref_local?: string | null
+          ref_proveedor_a?: string | null
+          ref_proveedor_b?: string | null
+          ref_proveedor_c?: string | null
+          ref_siigo?: string
+          unit?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           company_initial: string | null
