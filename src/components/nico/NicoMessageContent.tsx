@@ -22,30 +22,18 @@ export default function NicoMessageContent({ content, isStreaming, isLastMessage
   const firstLine = lines[0] || '';
   const rest = lines.slice(1).join('\n');
 
-  // Typewriter animation for first line only, on the last completed message
   const [displayedChars, setDisplayedChars] = useState(0);
   const animationDone = useRef(false);
   const prevContentRef = useRef('');
 
-  // If streaming, show content as-is (already animated by stream)
-  if (isStreaming) {
-    return (
-      <>
-        {cleaned}
-        <span className="inline-block w-1.5 h-4 bg-success/60 ml-1 animate-pulse rounded-sm" />
-      </>
-    );
-  }
-
-  // For completed messages, animate first line once
   useEffect(() => {
-    if (!isLastMessage || animationDone.current) return;
+    if (isStreaming || !isLastMessage || animationDone.current) return;
     if (prevContentRef.current === content) return;
     prevContentRef.current = content;
 
     setDisplayedChars(0);
     let i = 0;
-    const speed = Math.max(8, Math.min(20, 600 / firstLine.length)); // fast & fluid
+    const speed = Math.max(8, Math.min(20, 600 / firstLine.length));
     const timer = setInterval(() => {
       i++;
       setDisplayedChars(i);
@@ -55,14 +43,24 @@ export default function NicoMessageContent({ content, isStreaming, isLastMessage
       }
     }, speed);
     return () => clearInterval(timer);
-  }, [content, isLastMessage, firstLine.length]);
+  }, [content, isLastMessage, isStreaming, firstLine.length]);
 
-  // Non-last messages or already animated: show full text
+  // Streaming: show as-is with cursor
+  if (isStreaming) {
+    return (
+      <>
+        {cleaned}
+        <span className="inline-block w-1.5 h-4 bg-success/60 ml-1 animate-pulse rounded-sm" />
+      </>
+    );
+  }
+
+  // Non-last or already animated: full text
   if (!isLastMessage || animationDone.current) {
     return <>{cleaned}</>;
   }
 
-  // Animating: show partial first line + hide rest until done
+  // Animating first line
   const visibleFirst = firstLine.slice(0, displayedChars);
   const showRest = displayedChars >= firstLine.length;
 
