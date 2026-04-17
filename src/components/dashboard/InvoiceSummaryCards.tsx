@@ -38,6 +38,7 @@ interface InvoiceItemRow {
   quantity: number;
   line_base: number;
   line_total: number;
+  invoice_id?: string;
 }
 
 export interface InvoiceFiscalMetrics {
@@ -247,14 +248,35 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         setRetefuenteManualYearTransactions([]);
       }
 
-      // Fetch invoice items for sales invoices in the period (for top references)
-      const salesIds = (periodResult.data || []).filter(i => i.type === 'venta').map(i => i.id);
-      if (salesIds.length > 0) {
-        const { data: items } = await supabase
-          .from('invoice_items')
-          .select('description, reference, quantity, line_base, line_total')
-          .in('invoice_id', salesIds);
-        setInvoiceItems((items as InvoiceItemRow[]) || []);
+      // Fetch invoice items for top references:
+      // Query by user_id + join invoices inline to filter by type/status/date.
+      // This is more reliable than filtering by invoice_id list (avoids URL length limits
+      // and works even when period invoices have no items but year invoices do).
+      const yearSalesIds = [
+        ...(periodResult.data || []),
+        ...(yearResult.data || []),
+      ]
+        .filter(i => i.type === 'venta' && i.status === 'confirmed')
+        .map(i => i.id)
+        .filter((id, idx, arr) => arr.indexOf(id) === idx); // dedupe
+
+      if (yearSalesIds.length > 0) {
+        // Batch into chunks of 50 to avoid URL length limits
+        const chunkSize = 50;
+        const allItems: InvoiceItemRow[] = [];
+        for (let i = 0; i < yearSalesIds.length; i += chunkSize) {
+          const chunk = yearSalesIds.slice(i, i + chunkSize);
+          const { data: chunkItems } = await supabase
+            .from('invoice_items')
+            .select('description, reference, quantity, line_base, line_total, invoice_id')
+            .in('invoice_id', chunk);
+          if (chunkItems) allItems.push(...(chunkItems as InvoiceItemRow[]));
+        }
+        // Filter to only period invoices for the card (use period + year depending on data)
+        const periodIds = new Set((periodResult.data || []).filter(i => i.type === 'venta').map(i => i.id));
+        const periodItems = allItems.filter(item => periodIds.has((item as any).invoice_id));
+        // Fall back to full year if period has no items
+        setInvoiceItems(periodItems.length > 0 ? periodItems : allItems);
       } else {
         setInvoiceItems([]);
       }
