@@ -495,52 +495,98 @@ function DashboardContent() {
           {!operationalData.loading && (
             <TopBuyersCard topBuyers={operationalData.topBuyers} totalComprasBase={operationalData.totalComprasBase} year={periodSelection.year} />
           )}
-          {/* Top 3 Referencias Vendidas */}
-          {invoiceMetrics && (
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-base font-semibold text-foreground">Top 3 Referencias</CardTitle>
-                  <span className="text-[10px] text-muted-foreground">(por base gravable)</span>
-                </div>
-                <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Package className="h-4 w-4 text-primary" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                {(invoiceMetrics.topReferences?.length ?? 0) > 0 ? (
-                  <>
-                    <div className="space-y-3">
-                      {invoiceMetrics.topReferences.map(([name, { total, qty }], index) => {
-                        const pct = (invoiceMetrics.totalBaseRef ?? 0) > 0 ? ((total / invoiceMetrics.totalBaseRef) * 100).toFixed(0) : '0';
-                        const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
-                        return (
-                          <div key={name} className="flex items-center gap-3">
-                            <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-foreground truncate">{name}</p>
-                              <p className="text-[10px] text-muted-foreground">{qty} {qty === 1 ? 'unidad' : 'unidades'}</p>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <p className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</p>
-                              <p className="text-[10px] text-muted-foreground">{pct}% del total</p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{periodRange.label}</div>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
-                    <Package className="h-8 w-8 text-muted-foreground/30" />
-                    <p className="text-sm text-muted-foreground">Sin referencias en este período</p>
-                    <p className="text-xs text-muted-foreground/70">Las referencias se leen de los ítems de tus facturas de venta</p>
+          {/* Top 3 Referencias / Clientes por Facturación */}
+          {(() => {
+            const hasRefs = (invoiceMetrics?.topReferences?.length ?? 0) > 0;
+            const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
+
+            // Fallback: top 3 clientes por total facturado en el período
+            const periodStart = periodRange.start;
+            const periodEnd = periodRange.end;
+            const periodInvoices = salesInvoices.filter(inv => {
+              const d = parseLocalDate(inv.issue_date);
+              return d >= periodStart && d <= periodEnd;
+            });
+            const clientMap = new Map<string, number>();
+            periodInvoices.forEach(inv => {
+              const k = inv.counterparty_name?.trim() || 'Sin nombre';
+              clientMap.set(k, (clientMap.get(k) || 0) + (inv.total_amount || 0));
+            });
+            const topClients = Array.from(clientMap.entries())
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3);
+            const totalClients = Array.from(clientMap.values()).reduce((s, v) => s + v, 0);
+
+            const showFallback = !hasRefs && topClients.length > 0;
+
+            return (
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base font-semibold text-foreground">
+                      {hasRefs ? 'Top 3 Referencias' : 'Top 3 Clientes'}
+                    </CardTitle>
+                    <span className="text-[10px] text-muted-foreground">
+                      {hasRefs ? '(por base gravable)' : '(por facturación)'}
+                    </span>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                  <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <Package className="h-4 w-4 text-primary" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {hasRefs ? (
+                    <>
+                      <div className="space-y-3">
+                        {invoiceMetrics!.topReferences.map(([name, { total, qty }], index) => {
+                          const pct = (invoiceMetrics!.totalBaseRef ?? 0) > 0
+                            ? ((total / invoiceMetrics!.totalBaseRef) * 100).toFixed(0) : '0';
+                          return (
+                            <div key={name} className="flex items-center gap-3">
+                              <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-foreground truncate">{name}</p>
+                                <p className="text-[10px] text-muted-foreground">{qty} {qty === 1 ? 'unidad' : 'unidades'}</p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</p>
+                                <p className="text-[10px] text-muted-foreground">{pct}% del total</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{periodRange.label}</p>
+                    </>
+                  ) : showFallback ? (
+                    <>
+                      <div className="space-y-3">
+                        {topClients.map(([name, total], index) => {
+                          const pct = totalClients > 0 ? ((total / totalClients) * 100).toFixed(0) : '0';
+                          return (
+                            <div key={name} className="flex items-center gap-3">
+                              <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
+                              <p className="text-sm text-foreground truncate flex-1">{name}</p>
+                              <div className="text-right shrink-0">
+                                <p className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</p>
+                                <p className="text-[10px] text-muted-foreground">{pct}% del total</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{periodRange.label}</p>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
+                      <Package className="h-8 w-8 text-muted-foreground/30" />
+                      <p className="text-sm text-muted-foreground">Sin facturas de venta en este período</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
       </DashboardBlock>
     ),
