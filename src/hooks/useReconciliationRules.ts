@@ -73,7 +73,7 @@ export function useReconciliationRules() {
     queryKey: ['reconciliation-rules', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('reconciliation_rules' as any)
+        .from('reconciliation_rules')
         .select('*')
         .eq('user_id', user!.id)
         .order('created_at', { ascending: false });
@@ -86,7 +86,7 @@ export function useReconciliationRules() {
   const createRule = useMutation({
     mutationFn: async (rule: NewReconciliationRule) => {
       const { data, error } = await supabase
-        .from('reconciliation_rules' as any)
+        .from('reconciliation_rules')
         .insert({ ...rule, user_id: user!.id })
         .select()
         .single();
@@ -101,7 +101,7 @@ export function useReconciliationRules() {
   const toggleRule = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
       const { error } = await supabase
-        .from('reconciliation_rules' as any)
+        .from('reconciliation_rules')
         .update({ active })
         .eq('id', id);
       if (error) throw error;
@@ -112,7 +112,7 @@ export function useReconciliationRules() {
   const deleteRule = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
-        .from('reconciliation_rules' as any)
+        .from('reconciliation_rules')
         .delete()
         .eq('id', id);
       if (error) throw error;
@@ -169,7 +169,7 @@ export function useReconciliationRules() {
       const rule = activeRules.find(r => r.id === ruleId);
       if (rule) {
         await supabase
-          .from('reconciliation_rules' as any)
+          .from('reconciliation_rules')
           .update({
             match_count: rule.match_count + matchCount,
             last_matched_at: new Date().toISOString(),
