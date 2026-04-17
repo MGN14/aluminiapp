@@ -106,6 +106,8 @@ export default function CrearReglaModal({ open, onClose, patron }: CrearReglaMod
     }
     setSaving(true);
     try {
+      const categoryIdClean = categoryId && categoryId !== '__none__' ? categoryId : undefined;
+      const responsibleIdClean = responsibleId && responsibleId !== '__none__' ? responsibleId : undefined;
       const rule: NewReconciliationRule = {
         name: name.trim(),
         pattern_ref: patron?.id,
@@ -115,12 +117,13 @@ export default function CrearReglaModal({ open, onClose, patron }: CrearReglaMod
         amount_max: amountMax ? parseCOP(amountMax) : undefined,
         day_min: dayMin ? parseInt(dayMin) : undefined,
         day_max: dayMax ? parseInt(dayMax) : undefined,
-        category_id: categoryId || undefined,
-        category_name: categories.find(c => c.id === categoryId)?.name,
-        responsible_id: responsibleId || undefined,
-        responsible_name: responsibles.find(r => r.id === responsibleId)?.name,
+        category_id: categoryIdClean,
+        category_name: categoryIdClean ? categories.find(c => c.id === categoryIdClean)?.name : undefined,
+        responsible_id: responsibleIdClean,
+        responsible_name: responsibleIdClean ? responsibles.find(r => r.id === responsibleIdClean)?.name : undefined,
         auto_conciliate: autoConciliate,
       };
+
       await createRule.mutateAsync(rule);
       toast.success('¡Regla creada! Nico la aplicará automáticamente en el próximo extracto.');
       onClose();
