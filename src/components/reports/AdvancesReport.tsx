@@ -171,26 +171,45 @@ export default function AdvancesReport() {
   }, [unreconciledDetails]);
   const totalAdvances = totalAdvancesTx + initialAnticipo;
 
-  // Group by client (transactions + initial state details)
+  // Group by client → { total, months: Map<monthIndex, amount>, initial: amount }
   const byClient = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { total: number; months: Map<number, number>; initial: number }>();
 
-    // From transactions
+    const ensure = (name: string) => {
+      if (!map.has(name)) map.set(name, { total: 0, months: new Map(), initial: 0 });
+      return map.get(name)!;
+    };
+
     if (data?.transactions) {
       for (const tx of data.transactions) {
         const clientName = tx.owner || (tx.responsible_id ? data.respMap.get(tx.responsible_id) : null) || 'Sin asignar';
-        map.set(clientName, (map.get(clientName) ?? 0) + Math.abs(tx.amount ?? 0));
+        const amount = Math.abs(tx.amount ?? 0);
+        const entry = ensure(clientName);
+        entry.total += amount;
+        const monthIdx = tx.date ? new Date(tx.date + 'T00:00:00').getMonth() : 0;
+        entry.months.set(monthIdx, (entry.months.get(monthIdx) ?? 0) + amount);
       }
     }
 
-    // From unreconciled initial state details
     for (const d of unreconciledDetails) {
       const name = (d as any).responsible_name || 'Periodo anterior';
-      map.set(name, (map.get(name) ?? 0) + ((d as any).amount ?? 0));
+      const amount = (d as any).amount ?? 0;
+      const entry = ensure(name);
+      entry.total += amount;
+      entry.initial += amount;
     }
 
-    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+    return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
   }, [data, unreconciledDetails]);
+
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+  const toggleClient = (name: string) => {
+    setExpandedClients(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
 
   return (
     <TooltipProvider>
