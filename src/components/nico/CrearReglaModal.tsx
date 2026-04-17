@@ -74,7 +74,7 @@ export default function CrearReglaModal({ open, onClose, patron }: CrearReglaMod
         .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
-      return (data || []) as { id: string; name: string; type: string }[];
+      return (data || []) as unknown as { id: string; name: string; type: string }[];
     },
     enabled: !!user?.id && open,
   });

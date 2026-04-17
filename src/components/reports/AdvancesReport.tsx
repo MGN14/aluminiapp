@@ -5,7 +5,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Banknote, History, Info, Link2, Check, X } from 'lucide-react';
+import { Banknote, History, Info, Link2, Check, X, ChevronRight, ChevronDown } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { MONTH_NAMES } from '@/types/transaction';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import AdvancesTable from './AdvancesTable';
@@ -169,26 +171,45 @@ export default function AdvancesReport() {
   }, [unreconciledDetails]);
   const totalAdvances = totalAdvancesTx + initialAnticipo;
 
-  // Group by client (transactions + initial state details)
+  // Group by client → { total, months: Map<monthIndex, amount>, initial: amount }
   const byClient = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { total: number; months: Map<number, number>; initial: number }>();
 
-    // From transactions
+    const ensure = (name: string) => {
+      if (!map.has(name)) map.set(name, { total: 0, months: new Map(), initial: 0 });
+      return map.get(name)!;
+    };
+
     if (data?.transactions) {
       for (const tx of data.transactions) {
         const clientName = tx.owner || (tx.responsible_id ? data.respMap.get(tx.responsible_id) : null) || 'Sin asignar';
-        map.set(clientName, (map.get(clientName) ?? 0) + Math.abs(tx.amount ?? 0));
+        const amount = Math.abs(tx.amount ?? 0);
+        const entry = ensure(clientName);
+        entry.total += amount;
+        const monthIdx = tx.date ? new Date(tx.date + 'T00:00:00').getMonth() : 0;
+        entry.months.set(monthIdx, (entry.months.get(monthIdx) ?? 0) + amount);
       }
     }
 
-    // From unreconciled initial state details
     for (const d of unreconciledDetails) {
       const name = (d as any).responsible_name || 'Periodo anterior';
-      map.set(name, (map.get(name) ?? 0) + ((d as any).amount ?? 0));
+      const amount = (d as any).amount ?? 0;
+      const entry = ensure(name);
+      entry.total += amount;
+      entry.initial += amount;
     }
 
-    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+    return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
   }, [data, unreconciledDetails]);
+
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+  const toggleClient = (name: string) => {
+    setExpandedClients(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
 
   return (
     <TooltipProvider>
@@ -325,13 +346,38 @@ export default function AdvancesReport() {
               {byClient.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Sin datos</p>
               ) : (
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                  {byClient.slice(0, 10).map(([name, amount]) => (
-                    <div key={name} className="flex items-center justify-between text-sm">
-                      <span className="truncate mr-2">{name}</span>
-                      <span className="font-semibold text-warning whitespace-nowrap">{formatCurrency(amount)}</span>
-                    </div>
-                  ))}
+                <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                  {byClient.map(([name, info]) => {
+                    const isOpen = expandedClients.has(name);
+                    const sortedMonths = [...info.months.entries()].sort((a, b) => a[0] - b[0]);
+                    return (
+                      <Collapsible key={name} open={isOpen} onOpenChange={() => toggleClient(name)}>
+                        <CollapsibleTrigger className="flex items-center justify-between w-full text-sm py-1 hover:bg-muted/50 rounded px-1 transition-colors">
+                          <span className="flex items-center gap-1 truncate mr-2">
+                            {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                            <span className="truncate">{name}</span>
+                          </span>
+                          <span className="font-semibold text-warning whitespace-nowrap">{formatCurrency(info.total)}</span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="pl-5 py-1 space-y-0.5 border-l border-border ml-2">
+                            {info.initial > 0 && (
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>Saldo inicial</span>
+                                <span className="font-medium">{formatCurrency(info.initial)}</span>
+                              </div>
+                            )}
+                            {sortedMonths.map(([monthIdx, amount]) => (
+                              <div key={monthIdx} className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{MONTH_NAMES[monthIdx]} {year}</span>
+                                <span className="font-medium">{formatCurrency(amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
