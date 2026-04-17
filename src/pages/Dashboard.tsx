@@ -500,34 +500,28 @@ function DashboardContent() {
             const hasRefs = (invoiceMetrics?.topReferences?.length ?? 0) > 0;
             const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
 
-            // Fallback: top 3 clientes por total facturado en el período
-            const periodStart = periodRange.start;
-            const periodEnd = periodRange.end;
-            const periodInvoices = salesInvoices.filter(inv => {
-              const d = parseLocalDate(inv.issue_date);
-              return d >= periodStart && d <= periodEnd;
-            });
-            const clientMap = new Map<string, number>();
-            periodInvoices.forEach(inv => {
-              const k = inv.counterparty_name?.trim() || 'Sin nombre';
-              clientMap.set(k, (clientMap.get(k) || 0) + (inv.total_amount || 0));
-            });
-            const topClients = Array.from(clientMap.entries())
-              .sort((a, b) => b[1] - a[1])
+            // Fallback: top 3 facturas individuales por monto en el período
+            const pStart = periodRange.start;
+            const pEnd = periodRange.end;
+            const topInvoices = salesInvoices
+              .filter(inv => {
+                const d = parseLocalDate(inv.issue_date);
+                return d >= pStart && d <= pEnd;
+              })
+              .sort((a, b) => (b.total_amount || 0) - (a.total_amount || 0))
               .slice(0, 3);
-            const totalClients = Array.from(clientMap.values()).reduce((s, v) => s + v, 0);
 
-            const showFallback = !hasRefs && topClients.length > 0;
+            const showFallback = !hasRefs && topInvoices.length > 0;
 
             return (
               <Card className="border-0 shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-semibold text-foreground">
-                      {hasRefs ? 'Top 3 Referencias' : 'Top 3 Clientes'}
+                      {hasRefs ? 'Top 3 Referencias' : 'Top 3 Facturas'}
                     </CardTitle>
                     <span className="text-[10px] text-muted-foreground">
-                      {hasRefs ? '(por base gravable)' : '(por facturación)'}
+                      {hasRefs ? '(por base gravable)' : '(por valor)'}
                     </span>
                   </div>
                   <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -561,19 +555,16 @@ function DashboardContent() {
                   ) : showFallback ? (
                     <>
                       <div className="space-y-3">
-                        {topClients.map(([name, total], index) => {
-                          const pct = totalClients > 0 ? ((total / totalClients) * 100).toFixed(0) : '0';
-                          return (
-                            <div key={name} className="flex items-center gap-3">
-                              <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
-                              <p className="text-sm text-foreground truncate flex-1">{name}</p>
-                              <div className="text-right shrink-0">
-                                <p className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</p>
-                                <p className="text-[10px] text-muted-foreground">{pct}% del total</p>
-                              </div>
+                        {topInvoices.map((inv, index) => (
+                          <div key={index} className="flex items-center gap-3">
+                            <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-foreground truncate">{inv.counterparty_name || 'Sin nombre'}</p>
+                              <p className="text-[10px] text-muted-foreground">{parseLocalDate(inv.issue_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}</p>
                             </div>
-                          );
-                        })}
+                            <p className="font-semibold text-sm text-foreground whitespace-nowrap shrink-0">{formatCurrency(inv.total_amount || 0)}</p>
+                          </div>
+                        ))}
                       </div>
                       <p className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{periodRange.label}</p>
                     </>
