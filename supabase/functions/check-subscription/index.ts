@@ -44,38 +44,30 @@ serve(async (req) => {
       });
     }
 
-    let authRes: Response;
-    try {
-      authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-        headers: { Authorization: `Bearer ${token}`, apikey: anonKey },
-      });
-    } catch (fetchErr) {
-      logStep("Auth API fetch failed (network)", { message: String(fetchErr) });
-      return new Response(JSON.stringify({ error: "Auth service unavailable" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 503,
-      });
-    }
+    const supabaseUser = createClient(supabaseUrl, anonKey, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
 
-    if (!authRes.ok) {
-      logStep("Auth API returned non-ok", { status: authRes.status });
-      // Only return 401 for actual auth failures; other errors are transient
-      const httpStatus = authRes.status === 401 || authRes.status === 403 ? 401 : 503;
-      return new Response(JSON.stringify({ error: httpStatus === 401 ? "Unauthorized" : "Auth service error" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: httpStatus,
-      });
-    }
+    const { data: claimsData, error: claimsError } = await supabaseUser.auth.getClaims(token);
 
-    const userJson = (await authRes.json().catch(() => ({}))) as { id?: string; email?: string };
-    const userId = userJson.id ?? "";
-    const email = userJson.email ?? "";
-
-    if (!userId || !email) {
+    if (claimsError || !claimsData?.claims?.sub) {
+      logStep("JWT validation failed", { message: claimsError?.message ?? "missing_claims" });
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 401,
       });
+    }
+
+    const userId = claimsData.claims.sub;
+    let email = typeof claimsData.claims.email === "string" ? claimsData.claims.email : "";
+
+    if (!email) {
+      const { data: userData, error: userError } = await supabaseClient.auth.admin.getUserById(userId);
+      if (userError) {
+        logStep("Unable to load user email", { userId, message: userError.message });
+      }
+      email = userData.user?.email ?? "";
     }
 
     logStep("User authenticated", { userId });
