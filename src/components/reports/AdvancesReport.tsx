@@ -346,13 +346,38 @@ export default function AdvancesReport() {
               {byClient.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Sin datos</p>
               ) : (
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                  {byClient.slice(0, 10).map(([name, amount]) => (
-                    <div key={name} className="flex items-center justify-between text-sm">
-                      <span className="truncate mr-2">{name}</span>
-                      <span className="font-semibold text-warning whitespace-nowrap">{formatCurrency(amount)}</span>
-                    </div>
-                  ))}
+                <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                  {byClient.map(([name, info]) => {
+                    const isOpen = expandedClients.has(name);
+                    const sortedMonths = [...info.months.entries()].sort((a, b) => a[0] - b[0]);
+                    return (
+                      <Collapsible key={name} open={isOpen} onOpenChange={() => toggleClient(name)}>
+                        <CollapsibleTrigger className="flex items-center justify-between w-full text-sm py-1 hover:bg-muted/50 rounded px-1 transition-colors">
+                          <span className="flex items-center gap-1 truncate mr-2">
+                            {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                            <span className="truncate">{name}</span>
+                          </span>
+                          <span className="font-semibold text-warning whitespace-nowrap">{formatCurrency(info.total)}</span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="pl-5 py-1 space-y-0.5 border-l border-border ml-2">
+                            {info.initial > 0 && (
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>Saldo inicial</span>
+                                <span className="font-medium">{formatCurrency(info.initial)}</span>
+                              </div>
+                            )}
+                            {sortedMonths.map(([monthIdx, amount]) => (
+                              <div key={monthIdx} className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{MONTH_NAMES[monthIdx]} {year}</span>
+                                <span className="font-medium">{formatCurrency(amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
