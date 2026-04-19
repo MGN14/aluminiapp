@@ -1,20 +1,24 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import NicoChat from '@/components/nico/NicoChat';
 import NicoPronosticos from '@/components/nico/NicoPronosticos';
 import NicoPatrones from '@/components/nico/NicoPatrones';
+import NicoReglas from '@/pages/nico/Reglas';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { useSubscription } from '@/hooks/useSubscription';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Lock, Loader2, MessageSquare, TrendingUp, Layers } from 'lucide-react';
+import { Lock, Loader2, MessageSquare, TrendingUp, Layers, Zap } from 'lucide-react';
 
-type Tab = 'chat' | 'pronosticos' | 'patrones';
+type Tab = 'chat' | 'pronosticos' | 'patrones' | 'reglas';
 
 export default function NicoPage() {
   const { plan, loading: subLoading, isAdmin, isFounder, isTrialing } = useSubscription();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('chat');
+  const location = useLocation();
+  // Initialize tab from URL (/nico/reglas → reglas)
+  const initialTab: Tab = location.pathname.endsWith('/reglas') ? 'reglas' : 'chat';
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [preguntaPreload, setPreguntaPreload] = useState<string>('');
 
   const hasAccess = isAdmin || isFounder || isTrialing || ['basico', 'pro', 'empresarial', 'admin'].includes(plan);
@@ -46,6 +50,18 @@ export default function NicoPage() {
     );
   }
 
+  const tabBtn = (id: Tab, icon: JSX.Element, label: string) => (
+    <button
+      onClick={() => setTab(id)}
+      className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+        tab === id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
   return (
     <AppLayout>
       <div className="max-w-3xl mx-auto">
@@ -66,34 +82,11 @@ export default function NicoPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit mb-5">
-          <button
-            onClick={() => setTab('chat')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              tab === 'chat' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <MessageSquare className="h-4 w-4" />
-            Consultar a Nico
-          </button>
-          <button
-            onClick={() => setTab('pronosticos')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              tab === 'pronosticos' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <TrendingUp className="h-4 w-4" />
-            Pronósticos
-          </button>
-          <button
-            onClick={() => setTab('patrones')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              tab === 'patrones' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Layers className="h-4 w-4" />
-            Patrones
-          </button>
+        <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit mb-5 flex-wrap">
+          {tabBtn('chat', <MessageSquare className="h-4 w-4" />, 'Consultar a Nico')}
+          {tabBtn('pronosticos', <TrendingUp className="h-4 w-4" />, 'Pronósticos')}
+          {tabBtn('patrones', <Layers className="h-4 w-4" />, 'Patrones')}
+          {tabBtn('reglas', <Zap className="h-4 w-4" />, 'Reglas')}
         </div>
 
         {/* Contenido */}
@@ -115,6 +108,12 @@ export default function NicoPage() {
               setPreguntaPreload(pregunta);
               setTab('chat');
             }} />
+          </div>
+        )}
+
+        {tab === 'reglas' && (
+          <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
+            <NicoReglas />
           </div>
         )}
       </div>
