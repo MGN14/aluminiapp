@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.cfo-insights]
 verify_jwt = false
+
+[functions.send-password-reset]
+verify_jwt = false

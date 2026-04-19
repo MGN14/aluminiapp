@@ -14,6 +14,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import ChangePassword from "./pages/ChangePassword";
 import Dashboard from "./pages/Dashboard";
 import StatementUpload from "./pages/StatementUpload";
 import Transactions from "./pages/Transactions";
@@ -28,6 +29,7 @@ import Nico from "./pages/Nico";
 import InvoicesVenta from "./pages/InvoicesVenta";
 import InvoicesCompra from "./pages/InvoicesCompra";
 import FinancialHealth from "./pages/FinancialHealth";
+import VisitaDIAN from "./pages/VisitaDIAN";
 import Inventory from "./pages/Inventory";
 import Collaborators from "./pages/Collaborators";
 import ComingSoon from "./pages/ComingSoon";
@@ -54,6 +56,10 @@ const App = () => (
               <Route path="/signup" element={<Signup />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route
+                path="/change-password"
+                element={<ProtectedRoute><ChangePassword /></ProtectedRoute>}
+              />
               <Route path="/terms" element={<Terms />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/pricing" element={<Pricing />} />
@@ -131,6 +137,14 @@ const App = () => (
               />
               <Route
                 path="/financial-health"
+                element={<ProtectedRoute><VisitaDIAN /></ProtectedRoute>}
+              />
+              <Route
+                path="/visita-dian"
+                element={<ProtectedRoute><VisitaDIAN /></ProtectedRoute>}
+              />
+              <Route
+                path="/financial-health-legacy"
                 element={<ProtectedRoute><FinancialHealth /></ProtectedRoute>}
               />
               <Route

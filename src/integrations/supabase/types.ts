@@ -970,6 +970,7 @@ export type Database = {
           company_initial: string | null
           company_name: string | null
           created_at: string
+          force_password_change: boolean
           full_name: string | null
           id: string
           reteica_city: string | null
@@ -981,6 +982,7 @@ export type Database = {
           company_initial?: string | null
           company_name?: string | null
           created_at?: string
+          force_password_change?: boolean
           full_name?: string | null
           id?: string
           reteica_city?: string | null
@@ -992,6 +994,7 @@ export type Database = {
           company_initial?: string | null
           company_name?: string | null
           created_at?: string
+          force_password_change?: boolean
           full_name?: string | null
           id?: string
           reteica_city?: string | null

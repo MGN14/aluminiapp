@@ -1,7 +1,12 @@
 import { useState, useEffect, createContext, useContext, useCallback, useRef } from 'react';
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
-import { AUTH_SESSION_EXPIRED_EVENT, type SessionExpiredDetail } from '@/lib/authSessionEvents';
+import { AUTH_SESSION_EXPIRED_EVENT, emitSessionExpired, type SessionExpiredDetail } from '@/lib/authSessionEvents';
+import {
+  startInactivityTracker,
+  isSessionInactive,
+  clearLastActiveAt,
+} from '@/lib/inactivityTracker';
 
 // CRITICAL: All auth debug logging is strictly dev-only. NEVER log in production.
 const isDev = import.meta.env.MODE === 'development';
@@ -225,6 +230,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        // Sliding inactivity guard: if the cached session is older than the
+        // inactivity threshold, force sign out and block auto-login.
+        if (currentSession && isSessionInactive()) {
+          authLog('getSession_inactive_expired', 'last_active_at older than threshold');
+          manualSignOut.current = false;
+          await supabase.auth.signOut();
+          clearLastActiveAt();
+          if (isMounted.current) {
+            setSession(null);
+            setUser(null);
+            setLoading(false);
+          }
+          emitSessionExpired({ reason: 'inactivity_timeout' });
+          return;
+        }
+
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         setLoading(false);
@@ -247,6 +268,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, []);
+
+  // Sliding inactivity tracker — active only while user is signed in.
+  useEffect(() => {
+    if (!user) return;
+
+    authLog('inactivity_tracker_start');
+    const stop = startInactivityTracker({
+      onExpire: async () => {
+        authLog('inactivity_tracker_expired');
+        // This is NOT a manual sign-out; we want SessionExpired UX to show.
+        manualSignOut.current = false;
+        try {
+          await supabase.auth.signOut();
+        } catch (err) {
+          authLog('inactivity_signout_error', err);
+        }
+        clearLastActiveAt();
+        emitSessionExpired({ reason: 'inactivity_timeout' });
+      },
+    });
+
+    return () => {
+      authLog('inactivity_tracker_stop');
+      stop();
+    };
+  }, [user]);
 
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {
     authLog('signUp_attempt', { email });
@@ -275,6 +322,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     authLog('signOut_initiated');
     manualSignOut.current = true;
+    clearLastActiveAt();
     await supabase.auth.signOut();
   }, []);
 

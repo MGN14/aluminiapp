@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -13,10 +14,33 @@ import { LogIn, Clock } from 'lucide-react';
 
 const isDevelopment = import.meta.env.MODE === 'development';
 
+// Public routes where we should NOT auto-redirect on session expiry.
+const PUBLIC_ROUTES = new Set<string>([
+  '/',
+  '/login',
+  '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/terms',
+  '/privacy',
+  '/pricing',
+  '/contact',
+]);
+
 export default function SessionExpiredModal() {
   const { sessionExpired, sessionExpiredReason, clearSessionExpired } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // When the session expires (e.g. inactivity timeout), auto-redirect to /login
+  // from protected routes so the user lands on the auth screen directly.
+  useEffect(() => {
+    if (!sessionExpired) return;
+    if (PUBLIC_ROUTES.has(location.pathname)) return;
+
+    const from = `${location.pathname}${location.search}${location.hash}`;
+    navigate('/login', { state: { from }, replace: true });
+  }, [sessionExpired, location.pathname, location.search, location.hash, navigate]);
 
   const debugEnabled =
     isDevelopment && new URLSearchParams(location.search).get('debug') === '1';
