@@ -361,15 +361,31 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       });
     }
 
+    // Filtro: ocultar patrones con confianza menor al 30%
+    const filtrado = resultado.filter(p => p.confianza >= 30);
     // Ordenar: alert primero, luego warning, luego info; y por confianza
     const orden = { alert: 0, warning: 1, info: 2 };
-    return resultado.sort((a, b) => orden[a.severidad] - orden[b.severidad] || b.confianza - a.confianza);
+    return filtrado.sort((a, b) => orden[a.severidad] - orden[b.severidad] || b.confianza - a.confianza);
   }, [transactions, invoices, inventory, nicoPatterns, currentYear]);
 
   const tipos = Object.keys(TIPO_CONFIG) as (keyof typeof TIPO_CONFIG)[];
 
+  // Helper: check if a pattern already has a saved rule (by pattern_ref or keyword)
+  const hasExistingRule = (p: Patron) => {
+    const sugKw = p.suggestedKeyword?.trim().toLowerCase();
+    return rules.some(r => {
+      if (r.pattern_ref && r.pattern_ref === p.id) return true;
+      if (sugKw && r.keyword && r.keyword.trim().toLowerCase() === sugKw) return true;
+      return false;
+    });
+  };
+
   // High-confidence automatable patterns (suggestions for rules)
-  const sugerencias = patrones.filter(p => p.automatable && p.confianza >= 90);
+  // Excluye patrones que ya tienen regla creada — viven en el módulo Reglas
+  const sugerencias = patrones.filter(p => p.automatable && p.confianza >= 90 && !hasExistingRule(p));
+
+  // IDs de patrones ya mostrados arriba en "alta confianza" — para deduplicar abajo
+  const sugerenciasIds = new Set(sugerencias.map(p => p.id));
 
   const openCrearRegla = (p: Patron) => {
     setReglaModal({
