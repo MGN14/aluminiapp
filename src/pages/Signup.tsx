@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { Loader2, FileSpreadsheet, CheckCircle, LayoutDashboard, LogOut } from 'lucide-react';
 import PasswordRequirements from '@/components/auth/PasswordRequirements';
 import { evaluatePassword, translatePasswordError } from '@/lib/passwordPolicy';
+import TurnstileWidget from '@/components/auth/TurnstileWidget';
 
 export default function Signup() {
   const [fullName, setFullName] = useState('');
@@ -22,6 +23,7 @@ export default function Signup() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const { signUp, signOut, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -39,12 +41,20 @@ export default function Signup() {
       setError('Tu contraseña no cumple con todos los requisitos. Revisa la lista.');
       return;
     }
+    if (!captchaToken) {
+      setError('Por favor completa la verificación anti-bot.');
+      return;
+    }
     setLoading(true);
-    const { error } = await signUp(email, password, fullName);
+    const { error } = await signUp(email, password, fullName, captchaToken);
     if (error) {
+      // Reset captcha on any failure so user can't brute-force with one token.
+      setCaptchaToken(null);
       let msg = translatePasswordError(error.message);
       if (msg.includes('already registered') || msg.includes('already been registered')) {
         msg = 'Este correo ya está registrado. Intenta iniciar sesión.';
+      } else if (msg.toLowerCase().includes('captcha')) {
+        msg = 'La verificación anti-bot falló. Inténtalo de nuevo.';
       }
       setError(msg);
       setLoading(false);
@@ -217,7 +227,14 @@ export default function Signup() {
                 <PasswordRequirements password={password} showWhenEmpty />
               </div>
 
-              <Button type="submit" className="w-full h-11" disabled={loading}>
+              {/* Turnstile (Cloudflare) anti-bot widget */}
+              <TurnstileWidget
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken(null)}
+                onError={() => setCaptchaToken(null)}
+              />
+
+              <Button type="submit" className="w-full h-11" disabled={loading || !captchaToken}>
                 {loading ? <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Creando cuenta...

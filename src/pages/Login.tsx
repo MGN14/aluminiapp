@@ -12,6 +12,7 @@ import { Loader2, FileSpreadsheet, Eye, EyeOff, Mail, Lock, LogOut, LayoutDashbo
 import { Separator } from '@/components/ui/separator';
 import SecurityFeatures from '@/components/auth/SecurityFeatures';
 import TestimonialReviews from '@/components/auth/TestimonialReviews';
+import TurnstileWidget from '@/components/auth/TurnstileWidget';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -22,6 +23,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const { signIn, signOut, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -78,13 +80,22 @@ export default function Login() {
       return;
     }
 
+    if (!captchaToken) {
+      setError('Por favor completa la verificación anti-bot.');
+      return;
+    }
+
     setLoading(true);
 
-    const { error } = await signIn(email, password);
-    
+    const { error } = await signIn(email, password, captchaToken);
+
     if (error) {
+      // Force captcha reset on any failure so user can't brute-force with one token.
+      setCaptchaToken(null);
       if (error.message.includes('Invalid login credentials')) {
         setError('Correo o contraseña incorrectos');
+      } else if (error.message.toLowerCase().includes('captcha')) {
+        setError('La verificación anti-bot falló. Inténtalo de nuevo.');
       } else {
         setError(error.message);
       }
@@ -251,11 +262,18 @@ export default function Login() {
                     </Label>
                   </div>
 
+                  {/* Turnstile (Cloudflare) anti-bot widget */}
+                  <TurnstileWidget
+                    onVerify={setCaptchaToken}
+                    onExpire={() => setCaptchaToken(null)}
+                    onError={() => setCaptchaToken(null)}
+                  />
+
                   {/* Submit Button */}
                   <Button
                     type="submit"
                     className="w-full h-11"
-                    disabled={loading}
+                    disabled={loading || !captchaToken}
                   >
                     {loading ? (
                       <>

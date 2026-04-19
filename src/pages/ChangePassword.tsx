@@ -18,8 +18,10 @@ export default function ChangePassword() {
   const { user } = useAuth();
   const { refresh } = useForcePasswordChange();
 
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
@@ -29,8 +31,8 @@ export default function ChangePassword() {
     e.preventDefault();
     setError('');
 
-    if (!password || !confirmPassword) {
-      setError('Por favor completa ambos campos');
+    if (!currentPassword || !password || !confirmPassword) {
+      setError('Por favor completa todos los campos');
       return;
     }
     const evaluation = evaluatePassword(password);
@@ -42,10 +44,33 @@ export default function ChangePassword() {
       setError('Las contraseñas no coinciden');
       return;
     }
+    if (password === currentPassword) {
+      setError('La nueva contraseña no puede ser igual a la actual');
+      return;
+    }
 
     setLoading(true);
 
-    // 1) Update password via Supabase auth.
+    // 1) Re-authenticate by signing in with the current password.
+    //    This verifies the user actually knows it before allowing a change.
+    if (!user?.email) {
+      setLoading(false);
+      setError('No se pudo verificar tu sesión. Vuelve a iniciar sesión.');
+      return;
+    }
+
+    const { error: reauthError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: currentPassword,
+    });
+
+    if (reauthError) {
+      setLoading(false);
+      setError('La contraseña actual no es correcta.');
+      return;
+    }
+
+    // 2) Update password via Supabase auth.
     const { error: updateError } = await supabase.auth.updateUser({ password });
     if (updateError) {
       setLoading(false);
@@ -53,7 +78,7 @@ export default function ChangePassword() {
       return;
     }
 
-    // 2) Clear the force_password_change flag on the profile.
+    // 3) Clear the force_password_change flag on the profile.
     if (user?.id) {
       const { error: flagError } = await supabase
         .from('profiles')
@@ -61,7 +86,6 @@ export default function ChangePassword() {
         .eq('user_id', user.id);
 
       if (flagError) {
-        // Password was changed but flag couldn't be cleared. Log and continue.
         console.error('[change-password] clear flag error', flagError);
       }
     }
@@ -101,6 +125,30 @@ export default function ChangePassword() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
+
+              <div className="space-y-2">
+                <Label htmlFor="currentPassword">Contraseña actual</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    id="currentPassword"
+                    type={showCurrentPassword ? 'text' : 'password'}
+                    placeholder="Tu contraseña actual"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="h-11 pl-10 pr-10"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                  >
+                    {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="password">Nueva contraseña</Label>

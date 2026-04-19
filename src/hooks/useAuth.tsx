@@ -30,8 +30,8 @@ interface AuthContextType {
   lastAuthEvent: AuthChangeEvent | null;
   lastAuthEventAt: number | null;
 
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, fullName: string, captchaToken?: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string, captchaToken?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   clearSessionExpired: () => void;
 }
@@ -295,7 +295,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user]);
 
-  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
+  const signUp = useCallback(async (email: string, password: string, fullName: string, captchaToken?: string) => {
     authLog('signUp_attempt', { email });
     const { error } = await supabase.auth.signUp({
       email,
@@ -303,17 +303,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       options: {
         emailRedirectTo: window.location.origin,
         data: { full_name: fullName },
+        captchaToken,
       },
     });
     if (error) authLog('signUp_error', error.message);
     return { error };
   }, []);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, captchaToken?: string) => {
     authLog('signIn_attempt', { email });
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
+      options: { captchaToken },
     });
     if (error) authLog('signIn_error', error.message);
     return { error };
