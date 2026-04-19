@@ -428,49 +428,32 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
 
           {/* Suggestions list */}
           <div className="divide-y divide-success/10">
-            {sugerencias.map(p => {
-              // A rule is "active" for this pattern only if a saved rule references it
-              // by pattern_ref OR matches its suggested keyword (case-insensitive).
-              const sugKw = p.suggestedKeyword?.trim().toLowerCase();
-              const existingRule = rules.find(r => {
-                if (r.pattern_ref && r.pattern_ref === p.id) return true;
-                if (sugKw && r.keyword && r.keyword.trim().toLowerCase() === sugKw) return true;
-                return false;
-              });
-              return (
-                <div key={p.id} className="flex items-start gap-3 px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                      <span className="text-sm font-medium text-foreground">{p.titulo}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/15 text-success font-medium">
-                        {p.confianza}% confianza
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                      {p.descripcion}
-                    </p>
+            {sugerencias.map(p => (
+              <div key={p.id} className="flex items-start gap-3 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                    <span className="text-sm font-medium text-foreground">{p.titulo}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/15 text-success font-medium">
+                      {p.confianza}% confianza
+                    </span>
                   </div>
-                  <div className="shrink-0 pt-0.5">
-                    {existingRule ? (
-                      <div className="flex items-center gap-1.5 text-xs text-success font-medium">
-                        <CheckCircle2 className="h-4 w-4" />
-                        <span>Regla activa</span>
-                      </div>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 text-xs gap-1.5 border-success/40 text-success hover:bg-success/10 hover:border-success"
-                        onClick={() => openCrearRegla(p)}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        Crear regla
-                      </Button>
-                    )}
-                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+                    {p.descripcion}
+                  </p>
                 </div>
-              );
-            })}
+                <div className="shrink-0 pt-0.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs gap-1.5 border-success/40 text-success hover:bg-success/10 hover:border-success"
+                    onClick={() => openCrearRegla(p)}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Crear regla
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Footer: existing rules count */}
