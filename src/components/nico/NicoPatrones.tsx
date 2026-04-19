@@ -472,7 +472,7 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       </div>
 
       {tipos.map(tipo => {
-        const patronesTipo = patrones.filter(p => p.tipo === tipo);
+        const patronesTipo = patrones.filter(p => p.tipo === tipo && !sugerenciasIds.has(p.id));
         if (patronesTipo.length === 0) return null;
         const cfg = TIPO_CONFIG[tipo];
         const Icon = cfg.icon;
