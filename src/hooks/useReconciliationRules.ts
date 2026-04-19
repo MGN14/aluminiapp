@@ -91,10 +91,24 @@ export function useReconciliationRules() {
         .select()
         .single();
       if (error) throw error;
+
+      // Archive the source pattern so it stops appearing in the suggestions list.
+      // Only applies to DB patterns (real UUIDs); local computed patterns have
+      // string IDs like 'categoria-dominante' and are not in business_patterns.
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (rule.pattern_ref && UUID_RE.test(rule.pattern_ref)) {
+        await (supabase as any)
+          .from('business_patterns')
+          .update({ status: 'archived' })
+          .eq('id', rule.pattern_ref)
+          .eq('user_id', user!.id);
+      }
+
       return data as unknown as ReconciliationRule;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
+      qc.invalidateQueries({ queryKey: ['business-patterns'] });
     },
   });
 

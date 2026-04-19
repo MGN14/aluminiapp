@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS fiscal_config (
 
 ALTER TABLE fiscal_config ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users manage their own fiscal config" ON fiscal_config;
 CREATE POLICY "Users manage their own fiscal config"
   ON fiscal_config FOR ALL
   USING (auth.uid() = user_id);
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS business_obligations (
 
 ALTER TABLE business_obligations ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users manage their own business obligations" ON business_obligations;
 CREATE POLICY "Users manage their own business obligations"
   ON business_obligations FOR ALL
   USING (auth.uid() = user_id);
