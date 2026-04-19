@@ -1001,6 +1001,93 @@ export type Database = {
         }
         Relationships: []
       }
+      reconciliation_rules: {
+        Row: {
+          active: boolean
+          amount_max: number | null
+          amount_min: number | null
+          auto_conciliate: boolean
+          category_id: string | null
+          category_name: string | null
+          created_at: string
+          day_max: number | null
+          day_min: number | null
+          description: string | null
+          id: string
+          keyword: string | null
+          last_matched_at: string | null
+          match_count: number
+          name: string
+          pattern_ref: string | null
+          responsible_id: string | null
+          responsible_name: string | null
+          tx_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          amount_max?: number | null
+          amount_min?: number | null
+          auto_conciliate?: boolean
+          category_id?: string | null
+          category_name?: string | null
+          created_at?: string
+          day_max?: number | null
+          day_min?: number | null
+          description?: string | null
+          id?: string
+          keyword?: string | null
+          last_matched_at?: string | null
+          match_count?: number
+          name: string
+          pattern_ref?: string | null
+          responsible_id?: string | null
+          responsible_name?: string | null
+          tx_type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          amount_max?: number | null
+          amount_min?: number | null
+          auto_conciliate?: boolean
+          category_id?: string | null
+          category_name?: string | null
+          created_at?: string
+          day_max?: number | null
+          day_min?: number | null
+          description?: string | null
+          id?: string
+          keyword?: string | null
+          last_matched_at?: string | null
+          match_count?: number
+          name?: string
+          pattern_ref?: string | null
+          responsible_id?: string | null
+          responsible_name?: string | null
+          tx_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reconciliation_rules_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_rules_responsible_id_fkey"
+            columns: ["responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       remision_invoices: {
         Row: {
           created_at: string | null
