@@ -109,6 +109,20 @@ export function useReconciliationRules() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reconciliation-rules'] }),
   });
 
+  const updateRule = useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<NewReconciliationRule> }) => {
+      const { data, error } = await (supabase as any)
+        .from('reconciliation_rules')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as unknown as ReconciliationRule;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reconciliation-rules'] }),
+  });
+
   const deleteRule = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await (supabase as any)
@@ -231,6 +245,7 @@ export function useReconciliationRules() {
     rules,
     isLoading,
     createRule,
+    updateRule,
     toggleRule,
     deleteRule,
     applyRulesToStatement,
