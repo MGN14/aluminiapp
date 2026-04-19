@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import SecurityFeatures from '@/components/auth/SecurityFeatures';
 import TestimonialReviews from '@/components/auth/TestimonialReviews';
 import TurnstileWidget from '@/components/auth/TurnstileWidget';
+import { checkRateLimit, recordFailure, recordSuccess, formatRemaining } from '@/lib/rateLimitClient';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -87,20 +88,34 @@ export default function Login() {
 
     setLoading(true);
 
+    // Rate-limit gate: reject if (email, ip) has exceeded the threshold.
+    const gate = await checkRateLimit(email);
+    if (!gate.allowed) {
+      setLoading(false);
+      setCaptchaToken(null);
+      const when = gate.remainingSeconds ? formatRemaining(gate.remainingSeconds) : "unos minutos";
+      setError(`Demasiados intentos fallidos. Intenta de nuevo en ${when}.`);
+      return;
+    }
+
     const { error } = await signIn(email, password, captchaToken);
 
     if (error) {
       // Force captcha reset on any failure so user can't brute-force with one token.
       setCaptchaToken(null);
       if (error.message.includes('Invalid login credentials')) {
+        await recordFailure(email, 'invalid_credentials');
         setError('Correo o contraseña incorrectos');
       } else if (error.message.toLowerCase().includes('captcha')) {
+        await recordFailure(email, 'captcha_failed');
         setError('La verificación anti-bot falló. Inténtalo de nuevo.');
       } else {
+        await recordFailure(email, error.message.slice(0, 200));
         setError(error.message);
       }
       setLoading(false);
     } else {
+      await recordSuccess(email);
       // Navigation will happen via the useEffect when user state updates
       // This prevents race conditions
     }
