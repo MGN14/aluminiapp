@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, FileSpreadsheet, Lock, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import PasswordRequirements from '@/components/auth/PasswordRequirements';
+import { evaluatePassword, translatePasswordError } from '@/lib/passwordPolicy';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -141,8 +143,9 @@ export default function ResetPassword() {
       return;
     }
 
-    if (password.length < 8) {
-      setError('La contraseña debe tener al menos 8 caracteres');
+    const evaluation = evaluatePassword(password);
+    if (!evaluation.valid) {
+      setError('Tu contraseña no cumple con todos los requisitos. Revisa la lista.');
       return;
     }
 
@@ -162,7 +165,7 @@ export default function ResetPassword() {
         setTokenError(true);
         setError('La sesión ha expirado. Solicita un nuevo enlace.');
       } else {
-        setError(updateError.message);
+        setError(translatePasswordError(updateError.message));
       }
     } else {
       setSuccess(true);
@@ -307,6 +310,7 @@ export default function ResetPassword() {
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                  <PasswordRequirements password={password} showWhenEmpty />
                 </div>
 
                 <div className="space-y-2">

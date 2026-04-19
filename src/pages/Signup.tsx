@@ -10,6 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, FileSpreadsheet, CheckCircle, LayoutDashboard, LogOut } from 'lucide-react';
+import PasswordRequirements from '@/components/auth/PasswordRequirements';
+import { evaluatePassword, translatePasswordError } from '@/lib/passwordPolicy';
 
 export default function Signup() {
   const [fullName, setFullName] = useState('');
@@ -32,22 +34,17 @@ export default function Signup() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-    if (password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres');
-      setLoading(false);
+    const evaluation = evaluatePassword(password);
+    if (!evaluation.valid) {
+      setError('Tu contraseña no cumple con todos los requisitos. Revisa la lista.');
       return;
     }
+    setLoading(true);
     const { error } = await signUp(email, password, fullName);
     if (error) {
-      // Translate common Supabase auth error messages to Spanish
-      let msg = error.message;
-      if (msg.includes('weak') || msg.includes('easy to guess')) {
-        msg = 'La contraseña es muy común o fácil de adivinar. Por favor elige una más segura.';
-      } else if (msg.includes('already registered') || msg.includes('already been registered')) {
+      let msg = translatePasswordError(error.message);
+      if (msg.includes('already registered') || msg.includes('already been registered')) {
         msg = 'Este correo ya está registrado. Intenta iniciar sesión.';
-      } else if (msg.includes('rate limit') || msg.includes('too many requests')) {
-        msg = 'Demasiados intentos. Espera un momento antes de intentar de nuevo.';
       }
       setError(msg);
       setLoading(false);
@@ -216,7 +213,8 @@ export default function Signup() {
 
               <div className="space-y-2">
                 <Label htmlFor="password">Contraseña</Label>
-                <Input id="password" type="password" placeholder="Mínimo 6 caracteres" value={password} onChange={e => setPassword(e.target.value)} required className="h-11" />
+                <Input id="password" type="password" placeholder="Mínimo 8 caracteres, 1 mayúscula, 1 número, 1 especial" value={password} onChange={e => setPassword(e.target.value)} required className="h-11" />
+                <PasswordRequirements password={password} showWhenEmpty />
               </div>
 
               <Button type="submit" className="w-full h-11" disabled={loading}>
