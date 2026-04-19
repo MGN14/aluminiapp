@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useReconciliationRules, NewReconciliationRule } from '@/hooks/useReconciliationRules';
+import { useReconciliationRules, NewReconciliationRule, ReconciliationRule } from '@/hooks/useReconciliationRules';
 import { toast } from 'sonner';
 import { Zap, Info, Shield } from 'lucide-react';
 
@@ -28,6 +28,8 @@ interface CrearReglaModalProps {
   open: boolean;
   onClose: () => void;
   patron?: ReglaPatronSugerido;
+  /** When provided, the modal opens in edit mode and updates this rule instead of creating a new one. */
+  editRule?: ReconciliationRule;
 }
 
 function parseCOP(str: string): number | undefined {
@@ -36,9 +38,10 @@ function parseCOP(str: string): number | undefined {
   return isNaN(n) ? undefined : n;
 }
 
-export default function CrearReglaModal({ open, onClose, patron }: CrearReglaModalProps) {
+export default function CrearReglaModal({ open, onClose, patron, editRule }: CrearReglaModalProps) {
   const { user } = useAuth();
-  const { createRule } = useReconciliationRules();
+  const { createRule, updateRule } = useReconciliationRules();
+  const isEdit = !!editRule;
 
   const [name, setName] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -52,20 +55,33 @@ export default function CrearReglaModal({ open, onClose, patron }: CrearReglaMod
   const [autoConciliate, setAutoConciliate] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Pre-fill from patron when it changes
+  // Pre-fill from editRule (priority) or patron when modal opens
   useEffect(() => {
     if (!open) return;
-    setName(patron?.titulo ?? '');
-    setKeyword(patron?.suggestedKeyword ?? '');
-    setTxType(patron?.suggestedType ?? 'egreso');
-    setAmountMin(patron?.suggestedAmountMin?.toLocaleString('es-CO') ?? '');
-    setAmountMax(patron?.suggestedAmountMax?.toLocaleString('es-CO') ?? '');
-    setDayMin('');
-    setDayMax('');
-    setCategoryId('');
-    setResponsibleId('');
-    setAutoConciliate(true);
-  }, [open, patron]);
+    if (editRule) {
+      setName(editRule.name ?? '');
+      setKeyword(editRule.keyword ?? '');
+      setTxType(editRule.tx_type ?? 'egreso');
+      setAmountMin(editRule.amount_min != null ? editRule.amount_min.toLocaleString('es-CO') : '');
+      setAmountMax(editRule.amount_max != null ? editRule.amount_max.toLocaleString('es-CO') : '');
+      setDayMin(editRule.day_min != null ? String(editRule.day_min) : '');
+      setDayMax(editRule.day_max != null ? String(editRule.day_max) : '');
+      setCategoryId(editRule.category_id ?? '');
+      setResponsibleId(editRule.responsible_id ?? '');
+      setAutoConciliate(editRule.auto_conciliate ?? true);
+    } else {
+      setName(patron?.titulo ?? '');
+      setKeyword(patron?.suggestedKeyword ?? '');
+      setTxType(patron?.suggestedType ?? 'egreso');
+      setAmountMin(patron?.suggestedAmountMin?.toLocaleString('es-CO') ?? '');
+      setAmountMax(patron?.suggestedAmountMax?.toLocaleString('es-CO') ?? '');
+      setDayMin('');
+      setDayMax('');
+      setCategoryId('');
+      setResponsibleId('');
+      setAutoConciliate(true);
+    }
+  }, [open, patron, editRule]);
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories-for-rules', user?.id],
@@ -108,9 +124,9 @@ export default function CrearReglaModal({ open, onClose, patron }: CrearReglaMod
     try {
       const categoryIdClean = categoryId && categoryId !== '__none__' ? categoryId : undefined;
       const responsibleIdClean = responsibleId && responsibleId !== '__none__' ? responsibleId : undefined;
-      const rule: NewReconciliationRule = {
+      const payload: NewReconciliationRule = {
         name: name.trim(),
-        pattern_ref: patron?.id,
+        pattern_ref: editRule?.pattern_ref ?? patron?.id,
         keyword: keyword.trim(),
         tx_type: txType,
         amount_min: amountMin ? parseCOP(amountMin) : undefined,
@@ -124,12 +140,17 @@ export default function CrearReglaModal({ open, onClose, patron }: CrearReglaMod
         auto_conciliate: autoConciliate,
       };
 
-      await createRule.mutateAsync(rule);
-      toast.success('¡Regla creada! Nico la aplicará automáticamente en el próximo extracto.');
+      if (isEdit && editRule) {
+        await updateRule.mutateAsync({ id: editRule.id, updates: payload });
+        toast.success('Regla actualizada');
+      } else {
+        await createRule.mutateAsync(payload);
+        toast.success('¡Regla creada! Nico la aplicará automáticamente en el próximo extracto.');
+      }
       onClose();
     } catch (e: any) {
       console.error(e);
-      toast.error('Error al crear la regla: ' + (e?.message ?? 'Intenta de nuevo'));
+      toast.error('Error al guardar la regla: ' + (e?.message ?? 'Intenta de nuevo'));
     } finally {
       setSaving(false);
     }
@@ -141,12 +162,12 @@ export default function CrearReglaModal({ open, onClose, patron }: CrearReglaMod
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-success" />
-            Crear Regla de Conciliación
+            {isEdit ? 'Editar Regla' : 'Crear Regla de Conciliación'}
           </DialogTitle>
         </DialogHeader>
 
-        {/* Pattern source badge */}
-        {patron && (
+        {/* Pattern source badge (only when creating from a suggestion) */}
+        {!isEdit && patron && (
           <div className="flex items-start gap-2 text-xs text-muted-foreground bg-success/5 border border-success/20 rounded-lg p-3">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-success" />
             <div>
@@ -314,7 +335,7 @@ export default function CrearReglaModal({ open, onClose, patron }: CrearReglaMod
             className="gap-2"
           >
             <Zap className="h-4 w-4" />
-            {saving ? 'Creando...' : 'Crear Regla'}
+            {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear Regla'}
           </Button>
         </div>
       </DialogContent>

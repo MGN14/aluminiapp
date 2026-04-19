@@ -413,7 +413,14 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
           {/* Suggestions list */}
           <div className="divide-y divide-success/10">
             {sugerencias.map(p => {
-              const existingRule = rules.find(r => r.pattern_ref === p.id || r.name === p.titulo);
+              // A rule is "active" for this pattern only if a saved rule references it
+              // by pattern_ref OR matches its suggested keyword (case-insensitive).
+              const sugKw = p.suggestedKeyword?.trim().toLowerCase();
+              const existingRule = rules.find(r => {
+                if (r.pattern_ref && r.pattern_ref === p.id) return true;
+                if (sugKw && r.keyword && r.keyword.trim().toLowerCase() === sugKw) return true;
+                return false;
+              });
               return (
                 <div key={p.id} className="flex items-start gap-3 px-4 py-3">
                   <div className="flex-1 min-w-0">
