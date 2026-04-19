@@ -25,6 +25,7 @@ export default function Login() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
   const { signIn, signOut, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -93,6 +94,7 @@ export default function Login() {
     if (!gate.allowed) {
       setLoading(false);
       setCaptchaToken(null);
+      setCaptchaResetKey((k) => k + 1);
       const when = gate.remainingSeconds ? formatRemaining(gate.remainingSeconds) : "unos minutos";
       setError(`Demasiados intentos fallidos. Intenta de nuevo en ${when}.`);
       return;
@@ -103,6 +105,7 @@ export default function Login() {
     if (error) {
       // Force captcha reset on any failure so user can't brute-force with one token.
       setCaptchaToken(null);
+      setCaptchaResetKey((k) => k + 1);
       if (error.message.includes('Invalid login credentials')) {
         await recordFailure(email, 'invalid_credentials');
         setError('Correo o contraseña incorrectos');
@@ -279,6 +282,7 @@ export default function Login() {
 
                   {/* Turnstile (Cloudflare) anti-bot widget */}
                   <TurnstileWidget
+                    resetKey={captchaResetKey}
                     onVerify={setCaptchaToken}
                     onExpire={() => setCaptchaToken(null)}
                     onError={() => setCaptchaToken(null)}

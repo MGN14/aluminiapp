@@ -24,6 +24,7 @@ export default function Signup() {
   const [success, setSuccess] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
   const { signUp, signOut, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -50,6 +51,7 @@ export default function Signup() {
     if (error) {
       // Reset captcha on any failure so user can't brute-force with one token.
       setCaptchaToken(null);
+      setCaptchaResetKey((k) => k + 1);
       let msg = translatePasswordError(error.message);
       if (msg.includes('already registered') || msg.includes('already been registered')) {
         msg = 'Este correo ya está registrado. Intenta iniciar sesión.';
@@ -229,6 +231,7 @@ export default function Signup() {
 
               {/* Turnstile (Cloudflare) anti-bot widget */}
               <TurnstileWidget
+                resetKey={captchaResetKey}
                 onVerify={setCaptchaToken}
                 onExpire={() => setCaptchaToken(null)}
                 onError={() => setCaptchaToken(null)}

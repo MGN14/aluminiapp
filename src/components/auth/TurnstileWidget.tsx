@@ -5,6 +5,12 @@ interface Props {
   onVerify: (token: string) => void;
   onExpire?: () => void;
   onError?: () => void;
+  /**
+   * Changing this value remounts the widget, which forces a fresh challenge
+   * and a new token. Useful after a failed auth attempt to avoid reusing
+   * a stale token that Cloudflare has already consumed.
+   */
+  resetKey?: number | string;
 }
 
 const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
@@ -17,7 +23,7 @@ const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
  * validates the token server-side before accepting the auth call.
  */
 const TurnstileWidget = forwardRef<HTMLDivElement, Props>(function TurnstileWidget(
-  { onVerify, onExpire, onError },
+  { onVerify, onExpire, onError, resetKey },
   ref,
 ) {
   if (!SITE_KEY) {
@@ -33,6 +39,7 @@ const TurnstileWidget = forwardRef<HTMLDivElement, Props>(function TurnstileWidg
   return (
     <div ref={ref} className="flex justify-center">
       <Turnstile
+        key={resetKey ?? "turnstile"}
         siteKey={SITE_KEY}
         onSuccess={onVerify}
         onExpire={onExpire}
