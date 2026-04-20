@@ -25,6 +25,7 @@ import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboar
 import { useOperationalData, CxCCard, AnticiposCard, TopBuyersCard } from '@/components/dashboard/OperationalSummaryCards';
 import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import InitialStateWarning from '@/components/dashboard/InitialStateWarning';
+import FiscalProfileWarning from '@/components/dashboard/FiscalProfileWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import DashboardCustomizeModal from '@/components/dashboard/DashboardCustomizeModal';
@@ -627,6 +628,7 @@ function DashboardContent() {
           </Alert>
         )}
 
+        <FiscalProfileWarning />
         <InitialStateWarning />
         <OnboardingGuide hasTransactions={transactions.length > 0} />
         <TrialChecklist />

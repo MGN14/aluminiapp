@@ -165,18 +165,22 @@ export default function Onboarding() {
         codigo_ciiu: codigoCiiu.trim(),
       });
 
-      // Update profile: company name + full name if provided
-      const profileUpdates: Record<string, any> = { onboarding_completed: true };
-      if (nombreComercial.trim()) profileUpdates.company_name = nombreComercial.trim();
-      if (nombreUsuario.trim()) profileUpdates.full_name = nombreUsuario.trim();
+      // Upsert profile: creates the row if it's missing, updates it otherwise.
+      const profilePayload: Record<string, any> = {
+        user_id: user!.id,
+        onboarding_completed: true,
+      };
+      if (nombreComercial.trim()) profilePayload.company_name = nombreComercial.trim();
+      if (nombreUsuario.trim()) profilePayload.full_name = nombreUsuario.trim();
 
-      await (supabase as any)
+      const { error: profileError } = await (supabase as any)
         .from('profiles')
-        .update(profileUpdates)
-        .eq('user_id', user!.id);
+        .upsert(profilePayload, { onConflict: 'user_id' });
+      if (profileError) throw profileError;
 
       await markComplete();
-      navigate('/dashboard', { replace: true });
+      toast.success('Perfil fiscal guardado. Podés ajustarlo desde Ajustes.');
+      navigate('/settings', { replace: true });
     } catch (err: any) {
       toast.error('Error al guardar: ' + (err?.message ?? 'Intenta de nuevo'));
     } finally {
