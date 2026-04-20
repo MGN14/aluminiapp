@@ -15,7 +15,8 @@ export function useOnboardingStatus() {
         .select('onboarding_completed')
         .eq('user_id', user.id)
         .maybeSingle();
-      if (error) throw error;
+      // Fail open: if column doesn't exist yet, don't block users
+      if (error) return { onboarding_completed: true };
       return data as { onboarding_completed: boolean } | null;
     },
     enabled: !!user?.id,
