@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,21 +10,56 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import PlanBadge from '@/components/subscription/PlanBadge';
-import FiscalProfileCard from '@/components/settings/FiscalProfileCard';
 import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Mail, Building2, Shield, LogOut, Key, Save } from 'lucide-react';
+import { Loader2, Mail, Building2, Shield, LogOut, Key, Save, ClipboardList, Pencil } from 'lucide-react';
+
+function SummaryRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium text-foreground">
+        {value === null || value === undefined || value === '' ? '—' : value}
+      </span>
+    </div>
+  );
+}
+
+const PERSONA_LABEL: Record<string, string> = {
+  natural: 'Persona natural',
+  juridica: 'Persona jurídica',
+};
+
+const REGIMEN_LABEL: Record<string, string> = {
+  comun: 'Régimen Común',
+  simple: 'Régimen Simple',
+  especial: 'Régimen Especial',
+};
+
+const INGRESOS_LABEL: Record<string, string> = {
+  menos_92k_uvt: 'Menos de 92.000 UVT',
+  mas_92k_uvt: 'Más de 92.000 UVT',
+};
+
+const ACTIVIDAD_LABEL: Record<string, string> = {
+  comercial: 'Comercial',
+  servicios: 'Servicios',
+  industrial: 'Industrial / producción',
+  construccion: 'Construcción',
+  otro: 'Otro',
+};
 
 export default function Settings() {
   const { user, signOut } = useAuth();
   const { plan, isFounder } = useSubscription();
+  const { config: fiscalConfig } = useFiscalConfig();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const [companyName, setCompanyName] = useState('');
-  const [companyInitial, setCompanyInitial] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -35,7 +71,7 @@ export default function Settings() {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('company_name, company_initial')
+          .select('company_name')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -43,7 +79,6 @@ export default function Settings() {
 
         if (data) {
           setCompanyName(data.company_name || '');
-          setCompanyInitial(data.company_initial || '');
         }
       } catch (error) {
         console.error('Error loading profile:', error);
@@ -60,20 +95,20 @@ export default function Settings() {
 
     setSaving(true);
     try {
-      const validInitial = companyInitial.trim().charAt(0).toUpperCase() || null;
+      const trimmedName = companyName.trim();
+      // Inicial se deriva automáticamente de la primera letra del nombre
+      const derivedInitial = trimmedName.charAt(0).toUpperCase() || null;
 
       const { error } = await supabase
         .from('profiles')
         .update({
-          company_name: companyName.trim() || null,
-          company_initial: validInitial,
+          company_name: trimmedName || null,
+          company_initial: derivedInitial,
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', user.id);
 
       if (error) throw error;
-
-      setCompanyInitial(validInitial || '');
 
       toast({
         title: 'Cambios guardados',
@@ -90,6 +125,14 @@ export default function Settings() {
       setSaving(false);
     }
   };
+
+  // Responsabilidades seleccionadas como badges (sólo las que son true)
+  const responsabilidades: { key: string; label: string }[] = [];
+  if (fiscalConfig?.responsable_iva) responsabilidades.push({ key: 'iva', label: 'Responsable de IVA' });
+  if (fiscalConfig?.agente_retencion) responsabilidades.push({ key: 'ret', label: 'Agente de retención' });
+  if (fiscalConfig?.autorretenedor) responsabilidades.push({ key: 'auto', label: 'Autorretenedor' });
+  if (fiscalConfig?.responsable_ica) responsabilidades.push({ key: 'ica', label: 'Paga ICA' });
+  if (fiscalConfig?.facturacion_electronica) responsabilidades.push({ key: 'fe', label: 'Facturación electrónica' });
 
   const handleChangePassword = () => {
     navigate('/forgot-password');
@@ -146,16 +189,16 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Section 2: Company */}
+        {/* Section 2: Company + Fiscal Profile summary */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Building2 className="h-5 w-5 text-muted-foreground" />
               Empresa
             </CardTitle>
-            <CardDescription>Información de tu empresa</CardDescription>
+            <CardDescription>Información de tu empresa y perfil fiscal</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="companyName">Nombre de la empresa</Label>
               <Input
@@ -164,20 +207,8 @@ export default function Settings() {
                 onChange={(e) => setCompanyName(e.target.value)}
                 placeholder="Ej: Mi Empresa S.A.S."
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="companyInitial">Inicial de la empresa</Label>
-              <Input
-                id="companyInitial"
-                value={companyInitial}
-                onChange={(e) => setCompanyInitial(e.target.value.charAt(0).toUpperCase())}
-                placeholder="Ej: M"
-                maxLength={1}
-                className="w-20"
-              />
               <p className="text-xs text-muted-foreground">
-                Esta letra se mostrará en tu avatar del header.
+                La inicial de tu avatar se toma automáticamente de la primera letra del nombre.
               </p>
             </div>
 
@@ -198,19 +229,78 @@ export default function Settings() {
                 </>
               )}
             </Button>
+
+            <Separator />
+
+            {/* Fiscal summary (read-only) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Perfil fiscal</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/onboarding')}
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Editar perfil fiscal
+                </Button>
+              </div>
+
+              {!fiscalConfig ? (
+                <p className="text-sm text-muted-foreground">
+                  Aún no has configurado tu perfil fiscal.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                  <SummaryRow label="Tipo de persona" value={fiscalConfig.persona_type ? PERSONA_LABEL[fiscalConfig.persona_type] : null} />
+                  <SummaryRow
+                    label="NIT"
+                    value={
+                      fiscalConfig.nit_ultimo_digito != null
+                        ? `…${fiscalConfig.nit_ultimo_digito}${fiscalConfig.nit_digit != null ? `-${fiscalConfig.nit_digit}` : ''}`
+                        : null
+                    }
+                  />
+                  <SummaryRow label="Régimen" value={fiscalConfig.regimen ? REGIMEN_LABEL[fiscalConfig.regimen] : null} />
+                  <SummaryRow label="Ingresos año anterior" value={fiscalConfig.nivel_ingresos ? INGRESOS_LABEL[fiscalConfig.nivel_ingresos] : null} />
+                  <SummaryRow label="Actividad principal" value={fiscalConfig.actividad_principal ? ACTIVIDAD_LABEL[fiscalConfig.actividad_principal] : null} />
+                  <SummaryRow label="Código CIIU" value={fiscalConfig.codigo_ciiu} />
+                  {fiscalConfig.facturacion_electronica && (
+                    <SummaryRow label="Facturador electrónico" value={fiscalConfig.nombre_facturador || '—'} />
+                  )}
+                </div>
+              )}
+
+              {fiscalConfig && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">Responsabilidades</p>
+                  {responsabilidades.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">Ninguna marcada</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {responsabilidades.map(r => (
+                        <Badge key={r.key} variant="secondary" className="font-normal">
+                          {r.label}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
-        {/* Section 3: Fiscal Profile (10 onboarding answers) */}
-        <FiscalProfileCard />
-
-        {/* Section 4: Tax rates */}
+        {/* Section 3: Tax rates */}
         <TaxSettingsCard />
 
-        {/* Section 5: Initial Financial State */}
+        {/* Section 4: Initial Financial State */}
         <InitialFinancialStateCard />
 
-        {/* Section 6: Security */}
+        {/* Section 5: Security */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">

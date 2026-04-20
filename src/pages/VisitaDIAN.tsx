@@ -13,11 +13,13 @@ import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useBusinessObligations } from '@/hooks/useBusinessObligations';
 import {
   VENCIMIENTOS_IVA_2026,
+  VENCIMIENTOS_IVA_CUATRIMESTRAL_2026,
   VENCIMIENTOS_RETEFUENTE_2026,
   VENCIMIENTOS_RENTA_JURIDICA_2026,
   VENCIMIENTOS_RENTA_NATURAL_2026,
   VENCIMIENTOS_ICA_BOGOTA_2026,
   PERIODOS_IVA,
+  PERIODOS_IVA_CUATRIMESTRAL,
   MESES_RETEFUENTE,
   PERIODOS_ICA,
   CalendarEvent,
@@ -37,8 +39,20 @@ export default function VisitaDIAN() {
   const [nitInput, setNitInput] = useState('');
   const [rentaType, setRentaType] = useState<'juridica' | 'natural'>('juridica');
 
-  const nitDigit = config?.nit_digit ?? null;
-  const effectiveRentaType = config?.renta_type ?? 'juridica';
+  // Último dígito del NIT (antes del guión) — es lo que usa DIAN para el calendario.
+  // Nota: `config.nit_digit` es el dígito de verificación (después del guión), no sirve acá.
+  const nitDigit = config?.nit_ultimo_digito ?? null;
+  const effectiveRentaType = config?.persona_type === 'natural' ? 'natural' : (config?.renta_type ?? 'juridica');
+
+  // Perfil fiscal — determina qué obligaciones mostrar
+  const responsableIva = config?.responsable_iva ?? true;
+  const agenteRetencion = config?.agente_retencion ?? false;
+  const autorretenedor = config?.autorretenedor ?? false;
+  const responsableIca = config?.responsable_ica ?? true;
+  const regimen = config?.regimen ?? 'comun';
+  const nivelIngresos = config?.nivel_ingresos ?? 'mas_92k_uvt';
+  // IVA cuatrimestral solo para régimen común con ingresos < 92.000 UVT
+  const ivaCuatrimestral = regimen === 'comun' && nivelIngresos === 'menos_92k_uvt';
 
   // Abrir edición automáticamente si falta NIT
   useEffect(() => {
@@ -56,8 +70,9 @@ export default function VisitaDIAN() {
   const handleSaveNit = async () => {
     const nit = nitInput.replace(/\D/g, '');
     if (!nit.length) return;
+    // Input del usuario: último dígito del NIT (antes del guión).
     const digit = parseInt(nit[nit.length - 1]);
-    await saveConfig.mutateAsync({ nit_digit: digit, renta_type: rentaType });
+    await saveConfig.mutateAsync({ nit_ultimo_digito: digit, renta_type: rentaType });
     setEditingFiscal(false);
   };
 
@@ -65,29 +80,46 @@ export default function VisitaDIAN() {
   const events: CalendarEvent[] = useMemo(() => {
     const list: CalendarEvent[] = [];
     if (nitDigit !== null) {
-      // IVA
-      VENCIMIENTOS_IVA_2026[nitDigit]?.forEach((fecha, i) => {
-        list.push({
-          id: `iva-${i}`,
-          tipo: 'iva',
-          descripcion: `IVA Bimestral — ${PERIODOS_IVA[i]}`,
-          fecha: new Date(fecha + 'T12:00:00'),
-          periodo: PERIODOS_IVA[i],
-          origen: 'dian',
+      // IVA — solo si es responsable. Régimen simple no declara IVA por separado.
+      if (responsableIva && regimen !== 'simple') {
+        if (ivaCuatrimestral) {
+          VENCIMIENTOS_IVA_CUATRIMESTRAL_2026[nitDigit]?.forEach((fecha, i) => {
+            list.push({
+              id: `iva-${i}`,
+              tipo: 'iva',
+              descripcion: `IVA Cuatrimestral — ${PERIODOS_IVA_CUATRIMESTRAL[i]}`,
+              fecha: new Date(fecha + 'T12:00:00'),
+              periodo: PERIODOS_IVA_CUATRIMESTRAL[i],
+              origen: 'dian',
+            });
+          });
+        } else {
+          VENCIMIENTOS_IVA_2026[nitDigit]?.forEach((fecha, i) => {
+            list.push({
+              id: `iva-${i}`,
+              tipo: 'iva',
+              descripcion: `IVA Bimestral — ${PERIODOS_IVA[i]}`,
+              fecha: new Date(fecha + 'T12:00:00'),
+              periodo: PERIODOS_IVA[i],
+              origen: 'dian',
+            });
+          });
+        }
+      }
+      // Retefuente — solo si es agente de retención o autorretenedor
+      if (agenteRetencion || autorretenedor) {
+        VENCIMIENTOS_RETEFUENTE_2026[nitDigit]?.forEach((fecha, i) => {
+          list.push({
+            id: `ret-${i}`,
+            tipo: 'retefuente',
+            descripcion: `Retención en la Fuente — ${MESES_RETEFUENTE[i]}`,
+            fecha: new Date(fecha + 'T12:00:00'),
+            periodo: MESES_RETEFUENTE[i],
+            origen: 'dian',
+          });
         });
-      });
-      // Retefuente
-      VENCIMIENTOS_RETEFUENTE_2026[nitDigit]?.forEach((fecha, i) => {
-        list.push({
-          id: `ret-${i}`,
-          tipo: 'retefuente',
-          descripcion: `Retención en la Fuente — ${MESES_RETEFUENTE[i]}`,
-          fecha: new Date(fecha + 'T12:00:00'),
-          periodo: MESES_RETEFUENTE[i],
-          origen: 'dian',
-        });
-      });
-      // Renta
+      }
+      // Renta — aplica a todos los declarantes
       const rentaMap = effectiveRentaType === 'natural'
         ? VENCIMIENTOS_RENTA_NATURAL_2026
         : VENCIMIENTOS_RENTA_JURIDICA_2026;
@@ -102,17 +134,19 @@ export default function VisitaDIAN() {
           origen: 'dian',
         });
       }
-      // ICA Bogotá
-      VENCIMIENTOS_ICA_BOGOTA_2026[nitDigit]?.forEach((fecha, i) => {
-        list.push({
-          id: `ica-${i}`,
-          tipo: 'ica',
-          descripcion: `ICA Bogotá — ${PERIODOS_ICA[i]}`,
-          fecha: new Date(fecha + 'T12:00:00'),
-          periodo: PERIODOS_ICA[i],
-          origen: 'ica',
+      // ICA Bogotá — solo si es responsable
+      if (responsableIca) {
+        VENCIMIENTOS_ICA_BOGOTA_2026[nitDigit]?.forEach((fecha, i) => {
+          list.push({
+            id: `ica-${i}`,
+            tipo: 'ica',
+            descripcion: `ICA Bogotá — ${PERIODOS_ICA[i]}`,
+            fecha: new Date(fecha + 'T12:00:00'),
+            periodo: PERIODOS_ICA[i],
+            origen: 'ica',
+          });
         });
-      });
+      }
     }
 
     // Obligaciones del negocio — generar evento por mes (12 meses desde hoy)
@@ -140,7 +174,7 @@ export default function VisitaDIAN() {
     }
 
     return list;
-  }, [nitDigit, effectiveRentaType, obligations]);
+  }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral]);
 
   // Próximas urgentes (≤ 15 días)
   const urgentes = useMemo(() => {

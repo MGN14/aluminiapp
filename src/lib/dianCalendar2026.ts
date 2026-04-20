@@ -19,6 +19,18 @@ export const VENCIMIENTOS_IVA_2026: Record<number, string[]> = {
 
 export const PERIODOS_IVA = ['Ene-Feb', 'Mar-Abr', 'May-Jun', 'Jul-Ago', 'Sep-Oct', 'Nov-Dic'];
 
+// IVA Cuatrimestral 2026 — aplica a régimen común con ingresos < 92.000 UVT del año anterior.
+// 3 períodos: Ene-Abr (vence mayo), May-Ago (vence sep), Sep-Dic (vence ene 2027).
+// Fechas tomadas de VENCIMIENTOS_IVA_2026 en los índices 1, 3, 5 — son los mismos vencimientos DIAN.
+export const VENCIMIENTOS_IVA_CUATRIMESTRAL_2026: Record<number, string[]> = Object.fromEntries(
+  Object.entries(VENCIMIENTOS_IVA_2026).map(([digit, dates]) => [
+    digit,
+    [dates[1], dates[3], dates[5]],
+  ]),
+) as Record<number, string[]>;
+
+export const PERIODOS_IVA_CUATRIMESTRAL = ['Ene-Abr', 'May-Ago', 'Sep-Dic'];
+
 export const VENCIMIENTOS_RETEFUENTE_2026: Record<number, string[]> = {
   0: ['2026-02-10','2026-03-10','2026-04-09','2026-05-12','2026-06-09','2026-07-09','2026-08-11','2026-09-09','2026-10-08','2026-11-10','2026-12-09','2027-01-12'],
   1: ['2026-02-11','2026-03-11','2026-04-10','2026-05-13','2026-06-10','2026-07-10','2026-08-12','2026-09-10','2026-10-09','2026-11-11','2026-12-10','2027-01-13'],
