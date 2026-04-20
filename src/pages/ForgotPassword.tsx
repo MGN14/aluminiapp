@@ -39,17 +39,23 @@ export default function ForgotPassword() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const options: Parameters<typeof supabase.auth.resetPasswordForEmail>[1] & { captchaToken?: string } = {
       redirectTo: `${window.location.origin}/reset-password`,
-      captchaToken,
-    } as any);
+    };
+    if (captchaToken) options.captchaToken = captchaToken;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, options as any);
 
     setLoading(false);
 
     if (error) {
       setCaptchaToken(null);
       setCaptchaResetKey(k => k + 1);
-      setError(error.message);
+      // Translate the captcha error to something actionable
+      const msg = error.message.toLowerCase().includes('captcha')
+        ? 'Error en la verificación anti-bot. Recargá la página e intentá de nuevo.'
+        : error.message;
+      setError(msg);
     } else {
       setSent(true);
     }
