@@ -46,11 +46,13 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
       const { data: statements } = await supabase
         .from('bank_statements')
         .select('statement_year')
+        .is('deleted_at', null)
         .order('statement_year', { ascending: false });
 
       const { data: transactions } = await supabase
         .from('transactions')
         .select('date')
+        .is('deleted_at', null)
         .order('date', { ascending: false });
 
       const yearsSet = new Set<number>();
@@ -101,9 +103,10 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
       const { data: statement } = await supabase
         .from('bank_statements')
         .select('statement_month, statement_year')
+        .is('deleted_at', null)
         .order('uploaded_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (statement?.statement_month && statement?.statement_year) {
         const savedType = (localStorage.getItem('dashboard_period_type') as PeriodType) || 'year';
@@ -117,9 +120,10 @@ export function UnifiedPeriodFilter({ selection, onSelectionChange }: UnifiedPer
         const { data: transaction } = await supabase
           .from('transactions')
           .select('date')
+          .is('deleted_at', null)
           .order('date', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
 
         if (transaction?.date) {
           const date = parseLocalDate(transaction.date);

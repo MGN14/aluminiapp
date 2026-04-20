@@ -32,12 +32,14 @@ export function PeriodSelector({ selectedMonth, selectedYear, onPeriodChange }: 
       const { data: statements } = await supabase
         .from('bank_statements')
         .select('statement_year, uploaded_at')
+        .is('deleted_at', null)
         .order('uploaded_at', { ascending: false });
 
       // Get years from transactions as fallback
       const { data: transactions } = await supabase
         .from('transactions')
         .select('date')
+        .is('deleted_at', null)
         .order('date', { ascending: false });
 
       const yearsSet = new Set<number>();
@@ -84,9 +86,10 @@ export function PeriodSelector({ selectedMonth, selectedYear, onPeriodChange }: 
       const { data: statement } = await supabase
         .from('bank_statements')
         .select('statement_month, statement_year')
+        .is('deleted_at', null)
         .order('uploaded_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (statement?.statement_month && statement?.statement_year) {
         onPeriodChange(statement.statement_month, statement.statement_year);
@@ -95,9 +98,10 @@ export function PeriodSelector({ selectedMonth, selectedYear, onPeriodChange }: 
         const { data: transaction } = await supabase
           .from('transactions')
           .select('date')
+          .is('deleted_at', null)
           .order('date', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
 
         if (transaction?.date) {
           const date = parseLocalDate(transaction.date);

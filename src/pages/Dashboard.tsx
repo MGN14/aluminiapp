@@ -204,13 +204,13 @@ function DashboardContent() {
   const initializePeriodFromData = async () => {
     try {
       const preferredType = savedPeriodType || 'year';
-      const { data: statement } = await supabase.from('bank_statements').select('statement_month, statement_year').order('uploaded_at', { ascending: false }).limit(1).single();
+      const { data: statement } = await supabase.from('bank_statements').select('statement_month, statement_year').is('deleted_at', null).order('uploaded_at', { ascending: false }).limit(1).maybeSingle();
       if (statement?.statement_month && statement?.statement_year) {
         setPeriodSelectionRaw({ type: preferredType, month: statement.statement_month, quarter: Math.ceil(statement.statement_month / 3), year: statement.statement_year });
         setPeriodInitialized(true);
         return;
       }
-      const { data: transaction } = await supabase.from('transactions').select('date').order('date', { ascending: false }).limit(1).single();
+      const { data: transaction } = await supabase.from('transactions').select('date').is('deleted_at', null).order('date', { ascending: false }).limit(1).maybeSingle();
       if (transaction?.date) {
         const date = parseLocalDate(transaction.date);
         const month = date.getMonth() + 1;

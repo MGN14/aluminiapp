@@ -174,6 +174,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .from('transactions')
           .select('id, date')
           .eq('user_id', user.id)
+          .is('deleted_at', null)
           .in('id', matchTransactionIds);
 
         if (matchTransactionsError) throw matchTransactionsError;

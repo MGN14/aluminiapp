@@ -23,6 +23,9 @@ interface Insight {
 interface CFOInsightsProps {
   periodSelection: PeriodSelection;
   hasTransactions: boolean;
+  title?: string;
+  subtitle?: string;
+  emptySubtitle?: string;
 }
 
 type InsightColor = 'red' | 'orange' | 'blue' | 'green' | 'gray';
@@ -128,7 +131,11 @@ function buildNicoQuestion(insight: Insight): string {
   }
 }
 
-export default function CFOInsights({ periodSelection, hasTransactions }: CFOInsightsProps) {
+export default function CFOInsights({ periodSelection, hasTransactions, title, subtitle, emptySubtitle }: CFOInsightsProps) {
+  const heading = title ?? 'Nico analizó tu negocio hoy';
+  const loadingSubtitle = subtitle ?? 'Analizando tus números...';
+  const activeSubtitle = subtitle ?? 'Esto es lo más importante que encontró en tus números.';
+  const emptyCopy = emptySubtitle ?? 'Aún no tengo suficiente información para darte insights. Sube un extracto y una factura para arrancar.';
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,10 +202,8 @@ export default function CFOInsights({ periodSelection, hasTransactions }: CFOIns
             <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold text-foreground mb-1">Nico analizó tu negocio hoy</h3>
-            <p className="text-sm text-muted-foreground">
-              Aún no tengo suficiente información para darte insights. Sube un extracto y una factura para arrancar.
-            </p>
+            <h3 className="font-semibold text-foreground mb-1">{heading}</h3>
+            <p className="text-sm text-muted-foreground">{emptyCopy}</p>
           </div>
           <Link to="/statement-upload">
             <Button variant="outline" size="sm" className="gap-2">
@@ -219,8 +224,8 @@ export default function CFOInsights({ periodSelection, hasTransactions }: CFOIns
             <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-foreground">Nico analizó tu negocio hoy</h2>
-            <p className="text-sm text-muted-foreground">Analizando tus números...</p>
+            <h2 className="text-lg font-bold text-foreground">{heading}</h2>
+            <p className="text-sm text-muted-foreground">{loadingSubtitle}</p>
           </div>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -256,8 +261,8 @@ export default function CFOInsights({ periodSelection, hasTransactions }: CFOIns
           <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
         </div>
         <div>
-          <h2 className="text-lg font-bold text-foreground">Nico analizó tu negocio hoy</h2>
-          <p className="text-sm text-muted-foreground">Esto es lo más importante que encontró en tus números.</p>
+          <h2 className="text-lg font-bold text-foreground">{heading}</h2>
+          <p className="text-sm text-muted-foreground">{activeSubtitle}</p>
         </div>
       </div>
 

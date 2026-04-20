@@ -61,6 +61,22 @@ export default function DeleteStatementButton({
     try {
       const now = new Date().toISOString();
 
+      // Collect transaction IDs first so we can clean up invoice matches.
+      // Reconciliation reports read matches without re-checking transaction.deleted_at,
+      // so leaving them behind causes deleted extracts to keep showing up.
+      const { data: txRows } = await supabase
+        .from('transactions')
+        .select('id')
+        .eq('statement_id', statementId);
+      const txIds = (txRows ?? []).map(r => r.id);
+
+      if (txIds.length > 0) {
+        await supabase
+          .from('invoice_transaction_matches')
+          .delete()
+          .in('transaction_id', txIds);
+      }
+
       // Soft delete transactions (set deleted_at)
       const { error: txError } = await supabase
         .from('transactions')

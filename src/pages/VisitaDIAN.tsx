@@ -2,15 +2,21 @@ import { useState, useMemo, useEffect } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import CalendarioMensual from '@/components/dian/CalendarioMensual';
 import ConfigurarObligacionesNegocio from '@/components/dian/ConfigurarObligacionesNegocio';
+import CFOInsights from '@/components/dashboard/CFOInsights';
+import { PeriodSelection } from '@/components/dashboard/UnifiedPeriodFilter';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ShieldCheck, Settings, AlertTriangle, Info, Edit2 } from 'lucide-react';
+import { ShieldCheck, Settings, AlertTriangle, Info, Edit2, MessageCircle } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useBusinessObligations } from '@/hooks/useBusinessObligations';
+import { useFinancialHealthScore } from '@/hooks/useFinancialHealthScore';
+import { useNico } from '@/hooks/useNicoContext';
+import { supabase } from '@/integrations/supabase/client';
 import {
   VENCIMIENTOS_IVA_2026,
   VENCIMIENTOS_IVA_CUATRIMESTRAL_2026,
@@ -30,9 +36,91 @@ function diasRestantes(fecha: Date): number {
   return Math.ceil((fecha.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
+const SCORE_COLORS = {
+  conciliacion: 'hsl(217, 91%, 60%)',
+  facturacion: 'hsl(152, 69%, 40%)',
+  impuestos: 'hsl(24, 95%, 53%)',
+  cartera: 'hsl(280, 84%, 60%)',
+  clasificacion: 'hsl(220, 9%, 46%)',
+};
+
+const SCORE_VARIABLES = [
+  { key: 'conciliacion', label: 'Conciliación Bancaria', color: SCORE_COLORS.conciliacion },
+  { key: 'facturacion', label: 'Facturación Soportada', color: SCORE_COLORS.facturacion },
+  { key: 'impuestos', label: 'Control de Impuestos', color: SCORE_COLORS.impuestos },
+  { key: 'cartera', label: 'Cartera y Anticipos', color: SCORE_COLORS.cartera },
+  { key: 'clasificacion', label: 'Clasificación Financiera', color: SCORE_COLORS.clasificacion },
+] as const;
+
+function getRiskLevel(score: number): { label: string; color: string } {
+  if (score >= 90) return { label: 'Bajo', color: 'text-success' };
+  if (score >= 80) return { label: 'Moderado', color: 'text-success' };
+  if (score >= 50) return { label: 'Alto', color: 'text-warning' };
+  return { label: 'Crítico', color: 'text-destructive' };
+}
+
+function getNicoMessage(score: number): { line1: string; line2: string } {
+  if (score >= 90) return {
+    line1: 'Todo en orden. Si la DIAN revisa hoy, no tendrías problemas.',
+    line2: 'Sigue así y mantén tu disciplina financiera.',
+  };
+  if (score >= 80) return {
+    line1: 'Casi listo, podrías tener observaciones menores.',
+    line2: 'Unos ajustes más y quedas tranquilo ante una revisión.',
+  };
+  if (score >= 50) return {
+    line1: 'Tienes desorden en varias áreas clave.',
+    line2: 'Aún estás a tiempo de corregirlo antes de una revisión.',
+  };
+  return {
+    line1: 'Tu situación fiscal necesita atención urgente.',
+    line2: 'Una visita de la DIAN podría resultar en sanciones.',
+  };
+}
+
 export default function VisitaDIAN() {
   const { config, saveConfig } = useFiscalConfig();
   const { obligations } = useBusinessObligations();
+  const { openNico, setPageContext } = useNico();
+
+  const currentYear = new Date().getFullYear();
+  const { scores } = useFinancialHealthScore(currentYear);
+
+  const [hasTransactions, setHasTransactions] = useState(false);
+  useEffect(() => {
+    supabase.from('transactions').select('id', { count: 'exact', head: true }).is('deleted_at', null).then(({ count }) => {
+      setHasTransactions((count ?? 0) > 0);
+    });
+  }, []);
+
+  const now = new Date();
+  const insightsPeriod: PeriodSelection = useMemo(() => ({
+    type: 'year' as const,
+    month: now.getMonth() + 1,
+    quarter: Math.ceil((now.getMonth() + 1) / 3),
+    year: currentYear,
+  }), [currentYear]);
+
+  const donutData = useMemo(() => {
+    if (!scores) return [];
+    return SCORE_VARIABLES.map((v) => ({
+      name: v.label,
+      value: scores[v.key as keyof typeof scores] as number,
+      color: v.color,
+    }));
+  }, [scores]);
+
+  const bgValue = scores ? Math.max(0, 100 - scores.total) : 100;
+  const risk = scores ? getRiskLevel(scores.total) : null;
+  const nicoMsg = scores ? getNicoMessage(scores.total) : null;
+
+  const handleAskNico = () => {
+    setPageContext({ page: 'financial-health', filters: { year: currentYear } });
+    openNico();
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('nico-prefill', { detail: { message: '¿Qué problemas podría encontrarme la DIAN?' } }));
+    }, 300);
+  };
 
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [editingFiscal, setEditingFiscal] = useState(false);
@@ -261,6 +349,70 @@ export default function VisitaDIAN() {
             </CardContent>
           </Card>
         )}
+
+        {/* Score salud financiera */}
+        {scores && risk && nicoMsg && (
+          <div className="rounded-3xl border border-border/50 bg-gradient-to-br from-card via-card to-muted/20 p-6 md:p-8 shadow-sm">
+            <div className="flex flex-col md:flex-row items-center gap-8">
+              <div className="relative w-44 h-44 shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={[{ value: 100 }]} dataKey="value" cx="50%" cy="50%" innerRadius={54} outerRadius={72} startAngle={90} endAngle={-270} stroke="none">
+                      <Cell fill="hsl(var(--muted))" />
+                    </Pie>
+                    <Pie data={[...donutData, { name: 'empty', value: bgValue, color: 'transparent' }]} dataKey="value" cx="50%" cy="50%" innerRadius={54} outerRadius={72} startAngle={90} endAngle={-270} stroke="none" paddingAngle={1}>
+                      {donutData.map((entry, index) => (
+                        <Cell key={index} fill={entry.color} />
+                      ))}
+                      <Cell fill="transparent" />
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className={`text-4xl font-bold tracking-tight ${risk.color}`}>{scores.total}</span>
+                  <span className="text-xs text-muted-foreground font-medium">/100</span>
+                </div>
+              </div>
+              <div className="flex-1 space-y-4 text-center md:text-left">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Score salud financiera</p>
+                  <h2 className={`text-xl font-bold tracking-tight ${risk.color}`}>Riesgo {risk.label}</h2>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">{nicoMsg.line1}</p>
+                  <p className="text-sm text-muted-foreground">{nicoMsg.line2}</p>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center md:justify-start">
+                  {donutData.map((seg) => (
+                    <div key={seg.name} className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: seg.color }} />
+                      <span className="text-[11px] text-muted-foreground">{seg.name}</span>
+                      <span className="text-[11px] font-bold text-foreground">{seg.value}</span>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs gap-2 text-success hover:text-success hover:bg-success/10 rounded-xl"
+                  onClick={handleAskNico}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Preguntar a Nico
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Posibles problemas ante la DIAN (Nico insights) */}
+        <CFOInsights
+          periodSelection={insightsPeriod}
+          hasTransactions={hasTransactions}
+          title="Posibles problemas ante la DIAN"
+          subtitle="Esto es lo que la DIAN podría observarte hoy."
+          emptySubtitle="Aún no tengo suficiente información para anticipar problemas. Sube un extracto y una factura para arrancar."
+        />
 
         {/* Próximas urgentes */}
         {urgentes.length > 0 && (
