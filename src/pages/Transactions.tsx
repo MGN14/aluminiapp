@@ -98,7 +98,7 @@ export default function Transactions() {
 
   useEffect(() => {
     fetchTransactions();
-  }, [selectedStatement, selectedYear]);
+  }, [selectedStatement, selectedYear, statements]);
 
   const fetchStatements = async () => {
     const { data } = await supabase
@@ -177,6 +177,16 @@ export default function Transactions() {
 
       if (selectedStatement !== 'all') {
         query = query.eq('statement_id', selectedStatement);
+      } else {
+        // Defensive: only show transactions tied to currently-active statements.
+        // Protects against orphans when an older delete didn't cascade cleanly.
+        const activeStatementIds = statements.map((s) => s.id);
+        if (activeStatementIds.length === 0) {
+          setTransactions([]);
+          setLoading(false);
+          return;
+        }
+        query = query.in('statement_id', activeStatementIds);
       }
 
       // Apply historyMonths filter for plans with limited history
