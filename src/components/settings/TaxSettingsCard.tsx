@@ -1,35 +1,36 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Save, Calculator, Info } from 'lucide-react';
+import { Loader2, Save, Percent, Info } from 'lucide-react';
 
 interface TaxConfig {
   reteica_city: string;
   reteica_rate: string; // percentage string for display
   autoretefuente_rate: string;
   retefuente_compra_rate: string;
-  is_autorretenedor: boolean;
 }
 
 export default function TaxSettingsCard() {
   const { user } = useAuth();
+  const { config: fiscalConfig } = useFiscalConfig();
   const { toast } = useToast();
   const [config, setConfig] = useState<TaxConfig>({
     reteica_city: '',
     reteica_rate: '',
     autoretefuente_rate: '',
     retefuente_compra_rate: '',
-    is_autorretenedor: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const isAutorretenedor = fiscalConfig?.autorretenedor ?? false;
 
   useEffect(() => {
     if (!user) return;
@@ -52,7 +53,6 @@ export default function TaxSettingsCard() {
           reteica_rate: data.reteica_rate ? (data.reteica_rate * 100).toString() : '',
           autoretefuente_rate: data.autoretefuente_rate ? (data.autoretefuente_rate * 100).toString() : '',
           retefuente_compra_rate: data.retefuente_compra_rate ? (data.retefuente_compra_rate * 100).toString() : '',
-          is_autorretenedor: data.is_autorretenedor || false,
         });
       }
     } catch (error) {
@@ -93,7 +93,7 @@ export default function TaxSettingsCard() {
         reteica_rate: reteicaRate / 100,
         autoretefuente_rate: autoretefuenteRate / 100,
         retefuente_compra_rate: retefuenteCompraRate / 100,
-        is_autorretenedor: config.is_autorretenedor,
+        is_autorretenedor: isAutorretenedor,
         updated_at: new Date().toISOString(),
       };
 
@@ -137,38 +137,24 @@ export default function TaxSettingsCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
-          <Calculator className="h-5 w-5 text-muted-foreground" />
-          Configuración Fiscal
+          <Percent className="h-5 w-5 text-muted-foreground" />
+          Tasas fiscales
         </CardTitle>
         <CardDescription>
-          Estas tasas se usan para calcular automáticamente los impuestos en facturas y transacciones
+          Porcentajes usados para calcular automáticamente los impuestos en facturas y transacciones
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <Alert className="bg-muted/50 border-muted">
           <Info className="h-4 w-4" />
           <AlertDescription className="text-xs">
-            Configura estas tasas antes de subir facturas. Los valores se aplicarán automáticamente sobre la base gravable de cada factura.
+            Configurá estas tasas antes de subir facturas. Los valores se aplicarán automáticamente sobre la base gravable de cada factura.
           </AlertDescription>
         </Alert>
 
-        {/* Autorretenedor toggle */}
-        <div className="flex items-center justify-between p-3 rounded-md border border-border">
-          <div>
-            <Label className="font-medium">¿Es autorretenedor?</Label>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Activa si tu empresa es agente autorretenedor de renta
-            </p>
-          </div>
-          <Switch
-            checked={config.is_autorretenedor}
-            onCheckedChange={(checked) => setConfig(prev => ({ ...prev, is_autorretenedor: checked }))}
-          />
-        </div>
-
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Autorretefuente */}
-          {config.is_autorretenedor && (
+          {isAutorretenedor && (
             <div className="space-y-2">
               <Label>Tasa Autorretefuente (%)</Label>
               <Input
