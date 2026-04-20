@@ -362,6 +362,36 @@ export default function Transactions() {
             </div>
           </div>
 
+          {/* Reconciliation progress */}
+          <div style={{
+            background:'#fff', borderRadius:14,
+            border:'1.5px solid rgba(0,0,0,0.07)',
+            padding:'14px 20px', marginBottom:14,
+            display:'flex', alignItems:'center', gap:20,
+            boxShadow:'0 1px 3px rgba(0,0,0,0.06)',
+          }}>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.8px',color:'#a1a1a6',marginBottom:4}}>Conciliadas</div>
+              <div style={{fontSize:22,fontWeight:700,color:'oklch(0.43 0.14 155)'}}>{filterCounts.conciliadas}</div>
+              <div style={{fontSize:11,color:'#a1a1a6'}}>de {filterCounts.total}</div>
+            </div>
+            <div style={{width:1,height:44,background:'rgba(0,0,0,0.07)'}}/>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.8px',color:'#a1a1a6',marginBottom:4}}>Pendientes</div>
+              <div style={{fontSize:22,fontWeight:700,color:'oklch(0.65 0.15 65)'}}>{filterCounts.pendientes}</div>
+            </div>
+            <div style={{width:1,height:44,background:'rgba(0,0,0,0.07)'}}/>
+            <div style={{flex:2}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#6e6e73',marginBottom:6}}>
+                <span>Progreso de conciliación</span>
+                <span style={{fontWeight:700}}>{filterCounts.total > 0 ? Math.round((filterCounts.conciliadas / filterCounts.total) * 100) : 0}%</span>
+              </div>
+              <div style={{height:8,background:'#f5f5f7',borderRadius:99,overflow:'hidden'}}>
+                <div style={{height:'100%',background:'oklch(0.43 0.14 155)',borderRadius:99,width:`${filterCounts.total > 0 ? Math.round((filterCounts.conciliadas / filterCounts.total) * 100) : 0}%`,transition:'width 0.6s cubic-bezier(0.16,1,0.3,1)'}}/>
+              </div>
+            </div>
+          </div>
+
           {/* Filters */}
           <TransactionFilters
             filters={filters}

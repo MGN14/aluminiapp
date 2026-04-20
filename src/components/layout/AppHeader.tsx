@@ -17,6 +17,10 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useNico } from '@/hooks/useNicoContext';
 import { useModuleContext } from '@/hooks/useModuleContext';
 
+const BRAND = 'oklch(0.43 0.14 155)';
+const BRAND_DIM = 'oklch(0.43 0.14 155 / 0.10)';
+const BRAND_BORDER = 'oklch(0.43 0.14 155 / 0.22)';
+
 const PAGE_PLACEHOLDERS: Record<string, string> = {
   dashboard: '¿Cómo va mi negocio este mes?',
   transactions: '¿Qué gastos están fuera de lo normal?',
@@ -34,7 +38,6 @@ const PAGE_PLACEHOLDERS: Record<string, string> = {
 function getPlaceholder(pathname: string): string {
   const clean = pathname.replace(/^\//, '');
   if (PAGE_PLACEHOLDERS[clean]) return PAGE_PLACEHOLDERS[clean];
-  // Try partial match for nested routes
   for (const key of Object.keys(PAGE_PLACEHOLDERS)) {
     if (clean.startsWith(key)) return PAGE_PLACEHOLDERS[key];
   }
@@ -43,7 +46,7 @@ function getPlaceholder(pathname: string): string {
 
 export default function AppHeader() {
   const { user, signOut } = useAuth();
-  const { openNico, isOpen } = useNico();
+  const { openNico } = useNico();
   const { mode, setMode } = useModuleContext();
   const [companyInitial, setCompanyInitial] = useState<string | null>(null);
   const [placeholder, setPlaceholder] = useState(PAGE_PLACEHOLDERS.default);
@@ -56,7 +59,6 @@ export default function AppHeader() {
     localStorage.setItem('theme', next ? 'dark' : 'light');
   };
 
-  // Initialize theme from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('theme');
     if (saved === 'dark') {
@@ -74,7 +76,6 @@ export default function AppHeader() {
     };
     updatePlaceholder();
     window.addEventListener('popstate', updatePlaceholder);
-    // Also listen for route changes via a MutationObserver on the URL
     const interval = setInterval(updatePlaceholder, 500);
     return () => {
       window.removeEventListener('popstate', updatePlaceholder);
@@ -109,42 +110,133 @@ export default function AppHeader() {
   };
 
   return (
-    <header className="h-14 bg-transparent flex items-center justify-between px-4 gap-3">
+    <header
+      style={{
+        height: 58,
+        background: 'rgba(255,255,255,0.85)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        borderBottom: '1px solid rgba(0,0,0,0.07)',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 20px',
+        gap: 12,
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+      }}
+    >
       <SidebarTrigger className="h-8 w-8 shrink-0" />
 
-      {/* Nico Search Input */}
+      {/* Nico search */}
       <button
         onClick={openNico}
-        className="flex-1 max-w-xl flex items-center gap-2.5 px-4 py-2 rounded-xl border border-success/30 bg-success/5 hover:bg-success/10 hover:border-success/50 transition-all cursor-text group shadow-sm hover:shadow-md hover:shadow-success/5"
+        style={{
+          flex: 1,
+          maxWidth: 480,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          height: 36,
+          padding: '0 14px',
+          background: BRAND_DIM,
+          border: `1px solid ${BRAND_BORDER}`,
+          borderRadius: 10,
+          cursor: 'text',
+          transition: 'box-shadow 0.2s, border-color 0.2s',
+          fontFamily: 'inherit',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.boxShadow = `0 0 0 3px oklch(0.43 0.14 155 / 0.08)`;
+          e.currentTarget.style.borderColor = BRAND;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = 'none';
+          e.currentTarget.style.borderColor = BRAND_BORDER;
+        }}
       >
-        <Sparkles className="w-4 h-4 text-success shrink-0" />
-        <span className="text-sm text-success/70 group-hover:text-success transition-colors truncate font-medium">
+        <Sparkles style={{ color: BRAND, width: 14, height: 14, flexShrink: 0 }} />
+        <span
+          style={{
+            fontSize: 13,
+            color: 'oklch(0.43 0.14 155 / 0.7)',
+            fontWeight: 500,
+            flex: 1,
+            textAlign: 'left',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
           {placeholder}
         </span>
-        <kbd className="hidden md:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-success/20 bg-success/5 text-[10px] text-success/60 ml-auto shrink-0">
+        <kbd
+          className="hidden md:inline-flex"
+          style={{
+            fontSize: 10,
+            color: 'oklch(0.43 0.14 155 / 0.6)',
+            border: `1px solid ${BRAND_BORDER}`,
+            borderRadius: 5,
+            padding: '2px 5px',
+            fontFamily: 'inherit',
+            flexShrink: 0,
+          }}
+        >
           ⌘K
         </kbd>
       </button>
 
-      {/* Module Toggle */}
-      <div className="hidden md:flex items-center bg-muted/60 rounded-lg p-0.5 shrink-0">
+      {/* Module toggle */}
+      <div
+        className="hidden md:flex"
+        style={{
+          display: 'flex',
+          background: '#f5f5f7',
+          borderRadius: 9,
+          padding: 3,
+          gap: 1,
+          flexShrink: 0,
+        }}
+      >
         <button
-          onClick={() => { localStorage.setItem('aluminia_module_mode', 'dian'); setMode('dian'); }}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
-            mode === 'dian'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+          onClick={() => {
+            localStorage.setItem('aluminia_module_mode', 'dian');
+            setMode('dian');
+          }}
+          style={{
+            padding: '5px 12px',
+            borderRadius: 7,
+            fontSize: 12,
+            fontWeight: 500,
+            background: mode === 'dian' ? '#fff' : 'transparent',
+            color: mode === 'dian' ? '#1d1d1f' : '#6e6e73',
+            boxShadow: mode === 'dian' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            transition: 'background 0.15s, color 0.15s',
+          }}
         >
           Módulo DIAN
         </button>
         <button
-          onClick={() => { localStorage.setItem('aluminia_module_mode', 'gerencial'); setMode('gerencial'); }}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
-            mode === 'gerencial'
-              ? 'bg-accent/15 text-accent shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+          onClick={() => {
+            localStorage.setItem('aluminia_module_mode', 'gerencial');
+            setMode('gerencial');
+          }}
+          style={{
+            padding: '5px 12px',
+            borderRadius: 7,
+            fontSize: 12,
+            fontWeight: 500,
+            background: mode === 'gerencial' ? '#fff' : 'transparent',
+            color: mode === 'gerencial' ? BRAND : '#6e6e73',
+            boxShadow: mode === 'gerencial' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            transition: 'background 0.15s, color 0.15s',
+          }}
         >
           Módulo Gerencial
         </button>
@@ -163,8 +255,18 @@ export default function AppHeader() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="rounded-full h-9 w-9 p-0">
-              <Avatar className="h-9 w-9 border-2 border-border hover:border-accent transition-colors">
-                <AvatarFallback className="bg-accent/10 text-accent-foreground font-semibold text-sm">
+              <Avatar
+                className="h-9 w-9"
+                style={{ border: '2px solid rgba(0,0,0,0.07)' }}
+              >
+                <AvatarFallback
+                  style={{
+                    background: BRAND_DIM,
+                    color: BRAND,
+                    fontWeight: 600,
+                    fontSize: 13,
+                  }}
+                >
                   {getAvatarInitial()}
                 </AvatarFallback>
               </Avatar>

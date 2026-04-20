@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Send, X, Trash2, Sparkles, ArrowRight } from 'lucide-react';
+import { Send, X, Trash2, Sparkles } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import { useNico, NicoPageContext } from '@/hooks/useNicoContext';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import NicoQuickActions from './NicoQuickActions';
@@ -205,35 +204,118 @@ export default function NicoDrawer() {
 
   if (!isOpen) return null;
 
+  const BRAND = 'oklch(0.43 0.14 155)';
+  const BRAND_DIM = 'oklch(0.43 0.14 155 / 0.10)';
+  const BRAND_BORDER = 'oklch(0.43 0.14 155 / 0.22)';
+
   return (
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
         onClick={closeNico}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 40,
+          background: 'rgba(0,0,0,0.20)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+        }}
       />
 
       {/* Drawer */}
-      <div className="fixed top-0 right-0 z-50 flex flex-col h-screen w-full md:w-[420px] bg-card border-l border-border shadow-2xl animate-in slide-in-from-right duration-300">
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          zIndex: 50,
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100vh',
+          width: 420,
+          maxWidth: '100vw',
+          background: '#fff',
+          boxShadow: '-20px 0 60px rgba(0,0,0,0.12)',
+          animation: 'slideInRight 0.38s cubic-bezier(0.16,1,0.3,1)',
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif",
+          WebkitFontSmoothing: 'antialiased',
+        }}
+      >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-border bg-card flex-shrink-0">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-success/30 bg-muted shadow-sm">
-                <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+        <div
+          style={{
+            padding: '18px 20px 14px',
+            borderBottom: '1px solid rgba(0,0,0,0.07)',
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, oklch(0.43 0.14 155), oklch(0.55 0.16 180))',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 0 0 3px oklch(0.43 0.14 155 / 0.15)',
+                  overflow: 'hidden',
+                }}
+              >
+                <img
+                  src={nicoAvatar}
+                  alt="Nico"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+                />
               </div>
               <div>
-                <div className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: '#1d1d1f',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
                   Nico
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-success/10 text-[10px] font-semibold text-success">
-                    <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 8px',
+                      borderRadius: 99,
+                      background: BRAND_DIM,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: BRAND,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: BRAND,
+                        animation: 'pulse 2s ease infinite',
+                      }}
+                    />
                     IA
                   </span>
                 </div>
-                <div className="text-xs text-muted-foreground">Analizando tu negocio</div>
+                <div style={{ fontSize: 11, color: '#6e6e73', marginTop: 2 }}>
+                  Analizando tu negocio
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {messages.length > 0 && (
                 <Button
                   variant="ghost"
@@ -256,15 +338,55 @@ export default function NicoDrawer() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/5">
+        <div
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            background: '#fff',
+          }}
+        >
           {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 py-8 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-success/10 flex items-center justify-center">
-                <Sparkles className="w-7 h-7 text-success" />
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                gap: 16,
+                padding: '32px 16px',
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 16,
+                  background: BRAND_DIM,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Sparkles style={{ width: 26, height: 26, color: BRAND }} />
               </div>
               <div>
-                <p className="text-sm font-bold text-foreground mb-1">Tu copiloto financiero</p>
-                <p className="text-xs text-muted-foreground max-w-[280px] leading-relaxed">
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#1d1d1f', marginBottom: 4 }}>
+                  Tu copiloto financiero
+                </p>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: '#6e6e73',
+                    maxWidth: 280,
+                    lineHeight: 1.6,
+                  }}
+                >
                   Pregúntame sobre ingresos, gastos, impuestos o cualquier aspecto de tu negocio. Analizo tus datos en tiempo real.
                 </p>
               </div>
@@ -281,16 +403,47 @@ export default function NicoDrawer() {
           ))}
 
           {isLoading && messages[messages.length - 1]?.role === 'user' && (
-            <div className="flex items-start gap-2.5">
-              <div className="w-7 h-7 rounded-full overflow-hidden border border-border bg-muted flex-shrink-0 mt-0.5">
-                <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  border: '1px solid rgba(0,0,0,0.07)',
+                  background: '#f5f5f7',
+                  flexShrink: 0,
+                  marginTop: 2,
+                }}
+              >
+                <img
+                  src={nicoAvatar}
+                  alt="Nico"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+                />
               </div>
-              <div className="bg-card border border-border rounded-2xl rounded-bl-sm px-4 py-3">
-                <div className="flex gap-1.5 items-center h-4">
-                  <div className="w-1.5 h-1.5 rounded-full bg-success/60 animate-bounce [animation-delay:0ms]" />
-                  <div className="w-1.5 h-1.5 rounded-full bg-success/60 animate-bounce [animation-delay:150ms]" />
-                  <div className="w-1.5 h-1.5 rounded-full bg-success/60 animate-bounce [animation-delay:300ms]" />
-                </div>
+              <div
+                style={{
+                  background: '#f5f5f7',
+                  borderRadius: '20px 20px 20px 5px',
+                  padding: '14px 16px',
+                  display: 'flex',
+                  gap: 5,
+                  alignItems: 'center',
+                }}
+              >
+                {[0, 150, 300].map((delay) => (
+                  <span
+                    key={delay}
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: 'oklch(0.60 0.14 155)',
+                      animation: `bounceDot 1.2s ease ${delay}ms infinite`,
+                    }}
+                  />
+                ))}
               </div>
             </div>
           )}
@@ -300,26 +453,66 @@ export default function NicoDrawer() {
 
         {/* Input */}
         <form
-          onSubmit={(e) => { e.preventDefault(); send(input); }}
-          className="px-4 py-3 border-t border-border bg-card flex-shrink-0"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(input);
+          }}
+          style={{
+            padding: '12px 16px',
+            borderTop: '1px solid rgba(0,0,0,0.07)',
+            flexShrink: 0,
+            background: '#fff',
+          }}
         >
-          <div className="flex items-center gap-2">
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: '#f5f5f7',
+              border: '1.5px solid rgba(0,0,0,0.07)',
+              borderRadius: 12,
+              padding: '6px 6px 6px 14px',
+              transition: 'border-color 0.2s, box-shadow 0.2s',
+            }}
+          >
             <input
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Pregúntale a Nico sobre tu negocio..."
               disabled={isLoading}
-              className="flex-1 bg-muted rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
+              style={{
+                flex: 1,
+                border: 'none',
+                outline: 'none',
+                fontSize: 13,
+                background: 'transparent',
+                fontFamily: 'inherit',
+                color: '#1d1d1f',
+                opacity: isLoading ? 0.55 : 1,
+              }}
             />
-            <Button
+            <button
               type="submit"
-              size="sm"
               disabled={!input.trim() || isLoading}
-              className="rounded-xl h-10 w-10 p-0 bg-success hover:bg-success/90"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 9,
+                background: '#1d1d1f',
+                border: 'none',
+                color: '#fff',
+                cursor: !input.trim() || isLoading ? 'not-allowed' : 'pointer',
+                opacity: !input.trim() || isLoading ? 0.55 : 1,
+                transition: 'background 0.15s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              <Send className="w-4 h-4" />
-            </Button>
+              <Send style={{ width: 14, height: 14 }} />
+            </button>
           </div>
         </form>
       </div>

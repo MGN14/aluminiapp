@@ -142,13 +142,41 @@ export default {
   					opacity: '1',
   					transform: 'translateY(0)'
   				}
+  			},
+  			fadeUp: {
+  				from: { opacity: '0', transform: 'translateY(14px)' },
+  				to:   { opacity: '1', transform: 'translateY(0)' }
+  			},
+  			fieldIn: {
+  				from: { opacity: '0', transform: 'translateY(10px)' },
+  				to:   { opacity: '1', transform: 'translateY(0)' }
+  			},
+  			slideInRight: {
+  				from: { transform: 'translateX(100%)', opacity: '0' },
+  				to:   { transform: 'translateX(0)', opacity: '1' }
+  			},
+  			popIn: {
+  				from: { transform: 'scale(0.5)', opacity: '0' },
+  				to:   { transform: 'scale(1)', opacity: '1' }
+  			},
+  			pulseRing: {
+  				'0%, 100%': { boxShadow: '0 0 0 8px oklch(0.43 0.14 155 / 0.10), 0 0 0 16px oklch(0.43 0.14 155 / 0.05)' },
+  				'50%':      { boxShadow: '0 0 0 12px oklch(0.43 0.14 155 / 0.12), 0 0 0 22px oklch(0.43 0.14 155 / 0.04)' }
+  			},
+  			drawCheck: {
+  				to: { strokeDashoffset: '0' }
   			}
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
   			'accordion-up': 'accordion-up 0.2s ease-out',
   			'fade-in': 'fade-in 0.3s ease-out',
-  			'slide-up': 'slide-up 0.4s ease-out'
+  			'slide-up': 'slide-up 0.4s ease-out',
+  			'fade-up': 'fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both',
+  			'field-in': 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) both',
+  			'slide-in-right': 'slideInRight 0.38s cubic-bezier(0.16,1,0.3,1)',
+  			'pop-in': 'popIn 0.5s cubic-bezier(0.34,1.56,0.64,1) both',
+  			'pulse-ring': 'pulseRing 3s ease infinite'
   		},
   		boxShadow: {
   			'2xs': 'var(--shadow-2xs)',

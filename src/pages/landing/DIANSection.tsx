@@ -9,44 +9,119 @@ const benefits = [
 
 export default function DIANSection() {
   return (
-    <section className="py-24 bg-muted/30">
-      <div className="container mx-auto px-4">
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-card border border-border rounded-2xl shadow-lg overflow-hidden">
-            <div className="grid md:grid-cols-2">
-              {/* Left: dark accent panel */}
-              <div className="bg-foreground text-background p-10 flex flex-col justify-center">
-                <div className="w-12 h-12 rounded-xl bg-success flex items-center justify-center mb-6">
-                  <ShieldCheck className="w-6 h-6 text-white" />
-                </div>
-                <h2 className="text-2xl md:text-3xl font-bold mb-4 leading-tight">
-                  Evita sanciones. Prepárate para la DIAN.
-                </h2>
-                <p className="text-background/70 text-base leading-relaxed">
-                  Conoce tu utilidad real y estima tus impuestos antes de que sea tarde. La información
-                  está ahí — AluminIA la hace visible.
-                </p>
-              </div>
+    <section
+      style={{
+        padding: '0 clamp(20px, 5vw, 60px)',
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif",
+      }}
+    >
+      <div
+        className="dian-card"
+        style={{
+          background: '#1d1d1f',
+          borderRadius: 24,
+          padding: 48,
+          margin: '80px auto',
+          maxWidth: 1100,
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 48,
+        }}
+      >
+        <style>{`
+          @media (max-width: 768px) {
+            .dian-card {
+              grid-template-columns: 1fr !important;
+              padding: 32px !important;
+              gap: 32px !important;
+            }
+          }
+        `}</style>
 
-              {/* Right: benefits */}
-              <div className="p-10 flex flex-col justify-center">
-                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-6">
-                  Qué obtienes
-                </p>
-                <div className="space-y-4">
-                  {benefits.map((b) => (
-                    <div key={b} className="flex items-start gap-3">
-                      <CheckCircle className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
-                      <span className="text-foreground font-medium">{b}</span>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground mt-6 leading-relaxed">
-                  * Las estimaciones son orientativas y no reemplazan asesoría contable profesional.
-                </p>
-              </div>
-            </div>
+        {/* Left */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              background: 'oklch(0.43 0.14 155)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 24,
+            }}
+          >
+            <ShieldCheck style={{ width: 24, height: 24, color: '#fff' }} />
           </div>
+          <h2
+            style={{
+              fontSize: 'clamp(28px, 3vw, 40px)',
+              fontWeight: 700,
+              letterSpacing: '-1px',
+              lineHeight: 1.1,
+              color: '#fff',
+              margin: 0,
+              marginBottom: 16,
+            }}
+          >
+            Evita sanciones. Prepárate para la DIAN.
+          </h2>
+          <p
+            style={{
+              color: 'rgba(255,255,255,0.6)',
+              fontSize: 16,
+              lineHeight: 1.65,
+              margin: 0,
+            }}
+          >
+            Conoce tu utilidad real y estima tus impuestos antes de que sea tarde. La información
+            está ahí — AluminIA la hace visible.
+          </p>
+        </div>
+
+        {/* Right */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <p
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'rgba(255,255,255,0.5)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              margin: 0,
+              marginBottom: 20,
+            }}
+          >
+            Qué obtienes
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {benefits.map((b) => (
+              <div key={b} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <CheckCircle
+                  style={{
+                    width: 20,
+                    height: 20,
+                    color: 'oklch(0.60 0.14 155)',
+                    flexShrink: 0,
+                    marginTop: 2,
+                  }}
+                />
+                <span style={{ color: '#fff', fontSize: 15, fontWeight: 500 }}>{b}</span>
+              </div>
+            ))}
+          </div>
+          <p
+            style={{
+              fontSize: 12,
+              color: 'rgba(255,255,255,0.4)',
+              lineHeight: 1.6,
+              marginTop: 24,
+              marginBottom: 0,
+            }}
+          >
+            * Las estimaciones son orientativas y no reemplazan asesoría contable profesional.
+          </p>
         </div>
       </div>
     </section>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +8,6 @@ import { parseLocalDate } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -24,18 +23,68 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import InvoiceUploadModal from '@/components/invoices/InvoiceUploadModal';
-import InvoiceMicroSummary from '@/components/invoices/InvoiceMicroSummary';
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
-const statusLabel: Record<string, { text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  uploading: { text: 'Subiendo...', variant: 'outline' },
-  processing: { text: 'Analizando...', variant: 'secondary' },
-  ready: { text: 'Pendiente de validar', variant: 'outline' },
-  draft: { text: 'Pendiente por confirmar', variant: 'outline' },
-  error: { text: 'Error - Reintentar', variant: 'destructive' },
-  confirmed: { text: 'Confirmada', variant: 'default' },
+const statusLabel: Record<string, { text: string }> = {
+  uploading: { text: 'Subiendo...' },
+  processing: { text: 'Analizando...' },
+  ready: { text: 'Pendiente de validar' },
+  draft: { text: 'Pendiente por confirmar' },
+  error: { text: 'Error - Reintentar' },
+  confirmed: { text: 'Confirmada' },
+};
+
+const statusStyle: Record<string, CSSProperties> = {
+  uploading: {
+    background: 'oklch(0.52 0.16 240 / 0.08)',
+    color: 'oklch(0.52 0.16 240)',
+    borderRadius: 99,
+    padding: '3px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  processing: {
+    background: 'oklch(0.52 0.16 240 / 0.08)',
+    color: 'oklch(0.52 0.16 240)',
+    borderRadius: 99,
+    padding: '3px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  ready: {
+    background: 'oklch(0.65 0.15 65 / 0.10)',
+    color: 'oklch(0.52 0.15 65)',
+    borderRadius: 99,
+    padding: '3px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  draft: {
+    background: 'oklch(0.65 0.15 65 / 0.10)',
+    color: 'oklch(0.52 0.15 65)',
+    borderRadius: 99,
+    padding: '3px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  error: {
+    background: 'oklch(0.52 0.18 25 / 0.08)',
+    color: 'oklch(0.52 0.18 25)',
+    borderRadius: 99,
+    padding: '3px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  confirmed: {
+    background: 'oklch(0.43 0.14 155 / 0.10)',
+    color: 'oklch(0.43 0.14 155)',
+    borderRadius: 99,
+    padding: '3px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+  },
 };
 
 interface Props {
@@ -59,6 +108,19 @@ export default function InvoiceListPage({ type }: Props) {
 
   const title = type === 'venta' ? 'Facturas de Venta' : 'Facturas de Compra';
   const counterpartyLabel = type === 'venta' ? 'Cliente' : 'Proveedor';
+
+  const summary = useMemo(() => {
+    const confirmed = invoices.filter(i => i.status === 'confirmed');
+    return {
+      count: confirmed.length,
+      total: confirmed.reduce((s, i) => s + i.total_amount, 0),
+      iva: confirmed.reduce((s, i) => s + i.iva_amount, 0),
+    };
+  }, [invoices]);
+
+  const summaryLabel1 = type === 'venta' ? 'Total facturado' : 'Total comprado';
+  const summaryLabel2 = type === 'venta' ? 'IVA generado' : 'IVA descontable';
+  const summaryLabel3 = type === 'venta' ? 'Facturas emitidas' : 'Facturas recibidas';
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -207,20 +269,143 @@ export default function InvoiceListPage({ type }: Props) {
         </div>
 
         {/* Micro summary */}
-        <InvoiceMicroSummary invoices={invoices} type={type} />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: '18px 20px',
+              border: '1.5px solid rgba(0,0,0,0.07)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.8px',
+                textTransform: 'uppercase',
+                color: '#a1a1a6',
+              }}
+            >
+              {summaryLabel1}
+            </div>
+            <div
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                letterSpacing: '-0.5px',
+                color: '#1d1d1f',
+                marginTop: 4,
+              }}
+            >
+              {formatCurrency(summary.total)}
+            </div>
+          </div>
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: '18px 20px',
+              border: '1.5px solid rgba(0,0,0,0.07)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.8px',
+                textTransform: 'uppercase',
+                color: '#a1a1a6',
+              }}
+            >
+              {summaryLabel2}
+            </div>
+            <div
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                letterSpacing: '-0.5px',
+                color: '#1d1d1f',
+                marginTop: 4,
+              }}
+            >
+              {formatCurrency(summary.iva)}
+            </div>
+          </div>
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: '18px 20px',
+              border: '1.5px solid rgba(0,0,0,0.07)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.8px',
+                textTransform: 'uppercase',
+                color: '#a1a1a6',
+              }}
+            >
+              {summaryLabel3}
+            </div>
+            <div
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                letterSpacing: '-0.5px',
+                color: '#1d1d1f',
+                marginTop: 4,
+              }}
+            >
+              {summary.count}
+            </div>
+          </div>
+        </div>
 
         {/* Filters */}
         <div className="flex gap-3 flex-wrap items-end">
-          <div className="flex-1 min-w-[200px] max-w-sm">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={`Buscar por nombre, ${counterpartyLabel.toLowerCase()} o número...`}
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
+            <Search
+              className="h-4 w-4 text-muted-foreground"
+              style={{
+                position: 'absolute',
+                left: 12,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                pointerEvents: 'none',
+              }}
+            />
+            <input
+              placeholder={`Buscar por nombre, ${counterpartyLabel.toLowerCase()} o número...`}
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onFocus={e => {
+                e.currentTarget.style.borderColor = 'oklch(0.43 0.14 155 / 0.22)';
+                e.currentTarget.style.boxShadow = '0 0 0 3px oklch(0.43 0.14 155 / 0.08)';
+              }}
+              onBlur={e => {
+                e.currentTarget.style.borderColor = 'rgba(0,0,0,0.07)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+              style={{
+                width: '100%',
+                height: 38,
+                padding: '0 12px 0 38px',
+                background: '#fff',
+                border: '1.5px solid rgba(0,0,0,0.07)',
+                borderRadius: 10,
+                fontSize: 13,
+                fontFamily: 'inherit',
+                outline: 'none',
+                transition: 'border-color 0.2s, box-shadow 0.2s',
+              }}
+            />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Estado:</span>
@@ -294,7 +479,9 @@ export default function InvoiceListPage({ type }: Props) {
                           <TableCell className="text-sm">{inv.invoice_number || '—'}</TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(inv.total_amount)}</TableCell>
                           <TableCell>
-                            <Badge variant={s.variant} className="text-xs">{s.text}</Badge>
+                            <span style={{ display: 'inline-block', ...(statusStyle[inv.status] || statusStyle.draft) }}>
+                              {s.text}
+                            </span>
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">

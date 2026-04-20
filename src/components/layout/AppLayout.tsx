@@ -29,14 +29,26 @@ export default function AppLayout({ children }: AppLayoutProps) {
   return (
     <NicoProvider>
         <SidebarProvider>
-          <div className="min-h-screen flex w-full bg-background">
+          <div
+            className="min-h-screen flex w-full"
+            style={{
+              background: '#f5f5f7',
+              fontFamily:
+                "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif",
+              WebkitFontSmoothing: 'antialiased',
+            }}
+          >
             <AppSidebar />
             <div className="flex-1 flex flex-col min-w-0">
               <TrialBanner />
-              <div className="sticky top-0 z-30 bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
-                <AppHeader />
-              </div>
-              <main className="flex-1 container mx-auto px-4 py-6 sm:px-6 lg:px-8">
+              <AppHeader />
+              <main
+                className="flex-1"
+                style={{
+                  padding: '28px',
+                  maxWidth: '100%',
+                }}
+              >
                 {children}
               </main>
             </div>

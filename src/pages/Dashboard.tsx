@@ -330,66 +330,107 @@ function DashboardContent() {
         <InsightsMiniCards periodSelection={periodSelection} hasTransactions={transactions.length > 0} />
       </DashboardBlock>
     ),
-    mainMetrics: (idx: number) => (
-      <DashboardBlock id="mainMetrics" customization={customization} index={idx}>
-        {/* Apple-style Main Metrics */}
-        <div className="grid gap-5 md:grid-cols-3">
-          {/* Ingresos */}
-          <Card className="border-0 shadow-sm bg-card/80 backdrop-blur-sm hover:shadow-md transition-shadow duration-300">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Ingresos</p>
-                <div className="w-9 h-9 rounded-xl bg-success/10 flex items-center justify-center">
-                  <TrendingUp className="h-4 w-4 text-success" />
+    mainMetrics: (idx: number) => {
+      const BRAND = 'oklch(0.43 0.14 155)';
+      const DANGER = 'oklch(0.52 0.18 25)';
+      const metricCardStyle = (i: number): React.CSSProperties => ({
+        background: '#fff',
+        borderRadius: 18,
+        padding: '22px 24px',
+        border: '1.5px solid rgba(0,0,0,0.07)',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        transition: 'box-shadow 0.2s, transform 0.2s',
+        animation: `fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) ${i * 0.05}s both`,
+        opacity: 0,
+      });
+      const metricHover = (e: React.MouseEvent<HTMLDivElement>) => {
+        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)';
+        e.currentTarget.style.transform = 'translateY(-1px)';
+      };
+      const metricLeave = (e: React.MouseEvent<HTMLDivElement>) => {
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
+        e.currentTarget.style.transform = 'translateY(0)';
+      };
+      const metricLabelStyle: React.CSSProperties = {
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '0.8px',
+        textTransform: 'uppercase',
+        color: '#a1a1a6',
+      };
+      const metricValueStyle = (color: string): React.CSSProperties => ({
+        fontSize: 28,
+        fontWeight: 700,
+        letterSpacing: '-1px',
+        color,
+        marginTop: 10,
+      });
+      const iconWrapStyle = (tint: string): React.CSSProperties => ({
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        background: tint,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      });
+      const neto = metrics.totalIngresos - metrics.totalEgresos;
+      const isPositive = neto >= 0;
+      return (
+        <DashboardBlock id="mainMetrics" customization={customization} index={idx}>
+          <div className="grid gap-5 md:grid-cols-3">
+            <div style={metricCardStyle(0)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+              <div className="flex items-center justify-between">
+                <p style={metricLabelStyle}>Ingresos</p>
+                <div style={iconWrapStyle('oklch(0.43 0.14 155 / 0.10)')}>
+                  <TrendingUp style={{ width: 16, height: 16, color: BRAND }} />
                 </div>
               </div>
-              <p className="text-3xl font-bold tracking-tight text-success">{formatCurrency(metrics.totalIngresos)}</p>
-              <div className="flex items-center gap-1.5 mt-2">
-                <ArrowUpRight className="h-3 w-3 text-success" />
-                <span className="text-xs text-muted-foreground">{periodRange.label}</span>
+              <p style={metricValueStyle(BRAND)}>{formatCurrency(metrics.totalIngresos)}</p>
+              <div className="flex items-center gap-1.5" style={{ marginTop: 10 }}>
+                <ArrowUpRight style={{ width: 12, height: 12, color: BRAND }} />
+                <span style={{ fontSize: 12, color: '#6e6e73' }}>{periodRange.label}</span>
               </div>
-            </CardContent>
-          </Card>
+            </div>
 
-          {/* Egresos */}
-          <Card className="border-0 shadow-sm bg-card/80 backdrop-blur-sm hover:shadow-md transition-shadow duration-300">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Egresos</p>
-                <div className="w-9 h-9 rounded-xl bg-destructive/10 flex items-center justify-center">
-                  <TrendingDown className="h-4 w-4 text-destructive" />
+            <div style={metricCardStyle(1)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+              <div className="flex items-center justify-between">
+                <p style={metricLabelStyle}>Egresos</p>
+                <div style={iconWrapStyle('oklch(0.52 0.18 25 / 0.08)')}>
+                  <TrendingDown style={{ width: 16, height: 16, color: DANGER }} />
                 </div>
               </div>
-              <p className="text-3xl font-bold tracking-tight text-destructive">{formatCurrency(metrics.totalEgresos)}</p>
-              <div className="flex items-center gap-1.5 mt-2">
-                <ArrowDownRight className="h-3 w-3 text-destructive" />
-                <span className="text-xs text-muted-foreground">{periodRange.label}</span>
+              <p style={metricValueStyle(DANGER)}>{formatCurrency(metrics.totalEgresos)}</p>
+              <div className="flex items-center gap-1.5" style={{ marginTop: 10 }}>
+                <ArrowDownRight style={{ width: 12, height: 12, color: DANGER }} />
+                <span style={{ fontSize: 12, color: '#6e6e73' }}>{periodRange.label}</span>
               </div>
-            </CardContent>
-          </Card>
+            </div>
 
-          {/* Resultado Neto */}
-          {(() => {
-            const neto = metrics.totalIngresos - metrics.totalEgresos;
-            const isPositive = neto >= 0;
-            return (
-              <Card className={`border-0 shadow-sm backdrop-blur-sm hover:shadow-md transition-shadow duration-300 ${isPositive ? 'bg-success/[0.03]' : 'bg-destructive/[0.03]'}`}>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Resultado Neto</p>
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isPositive ? 'bg-success/10' : 'bg-destructive/10'}`}>
-                      {isPositive ? <TrendingUp className="h-4 w-4 text-success" /> : <TrendingDown className="h-4 w-4 text-destructive" />}
-                    </div>
-                  </div>
-                  <p className={`text-3xl font-bold tracking-tight ${isPositive ? 'text-success' : 'text-destructive'}`}>{formatCurrency(neto)}</p>
-                  <span className="text-xs text-muted-foreground mt-2 block">{periodRange.label}</span>
-                </CardContent>
-              </Card>
-            );
-          })()}
-        </div>
-      </DashboardBlock>
-    ),
+            <div style={metricCardStyle(2)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+              <div className="flex items-center justify-between">
+                <p style={metricLabelStyle}>Resultado Neto</p>
+                <div
+                  style={iconWrapStyle(
+                    isPositive ? 'oklch(0.43 0.14 155 / 0.10)' : 'oklch(0.52 0.18 25 / 0.08)',
+                  )}
+                >
+                  {isPositive ? (
+                    <TrendingUp style={{ width: 16, height: 16, color: BRAND }} />
+                  ) : (
+                    <TrendingDown style={{ width: 16, height: 16, color: DANGER }} />
+                  )}
+                </div>
+              </div>
+              <p style={metricValueStyle(isPositive ? BRAND : DANGER)}>{formatCurrency(neto)}</p>
+              <span style={{ fontSize: 12, color: '#6e6e73', marginTop: 10, display: 'block' }}>
+                {periodRange.label}
+              </span>
+            </div>
+          </div>
+        </DashboardBlock>
+      );
+    },
     invoiceTax: (idx: number) => (
       <DashboardBlock id="invoiceTax" customization={customization} index={idx}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 auto-rows-fr">
@@ -603,14 +644,39 @@ function DashboardContent() {
   return (
     <div className="max-w-7xl mx-auto space-y-8">
         {/* ─── Header ─── */}
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between animate-fade-in">
+        <div
+          className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"
+          style={{ animation: 'fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both' }}
+        >
           <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-2xl overflow-hidden border-2 border-success/20 shadow-sm shrink-0">
-              <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                overflow: 'hidden',
+                boxShadow: '0 0 0 2px oklch(0.43 0.14 155 / 0.22)',
+                flexShrink: 0,
+              }}
+            >
+              <img
+                src={nicoAvatar}
+                alt="Nico"
+                style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+              />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">Tu negocio hoy</h1>
-              <p className="text-sm text-muted-foreground">{periodRange.label}</p>
+              <h1
+                style={{
+                  fontSize: 26,
+                  fontWeight: 700,
+                  letterSpacing: '-0.8px',
+                  color: '#1d1d1f',
+                }}
+              >
+                Tu negocio hoy
+              </h1>
+              <p style={{ fontSize: 13, color: '#6e6e73', marginTop: 2 }}>{periodRange.label}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
