@@ -373,6 +373,75 @@ export type Database = {
         }
         Relationships: []
       }
+      fiscal_config: {
+        Row: {
+          actividad_principal: string | null
+          agente_retencion: boolean | null
+          autorretenedor: boolean | null
+          codigo_ciiu: string | null
+          created_at: string | null
+          facturacion_electronica: boolean | null
+          ica_city: string | null
+          ica_periodicity: string | null
+          id: string
+          nit_digit: number | null
+          nit_ultimo_digito: number | null
+          nivel_ingresos: string | null
+          nombre_facturador: string | null
+          persona_type: string | null
+          regimen: string | null
+          renta_type: string | null
+          responsable_ica: boolean | null
+          responsable_iva: boolean | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          actividad_principal?: string | null
+          agente_retencion?: boolean | null
+          autorretenedor?: boolean | null
+          codigo_ciiu?: string | null
+          created_at?: string | null
+          facturacion_electronica?: boolean | null
+          ica_city?: string | null
+          ica_periodicity?: string | null
+          id?: string
+          nit_digit?: number | null
+          nit_ultimo_digito?: number | null
+          nivel_ingresos?: string | null
+          nombre_facturador?: string | null
+          persona_type?: string | null
+          regimen?: string | null
+          renta_type?: string | null
+          responsable_ica?: boolean | null
+          responsable_iva?: boolean | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          actividad_principal?: string | null
+          agente_retencion?: boolean | null
+          autorretenedor?: boolean | null
+          codigo_ciiu?: string | null
+          created_at?: string | null
+          facturacion_electronica?: boolean | null
+          ica_city?: string | null
+          ica_periodicity?: string | null
+          id?: string
+          nit_digit?: number | null
+          nit_ultimo_digito?: number | null
+          nivel_ingresos?: string | null
+          nombre_facturador?: string | null
+          persona_type?: string | null
+          regimen?: string | null
+          renta_type?: string | null
+          responsable_ica?: boolean | null
+          responsable_iva?: boolean | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       initial_financial_state: {
         Row: {
           anticipos_a_proveedores: number
@@ -972,6 +1041,7 @@ export type Database = {
           created_at: string
           full_name: string | null
           id: string
+          onboarding_completed: boolean | null
           reteica_city: string | null
           reteica_rate: number | null
           updated_at: string
@@ -983,6 +1053,7 @@ export type Database = {
           created_at?: string
           full_name?: string | null
           id?: string
+          onboarding_completed?: boolean | null
           reteica_city?: string | null
           reteica_rate?: number | null
           updated_at?: string
@@ -994,6 +1065,7 @@ export type Database = {
           created_at?: string
           full_name?: string | null
           id?: string
+          onboarding_completed?: boolean | null
           reteica_city?: string | null
           reteica_rate?: number | null
           updated_at?: string
