@@ -18,7 +18,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil } from 'lucide-react';
+import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, Package, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
@@ -103,6 +103,8 @@ export default function InvoiceListPage({ type }: Props) {
   const [resumeDraft, setResumeDraft] = useState<Invoice | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [reExtractingId, setReExtractingId] = useState<string | null>(null);
+  const [bulkReExtracting, setBulkReExtracting] = useState(false);
 
   const isEmpresarial = plan === 'empresarial' || plan === 'pro' || plan === 'admin' || isTrialing;
 
@@ -208,6 +210,57 @@ export default function InvoiceListPage({ type }: Props) {
     }
   }, [deleteId, invoices, toast]);
 
+  const reExtractItems = useCallback(async (invoiceId: string): Promise<{ ok: boolean; count?: number; error?: string }> => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/start-invoice-processing`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoice_id: invoiceId, only_items: true }),
+        }
+      );
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok) return { ok: false, error: payload?.error || `Error ${resp.status}` };
+      return { ok: true, count: payload?.items_count ?? 0 };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Error inesperado' };
+    }
+  }, []);
+
+  const handleReExtractItems = useCallback(async (inv: Invoice) => {
+    setReExtractingId(inv.id);
+    const res = await reExtractItems(inv.id);
+    setReExtractingId(null);
+    if (res.ok) {
+      toast({ title: 'Ítems re-extraídos', description: `${res.count} líneas guardadas para ${inv.invoice_number || inv.display_name || 'la factura'}.` });
+    } else {
+      toast({ title: 'No se pudo re-extraer', description: res.error, variant: 'destructive' });
+    }
+  }, [reExtractItems, toast]);
+
+  const handleBulkReExtract = useCallback(async () => {
+    const targets = invoices.filter(i => i.status === 'confirmed' && (i.storage_path || i.pdf_path));
+    if (targets.length === 0) {
+      toast({ title: 'No hay facturas confirmadas para procesar' });
+      return;
+    }
+    setBulkReExtracting(true);
+    let ok = 0, fail = 0, totalItems = 0;
+    for (const inv of targets) {
+      const res = await reExtractItems(inv.id);
+      if (res.ok) { ok++; totalItems += res.count ?? 0; } else { fail++; }
+    }
+    setBulkReExtracting(false);
+    toast({
+      title: 'Re-extracción masiva completa',
+      description: `${ok} facturas OK · ${totalItems} ítems · ${fail} errores`,
+      variant: fail > 0 && ok === 0 ? 'destructive' : 'default',
+    });
+  }, [invoices, reExtractItems, toast]);
+
   const handleUploadClose = useCallback(() => {
     setUploadOpen(false);
     setResumeDraft(null);
@@ -262,10 +315,24 @@ export default function InvoiceListPage({ type }: Props) {
             </h1>
             <p className="text-muted-foreground text-sm">Gestiona tus facturas electrónicas</p>
           </div>
-          <Button onClick={handleOpenUpload} className="gap-2">
-            <Upload className="h-4 w-4" />
-            Subir factura PDF
-          </Button>
+          <div className="flex items-center gap-2">
+            {type === 'venta' && (
+              <Button
+                variant="outline"
+                onClick={handleBulkReExtract}
+                disabled={bulkReExtracting}
+                className="gap-2"
+                title="Re-extrae los ítems de todas las facturas confirmadas (para poblar el Top 3 Referencias)"
+              >
+                {bulkReExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
+                Re-extraer ítems
+              </Button>
+            )}
+            <Button onClick={handleOpenUpload} className="gap-2">
+              <Upload className="h-4 w-4" />
+              Subir factura PDF
+            </Button>
+          </div>
         </div>
 
         {/* Micro summary */}
@@ -497,6 +564,20 @@ export default function InvoiceListPage({ type }: Props) {
                               <Button variant="ghost" size="icon" className="h-8 w-8" title="Ver PDF" onClick={() => handleViewPDF(inv.storage_path || inv.pdf_path)}>
                                 <Eye className="h-4 w-4" />
                               </Button>
+                              {inv.status === 'confirmed' && (inv.storage_path || inv.pdf_path) && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title="Re-extraer ítems de línea"
+                                  onClick={() => handleReExtractItems(inv)}
+                                  disabled={reExtractingId === inv.id || bulkReExtracting}
+                                >
+                                  {reExtractingId === inv.id
+                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                    : <RefreshCw className="h-4 w-4" />}
+                                </Button>
+                              )}
                               <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Eliminar" onClick={() => setDeleteId(inv.id)}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>

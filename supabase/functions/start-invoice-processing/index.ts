@@ -42,7 +42,9 @@ serve(async (req) => {
     const userId = claimsData.claims.sub as string;
 
     // Get invoice_id from body
-    const { invoice_id } = await req.json();
+    const body = await req.json();
+    const invoice_id = body?.invoice_id;
+    const only_items = body?.only_items === true;
     if (!invoice_id) {
       return new Response(JSON.stringify({ error: "invoice_id requerido" }), {
         status: 400,
@@ -82,8 +84,10 @@ serve(async (req) => {
       });
     }
 
-    // Mark as processing
-    await supabase.from("invoices").update({ status: "processing", processing_error: null }).eq("id", invoice_id);
+    // Mark as processing (skip when only re-extracting items for a confirmed invoice)
+    if (!only_items) {
+      await supabase.from("invoices").update({ status: "processing", processing_error: null }).eq("id", invoice_id);
+    }
 
     // Download PDF from storage
     const { data: fileData, error: dlErr } = await supabase.storage
@@ -117,7 +121,7 @@ serve(async (req) => {
       });
     }
 
-    // Call AI for extraction (Phase 1: header only, no line items to avoid timeouts)
+    // Call AI for extraction (header + all line items)
     const aiResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: {
@@ -129,7 +133,7 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `Eres un experto en facturación electrónica colombiana. Extrae SOLO los datos de cabecera de la factura del PDF.
+            content: `Eres un experto en facturación electrónica colombiana. Extrae TODOS los datos de la factura del PDF: cabecera Y cada línea de ítem.
 Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estructura:
 {
   "invoice_number": "FMGN 276",
@@ -151,7 +155,19 @@ Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estruct
   "total_amount": 61485100,
   "cufe": "abc123...",
   "payment_method": "Crédito",
-  "items": []
+  "items": [
+    {
+      "item_code": "001",
+      "reference": "REF-001",
+      "description": "Producto ejemplo",
+      "quantity": 10,
+      "unit_price": 5000,
+      "line_base": 50000,
+      "iva_rate": 0.19,
+      "iva_amount": 9500,
+      "line_total": 59500
+    }
+  ]
 }
 Reglas:
 - type: "venta" si la empresa emite, "compra" si la recibe.
@@ -160,7 +176,12 @@ Reglas:
 - Montos numéricos sin separadores de miles.
 - Si no encuentras un campo, usa null o string vacío.
 - iva_rate como decimal (0.19 = 19%).
-- items debe ser un array vacío [] por ahora (se extraerán en fase 2).`,
+
+Reglas CRÍTICAS para items (extrae TODOS sin excepción):
+- Una factura colombiana típica tiene 10 o más líneas de ítems; extrae ABSOLUTAMENTE TODAS, incluso si son 50+.
+- NO resumas, NO agrupes, NO omitas líneas. Cada fila del detalle con su propio código/descripción/cantidad/valor es un ítem independiente.
+- Si la tabla de productos continúa en varias páginas del PDF, recórrela entera.
+- Si no hay código o referencia, usa string vacío, pero SIEMPRE incluye description, quantity, unit_price, line_base y line_total.`,
           },
           {
             role: "user",
@@ -174,7 +195,7 @@ Reglas:
               },
               {
                 type: "text",
-                text: "Extrae SOLO los datos de cabecera de esta factura electrónica colombiana. NO extraigas ítems de línea. Responde SOLO con el JSON.",
+                text: "Extrae la cabecera Y todas las líneas de ítems de esta factura electrónica colombiana. No resumas ni omitas ninguna línea. Responde SOLO con el JSON.",
               },
             ],
           },
@@ -183,8 +204,8 @@ Reglas:
           {
             type: "function",
             function: {
-              name: "extract_invoice_header",
-              description: "Extrae datos de cabecera de una factura electrónica colombiana",
+              name: "extract_invoice",
+              description: "Extrae cabecera y todas las líneas de ítems de una factura electrónica colombiana",
               parameters: {
                 type: "object",
                 properties: {
@@ -207,16 +228,34 @@ Reglas:
                   total_amount: { type: "number" },
                   cufe: { type: ["string", "null"] },
                   payment_method: { type: ["string", "null"] },
+                  items: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        item_code: { type: "string" },
+                        reference: { type: "string" },
+                        description: { type: "string" },
+                        quantity: { type: "number" },
+                        unit_price: { type: "number" },
+                        line_base: { type: "number" },
+                        iva_rate: { type: "number" },
+                        iva_amount: { type: "number" },
+                        line_total: { type: "number" },
+                      },
+                      required: ["description", "quantity", "unit_price", "line_base", "line_total"],
+                    },
+                  },
                 },
                 required: [
                   "invoice_number", "type", "issue_date", "counterparty_name",
-                  "subtotal_base", "iva_rate", "iva_amount", "total_amount",
+                  "subtotal_base", "iva_rate", "iva_amount", "total_amount", "items",
                 ],
               },
             },
           },
         ],
-        tool_choice: { type: "function", function: { name: "extract_invoice_header" } },
+        tool_choice: { type: "function", function: { name: "extract_invoice" } },
       }),
     });
 
@@ -228,7 +267,9 @@ Reglas:
         ? "Créditos de IA agotados"
         : "Error procesando con IA";
       console.error("AI error:", status);
-      await supabase.from("invoices").update({ status: "error", processing_error: errMsg }).eq("id", invoice_id);
+      if (!only_items) {
+        await supabase.from("invoices").update({ status: "error", processing_error: errMsg }).eq("id", invoice_id);
+      }
       return new Response(JSON.stringify({ error: errMsg }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -248,7 +289,9 @@ Reglas:
       if (jsonMatch) {
         extracted = JSON.parse(jsonMatch[0]);
       } else {
-        await supabase.from("invoices").update({ status: "error", processing_error: "No se pudo extraer datos" }).eq("id", invoice_id);
+        if (!only_items) {
+          await supabase.from("invoices").update({ status: "error", processing_error: "No se pudo extraer datos" }).eq("id", invoice_id);
+        }
         return new Response(JSON.stringify({ error: "No se pudo extraer datos" }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -257,9 +300,40 @@ Reglas:
     }
 
     // Ensure items is always an array
-    if (!extracted.items) extracted.items = [];
+    if (!Array.isArray(extracted.items)) extracted.items = [];
 
-    // Update invoice with extracted data → status='ready'
+    // Re-extract items only: replace invoice_items in DB, don't touch invoice header/status.
+    if (only_items) {
+      await supabase.from("invoice_items").delete().eq("invoice_id", invoice_id);
+      if (extracted.items.length > 0) {
+        const rows = extracted.items.map((it: Record<string, unknown>) => ({
+          invoice_id,
+          user_id: userId,
+          item_code: (it.item_code as string) || null,
+          reference: (it.reference as string) || null,
+          description: (it.description as string) || null,
+          quantity: (it.quantity as number) ?? 1,
+          unit_price: (it.unit_price as number) ?? 0,
+          line_base: (it.line_base as number) ?? 0,
+          iva_rate: (it.iva_rate as number) ?? 0.19,
+          iva_amount: (it.iva_amount as number) ?? 0,
+          line_total: (it.line_total as number) ?? 0,
+        }));
+        const { error: itemsErr } = await supabase.from("invoice_items").insert(rows);
+        if (itemsErr) {
+          console.error("Insert items error:", itemsErr);
+          return new Response(JSON.stringify({ error: "Error guardando ítems" }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+      return new Response(JSON.stringify({ success: true, invoice_id, items_count: extracted.items.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Normal flow: update invoice with extracted data → status='ready'
     const updateData: Record<string, unknown> = {
       status: "ready",
       processing_error: null,
@@ -299,7 +373,7 @@ Reglas:
       });
     }
 
-    return new Response(JSON.stringify({ success: true, invoice_id }), {
+    return new Response(JSON.stringify({ success: true, invoice_id, items_count: extracted.items.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
