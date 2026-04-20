@@ -124,6 +124,19 @@ export default function Transactions() {
     }
 
     setAvailableYears(years);
+
+    // If the current-year default has no statements but other years do, auto-switch
+    // to the most recent year with statements so the user isn't staring at an empty
+    // list after uploading a statement from a prior year.
+    setSelectedYear((prev) => {
+      if (prev !== String(currentYear)) return prev;
+      const hasCurrent = nextStatements.some((s) => s.statement_year === currentYear);
+      if (hasCurrent) return prev;
+      const mostRecent = nextStatements.find(
+        (s): s is Statement & { statement_year: number } => typeof s.statement_year === 'number'
+      );
+      return mostRecent ? String(mostRecent.statement_year) : prev;
+    });
   };
 
   const fetchCategories = async () => {
