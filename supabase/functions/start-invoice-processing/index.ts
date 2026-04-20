@@ -15,7 +15,7 @@ serve(async (req) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
   const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
   try {
     // Auth: verify user
@@ -109,7 +109,7 @@ serve(async (req) => {
     }
     const base64 = btoa(binary);
 
-    if (!LOVABLE_API_KEY) {
+    if (!GEMINI_API_KEY) {
       await supabase.from("invoices").update({ status: "error", processing_error: "IA no configurada" }).eq("id", invoice_id);
       return new Response(JSON.stringify({ error: "IA no configurada" }), {
         status: 500,
@@ -118,14 +118,14 @@ serve(async (req) => {
     }
 
     // Call AI for extraction (Phase 1: header only, no line items to avoid timeouts)
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gemini-2.5-flash",
         messages: [
           {
             role: "system",
