@@ -13,5 +13,10 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+    // Implicit flow: recovery/magic links carry tokens in the URL hash instead of
+    // a PKCE code. PKCE requires code_verifier in localStorage of the same browser
+    // session that initiated the request — which fails for admin-sent emails or
+    // cross-browser clicks. Implicit flow has no such dependency.
+    flowType: 'implicit',
   }
 });
