@@ -6,10 +6,24 @@ import { toast } from 'sonner';
 export interface FiscalConfig {
   id: string;
   user_id: string;
+  // Legacy fields
   nit_digit: number | null;
   ica_periodicity: 'bimestral' | 'anual';
   ica_city: string;
   renta_type: 'juridica' | 'natural';
+  // Onboarding fields
+  nit_ultimo_digito: number | null;
+  persona_type: 'natural' | 'juridica' | null;
+  regimen: 'comun' | 'simple' | 'especial' | null;
+  responsable_iva: boolean;
+  agente_retencion: boolean;
+  autorretenedor: boolean;
+  responsable_ica: boolean;
+  facturacion_electronica: boolean;
+  nombre_facturador: string | null;
+  nivel_ingresos: 'menos_92k_uvt' | 'mas_92k_uvt' | null;
+  actividad_principal: 'comercial' | 'servicios' | 'industrial' | 'construccion' | 'otro' | null;
+  codigo_ciiu: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -19,6 +33,18 @@ export interface FiscalConfigInput {
   ica_periodicity?: 'bimestral' | 'anual';
   ica_city?: string;
   renta_type?: 'juridica' | 'natural';
+  nit_ultimo_digito?: number | null;
+  persona_type?: 'natural' | 'juridica' | null;
+  regimen?: 'comun' | 'simple' | 'especial' | null;
+  responsable_iva?: boolean;
+  agente_retencion?: boolean;
+  autorretenedor?: boolean;
+  responsable_ica?: boolean;
+  facturacion_electronica?: boolean;
+  nombre_facturador?: string | null;
+  nivel_ingresos?: 'menos_92k_uvt' | 'mas_92k_uvt' | null;
+  actividad_principal?: 'comercial' | 'servicios' | 'industrial' | 'construccion' | 'otro' | null;
+  codigo_ciiu?: string | null;
 }
 
 export function useFiscalConfig() {

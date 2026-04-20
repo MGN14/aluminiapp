@@ -1,7 +1,11 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useForcePasswordChange } from '@/hooks/useForcePasswordChange';
+import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
 import { Loader2 } from 'lucide-react';
+
+// Routes that don't require completed onboarding
+const ONBOARDING_EXEMPT = ['/onboarding', '/change-password'];
 
 const isDev = import.meta.env.MODE === 'development';
 
@@ -12,6 +16,7 @@ interface ProtectedRouteProps {
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, session, loading, sessionExpired } = useAuth();
   const { loading: forceLoading, required: forcePasswordChange } = useForcePasswordChange();
+  const { isLoading: onboardingLoading, completed: onboardingCompleted } = useOnboardingStatus();
   const location = useLocation();
 
   if (isDev) {
@@ -77,6 +82,27 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   // If the user is flagged, force them through /change-password first.
   if (forcePasswordChange && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
+  }
+
+  // Wait for onboarding status to resolve
+  if (onboardingLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
+  const isOnboardingExempt = ONBOARDING_EXEMPT.includes(location.pathname);
+
+  // Redirect to onboarding if not completed (except exempt routes)
+  if (!onboardingCompleted && !isOnboardingExempt) {
+    return <Navigate to="/onboarding" replace />;
+  }
+
+  // If onboarding already done, don't let them re-enter the onboarding page
+  if (onboardingCompleted && location.pathname === '/onboarding') {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;

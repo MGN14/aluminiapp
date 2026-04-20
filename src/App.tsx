@@ -35,6 +35,7 @@ import Collaborators from "./pages/Collaborators";
 import ComingSoon from "./pages/ComingSoon";
 import Remisiones from "./pages/Remisiones";
 import CashMovements from "./pages/CashMovements";
+import Onboarding from "./pages/Onboarding";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -59,6 +60,10 @@ const App = () => (
               <Route
                 path="/change-password"
                 element={<ProtectedRoute><ChangePassword /></ProtectedRoute>}
+              />
+              <Route
+                path="/onboarding"
+                element={<ProtectedRoute><Onboarding /></ProtectedRoute>}
               />
               <Route path="/terms" element={<Terms />} />
               <Route path="/privacy" element={<Privacy />} />
