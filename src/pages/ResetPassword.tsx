@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,6 @@ import { evaluatePassword, translatePasswordError } from '@/lib/passwordPolicy';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -28,96 +27,56 @@ export default function ResetPassword() {
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    const initializeSession = async () => {
-      try {
-        // Check for error in URL hash first (e.g., expired token)
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const errorDescription = hashParams.get('error_description');
-        if (errorDescription) {
-          setTokenError(true);
-          setError(decodeURIComponent(errorDescription));
-          setInitializing(false);
-          return;
-        }
+    let resolved = false;
 
-        // Option 1: Check for 'code' in query string (PKCE flow).
-        // Supabase does not always include type=recovery in the URL for PKCE,
-        // so we trust the code itself and let the API validate it.
-        const code = searchParams.get('code');
-
-        if (code) {
-          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) {
-            console.error('Exchange code error:', exchangeError);
-            setTokenError(true);
-            setError(exchangeError.message.includes('expired') 
-              ? 'El enlace ha expirado. Solicita uno nuevo.' 
-              : 'Link inválido o expirado');
-            setInitializing(false);
-            return;
-          }
-          
-          if (data.session?.user?.email) {
-            setUserEmail(data.session.user.email);
-            setSessionReady(true);
-          }
-          setInitializing(false);
-          return;
-        }
-
-        // Option 2: Check for access_token and refresh_token in hash (implicit flow)
-        const accessToken = hashParams.get('access_token');
-        const refreshToken = hashParams.get('refresh_token');
-
-        if (accessToken && refreshToken) {
-          const { data, error: setSessionError } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken
-          });
-
-          if (setSessionError) {
-            console.error('Set session error:', setSessionError);
-            setTokenError(true);
-            setError(setSessionError.message.includes('expired') 
-              ? 'El enlace ha expirado. Solicita uno nuevo.' 
-              : 'Link inválido o expirado');
-            setInitializing(false);
-            return;
-          }
-
-          if (data.session?.user?.email) {
-            setUserEmail(data.session.user.email);
-            setSessionReady(true);
-          }
-          // Clear the hash from URL for cleaner display
-          window.history.replaceState(null, '', window.location.pathname);
-          setInitializing(false);
-          return;
-        }
-
-        // Option 3: Check if there's already an active recovery session
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.email) {
-          setUserEmail(session.user.email);
-          setSessionReady(true);
-          setInitializing(false);
-          return;
-        }
-
-        // No valid token found
+    const resolve = (ok: boolean, email?: string) => {
+      if (resolved) return;
+      resolved = true;
+      if (ok && email) {
+        setUserEmail(email);
+        setSessionReady(true);
+      } else {
         setTokenError(true);
         setError('Link inválido o expirado. Por favor solicita un nuevo enlace.');
-        setInitializing(false);
-      } catch (err) {
-        console.error('Session initialization error:', err);
-        setTokenError(true);
-        setError('Error al procesar el enlace de recuperación');
-        setInitializing(false);
       }
+      setInitializing(false);
     };
 
-    initializeSession();
-  }, [searchParams]);
+    // Check for error_description in hash (Supabase sends this for expired links)
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const errorDescription = hashParams.get('error_description');
+    if (errorDescription) {
+      resolve(false);
+      setError(decodeURIComponent(errorDescription));
+      return;
+    }
+
+    // Listen for the PASSWORD_RECOVERY event — Supabase fires this automatically
+    // when it detects and processes the recovery code/token from the URL.
+    // This is the correct way to handle it; manual exchangeCodeForSession causes
+    // a race condition (Supabase already consumed the one-time code on init).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        resolve(true, session?.user?.email ?? '');
+      }
+    });
+
+    // Fallback: check if there's already an active session (auto-processed before
+    // our listener was registered)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email) {
+        resolve(true, session.user.email);
+      }
+    });
+
+    // If nothing fires within 4s, the link is genuinely invalid/expired
+    const timer = setTimeout(() => resolve(false), 4000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timer);
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
