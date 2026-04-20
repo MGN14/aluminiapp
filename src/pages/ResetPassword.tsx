@@ -40,18 +40,12 @@ export default function ResetPassword() {
           return;
         }
 
-        // Option 1: Check for 'code' in query string (PKCE flow)
+        // Option 1: Check for 'code' in query string (PKCE flow).
+        // Supabase does not always include type=recovery in the URL for PKCE,
+        // so we trust the code itself and let the API validate it.
         const code = searchParams.get('code');
-        const type = searchParams.get('type');
-        
+
         if (code) {
-          if (type !== 'recovery') {
-            setTokenError(true);
-            setError('Link inválido o expirado');
-            setInitializing(false);
-            return;
-          }
-          
           const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) {
             console.error('Exchange code error:', exchangeError);
@@ -74,16 +68,8 @@ export default function ResetPassword() {
         // Option 2: Check for access_token and refresh_token in hash (implicit flow)
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
-        const hashType = hashParams.get('type');
 
         if (accessToken && refreshToken) {
-          if (hashType !== 'recovery') {
-            setTokenError(true);
-            setError('Link inválido o expirado');
-            setInitializing(false);
-            return;
-          }
-
           const { data, error: setSessionError } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken
