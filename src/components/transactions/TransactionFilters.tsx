@@ -108,36 +108,44 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
         <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
 
         {/* Estado filter */}
-        <div className="flex items-center gap-1">
-          <Button
-            variant={filters.estado === 'todas' ? 'default' : 'outline'}
-            size="sm"
-            className="h-7 text-xs"
+        <div style={{display:'flex',background:'#fff',border:'1.5px solid rgba(0,0,0,0.07)',borderRadius:10,padding:3,gap:1,fontFamily:'inherit'}}>
+          <button
+            type="button"
             onClick={() => update({ estado: 'todas' })}
+            style={{
+              padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
+              background: filters.estado === 'todas' ? '#1d1d1f' : 'transparent',
+              color: filters.estado === 'todas' ? '#fff' : '#6e6e73',
+            }}
           >
             Todas ({counts.total})
-          </Button>
-          <Button
-            variant={filters.estado === 'pendientes' ? 'default' : 'outline'}
-            size="sm"
-            className={cn(
-              'h-7 text-xs gap-1',
-              filters.estado !== 'pendientes' && counts.pendientes > 0 && 'border-warning/50 text-warning hover:bg-warning/10'
-            )}
+          </button>
+          <button
+            type="button"
             onClick={() => update({ estado: 'pendientes' })}
+            style={{
+              padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
+              display:'inline-flex', alignItems:'center', gap:4,
+              background: filters.estado === 'pendientes' ? 'oklch(0.65 0.15 65)' : 'transparent',
+              color: filters.estado === 'pendientes' ? '#fff' : '#6e6e73',
+            }}
           >
             <Circle className="h-3 w-3" />
             Pendientes ({counts.pendientes})
-          </Button>
-          <Button
-            variant={filters.estado === 'conciliadas' ? 'default' : 'outline'}
-            size="sm"
-            className="h-7 text-xs gap-1"
+          </button>
+          <button
+            type="button"
             onClick={() => update({ estado: 'conciliadas' })}
+            style={{
+              padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
+              display:'inline-flex', alignItems:'center', gap:4,
+              background: filters.estado === 'conciliadas' ? 'oklch(0.43 0.14 155)' : 'transparent',
+              color: filters.estado === 'conciliadas' ? '#fff' : '#6e6e73',
+            }}
           >
             <CheckCircle2 className="h-3 w-3" />
             Conciliadas ({counts.conciliadas})
-          </Button>
+          </button>
         </div>
 
         <Separator orientation="vertical" className="h-5" />

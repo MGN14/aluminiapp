@@ -14,19 +14,62 @@ interface NicoQuickActionsProps {
 }
 
 export default function NicoQuickActions({ onSelect, disabled }: NicoQuickActionsProps) {
+  const BRAND = 'oklch(0.43 0.14 155)';
+  const BRAND_DIM = 'oklch(0.43 0.14 155 / 0.10)';
+  const BRAND_BORDER = 'oklch(0.43 0.14 155 / 0.22)';
   return (
-    <div className="flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
-      {QUICK_ACTIONS.map((action) => (
-        <button
-          key={action.label}
-          onClick={() => !disabled && onSelect(action.query)}
-          disabled={disabled}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-muted/50 hover:bg-success/5 hover:border-success/40 text-xs text-muted-foreground hover:text-foreground transition-all whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-        >
-          <action.icon className="w-3.5 h-3.5" />
-          {action.label}
-        </button>
-      ))}
+    <div
+      style={{
+        display: 'flex',
+        gap: 8,
+        overflowX: 'auto',
+        paddingBottom: 2,
+        scrollbarWidth: 'none',
+      }}
+      className="scrollbar-none"
+    >
+      {QUICK_ACTIONS.map((action) => {
+        const Icon = action.icon;
+        return (
+          <button
+            key={action.label}
+            onClick={() => !disabled && onSelect(action.query)}
+            disabled={disabled}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '7px 14px',
+              borderRadius: 99,
+              background: '#fff',
+              border: '1.5px solid rgba(0,0,0,0.07)',
+              fontSize: 12,
+              fontWeight: 500,
+              color: '#6e6e73',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.5 : 1,
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s',
+              flexShrink: 0,
+              fontFamily: 'inherit',
+            }}
+            onMouseEnter={(e) => {
+              if (disabled) return;
+              e.currentTarget.style.border = `1.5px solid ${BRAND_BORDER}`;
+              e.currentTarget.style.color = BRAND;
+              e.currentTarget.style.background = BRAND_DIM;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.border = '1.5px solid rgba(0,0,0,0.07)';
+              e.currentTarget.style.color = '#6e6e73';
+              e.currentTarget.style.background = '#fff';
+            }}
+          >
+            <Icon style={{ width: 14, height: 14 }} />
+            {action.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

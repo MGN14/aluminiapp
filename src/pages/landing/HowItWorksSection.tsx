@@ -23,37 +23,111 @@ const steps = [
 
 export default function HowItWorksSection() {
   return (
-    <section id="como-funciona" className="py-24 bg-background">
-      <div className="container mx-auto px-4">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+    <section
+      id="como-funciona"
+      style={{
+        background: '#fff',
+        padding: '120px clamp(20px, 5vw, 60px)',
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif",
+      }}
+    >
+      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 64 }}>
+          <h2
+            style={{
+              color: '#1d1d1f',
+              fontSize: 'clamp(36px, 4.5vw, 56px)',
+              fontWeight: 700,
+              letterSpacing: '-1.5px',
+              lineHeight: 1.1,
+              margin: 0,
+              marginBottom: 16,
+            }}
+          >
             Cómo funciona
           </h2>
-          <p className="text-muted-foreground text-lg max-w-xl mx-auto">
+          <p
+            style={{
+              color: 'rgba(29,29,31,0.55)',
+              fontSize: 18,
+              lineHeight: 1.6,
+              maxWidth: 540,
+              margin: '0 auto',
+            }}
+          >
             Empieza en minutos. Sin configuraciones complejas.
           </p>
         </div>
 
-        <div className="max-w-5xl mx-auto grid md:grid-cols-3 gap-8">
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 24,
+          }}
+        >
           {steps.map((step, i) => (
-            <div key={i} className="relative group">
-              {/* Connector line */}
-              {i < steps.length - 1 && (
-                <div className="hidden md:block absolute top-7 left-[calc(50%+3rem)] right-0 h-px bg-border z-0" />
-              )}
-
-              <div className="bg-card rounded-2xl p-8 border border-border hover:border-success/50 hover:shadow-md transition-all relative z-10">
-                {/* Number */}
-                <div className="text-5xl font-black text-muted/30 leading-none mb-4 select-none">
-                  {step.number}
-                </div>
-                {/* Icon */}
-                <div className="w-12 h-12 rounded-xl bg-success flex items-center justify-center mb-5">
-                  <step.icon className="w-6 h-6 text-white" />
-                </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">{step.title}</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed">{step.description}</p>
+            <div
+              key={i}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.borderColor = 'oklch(0.43 0.14 155 / 0.4)')
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(0,0,0,0.07)')}
+              style={{
+                background: '#fff',
+                border: '1px solid rgba(0,0,0,0.07)',
+                borderRadius: 20,
+                padding: '28px 24px',
+                transition: 'border-color 0.2s',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 44,
+                  fontWeight: 900,
+                  color: 'rgba(29,29,31,0.08)',
+                  lineHeight: 1,
+                  marginBottom: 16,
+                  userSelect: 'none',
+                }}
+              >
+                {step.number}
               </div>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: 'oklch(0.43 0.14 155)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 18,
+                }}
+              >
+                <step.icon style={{ width: 22, height: 22, color: '#fff' }} />
+              </div>
+              <h3
+                style={{
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: '#1d1d1f',
+                  margin: 0,
+                  marginBottom: 8,
+                }}
+              >
+                {step.title}
+              </h3>
+              <p
+                style={{
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  color: 'rgba(29,29,31,0.55)',
+                  margin: 0,
+                }}
+              >
+                {step.description}
+              </p>
             </div>
           ))}
         </div>

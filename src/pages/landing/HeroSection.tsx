@@ -1,62 +1,289 @@
 import { Link } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
 import { ArrowRight, CheckCircle, Play } from 'lucide-react';
+
+const metrics = [
+  { value: '24/7', label: 'DISPONIBILIDAD' },
+  { value: '+15', label: 'BANCOS SOPORTADOS' },
+  { value: '< 2 min', label: 'CONFIGURACIÓN' },
+];
+
+const trustItems = [
+  'Compatible con la mayoría de bancos en Colombia',
+  'Sin contabilidad complicada',
+  'Información clara en minutos',
+];
 
 export default function HeroSection() {
   return (
-    <section className="relative overflow-hidden bg-background">
-      {/* Subtle background accent */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(152_69%_31%/0.04)] via-transparent to-[hsl(222_47%_20%/0.06)] pointer-events-none" />
+    <section
+      style={{
+        position: 'relative',
+        overflow: 'hidden',
+        background: '#080d08',
+        minHeight: '90vh',
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 'clamp(80px, 10vh, 140px) clamp(20px, 5vw, 60px)',
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif",
+      }}
+    >
+      {/* Animated blobs */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: '-10%',
+          left: '-8%',
+          width: 480,
+          height: 480,
+          borderRadius: '50%',
+          background: 'oklch(0.35 0.16 155)',
+          filter: 'blur(80px)',
+          opacity: 0.55,
+          animation: 'drift 18s linear infinite alternate',
+          animationDelay: '0s',
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: '-6%',
+          right: '-10%',
+          width: 520,
+          height: 520,
+          borderRadius: '50%',
+          background: 'oklch(0.28 0.12 180)',
+          filter: 'blur(80px)',
+          opacity: 0.55,
+          animation: 'drift 22s linear infinite alternate',
+          animationDelay: '-4s',
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          bottom: '-12%',
+          left: '-6%',
+          width: 460,
+          height: 460,
+          borderRadius: '50%',
+          background: 'oklch(0.28 0.12 180)',
+          filter: 'blur(80px)',
+          opacity: 0.55,
+          animation: 'drift 24s linear infinite alternate',
+          animationDelay: '-8s',
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          bottom: '-10%',
+          right: '-8%',
+          width: 500,
+          height: 500,
+          borderRadius: '50%',
+          background: 'oklch(0.35 0.16 155)',
+          filter: 'blur(80px)',
+          opacity: 0.55,
+          animation: 'drift 28s linear infinite alternate',
+          animationDelay: '-12s',
+          pointerEvents: 'none',
+        }}
+      />
 
-      <div className="container mx-auto px-4 pt-24 pb-20 md:pt-32 md:pb-28 relative">
-        <div className="max-w-3xl mx-auto text-center">
-          {/* Eyebrow */}
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-border bg-card text-sm font-medium text-muted-foreground mb-8">
-            <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-            Auxiliar contable y financiero para empresarios en Colombia
-          </div>
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 1,
+          maxWidth: 1100,
+          width: '100%',
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        {/* Badge */}
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 99,
+            padding: '6px 14px',
+            fontSize: 12,
+            color: 'rgba(255,255,255,0.7)',
+            marginBottom: 28,
+          }}
+        >
+          <span
+            className="animate-pulse"
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: 'oklch(0.75 0.18 155)',
+              display: 'inline-block',
+            }}
+          />
+          Auxiliar contable y financiero para empresarios en Colombia
+        </div>
 
-          {/* Heading */}
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground leading-tight mb-6 tracking-tight">
-            Tu auxiliar contable y financiero que trabaja contigo{' '}
-            <span className="text-success">24/7.</span>
-          </h1>
+        {/* Title */}
+        <h1
+          style={{
+            fontSize: 'clamp(44px, 6.5vw, 88px)',
+            fontWeight: 700,
+            letterSpacing: '-3px',
+            color: '#fff',
+            lineHeight: 1.02,
+            margin: 0,
+            marginBottom: 24,
+            maxWidth: 960,
+          }}
+        >
+          Tu auxiliar contable y financiero que trabaja contigo{' '}
+          <span style={{ color: 'oklch(0.60 0.14 155)' }}>24/7.</span>
+        </h1>
 
-          {/* Subheading */}
-          <p className="text-lg md:text-xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            Organiza tus extractos, analiza tus números y evita sorpresas con la{' '}
-            <span className="font-semibold text-foreground">DIAN</span>.
-          </p>
+        {/* Subtitle */}
+        <p
+          style={{
+            fontSize: 18,
+            color: 'rgba(255,255,255,0.55)',
+            lineHeight: 1.6,
+            maxWidth: 560,
+            margin: '0 auto 40px',
+          }}
+        >
+          Organiza tus extractos, analiza tus números y evita sorpresas con la{' '}
+          <span style={{ color: '#fff', fontWeight: 600 }}>DIAN</span>.
+        </p>
 
-          {/* CTAs */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
-            <Link to="/signup">
-              <Button size="lg" className="h-12 px-8 text-base font-semibold">
-                Probar ahora
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </Link>
-            <a href="#como-funciona">
-              <Button variant="outline" size="lg" className="h-12 px-8 text-base font-medium">
-                <Play className="mr-2 h-4 w-4" />
-                Ver cómo funciona
-              </Button>
-            </a>
-          </div>
+        {/* CTAs */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            justifyContent: 'center',
+            marginBottom: 56,
+          }}
+        >
+          <Link to="/signup" style={{ textDecoration: 'none' }}>
+            <button
+              onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.02)')}
+              onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+              style={{
+                background: '#fff',
+                color: '#1d1d1f',
+                borderRadius: 999,
+                height: 52,
+                padding: '0 26px',
+                fontSize: 15,
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                transition: 'transform 0.2s ease',
+              }}
+            >
+              Probar ahora
+              <ArrowRight style={{ width: 18, height: 18 }} />
+            </button>
+          </Link>
+          <a href="#como-funciona" style={{ textDecoration: 'none' }}>
+            <button
+              style={{
+                background: 'transparent',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 999,
+                height: 52,
+                padding: '0 26px',
+                fontSize: 15,
+                fontWeight: 500,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Play style={{ width: 16, height: 16 }} />
+              Ver cómo funciona
+            </button>
+          </a>
+        </div>
 
-          {/* Trust bullets */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-x-8 gap-y-3 text-sm text-muted-foreground">
-            {[
-              'Compatible con la mayoría de bancos en Colombia',
-              'Sin contabilidad complicada',
-              'Información clara en minutos',
-            ].map((item) => (
-              <div key={item} className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-success flex-shrink-0" />
-                <span>{item}</span>
+        {/* Metrics strip */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            justifyContent: 'center',
+            marginBottom: 40,
+            width: '100%',
+          }}
+        >
+          {metrics.map((m) => (
+            <div
+              key={m.label}
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 16,
+                padding: '20px 24px',
+                minWidth: 180,
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ color: '#fff', fontSize: 24, fontWeight: 700, lineHeight: 1.1 }}>
+                {m.value}
               </div>
-            ))}
-          </div>
+              <div
+                style={{
+                  color: 'rgba(255,255,255,0.5)',
+                  fontSize: 11,
+                  letterSpacing: '0.08em',
+                  marginTop: 6,
+                }}
+              >
+                {m.label}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Trust bullets */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '12px 28px',
+            justifyContent: 'center',
+            color: 'rgba(255,255,255,0.55)',
+            fontSize: 13,
+          }}
+        >
+          {trustItems.map((item) => (
+            <div key={item} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <CheckCircle style={{ width: 14, height: 14, color: 'oklch(0.60 0.14 155)' }} />
+              <span>{item}</span>
+            </div>
+          ))}
         </div>
       </div>
     </section>

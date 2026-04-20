@@ -20,8 +20,6 @@ import {
   UsersRound,
   Banknote,
   ClipboardList,
-  PackageSearch,
-  TrendingUp,
   Zap,
 } from 'lucide-react';
 import {
@@ -87,6 +85,10 @@ const exportItems: NavItem[] = [
 
 const logisticaItemsGerencial: NavItem[] = [];
 
+const BRAND = 'oklch(0.43 0.14 155)';
+const BRAND_DIM = 'oklch(0.43 0.14 155 / 0.10)';
+const BRAND_BORDER = 'oklch(0.43 0.14 155 / 0.22)';
+
 function isItemActive(itemUrl: string, currentPath: string, currentSearch: string) {
   const [basePath, query] = itemUrl.split('?');
   if (currentPath !== basePath) return false;
@@ -99,7 +101,41 @@ function isItemActive(itemUrl: string, currentPath: string, currentSearch: strin
   return true;
 }
 
-function SidebarNavItem({ item, collapsed, currentPath, currentSearch }: {
+function navItemStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '8px 10px',
+    borderRadius: 10,
+    fontSize: 13,
+    fontWeight: active ? 600 : 500,
+    color: active ? BRAND : '#6e6e73',
+    background: active ? BRAND_DIM : 'transparent',
+    border: `1px solid ${active ? BRAND_BORDER : 'transparent'}`,
+    transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+  };
+}
+
+function handleHoverEnter(active: boolean) {
+  return (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (active) return;
+    e.currentTarget.style.background = '#f5f5f7';
+  };
+}
+function handleHoverLeave(active: boolean) {
+  return (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (active) return;
+    e.currentTarget.style.background = 'transparent';
+  };
+}
+
+function SidebarNavItem({
+  item,
+  collapsed,
+  currentPath,
+  currentSearch,
+}: {
   item: NavItem;
   collapsed: boolean;
   currentPath: string;
@@ -114,18 +150,52 @@ function SidebarNavItem({ item, collapsed, currentPath, currentSearch }: {
           <NavLink
             to={item.url}
             end
-            className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors border
-              ${active
-                ? 'bg-primary/15 border-primary/40 text-primary'
-                : 'border-primary/20 bg-primary/5 text-primary/80 hover:bg-primary/10 hover:border-primary/30'
-              }`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '8px 10px',
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 600,
+              color: BRAND,
+              background: active ? BRAND_DIM : 'oklch(0.43 0.14 155 / 0.06)',
+              border: `1px solid ${BRAND_BORDER}`,
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = BRAND_DIM;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = active ? BRAND_DIM : 'oklch(0.43 0.14 155 / 0.06)';
+            }}
           >
-            <Zap className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <Zap style={{ width: 14, height: 14, color: BRAND, flexShrink: 0 }} />
             {!collapsed && (
-              <span className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="truncate">{item.title}</span>
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  flex: 1,
+                  minWidth: 0,
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {item.title}
+                </span>
                 {item.comingSoon && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none bg-primary/15 text-primary shrink-0">
+                  <span
+                    style={{
+                      fontSize: 9,
+                      padding: '2px 6px',
+                      borderRadius: 99,
+                      fontWeight: 600,
+                      background: BRAND_DIM,
+                      color: BRAND,
+                      flexShrink: 0,
+                    }}
+                  >
                     Próximamente
                   </span>
                 )}
@@ -137,21 +207,18 @@ function SidebarNavItem({ item, collapsed, currentPath, currentSearch }: {
     );
   }
 
+  const Icon = item.icon;
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={active}>
         <NavLink
           to={item.url}
           end
-          className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
-            active
-              ? 'font-semibold'
-              : item.highlight
-                ? 'font-medium text-sidebar-foreground'
-                : 'text-sidebar-foreground/70'
-          }`}
+          style={navItemStyle(active)}
+          onMouseEnter={handleHoverEnter(active)}
+          onMouseLeave={handleHoverLeave(active)}
         >
-          <item.icon className="h-4 w-4 shrink-0" />
+          <Icon style={{ width: 15, height: 15, flexShrink: 0 }} />
           {!collapsed && <span>{item.title}</span>}
         </NavLink>
       </SidebarMenuButton>
@@ -169,12 +236,30 @@ interface SectionProps {
   isGerencial: boolean;
 }
 
-function SidebarSection({ label, items, gerencialItems, collapsed, currentPath, currentSearch, isGerencial }: SectionProps) {
+function SidebarSection({
+  label,
+  items,
+  gerencialItems,
+  collapsed,
+  currentPath,
+  currentSearch,
+  isGerencial,
+}: SectionProps) {
   const allItems = isGerencial && gerencialItems ? [...items, ...gerencialItems] : items;
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.08em] text-sidebar-foreground/40 font-semibold px-3 mb-0.5">
+      <SidebarGroupLabel
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: '1.2px',
+          textTransform: 'uppercase',
+          color: '#a1a1a6',
+          padding: '0 12px',
+          marginBottom: 4,
+        }}
+      >
         {label}
       </SidebarGroupLabel>
       <SidebarGroupContent>
@@ -202,43 +287,91 @@ export default function AppSidebar() {
   const currentSearch = location.search;
   const { isGerencial } = useModuleContext();
 
-  // Force sidebar open when gerencial mode is active so gerencial items are always visible
   useEffect(() => {
     if (isGerencial && state === 'collapsed') {
       setOpen(true);
     }
   }, [isGerencial, state, setOpen]);
 
+  const nicoActive = currentPath === '/nico';
+
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      <SidebarHeader className="px-3 pt-4 pb-2">
-        <NavLink to="/dashboard" className="flex items-center gap-2.5 px-1">
-          <div className="w-7 h-7 rounded-lg bg-success flex items-center justify-center shrink-0">
-            <span className="text-success-foreground font-bold text-sm">A</span>
+    <Sidebar
+      collapsible="icon"
+      style={{
+        background: '#ffffff',
+        borderRight: '1px solid rgba(0,0,0,0.07)',
+      }}
+    >
+      <SidebarHeader style={{ padding: '16px 12px 8px' }}>
+        <NavLink to="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 4px' }}>
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 8,
+              background: BRAND,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>A</span>
           </div>
           {!collapsed && (
-            <span className="text-base font-bold text-sidebar-foreground tracking-tight">AluminIA</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#1d1d1f', letterSpacing: '-0.3px' }}>
+              AluminIA
+            </span>
           )}
         </NavLink>
       </SidebarHeader>
 
-      <SidebarContent className="px-2 gap-0.5">
-        {/* Principal */}
+      <SidebarContent style={{ padding: '0 8px', gap: 2 }}>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={currentPath === '/nico'}>
+                <SidebarMenuButton asChild isActive={nicoActive}>
                   <NavLink
                     to="/nico"
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-semibold border transition-colors ${
-                      currentPath === '/nico'
-                        ? 'bg-success/20 border-success/40 text-success'
-                        : 'border-success/25 bg-success/8 text-success hover:bg-success/15'
-                    }`}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: BRAND,
+                      background: nicoActive ? BRAND_DIM : 'oklch(0.43 0.14 155 / 0.06)',
+                      border: `1px solid ${BRAND_BORDER}`,
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = BRAND_DIM;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = nicoActive
+                        ? BRAND_DIM
+                        : 'oklch(0.43 0.14 155 / 0.06)';
+                    }}
                   >
-                    <div className="w-5 h-5 rounded-md overflow-hidden shrink-0 ring-1 ring-success/30">
-                      <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+                    <div
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                        flexShrink: 0,
+                        boxShadow: `0 0 0 1px ${BRAND_BORDER}`,
+                      }}
+                    >
+                      <img
+                        src={nicoAvatar}
+                        alt="Nico"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+                      />
                     </div>
                     {!collapsed && <span>Nico IA</span>}
                   </NavLink>
@@ -249,11 +382,11 @@ export default function AppSidebar() {
                 <SidebarMenuButton asChild isActive={currentPath === '/dashboard'}>
                   <NavLink
                     to="/dashboard"
-                    className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
-                      currentPath === '/dashboard' ? 'font-semibold' : 'text-sidebar-foreground/70'
-                    }`}
+                    style={navItemStyle(currentPath === '/dashboard')}
+                    onMouseEnter={handleHoverEnter(currentPath === '/dashboard')}
+                    onMouseLeave={handleHoverLeave(currentPath === '/dashboard')}
                   >
-                    <LayoutDashboard className="h-4 w-4 shrink-0" />
+                    <LayoutDashboard style={{ width: 15, height: 15, flexShrink: 0 }} />
                     {!collapsed && <span>Dashboard</span>}
                   </NavLink>
                 </SidebarMenuButton>
@@ -262,19 +395,57 @@ export default function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator className="my-1" />
+        <SidebarSeparator style={{ margin: '6px 0', background: 'rgba(0,0,0,0.07)' }} />
 
-        <SidebarSection label="Documentos" items={documentItems} gerencialItems={documentItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
-        <SidebarSection label="Movimientos" items={movementItems} gerencialItems={movementItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
-        <SidebarSection label="Reportes" items={reportItems} gerencialItems={reportItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
-        <SidebarSection label="Exportar" items={exportItems} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+        <SidebarSection
+          label="Documentos"
+          items={documentItems}
+          gerencialItems={documentItemsGerencial}
+          collapsed={collapsed}
+          currentPath={currentPath}
+          currentSearch={currentSearch}
+          isGerencial={isGerencial}
+        />
+        <SidebarSection
+          label="Movimientos"
+          items={movementItems}
+          gerencialItems={movementItemsGerencial}
+          collapsed={collapsed}
+          currentPath={currentPath}
+          currentSearch={currentSearch}
+          isGerencial={isGerencial}
+        />
+        <SidebarSection
+          label="Reportes"
+          items={reportItems}
+          gerencialItems={reportItemsGerencial}
+          collapsed={collapsed}
+          currentPath={currentPath}
+          currentSearch={currentSearch}
+          isGerencial={isGerencial}
+        />
+        <SidebarSection
+          label="Exportar"
+          items={exportItems}
+          collapsed={collapsed}
+          currentPath={currentPath}
+          currentSearch={currentSearch}
+          isGerencial={isGerencial}
+        />
 
-        {/* Logística – only in gerencial mode */}
         {isGerencial && (
-          <SidebarSection label="Logística" items={[]} gerencialItems={logisticaItemsGerencial} collapsed={collapsed} currentPath={currentPath} currentSearch={currentSearch} isGerencial={isGerencial} />
+          <SidebarSection
+            label="Logística"
+            items={[]}
+            gerencialItems={logisticaItemsGerencial}
+            collapsed={collapsed}
+            currentPath={currentPath}
+            currentSearch={currentSearch}
+            isGerencial={isGerencial}
+          />
         )}
 
-        <SidebarSeparator className="my-1" />
+        <SidebarSeparator style={{ margin: '6px 0', background: 'rgba(0,0,0,0.07)' }} />
 
         <SidebarGroup>
           <SidebarGroupContent>
@@ -283,11 +454,11 @@ export default function AppSidebar() {
                 <SidebarMenuButton asChild isActive={currentPath === '/colaboradores'}>
                   <NavLink
                     to="/colaboradores"
-                    className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
-                      currentPath === '/colaboradores' ? 'font-semibold' : 'text-sidebar-foreground/70'
-                    }`}
+                    style={navItemStyle(currentPath === '/colaboradores')}
+                    onMouseEnter={handleHoverEnter(currentPath === '/colaboradores')}
+                    onMouseLeave={handleHoverLeave(currentPath === '/colaboradores')}
                   >
-                    <UsersRound className="h-4 w-4 shrink-0" />
+                    <UsersRound style={{ width: 15, height: 15, flexShrink: 0 }} />
                     {!collapsed && <span>Colaboradores</span>}
                   </NavLink>
                 </SidebarMenuButton>
@@ -297,23 +468,40 @@ export default function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="px-3 py-3 border-t border-sidebar-border">
+      <SidebarFooter
+        style={{
+          padding: '12px',
+          borderTop: '1px solid rgba(0,0,0,0.07)',
+        }}
+      >
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={currentPath === '/settings'}>
               <NavLink
                 to="/settings"
-                className={`flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
-                  currentPath === '/settings' ? 'font-semibold' : 'text-sidebar-foreground/70'
-                }`}
+                style={navItemStyle(currentPath === '/settings')}
+                onMouseEnter={handleHoverEnter(currentPath === '/settings')}
+                onMouseLeave={handleHoverLeave(currentPath === '/settings')}
               >
-                <Settings className="h-4 w-4 shrink-0" />
+                <Settings style={{ width: 15, height: 15, flexShrink: 0 }} />
                 {!collapsed && <span>Ajustes</span>}
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        {!collapsed && <PlanBadge />}
+        {!collapsed && (
+          <div
+            style={{
+              marginTop: 8,
+              background: 'oklch(0.43 0.14 155 / 0.08)',
+              border: `1px solid ${BRAND_BORDER}`,
+              borderRadius: 10,
+              padding: '10px 12px',
+            }}
+          >
+            <PlanBadge />
+          </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );

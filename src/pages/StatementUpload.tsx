@@ -6,15 +6,12 @@ import AppLayout from '@/components/layout/AppLayout';
 import PDFUploader from '@/components/PDFUploader';
 import DeleteStatementButton from '@/components/statements/DeleteStatementButton';
 import StatementConfigModal from '@/components/statements/StatementConfigModal';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FileText, Check, Clock, AlertCircle, Info, Pencil, Zap } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useReconciliationRules } from '@/hooks/useReconciliationRules';
 
 interface Statement {
@@ -31,6 +28,8 @@ interface Statement {
   statement_year: number | null;
   account_number: string | null;
 }
+
+const FONT_STACK = "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif";
 
 export default function StatementUpload() {
   const { user } = useAuth();
@@ -178,31 +177,92 @@ export default function StatementUpload() {
 
   return (
     <AppLayout>
-      <div className="max-w-4xl mx-auto space-y-8">
-        <section className="animate-fade-in">
-          <h1 className="text-2xl font-bold text-foreground mb-2">
+      <style>{`
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+      <div
+        style={{
+          maxWidth: 896,
+          margin: '0 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 32,
+          fontFamily: FONT_STACK,
+        }}
+      >
+        <section style={{ fontFamily: 'inherit' }}>
+          <h1
+            style={{
+              fontFamily: 'inherit',
+              fontSize: 24,
+              fontWeight: 700,
+              color: '#1d1d1f',
+              marginBottom: 8,
+              letterSpacing: '-0.01em',
+            }}
+          >
             Sube tu extracto bancario (PDF)
           </h1>
-          <p className="text-muted-foreground mb-6">
+          <p
+            style={{
+              fontFamily: 'inherit',
+              color: 'rgba(0,0,0,0.55)',
+              marginBottom: 24,
+              fontSize: 15,
+            }}
+          >
             Funciona con múltiples bancos. Si tu PDF no se procesa correctamente, lo ajustamos.
           </p>
 
-          <Alert className="mb-6">
-            <Info className="h-4 w-4" />
-            <AlertTitle>Formato esperado del PDF</AlertTitle>
-            <AlertDescription>
-              Soportamos distintos formatos de extractos bancarios. El PDF debe contener la tabla de movimientos con: fecha, descripción, valor y saldo.
-              Algunos formatos pueden requerir ajuste de plantilla.
-            </AlertDescription>
-          </Alert>
+          <div
+            style={{
+              background: 'oklch(0.52 0.16 240 / 0.06)',
+              border: '1px solid oklch(0.52 0.16 240 / 0.18)',
+              borderRadius: 12,
+              padding: '14px 16px',
+              marginBottom: 24,
+              display: 'flex',
+              gap: 12,
+              alignItems: 'flex-start',
+              fontFamily: 'inherit',
+            }}
+          >
+            <Info className="h-4 w-4" style={{ marginTop: 2, flexShrink: 0 }} />
+            <div style={{ fontFamily: 'inherit' }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4, fontFamily: 'inherit' }}>
+                Formato esperado del PDF
+              </div>
+              <div style={{ fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit' }}>
+                Soportamos distintos formatos de extractos bancarios. El PDF debe contener la tabla de movimientos con: fecha, descripción, valor y saldo.
+                Algunos formatos pueden requerir ajuste de plantilla.
+              </div>
+            </div>
+          </div>
 
           <PDFUploader onUploadComplete={handleUploadComplete} />
 
           {/* Nico rules indicator */}
           {rules.filter(r => r.active).length > 0 && (
-            <div className="mt-4 flex items-center gap-2 text-xs text-success bg-success/5 border border-success/20 rounded-lg px-4 py-2.5">
+            <div
+              style={{
+                marginTop: 16,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                background: 'oklch(0.43 0.14 155 / 0.05)',
+                border: '1px solid oklch(0.43 0.14 155 / 0.2)',
+                color: 'oklch(0.43 0.14 155)',
+                borderRadius: 12,
+                padding: '10px 16px',
+                fontFamily: 'inherit',
+              }}
+            >
               <Zap className="h-3.5 w-3.5 shrink-0" />
-              <span>
+              <span style={{ fontFamily: 'inherit' }}>
                 <strong>{rules.filter(r => r.active).length} regla{rules.filter(r => r.active).length > 1 ? 's' : ''} de Nico activa{rules.filter(r => r.active).length > 1 ? 's' : ''}</strong> — se aplicarán automáticamente al procesar el extracto
               </span>
             </div>
@@ -210,74 +270,173 @@ export default function StatementUpload() {
         </section>
 
         {statements.length > 0 && (
-          <section className="animate-slide-up">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Extractos subidos</CardTitle>
-                <CardDescription>
+          <section style={{ fontFamily: 'inherit' }}>
+            <div
+              style={{
+                background: '#fff',
+                borderRadius: 20,
+                border: '1px solid rgba(0,0,0,0.07)',
+                padding: '24px 24px 20px',
+                fontFamily: 'inherit',
+              }}
+            >
+              <div style={{ marginBottom: 16, fontFamily: 'inherit' }}>
+                <h2
+                  style={{
+                    fontFamily: 'inherit',
+                    fontSize: 18,
+                    fontWeight: 600,
+                    color: '#1d1d1f',
+                    margin: 0,
+                    letterSpacing: '-0.01em',
+                  }}
+                >
+                  Extractos subidos
+                </h2>
+                <p
+                  style={{
+                    fontFamily: 'inherit',
+                    fontSize: 13,
+                    color: 'rgba(0,0,0,0.55)',
+                    margin: '4px 0 0',
+                  }}
+                >
                   Los extractos procesados tienen sus transacciones disponibles para edición
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {statements.map((statement) => (
-                    <div
-                      key={statement.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
-                        <div>
-                          <p className="font-medium text-sm">
-                            {statement.display_name || statement.file_name}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {format(new Date(statement.uploaded_at), "dd MMM yyyy, HH:mm", { locale: es })}
-                            {statement.transaction_count
-                              ? ` · ${statement.transaction_count} transacciones`
-                              : ''}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {statement.processing_error ? (
-                          <Badge variant="destructive" className="flex items-center gap-1">
-                            <AlertCircle className="h-3 w-3" />
-                            Error
-                          </Badge>
-                        ) : statement.processed ? (
-                          <Badge variant="secondary" className="flex items-center gap-1 bg-success/10 text-success">
-                            <Check className="h-3 w-3" />
-                            Procesado
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            Pendiente
-                          </Badge>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Editar configuración"
-                          onClick={() => openEditModal(statement)}
+                </p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {statements.map((statement) => (
+                  <div
+                    key={statement.id}
+                    style={{
+                      background: '#fff',
+                      borderRadius: 14,
+                      border: '1.5px solid rgba(0,0,0,0.07)',
+                      padding: '16px 18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      transition: 'border-color 0.15s, box-shadow 0.15s',
+                      animation: 'fadeUp 0.4s cubic-bezier(0.16,1,0.3,1) both',
+                      justifyContent: 'space-between',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+                      <FileText
+                        className="h-5 w-5 shrink-0"
+                        style={{ color: 'rgba(0,0,0,0.55)' }}
+                      />
+                      <div style={{ minWidth: 0, fontFamily: 'inherit' }}>
+                        <p
+                          style={{
+                            fontFamily: 'inherit',
+                            fontWeight: 500,
+                            fontSize: 14,
+                            color: '#1d1d1f',
+                            margin: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <DeleteStatementButton
-                          statementId={statement.id}
-                          fileName={statement.display_name || statement.file_name}
-                          filePath={statement.file_path}
-                          transactionCount={statement.transaction_count}
-                          onDeleted={fetchStatements}
-                        />
+                          {statement.display_name || statement.file_name}
+                        </p>
+                        <p
+                          style={{
+                            fontFamily: 'inherit',
+                            fontSize: 12,
+                            color: 'rgba(0,0,0,0.55)',
+                            margin: '2px 0 0',
+                          }}
+                        >
+                          {format(new Date(statement.uploaded_at), "dd MMM yyyy, HH:mm", { locale: es })}
+                          {statement.transaction_count
+                            ? ` · ${statement.transaction_count} transacciones`
+                            : ''}
+                        </p>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      {statement.processing_error ? (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            padding: '4px 10px',
+                            borderRadius: 99,
+                            border: '1px solid rgba(220, 38, 38, 0.25)',
+                            background: 'rgba(220, 38, 38, 0.08)',
+                            color: 'rgb(185, 28, 28)',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          <AlertCircle className="h-3 w-3" />
+                          Error
+                        </span>
+                      ) : statement.processed ? (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            padding: '4px 10px',
+                            borderRadius: 99,
+                            border: '1px solid oklch(0.43 0.14 155 / 0.2)',
+                            background: 'oklch(0.43 0.14 155 / 0.08)',
+                            color: 'oklch(0.43 0.14 155)',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          <Check className="h-3 w-3" />
+                          Procesado
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            padding: '4px 10px',
+                            borderRadius: 99,
+                            border: '1px solid rgba(0,0,0,0.07)',
+                            background: 'rgba(0,0,0,0.04)',
+                            color: 'rgba(0,0,0,0.65)',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          <Clock className="h-3 w-3" />
+                          Pendiente
+                        </span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="Editar configuración"
+                        onClick={() => openEditModal(statement)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <DeleteStatementButton
+                        statementId={statement.id}
+                        fileName={statement.display_name || statement.file_name}
+                        filePath={statement.file_path}
+                        transactionCount={statement.transaction_count}
+                        onDeleted={fetchStatements}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </section>
         )}
       </div>
