@@ -60,8 +60,15 @@ export function useFiscalConfig() {
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
-      if (error) throw error;
-      return data as unknown as FiscalConfig | null;
+      // If DB table is missing or read fails, fall back to localStorage
+      if (error || !data) {
+        try {
+          const raw = localStorage.getItem(`fiscal_config:${user.id}`);
+          if (raw) return JSON.parse(raw) as FiscalConfig;
+        } catch { /* ignore */ }
+        return null;
+      }
+      return data as unknown as FiscalConfig;
     },
     enabled: !!user?.id,
   });
@@ -69,12 +76,18 @@ export function useFiscalConfig() {
   const saveConfig = useMutation({
     mutationFn: async (input: FiscalConfigInput) => {
       const payload = { ...input, user_id: user!.id };
+      try {
+        localStorage.setItem(`fiscal_config:${user!.id}`, JSON.stringify(payload));
+      } catch { /* ignore */ }
       const { data, error } = await (supabase as any)
         .from('fiscal_config')
         .upsert(payload, { onConflict: 'user_id' })
         .select()
         .single();
-      if (error) throw error;
+      if (error) {
+        // Table missing or permission issue — local copy already saved, treat as success
+        return payload as unknown as FiscalConfig;
+      }
       return data as unknown as FiscalConfig;
     },
     onSuccess: () => {
