@@ -171,6 +171,11 @@ export default function StatementConfigModal({
           display_name: displayName,
           period_start: periodStart,
           period_end: periodEnd,
+          // The modal only opens after the edge function successfully parsed the PDF
+          // and inserted transactions. Force-mark processed so the statement doesn't
+          // get stuck in "Pendiente" if the edge function's trailing update silently failed.
+          processed: true,
+          processing_error: null,
         })
         .eq('id', statementId);
 
