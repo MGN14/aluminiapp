@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useForcePasswordChange } from '@/hooks/useForcePasswordChange';
+import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
 import { Loader2 } from 'lucide-react';
 
 const isDev = import.meta.env.MODE === 'development';
@@ -12,6 +13,7 @@ interface ProtectedRouteProps {
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, session, loading, sessionExpired } = useAuth();
   const { loading: forceLoading, required: forcePasswordChange } = useForcePasswordChange();
+  const { isLoading: onboardingLoading, completed: onboardingCompleted } = useOnboardingStatus();
   const location = useLocation();
 
   if (isDev) {
@@ -77,6 +79,19 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   // If the user is flagged, force them through /change-password first.
   if (forcePasswordChange && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
+  }
+
+  // Force users to complete onboarding before accessing anything else.
+  // Fail-open in the hook (onboardingCompleted === true on error) means DB hiccups
+  // won't lock anyone out. Exceptions: /onboarding itself, /change-password, /settings
+  // (user may legitimately need to adjust something there before finishing).
+  const onboardingExempt =
+    location.pathname === '/onboarding' ||
+    location.pathname === '/change-password' ||
+    location.pathname === '/settings';
+
+  if (!onboardingLoading && !onboardingCompleted && !onboardingExempt) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   return <>{children}</>;
