@@ -7,12 +7,15 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, FileSpreadsheet, ArrowLeft, Mail, CheckCircle2 } from 'lucide-react';
+import TurnstileWidget from '@/components/auth/TurnstileWidget';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,15 +32,23 @@ export default function ForgotPassword() {
       return;
     }
 
+    if (!captchaToken) {
+      setError('Por favor completa la verificación anti-bot.');
+      return;
+    }
+
     setLoading(true);
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
-    });
+      captchaToken,
+    } as any);
 
     setLoading(false);
 
     if (error) {
+      setCaptchaToken(null);
+      setCaptchaResetKey(k => k + 1);
       setError(error.message);
     } else {
       setSent(true);
@@ -107,7 +118,14 @@ export default function ForgotPassword() {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full h-11" disabled={loading}>
+                <TurnstileWidget
+                  resetKey={captchaResetKey}
+                  onVerify={setCaptchaToken}
+                  onExpire={() => setCaptchaToken(null)}
+                  onError={() => setCaptchaToken(null)}
+                />
+
+                <Button type="submit" className="w-full h-11" disabled={loading || !captchaToken}>
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
