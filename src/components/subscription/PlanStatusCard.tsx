@@ -46,7 +46,7 @@ export default function PlanStatusCard() {
 
   const getUsageText = () => {
     if (isFounder) return `Extractos guardados: ${pdfUploadsTotal}/10`;
-    if (isTrialing) return `Extractos guardados: ${pdfUploadsTotal}/${limits.pdfLimit}`;
+    if (isTrialing) return `Extractos guardados: ${pdfUploadsTotal}`;
     if (trialExpired) return 'Acceso de solo lectura';
     if (plan === 'empresarial' || plan === 'pro' || plan === 'admin') return `Extractos guardados: ${pdfUploadsTotal}`;
     if (plan === 'basico') return `Extractos guardados: ${pdfUploadsTotal}/${limits.pdfLimit}`;

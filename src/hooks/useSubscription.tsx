@@ -185,9 +185,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [user, sessionExpired]);
 
   const getPlanLimits = useCallback(() => {
-    // During trial, give full access with reasonable limits
+    // During trial, give full access (unlimited PDFs/invoices) to maximize data stickiness
     if (state.isTrialing) {
-      return { pdfLimit: 3, bankAccounts: 1, historyMonths: null, invoiceLimit: 10 };
+      return { pdfLimit: -1, bankAccounts: 1, historyMonths: null, invoiceLimit: -1 };
     }
     // Map legacy 'pro' to 'empresarial'
     const effectivePlan = state.plan === 'pro' ? 'empresarial' : state.plan;

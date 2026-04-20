@@ -23,7 +23,7 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
 
   const { trialExpired, isTrialing } = useSubscription();
   const limits = getPlanLimits();
-  const isAtLimit = trialExpired || (isTrialing && pdfUploadsTotal >= limits.pdfLimit);
+  const isAtLimit = trialExpired || (isTrialing && limits.pdfLimit !== -1 && pdfUploadsTotal >= limits.pdfLimit);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -221,7 +221,7 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
                   </div>
                   {isTrialing && (
                     <p className="text-xs text-muted-foreground bg-muted px-3 py-1 rounded-full">
-                      Empresarial Gratuito: {pdfUploadsTotal}/{limits.pdfLimit} extractos usados
+                      Empresarial Gratuito: {pdfUploadsTotal} extracto{pdfUploadsTotal === 1 ? '' : 's'} subido{pdfUploadsTotal === 1 ? '' : 's'}
                     </p>
                   )}
                   <Button variant="outline" size="sm" className="mt-2">
