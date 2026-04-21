@@ -20,7 +20,6 @@ interface TransactionRow {
   type: string | null;
   category_id: string | null;
   responsible_id: string | null;
-  invoice_id: string | null;
   has_iva: boolean;
   iva_amount: number;
   has_retefuente: boolean;
@@ -73,7 +72,7 @@ function useYearData(userId: string | undefined, year: number) {
       const [txRes, catRes, respRes] = await Promise.all([
         supabase
           .from('transactions')
-          .select('date, amount, type, category_id, responsible_id, invoice_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
+          .select('date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
           .eq('user_id', userId)
           .is('deleted_at', null)
           .gte('date', `${year}-01-01`)
@@ -209,6 +208,25 @@ export default function PYGReport() {
     enabled: !!user?.id && isGerencial,
   });
 
+  // Facturas de venta emitidas en el año → "DIAN mensual" para la fila Sin facturar.
+  // Solo se carga en modo gerencial.
+  const { data: salesInvoicesPyg } = useQuery({
+    queryKey: ['sales-invoices-pyg', user?.id, year, isGerencial],
+    queryFn: async () => {
+      if (!user?.id || !isGerencial) return [];
+      const { data } = await supabase
+        .from('invoices')
+        .select('issue_date, total_amount')
+        .eq('user_id', user.id)
+        .eq('type', 'venta')
+        .eq('status', 'confirmed')
+        .gte('issue_date', `${year}-01-01`)
+        .lte('issue_date', `${year}-12-31`);
+      return (data || []) as Array<{ issue_date: string; total_amount: number }>;
+    },
+    enabled: !!user?.id && isGerencial,
+  });
+
   const allRows = useMemo<PYGRow[]>(() => {
     if (!currentData) return [];
 
@@ -223,22 +241,13 @@ export default function PYGReport() {
     const cIngresos = [...cur.groups.ingresos];
     const cCostos = [...cur.groups.costos_operacionales];
 
-    // Series para la fila "Sin facturar" (solo gerencial).
-    // - cPendingBankMonthly: ingresos por extracto SIN invoice_id (conciliados sin factura).
-    // - cCashIncomeMonthly:  ingresos en efectivo (nunca tuvieron factura).
-    // Ambos ya están sumados dentro de cIngresos; la fila solo los visibiliza.
-    const cPendingBankMonthly: MonthlyArr = new Array(12).fill(0) as MonthlyArr;
+    // Serie mensual del efectivo para poder trackearlo separado (ya sumado
+    // dentro de cIngresos pero útil para la fila "Sin facturar").
     const cCashIncomeMonthly: MonthlyArr = new Array(12).fill(0) as MonthlyArr;
+    // DIAN mensual: facturas de venta emitidas en cada mes.
+    const cInvoicedMonthly: MonthlyArr = new Array(12).fill(0) as MonthlyArr;
 
     if (isGerencial) {
-      for (const tx of currentData.transactions) {
-        const amount = tx.amount ?? 0;
-        if (amount > 0 && tx.invoice_id == null) {
-          const m = parseLocalDate(tx.date).getMonth();
-          cPendingBankMonthly[m] += amount;
-        }
-      }
-
       if (cashMovements && cashMovements.length > 0) {
         for (const cm of cashMovements) {
           const m = parseLocalDate(cm.date).getMonth();
@@ -249,6 +258,13 @@ export default function PYGReport() {
           } else if (cm.type === 'egreso') {
             cCostos[m] += amount;
           }
+        }
+      }
+
+      if (salesInvoicesPyg && salesInvoicesPyg.length > 0) {
+        for (const inv of salesInvoicesPyg) {
+          const m = parseLocalDate(inv.issue_date).getMonth();
+          cInvoicedMonthly[m] += Number(inv.total_amount) || 0;
         }
       }
     }
@@ -343,13 +359,16 @@ export default function PYGReport() {
       return out;
     }
 
-    // Fila "Sin facturar" = pendientes bancarios (invoice_id null) + efectivos.
-    // Serie mensual y total que matchea el card del Dashboard.
-    const cGapMonthly: MonthlyArr = cPendingBankMonthly.map(
-      (v, i) => v + cCashIncomeMonthly[i]
+    // Fila "Sin facturar" por mes = max(0, Real_mes − DIAN_mes).
+    //   Real_mes = extracto_mes + efectivo_mes = cIngresos[m]
+    //   DIAN_mes = facturas emitidas en el mes = cInvoicedMonthly[m]
+    // Nota: no incluye anticipos de periodos anteriores (son saldo histórico,
+    // no flujo del año; se muestran en el card del Dashboard y en Visita DIAN).
+    const cGapMonthly: MonthlyArr = cIngresos.map((real, i) =>
+      Math.max(0, real - cInvoicedMonthly[i])
     );
     const gapTotal = sumArr(cGapMonthly);
-    const ingresosTotalReal = sumArr(cIngresos); // ya incluye efectivo
+    const ingresosTotalReal = sumArr(cIngresos);
     const gapPct =
       ingresosTotalReal > 0 ? (gapTotal / ingresosTotalReal) * 100 : 0;
 
@@ -455,7 +474,7 @@ export default function PYGReport() {
     ];
 
     return result;
-  }, [currentData, previousData, cashMovements, isGerencial]);
+  }, [currentData, previousData, cashMovements, salesInvoicesPyg, isGerencial]);
 
   // Catálogo de categorías expandibles (las que tienen benef breakdown).
   const expandableCatKeys = useMemo(() => {

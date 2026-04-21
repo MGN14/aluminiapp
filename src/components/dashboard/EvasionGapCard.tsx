@@ -1,6 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
-import { ArrowRight, TrendingUp, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { ArrowRight, TrendingUp, AlertTriangle, ShieldCheck, Banknote } from 'lucide-react';
 import {
   calculateEvasionGap,
   LEVEL_COPY,
@@ -8,12 +8,14 @@ import {
 } from '@/lib/evasionGap';
 
 interface Props {
-  /** Total de ingresos por extracto bancario (facturados + pendientes) */
+  /** Total de ingresos por extracto bancario en el periodo */
   bankIncome: number;
-  /** Subconjunto de bankIncome con factura emitida (invoice_id != null) */
-  invoicedIncome: number;
-  /** Ingresos en efectivo (cash_movements type='ingreso') */
+  /** Anticipos de clientes arrastrados de periodos anteriores (no conciliados) */
+  previousPeriodAdvances: number;
+  /** Ingresos en efectivo del periodo */
   cashIncome: number;
+  /** Total facturado a la DIAN en el periodo (invoices type='venta') */
+  invoicedAmount: number;
 }
 
 const TONE_STYLES: Record<EvasionLevel, {
@@ -54,15 +56,24 @@ function formatCOP(n: number): string {
   }).format(n);
 }
 
-export default function EvasionGapCard({ bankIncome, invoicedIncome, cashIncome }: Props) {
-  const result = calculateEvasionGap({ bankIncome, invoicedIncome, cashIncome });
+export default function EvasionGapCard({
+  bankIncome,
+  previousPeriodAdvances,
+  cashIncome,
+  invoicedAmount,
+}: Props) {
+  const result = calculateEvasionGap({
+    bankIncome,
+    previousPeriodAdvances,
+    cashIncome,
+    invoicedAmount,
+  });
   const tone = TONE_STYLES[result.level];
   const copy = LEVEL_COPY[result.level];
   const { Icon } = tone;
 
   const gapPctDisplay = (result.gapPct * 100).toFixed(1);
   const barPct = Math.min(100, result.gapPct * 100);
-  const hasBreakdown = result.pendingBank > 0 || result.cash > 0;
 
   return (
     <Link to="/visita-dian#rentabilidad" className="block group">
@@ -81,32 +92,45 @@ export default function EvasionGapCard({ bankIncome, invoicedIncome, cashIncome 
             <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
           </div>
 
-          {/* Números */}
+          {/* Números principales */}
           <div className="grid grid-cols-3 gap-2 mb-3">
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Real</p>
               <p className="text-sm font-semibold text-foreground tabular-nums">{formatCOP(result.real)}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Extracto + efectivo</p>
+              <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground leading-tight">
+                <p>Extracto: <span className="tabular-nums">{formatCOP(result.bankIncome)}</span></p>
+                {result.previousPeriodAdvances > 0 && (
+                  <p>Ant. prev.: <span className="tabular-nums">{formatCOP(result.previousPeriodAdvances)}</span></p>
+                )}
+              </div>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">DIAN</p>
               <p className="text-sm font-semibold text-foreground tabular-nums">{formatCOP(result.dian)}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Solo facturado</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Facturas emitidas</p>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Sin facturar</p>
               <p className="text-sm font-semibold tabular-nums" style={{ color: tone.barColor }}>
                 {formatCOP(result.gap)}
               </p>
-              {hasBreakdown && (
-                <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                  {result.pendingBank > 0 && <>Pendientes: {formatCOP(result.pendingBank)}</>}
-                  {result.pendingBank > 0 && result.cash > 0 && <br />}
-                  {result.cash > 0 && <>Efectivo: {formatCOP(result.cash)}</>}
-                </p>
-              )}
+              <p className="text-[10px] text-muted-foreground mt-0.5">Real − DIAN</p>
             </div>
           </div>
+
+          {/* Efectivo resaltado (chip aparte porque es la fuente más riesgosa) */}
+          {result.cash > 0 && (
+            <div className={`flex items-center gap-2 rounded-md ${tone.bgAccent} px-2 py-1.5 mb-3`}>
+              <Banknote className={`w-3.5 h-3.5 ${tone.iconColor}`} />
+              <p className="text-[11px] leading-tight">
+                <span className="font-medium text-foreground">Efectivo recibido: </span>
+                <span className="tabular-nums font-semibold" style={{ color: tone.barColor }}>
+                  {formatCOP(result.cash)}
+                </span>
+                <span className="text-muted-foreground"> · nunca pasó por banco</span>
+              </p>
+            </div>
+          )}
 
           {/* Barra de % */}
           <div className="space-y-1">

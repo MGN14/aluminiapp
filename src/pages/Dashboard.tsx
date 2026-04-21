@@ -121,6 +121,9 @@ function DashboardContent() {
   const [invoiceMetrics, setInvoiceMetrics] = useState<InvoiceFiscalMetrics | null>(null);
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoiceData[]>([]);
   const [cashMovements, setCashMovements] = useState<{ type: string; amount: number; date: string }[]>([]);
+  // Anticipos arrastrados de periodos anteriores (initial_state_details sin
+  // factura vinculada). Solo se carga en modo gerencial. Ver useEffect abajo.
+  const [previousPeriodAdvances, setPreviousPeriodAdvances] = useState<number>(0);
   const customization = useDashboardCustomization();
   
 
@@ -200,6 +203,37 @@ function DashboardContent() {
   }, [isGerencial, periodSelection.year]);
 
   useEffect(() => { fetchCashMovements(); }, [fetchCashMovements]);
+
+  // Anticipos del periodo anterior no conciliados = la misma fórmula que usa
+  // /reports/advances (AdvancesReport.tsx). Son saldos históricos de plata
+  // recibida en periodos anteriores que aún no fueron facturados. No están
+  // dentro del extracto del periodo actual, por eso suman aparte al Real.
+  const fetchPreviousPeriodAdvances = useCallback(async () => {
+    if (!isGerencial) {
+      setPreviousPeriodAdvances(0);
+      return;
+    }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('initial_state_details' as never)
+        .select('amount, invoice_id')
+        .eq('user_id', user.id)
+        .eq('field_type', 'anticipos_de_clientes');
+      if (error) throw error;
+      const rows = (data || []) as Array<{ amount: number | null; invoice_id: string | null }>;
+      const total = rows
+        .filter(d => !d.invoice_id)
+        .reduce((s, d) => s + (Number(d.amount) || 0), 0);
+      setPreviousPeriodAdvances(total);
+    } catch (e) {
+      console.error('Error fetching previous period advances:', e);
+      setPreviousPeriodAdvances(0);
+    }
+  }, [isGerencial]);
+
+  useEffect(() => { fetchPreviousPeriodAdvances(); }, [fetchPreviousPeriodAdvances]);
 
   useEffect(() => { fetchTransactions(); fetchCategories(); fetchResponsibles(); fetchReteicaConfig(); initializePeriodFromData(); }, []);
 
@@ -284,18 +318,17 @@ function DashboardContent() {
   }, [transactions, periodTransactions, cuatrimestre, periodRange, periodSelection, isGerencial, cashMovements]);
 
   // Ingresos separados por origen, para medir la brecha DIAN vs Real.
-  // bankIncome       = todo lo que pasó por extracto bancario (facturado + pendiente).
-  // invoicedIncome   = subconjunto del banco que YA tiene factura emitida (invoice_id != null) → visible DIAN.
-  // cashIncome       = lo que pasó por movimientos en efectivo (nunca tuvo factura).
+  //   Real = bankIncome + previousPeriodAdvances + cashIncome
+  //   DIAN = invoicedAmount (suma de facturas de venta emitidas en el periodo)
   //
-  // Un ingreso "pendiente" (en banco sin invoice_id) cuenta como evasión porque
-  // tributariamente es invisible igual que el efectivo: no hay factura emitida.
+  // - bankIncome             = SUM(transactions.amount > 0) del periodo.
+  // - previousPeriodAdvances = saldos históricos de anticipos no conciliados
+  //                            (initial_state_details, no dependen del periodo).
+  // - cashIncome             = SUM(cash_movements 'ingreso') del periodo.
+  // - invoicedAmount         = SUM(invoices.total_amount type='venta') del periodo.
   const evasionInputs = useMemo(() => {
     const bankIncome = periodTransactions
       .filter(tx => (tx.amount ?? 0) > 0)
-      .reduce((s, tx) => s + (tx.amount ?? 0), 0);
-    const invoicedIncome = periodTransactions
-      .filter(tx => (tx.amount ?? 0) > 0 && tx.invoice_id != null)
       .reduce((s, tx) => s + (tx.amount ?? 0), 0);
     const cashIncome = cashMovements
       .filter(cm => {
@@ -303,8 +336,19 @@ function DashboardContent() {
         return d >= periodRange.start && d <= periodRange.end && cm.type === 'ingreso';
       })
       .reduce((s, cm) => s + Number(cm.amount || 0), 0);
-    return { bankIncome, invoicedIncome, cashIncome };
-  }, [periodTransactions, cashMovements, periodRange]);
+    const invoicedAmount = salesInvoices
+      .filter(inv => {
+        const d = parseLocalDate(inv.issue_date);
+        return d >= periodRange.start && d <= periodRange.end;
+      })
+      .reduce((s, inv) => s + (inv.total_amount || 0), 0);
+    return {
+      bankIncome,
+      previousPeriodAdvances,
+      cashIncome,
+      invoicedAmount,
+    };
+  }, [periodTransactions, cashMovements, periodRange, salesInvoices, previousPeriodAdvances]);
 
   const handleInvoiceMetrics = useCallback((m: InvoiceFiscalMetrics) => setInvoiceMetrics(m), []);
 
@@ -726,8 +770,9 @@ function DashboardContent() {
         {isGerencial && (
           <EvasionGapCard
             bankIncome={evasionInputs.bankIncome}
-            invoicedIncome={evasionInputs.invoicedIncome}
+            previousPeriodAdvances={evasionInputs.previousPeriodAdvances}
             cashIncome={evasionInputs.cashIncome}
+            invoicedAmount={evasionInputs.invoicedAmount}
           />
         )}
         <div className="grid gap-4 md:grid-cols-2">
