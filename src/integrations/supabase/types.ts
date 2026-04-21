@@ -388,6 +388,7 @@ export type Database = {
           nit_ultimo_digito: number | null
           nivel_ingresos: string | null
           nombre_facturador: string | null
+          paid_dian_events: string[] | null
           persona_type: string | null
           regimen: string | null
           renta_type: string | null
@@ -410,6 +411,7 @@ export type Database = {
           nit_ultimo_digito?: number | null
           nivel_ingresos?: string | null
           nombre_facturador?: string | null
+          paid_dian_events?: string[] | null
           persona_type?: string | null
           regimen?: string | null
           renta_type?: string | null
@@ -432,6 +434,7 @@ export type Database = {
           nit_ultimo_digito?: number | null
           nivel_ingresos?: string | null
           nombre_facturador?: string | null
+          paid_dian_events?: string[] | null
           persona_type?: string | null
           regimen?: string | null
           renta_type?: string | null
