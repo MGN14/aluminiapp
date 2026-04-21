@@ -1273,51 +1273,81 @@ ${financialContext}${memoryBlock}`;
     // NOTA: Gemini OpenAI-compat con stream:true es inestable (devuelve 500).
     // Hacemos la llamada SIN streaming y emitimos SSE "sintético" al cliente
     // para preservar el parser SSE existente en NicoAgentChat.tsx.
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gemini-2.5-flash",
-        messages: [
-          { role: "system", content: finalSystemPrompt },
-          ...historyForModel,
-        ],
-      }),
+    //
+    // [v3] Retry con backoff: gemini-2.5-flash devuelve 503 UNAVAILABLE en
+    // horas pico ("This model is currently experiencing high demand"). Es
+    // transitorio, se resuelve reintentando. También cubrimos 500/502/504.
+    const geminiBody = JSON.stringify({
+      model: "gemini-2.5-flash",
+      messages: [
+        { role: "system", content: finalSystemPrompt },
+        ...historyForModel,
+      ],
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Límite de uso alcanzado. Intenta de nuevo en unos minutos." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Se requieren créditos adicionales para continuar." }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      // [v2] Incluye status + snippet de Gemini para diagnóstico. Si el toast
-      // no muestra "[v2]", la edge function NO se redeployó.
-      const snippet = t?.slice(0, 200).replace(/\s+/g, " ") ?? "sin body";
-      return new Response(
-        JSON.stringify({
-          error: `Error al conectar con Nico. [v2] Gemini status=${response.status}. ${snippet}`,
-        }),
+    async function callGemini(): Promise<Response> {
+      return await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${GEMINI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: geminiBody,
         },
       );
     }
 
-    // [v2] Flag para confirmar que este binario SÍ está corriendo (útil si
-    // falla después del fetch). No logea data sensible, solo status.
-    console.log("nico-chat [v2]: Gemini response ok, parsing…");
+    const RETRYABLE = new Set([500, 502, 503, 504]);
+    const BACKOFF_MS = [0, 600, 1500]; // 3 intentos: inmediato, 600ms, 1.5s
+    let response!: Response;
+    let lastStatus = 0;
+    let lastBody = "";
+
+    for (let attempt = 0; attempt < BACKOFF_MS.length; attempt++) {
+      if (BACKOFF_MS[attempt] > 0) {
+        await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+      }
+      response = await callGemini();
+      if (response.ok) break;
+      lastStatus = response.status;
+      // Solo reintentamos 5xx transitorios. 4xx (401, 403, 429, 400) se
+      // cortan inmediato — no tiene sentido reintentar auth/quota/payload.
+      if (!RETRYABLE.has(response.status)) break;
+      lastBody = await response.text();
+      console.warn(
+        `nico-chat [v3]: Gemini ${response.status} intento ${attempt + 1}/${BACKOFF_MS.length}. Reintentando…`,
+      );
+    }
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ error: "Límite de uso alcanzado. Intenta de nuevo en unos minutos." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "Se requieren créditos adicionales para continuar." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      // 5xx después de reintentos: típicamente Gemini saturado.
+      const t = lastBody || (await response.text().catch(() => ""));
+      console.error("AI gateway error tras reintentos:", lastStatus || response.status, t);
+      const isOverloaded = RETRYABLE.has(lastStatus || response.status);
+      const msg = isOverloaded
+        ? "Nico está saturado en este momento (Gemini devolvió alta demanda). Intentá de nuevo en unos segundos."
+        : `Error al conectar con Nico. [v3] Gemini status=${lastStatus || response.status}.`;
+      return new Response(
+        JSON.stringify({ error: msg }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    console.log("nico-chat [v3]: Gemini response ok, parsing…");
 
     // Parse de la respuesta completa (OpenAI-compat sin streaming).
     const aiJson = await response.json().catch((err) => {
