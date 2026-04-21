@@ -1,30 +1,47 @@
 /**
  * evasionGap — Fuente única de verdad para medir la "brecha" entre los
- * ingresos reales del negocio (banco + efectivo no facturado) y lo que
- * aparecería ante la DIAN (solo lo que pasó por banco/factura).
+ * ingresos reales del negocio y lo que aparece facturado ante la DIAN.
+ *
+ * Modelo mental (Colombia, SMB real):
+ *   Ingresos reales = Ingresos por extracto + Ingresos en efectivo
+ *   Ingresos extracto = Facturados + Conciliados sin factura (pendientes)
+ *   Sin facturar      = Pendientes (extracto sin factura) + Efectivos
+ *   % sin facturar    = Sin facturar / Ingresos reales
+ *
+ * Por qué "pendiente" cuenta como evasión:
+ * entró plata al banco pero no hay factura emitida ante la DIAN, así que
+ * tributariamente es invisible igual que el efectivo. Puede ser algo por
+ * conciliar o simplemente no facturado.
  *
  * Usada en: Dashboard (card), PyG (fila), Visita DIAN (simulador),
  * y contexto del agente Nico Gerencial.
- *
- * El objetivo del producto es visibilizar el tamaño de esta brecha para
- * que el usuario pueda razonar con datos sobre su nivel de formalización.
  */
 
 export type EvasionLevel = 'low' | 'mid' | 'high';
 
 export interface EvasionGapInput {
-  /** Ingresos vía extracto bancario (transactions positivas con ingreso real) */
+  /** Ingresos totales por extracto bancario (transactions con amount > 0) */
   bankIncome: number;
+  /**
+   * Subconjunto de bankIncome que está conciliado con una factura emitida.
+   * En BD: transactions.invoice_id != null con amount > 0.
+   * Este es el único monto visible para la DIAN.
+   */
+  invoicedIncome: number;
   /** Ingresos registrados como cash_movements tipo='ingreso' (efectivo) */
   cashIncome: number;
 }
 
 export interface EvasionGapResult {
-  /** Ingresos totales reales del negocio = banco + efectivo */
+  /** Ingresos totales reales del negocio = extracto + efectivo */
   real: number;
-  /** Ingresos visibles para la DIAN = solo banco */
+  /** Ingresos visibles para la DIAN = solo facturados */
   dian: number;
-  /** Monto no facturado = real − dian */
+  /** Plata por extracto que NO tiene factura (conciliados sin factura) */
+  pendingBank: number;
+  /** Plata en efectivo (nunca pasó por banco) */
+  cash: number;
+  /** Monto total no facturado = pendingBank + cash */
   gap: number;
   /** % del total real que no está facturado (0..1). 0 si real = 0. */
   gapPct: number;
@@ -47,21 +64,28 @@ export const EVASION_THRESHOLDS = {
  * Calcula la brecha entre ingresos reales e ingresos visibles para la DIAN.
  *
  * Diseño: función pura. No consulta Supabase, no depende de React.
- * Recibe las dos cifras ya sumadas y devuelve el análisis.
+ * Recibe las cifras ya sumadas y devuelve el análisis.
  */
 export function calculateEvasionGap(input: EvasionGapInput): EvasionGapResult {
   // Negativos y NaN colapsan a 0 para evitar % absurdos.
   const bank = toSafeNumber(input.bankIncome);
+  const invoiced = toSafeNumber(input.invoicedIncome);
   const cash = toSafeNumber(input.cashIncome);
 
+  // Defensa: invoicedIncome no puede superar bankIncome (caso raro de datos sucios).
+  const invoicedSafe = Math.min(invoiced, bank);
+
   const real = bank + cash;
-  const dian = bank;
-  const gap = Math.max(0, real - dian); // equivale a cash, pero robusto si llegan datos raros
+  const dian = invoicedSafe;
+  const pendingBank = Math.max(0, bank - invoicedSafe);
+  const gap = pendingBank + cash;
   const gapPct = real > 0 ? gap / real : 0;
 
   return {
     real,
     dian,
+    pendingBank,
+    cash,
     gap,
     gapPct,
     level: levelFromPct(gapPct),

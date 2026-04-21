@@ -284,11 +284,18 @@ function DashboardContent() {
   }, [transactions, periodTransactions, cuatrimestre, periodRange, periodSelection, isGerencial, cashMovements]);
 
   // Ingresos separados por origen, para medir la brecha DIAN vs Real.
-  // bankIncome = solo lo que pasó por extracto bancario.
-  // cashIncome = solo lo que pasó por movimientos en efectivo.
+  // bankIncome       = todo lo que pasó por extracto bancario (facturado + pendiente).
+  // invoicedIncome   = subconjunto del banco que YA tiene factura emitida (invoice_id != null) → visible DIAN.
+  // cashIncome       = lo que pasó por movimientos en efectivo (nunca tuvo factura).
+  //
+  // Un ingreso "pendiente" (en banco sin invoice_id) cuenta como evasión porque
+  // tributariamente es invisible igual que el efectivo: no hay factura emitida.
   const evasionInputs = useMemo(() => {
     const bankIncome = periodTransactions
       .filter(tx => (tx.amount ?? 0) > 0)
+      .reduce((s, tx) => s + (tx.amount ?? 0), 0);
+    const invoicedIncome = periodTransactions
+      .filter(tx => (tx.amount ?? 0) > 0 && tx.invoice_id != null)
       .reduce((s, tx) => s + (tx.amount ?? 0), 0);
     const cashIncome = cashMovements
       .filter(cm => {
@@ -296,7 +303,7 @@ function DashboardContent() {
         return d >= periodRange.start && d <= periodRange.end && cm.type === 'ingreso';
       })
       .reduce((s, cm) => s + Number(cm.amount || 0), 0);
-    return { bankIncome, cashIncome };
+    return { bankIncome, invoicedIncome, cashIncome };
   }, [periodTransactions, cashMovements, periodRange]);
 
   const handleInvoiceMetrics = useCallback((m: InvoiceFiscalMetrics) => setInvoiceMetrics(m), []);
@@ -719,6 +726,7 @@ function DashboardContent() {
         {isGerencial && (
           <EvasionGapCard
             bankIncome={evasionInputs.bankIncome}
+            invoicedIncome={evasionInputs.invoicedIncome}
             cashIncome={evasionInputs.cashIncome}
           />
         )}

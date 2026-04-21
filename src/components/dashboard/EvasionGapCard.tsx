@@ -8,7 +8,11 @@ import {
 } from '@/lib/evasionGap';
 
 interface Props {
+  /** Total de ingresos por extracto bancario (facturados + pendientes) */
   bankIncome: number;
+  /** Subconjunto de bankIncome con factura emitida (invoice_id != null) */
+  invoicedIncome: number;
+  /** Ingresos en efectivo (cash_movements type='ingreso') */
   cashIncome: number;
 }
 
@@ -50,14 +54,15 @@ function formatCOP(n: number): string {
   }).format(n);
 }
 
-export default function EvasionGapCard({ bankIncome, cashIncome }: Props) {
-  const result = calculateEvasionGap({ bankIncome, cashIncome });
+export default function EvasionGapCard({ bankIncome, invoicedIncome, cashIncome }: Props) {
+  const result = calculateEvasionGap({ bankIncome, invoicedIncome, cashIncome });
   const tone = TONE_STYLES[result.level];
   const copy = LEVEL_COPY[result.level];
   const { Icon } = tone;
 
   const gapPctDisplay = (result.gapPct * 100).toFixed(1);
   const barPct = Math.min(100, result.gapPct * 100);
+  const hasBreakdown = result.pendingBank > 0 || result.cash > 0;
 
   return (
     <Link to="/visita-dian#rentabilidad" className="block group">
@@ -81,16 +86,25 @@ export default function EvasionGapCard({ bankIncome, cashIncome }: Props) {
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Real</p>
               <p className="text-sm font-semibold text-foreground tabular-nums">{formatCOP(result.real)}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Extracto + efectivo</p>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">DIAN</p>
               <p className="text-sm font-semibold text-foreground tabular-nums">{formatCOP(result.dian)}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Solo facturado</p>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Sin facturar</p>
               <p className="text-sm font-semibold tabular-nums" style={{ color: tone.barColor }}>
                 {formatCOP(result.gap)}
               </p>
+              {hasBreakdown && (
+                <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                  {result.pendingBank > 0 && <>Pendientes: {formatCOP(result.pendingBank)}</>}
+                  {result.pendingBank > 0 && result.cash > 0 && <br />}
+                  {result.cash > 0 && <>Efectivo: {formatCOP(result.cash)}</>}
+                </p>
+              )}
             </div>
           </div>
 

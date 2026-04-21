@@ -20,6 +20,7 @@ interface TransactionRow {
   type: string | null;
   category_id: string | null;
   responsible_id: string | null;
+  invoice_id: string | null;
   has_iva: boolean;
   iva_amount: number;
   has_retefuente: boolean;
@@ -72,7 +73,7 @@ function useYearData(userId: string | undefined, year: number) {
       const [txRes, catRes, respRes] = await Promise.all([
         supabase
           .from('transactions')
-          .select('date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
+          .select('date, amount, type, category_id, responsible_id, invoice_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
           .eq('user_id', userId)
           .is('deleted_at', null)
           .gte('date', `${year}-01-01`)
@@ -221,18 +222,33 @@ export default function PYGReport() {
 
     const cIngresos = [...cur.groups.ingresos];
     const cCostos = [...cur.groups.costos_operacionales];
-    // Serie mensual del efectivo no facturado (solo tracking, ya está sumado dentro de cIngresos)
+
+    // Series para la fila "Sin facturar" (solo gerencial).
+    // - cPendingBankMonthly: ingresos por extracto SIN invoice_id (conciliados sin factura).
+    // - cCashIncomeMonthly:  ingresos en efectivo (nunca tuvieron factura).
+    // Ambos ya están sumados dentro de cIngresos; la fila solo los visibiliza.
+    const cPendingBankMonthly: MonthlyArr = new Array(12).fill(0) as MonthlyArr;
     const cCashIncomeMonthly: MonthlyArr = new Array(12).fill(0) as MonthlyArr;
 
-    if (isGerencial && cashMovements && cashMovements.length > 0) {
-      for (const cm of cashMovements) {
-        const m = parseLocalDate(cm.date).getMonth();
-        const amount = Number(cm.amount) || 0;
-        if (cm.type === 'ingreso') {
-          cIngresos[m] += amount;
-          cCashIncomeMonthly[m] += amount;
-        } else if (cm.type === 'egreso') {
-          cCostos[m] += amount;
+    if (isGerencial) {
+      for (const tx of currentData.transactions) {
+        const amount = tx.amount ?? 0;
+        if (amount > 0 && tx.invoice_id == null) {
+          const m = parseLocalDate(tx.date).getMonth();
+          cPendingBankMonthly[m] += amount;
+        }
+      }
+
+      if (cashMovements && cashMovements.length > 0) {
+        for (const cm of cashMovements) {
+          const m = parseLocalDate(cm.date).getMonth();
+          const amount = Number(cm.amount) || 0;
+          if (cm.type === 'ingreso') {
+            cIngresos[m] += amount;
+            cCashIncomeMonthly[m] += amount;
+          } else if (cm.type === 'egreso') {
+            cCostos[m] += amount;
+          }
         }
       }
     }
@@ -327,9 +343,15 @@ export default function PYGReport() {
       return out;
     }
 
-    const cashIncomeTotal = sumArr(cCashIncomeMonthly);
-    const cashIncomePct =
-      sumArr(cIngresos) > 0 ? (cashIncomeTotal / sumArr(cIngresos)) * 100 : 0;
+    // Fila "Sin facturar" = pendientes bancarios (invoice_id null) + efectivos.
+    // Serie mensual y total que matchea el card del Dashboard.
+    const cGapMonthly: MonthlyArr = cPendingBankMonthly.map(
+      (v, i) => v + cCashIncomeMonthly[i]
+    );
+    const gapTotal = sumArr(cGapMonthly);
+    const ingresosTotalReal = sumArr(cIngresos); // ya incluye efectivo
+    const gapPct =
+      ingresosTotalReal > 0 ? (gapTotal / ingresosTotalReal) * 100 : 0;
 
     const result: PYGRow[] = [
       {
@@ -340,16 +362,16 @@ export default function PYGReport() {
         previousValues: pIngresos,
         previousTotal: sumArr(pIngresos),
       },
-      // Sub-fila informativa: desagrega cuánto del Ingresos viene de efectivo
-      // no facturado. NO suma al total (ya está incluida arriba). Solo se
-      // muestra en modo gerencial y si efectivamente hay movimientos.
-      ...(isGerencial && cashIncomeTotal > 0
+      // Sub-fila informativa: desagrega cuánto del total NO está facturado
+      // (pendientes bancarios + efectivo). NO suma al total (ya está incluido
+      // arriba). Solo se muestra en modo gerencial cuando hay brecha real.
+      ...(isGerencial && gapTotal > 0
         ? [
             {
               key: 'ingresos-sin-facturar',
-              label: `• Sin facturar (efectivo) — ${cashIncomePct.toFixed(1)}%`,
-              values: cCashIncomeMonthly,
-              total: cashIncomeTotal,
+              label: `• Sin facturar — ${gapPct.toFixed(1)}%`,
+              values: cGapMonthly,
+              total: gapTotal,
               isDetail: true,
             } as PYGRow,
           ]
