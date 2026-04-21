@@ -7,6 +7,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { SubscriptionProvider } from "@/hooks/useSubscription";
 import { ModuleProvider } from "@/hooks/useModuleContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import AdminRoute from "@/components/AdminRoute";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
 import Index from "./pages/Index";
@@ -162,7 +163,7 @@ const App = () => (
               />
               <Route
                 path="/cash-movements"
-                element={<ProtectedRoute><CashMovements /></ProtectedRoute>}
+                element={<AdminRoute><CashMovements /></AdminRoute>}
               />
               <Route
                 path="/coming-soon"

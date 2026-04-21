@@ -300,9 +300,19 @@ export default function AppSidebar() {
       collapsible="icon"
       style={{
         background: '#ffffff',
-        borderRight: '1px solid rgba(0,0,0,0.07)',
+        borderRight: isGerencial ? `1px solid ${BRAND_BORDER}` : '1px solid rgba(0,0,0,0.07)',
       }}
     >
+      {isGerencial && (
+        <div
+          style={{
+            height: 3,
+            background: BRAND,
+            flexShrink: 0,
+            width: '100%',
+          }}
+        />
+      )}
       <SidebarHeader style={{ padding: '16px 12px 8px' }}>
         <NavLink to="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 4px' }}>
           <div
@@ -325,6 +335,28 @@ export default function AppSidebar() {
             </span>
           )}
         </NavLink>
+        {isGerencial && !collapsed && (
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-start', paddingLeft: 4 }}>
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: '0.8px',
+                padding: '3px 8px',
+                borderRadius: 99,
+                background: BRAND,
+                color: '#fff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                textTransform: 'uppercase',
+              }}
+            >
+              <Zap style={{ width: 10, height: 10 }} />
+              Modo Gerencial
+            </span>
+          </div>
+        )}
       </SidebarHeader>
 
       <SidebarContent style={{ padding: '0 8px', gap: 2 }}>

@@ -16,6 +16,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useNico } from '@/hooks/useNicoContext';
 import { useModuleContext } from '@/hooks/useModuleContext';
+import { useSubscription } from '@/hooks/useSubscription';
 
 const BRAND = 'oklch(0.43 0.14 155)';
 const BRAND_DIM = 'oklch(0.43 0.14 155 / 0.10)';
@@ -48,6 +49,7 @@ export default function AppHeader() {
   const { user, signOut } = useAuth();
   const { openNico } = useNico();
   const { mode, setMode } = useModuleContext();
+  const { isAdmin } = useSubscription();
   const [companyInitial, setCompanyInitial] = useState<string | null>(null);
   const [placeholder, setPlaceholder] = useState(PAGE_PLACEHOLDERS.default);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
@@ -186,7 +188,8 @@ export default function AppHeader() {
         </kbd>
       </button>
 
-      {/* Module toggle */}
+      {/* Module toggle — admin only */}
+      {isAdmin && (
       <div
         className="hidden md:flex"
         style={{
@@ -241,6 +244,7 @@ export default function AppHeader() {
           Módulo Gerencial
         </button>
       </div>
+      )}
 
       <div className="flex items-center gap-1 shrink-0">
         <Button
