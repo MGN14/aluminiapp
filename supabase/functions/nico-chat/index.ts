@@ -1055,9 +1055,13 @@ ${inventoryCtx}
       })
       .reduce((s: number, i: any) => s + (Number(i.total_amount) || 0), 0);
 
-    const previousPeriodAdvances = ((initialStateDetails ?? []) as Array<{ field_type: string; amount: number | null; invoice_id: string | null }>)
+    // Fuente canónica: columna agregada en initial_financial_state (se escribe
+    // siempre al guardar en Ajustes). Fallback a detalles si está en 0.
+    const aggregatedAdvances = Number(initialState?.anticipos_de_clientes) || 0;
+    const detailAdvances = ((initialStateDetails ?? []) as Array<{ field_type: string; amount: number | null; invoice_id: string | null }>)
       .filter((d) => d.field_type === "anticipos_de_clientes" && !d.invoice_id)
       .reduce((s, d) => s + (Number(d.amount) || 0), 0);
+    const previousPeriodAdvances = aggregatedAdvances > 0 ? aggregatedAdvances : detailAdvances;
 
     const evReal = bankIncomeYear + previousPeriodAdvances + cashIncomeYear;
     const evDian = Math.min(invoicedYear, evReal);
@@ -1066,23 +1070,26 @@ ${inventoryCtx}
     const evLevel: "low" | "mid" | "high" =
       evGapPct >= 0.35 ? "high" : evGapPct >= 0.15 ? "mid" : "low";
 
-    // Proyección a 24 meses (horizonte por default del simulador).
+    // Proyección al 31-Dic del año actual (horizonte = año calendario completo).
     const periodMonthsYear = now.getFullYear() === thisYear ? Math.max(1, thisMonth) : 12;
-    const scale24 = 24 / periodMonthsYear;
-    const gapProy = evGap * scale24;
-    const cashProy = Math.min(evGap, cashIncomeYear) * scale24;
+    const horizonMonths = 12;
+    const scaleYear = horizonMonths / periodMonthsYear;
+    const gapProy = evGap * scaleYear;
+    const cashProy = Math.min(evGap, cashIncomeYear) * scaleYear;
     const auditableProy = Math.max(0, gapProy - cashProy);
     const taxRate = DIAN_RATES.iva + DIAN_RATES.renta;
     const impuestoOmitidoTotal = gapProy * taxRate;
     const impuestoAuditable = auditableProy * taxRate;
     const sancion = impuestoAuditable * DIAN_RATES.sancionInexactitud;
-    const intereses = impuestoAuditable * DIAN_RATES.interesMoratoriosAnual * (24 / 12 / 2);
+    // Intereses moratorios promedio: tasa anual × (horizonte años / 2).
+    const intereses = impuestoAuditable * DIAN_RATES.interesMoratoriosAnual * (horizonMonths / 12 / 2);
     const costoAuditoria = impuestoAuditable + sancion + intereses;
     const probAud = DIAN_RATES.probAuditoria24m[evLevel];
     const costoEsperado = costoAuditoria * probAud;
     const ahorroEvadir = impuestoOmitidoTotal;
     const valorEsperadoEvadir = ahorroEvadir - costoEsperado;
-    const impuestoAnualizado = impuestoOmitidoTotal * (12 / 24);
+    // Anualizado = mismo valor porque horizonte = 12 meses.
+    const impuestoAnualizado = impuestoOmitidoTotal * (12 / horizonMonths);
     const riesgoPenal = impuestoAnualizado >= DIAN_RATES.umbralPenalAnualCOP;
     const cashSobreUIAF = cashIncomeYear >= DIAN_RATES.uiafReporteCOP;
     const cashPctDelGap = evGap > 0 ? Math.min(1, cashIncomeYear / evGap) : 0;
@@ -1112,17 +1119,17 @@ ${inventoryCtx}
           `- % del gap que es auditable (banco + anticipos): ${(auditablePctDelGap * 100).toFixed(1)}%`,
           `- Flag UIAF (efectivo año ≥ $10M): ${cashSobreUIAF ? "SÍ" : "no"}`,
           "",
-          "PROYECCIÓN A 24 MESES (horizonte estándar del simulador):",
-          `- Gap proyectado: ${fmt(gapProy)}`,
-          `- Proyección auditable: ${fmt(auditableProy)}`,
-          `- Proyección efectivo: ${fmt(cashProy)}`,
+          `PROYECCIÓN AL 31-DIC-${thisYear} (horizonte = año calendario completo, ritmo actual):`,
+          `- Gap proyectado al 31-Dic: ${fmt(gapProy)}`,
+          `- Proyección auditable al 31-Dic: ${fmt(auditableProy)}`,
+          `- Proyección efectivo al 31-Dic: ${fmt(cashProy)}`,
           "",
           "SI LA DIAN AUDITA (sobre parte auditable):",
           `- Impuesto omitido auditable (IVA ${(DIAN_RATES.iva*100).toFixed(0)}% + Renta ${(DIAN_RATES.renta*100).toFixed(0)}%): ${fmt(impuestoAuditable)}`,
           `- Sanción por inexactitud 100% (Art 648 ET): ${fmt(sancion)}`,
-          `- Intereses moratorios (~${(DIAN_RATES.interesMoratoriosAnual*100).toFixed(0)}% EA, 24 meses): ${fmt(intereses)}`,
+          `- Intereses moratorios (~${(DIAN_RATES.interesMoratoriosAnual*100).toFixed(0)}% EA, horizonte ${horizonMonths} meses): ${fmt(intereses)}`,
           `- COSTO TOTAL si audita: ${fmt(costoAuditoria)}`,
-          `- Probabilidad auditoría 24m (nivel ${evLevel}): ${(probAud*100).toFixed(0)}%`,
+          `- Probabilidad auditoría (nivel ${evLevel}, horizonte ${horizonMonths}m): ${(probAud*100).toFixed(0)}%`,
           `- Costo esperado = costo × prob: ${fmt(costoEsperado)}`,
           "",
           "VALOR ESPERADO DE EVADIR:",

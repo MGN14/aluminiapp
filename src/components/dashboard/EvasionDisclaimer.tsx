@@ -38,12 +38,13 @@ export default function EvasionDisclaimer({ evasion, periodMonths = 12 }: Props)
   // El banner no aparece si no hay brecha relevante.
   if (evasion.level === 'low' || evasion.gap <= 0) return null;
 
+  // Horizonte = año calendario completo (proyección al 31-Dic del año actual).
   const penalties = calculatePenalties({
     gap: evasion.gap,
     cashPortion: evasion.cash,
     level: evasion.level as EvasionRiskLevel,
     periodMonths,
-    horizonMonths: 24,
+    horizonMonths: 12,
   });
 
   const isHigh = evasion.level === 'high';

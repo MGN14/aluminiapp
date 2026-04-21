@@ -130,121 +130,133 @@ export default function AppHeader() {
     >
       <SidebarTrigger className="h-8 w-8 shrink-0" />
 
-      {/* Nico search */}
-      <button
-        onClick={openNico}
+      {/* Center group — search + module toggle, centered between left trigger and right avatar */}
+      <div
         style={{
           flex: 1,
-          maxWidth: 480,
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
-          height: 36,
-          padding: '0 14px',
-          background: BRAND_DIM,
-          border: `1px solid ${BRAND_BORDER}`,
-          borderRadius: 10,
-          cursor: 'text',
-          transition: 'box-shadow 0.2s, border-color 0.2s',
-          fontFamily: 'inherit',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = `0 0 0 3px oklch(0.43 0.14 155 / 0.08)`;
-          e.currentTarget.style.borderColor = BRAND;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = 'none';
-          e.currentTarget.style.borderColor = BRAND_BORDER;
+          justifyContent: 'center',
+          gap: 12,
+          minWidth: 0,
         }}
       >
-        <Sparkles style={{ color: BRAND, width: 14, height: 14, flexShrink: 0 }} />
-        <span
+        {/* Nico search */}
+        <button
+          onClick={openNico}
           style={{
-            fontSize: 13,
-            color: 'oklch(0.43 0.14 155 / 0.7)',
-            fontWeight: 500,
-            flex: 1,
-            textAlign: 'left',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {placeholder}
-        </span>
-        <kbd
-          className="hidden md:inline-flex"
-          style={{
-            fontSize: 10,
-            color: 'oklch(0.43 0.14 155 / 0.6)',
+            flex: '0 1 480px',
+            minWidth: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            height: 36,
+            padding: '0 14px',
+            background: BRAND_DIM,
             border: `1px solid ${BRAND_BORDER}`,
-            borderRadius: 5,
-            padding: '2px 5px',
+            borderRadius: 10,
+            cursor: 'text',
+            transition: 'box-shadow 0.2s, border-color 0.2s',
             fontFamily: 'inherit',
-            flexShrink: 0,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = `0 0 0 3px oklch(0.43 0.14 155 / 0.08)`;
+            e.currentTarget.style.borderColor = BRAND;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.borderColor = BRAND_BORDER;
           }}
         >
-          ⌘K
-        </kbd>
-      </button>
+          <Sparkles style={{ color: BRAND, width: 14, height: 14, flexShrink: 0 }} />
+          <span
+            style={{
+              fontSize: 13,
+              color: 'oklch(0.43 0.14 155 / 0.7)',
+              fontWeight: 500,
+              flex: 1,
+              textAlign: 'left',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {placeholder}
+          </span>
+          <kbd
+            className="hidden md:inline-flex"
+            style={{
+              fontSize: 10,
+              color: 'oklch(0.43 0.14 155 / 0.6)',
+              border: `1px solid ${BRAND_BORDER}`,
+              borderRadius: 5,
+              padding: '2px 5px',
+              fontFamily: 'inherit',
+              flexShrink: 0,
+            }}
+          >
+            ⌘K
+          </kbd>
+        </button>
 
-      {/* Module toggle — admin only */}
-      {isAdmin && (
-      <div
-        className="hidden md:flex"
-        style={{
-          display: 'flex',
-          background: '#f5f5f7',
-          borderRadius: 9,
-          padding: 3,
-          gap: 1,
-          flexShrink: 0,
-        }}
-      >
-        <button
-          onClick={() => {
-            localStorage.setItem('aluminia_module_mode', 'dian');
-            setMode('dian');
-          }}
-          style={{
-            padding: '5px 12px',
-            borderRadius: 7,
-            fontSize: 12,
-            fontWeight: 500,
-            background: mode === 'dian' ? '#fff' : 'transparent',
-            color: mode === 'dian' ? '#1d1d1f' : '#6e6e73',
-            boxShadow: mode === 'dian' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-            border: 'none',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            transition: 'background 0.15s, color 0.15s',
-          }}
-        >
-          Módulo DIAN
-        </button>
-        <button
-          onClick={() => {
-            localStorage.setItem('aluminia_module_mode', 'gerencial');
-            setMode('gerencial');
-          }}
-          style={{
-            padding: '5px 12px',
-            borderRadius: 7,
-            fontSize: 12,
-            fontWeight: 500,
-            background: mode === 'gerencial' ? '#fff' : 'transparent',
-            color: mode === 'gerencial' ? BRAND : '#6e6e73',
-            boxShadow: mode === 'gerencial' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-            border: 'none',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            transition: 'background 0.15s, color 0.15s',
-          }}
-        >
-          Módulo Gerencial
-        </button>
+        {/* Module toggle — admin only */}
+        {isAdmin && (
+          <div
+            className="hidden md:flex"
+            style={{
+              display: 'flex',
+              background: '#f5f5f7',
+              borderRadius: 9,
+              padding: 3,
+              gap: 1,
+              flexShrink: 0,
+            }}
+          >
+            <button
+              onClick={() => {
+                localStorage.setItem('aluminia_module_mode', 'dian');
+                setMode('dian');
+              }}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 7,
+                fontSize: 12,
+                fontWeight: 500,
+                background: mode === 'dian' ? '#fff' : 'transparent',
+                color: mode === 'dian' ? '#1d1d1f' : '#6e6e73',
+                boxShadow: mode === 'dian' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              Módulo DIAN
+            </button>
+            <button
+              onClick={() => {
+                localStorage.setItem('aluminia_module_mode', 'gerencial');
+                setMode('gerencial');
+              }}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 7,
+                fontSize: 12,
+                fontWeight: 500,
+                background: mode === 'gerencial' ? '#fff' : 'transparent',
+                color: mode === 'gerencial' ? BRAND : '#6e6e73',
+                boxShadow: mode === 'gerencial' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              Módulo Gerencial
+            </button>
+          </div>
+        )}
       </div>
-      )}
 
       <div className="flex items-center gap-1 shrink-0">
         <Button

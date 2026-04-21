@@ -23,7 +23,10 @@ interface UseEvasionGapReturn {
  * Gerencial. Obtiene los 4 inputs de calculateEvasionGap desde Supabase:
  *
  *   1. bankIncome              = SUM(transactions.amount > 0) del año.
- *   2. previousPeriodAdvances  = initial_state_details(anticipos) sin factura.
+ *   2. previousPeriodAdvances  = initial_financial_state.anticipos_de_clientes
+ *                                (columna agregada que SIEMPRE se escribe en
+ *                                Ajustes al guardar). Fallback: sumar
+ *                                initial_state_details por si el agregado falló.
  *   3. cashIncome              = SUM(cash_movements.amount WHERE type='ingreso').
  *   4. invoicedAmount          = SUM(invoices.total_amount WHERE type='venta').
  *
@@ -54,7 +57,7 @@ export function useEvasionGap({
       try {
         const { data: { user } } = await supabase.auth.getUser();
 
-        const [txRes, cashRes, invRes, advRes] = await Promise.all([
+        const [txRes, cashRes, invRes, advRes, stateRes] = await Promise.all([
           supabase
             .from('transactions')
             .select('amount, date')
@@ -80,6 +83,13 @@ export function useEvasionGap({
                 .eq('user_id', user.id)
                 .eq('field_type', 'anticipos_de_clientes')
             : Promise.resolve({ data: [], error: null }),
+          user
+            ? supabase
+                .from('initial_financial_state' as never)
+                .select('anticipos_de_clientes')
+                .eq('user_id', user.id)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
         ]);
 
         if (cancelled) return;
@@ -88,6 +98,7 @@ export function useEvasionGap({
         const cashRows = (cashRes.data || []) as Array<{ amount: number | null; type: string; date: string }>;
         const invRows = (invRes.data || []) as Array<{ total_amount: number | null; issue_date: string }>;
         const advRows = (advRes.data || []) as Array<{ amount: number | null; invoice_id: string | null }>;
+        const stateRow = (stateRes.data || null) as { anticipos_de_clientes: number | null } | null;
 
         const bankIncome = txRows
           .filter(t => (t.amount ?? 0) > 0)
@@ -102,9 +113,15 @@ export function useEvasionGap({
           0,
         );
 
-        const previousPeriodAdvances = advRows
+        // Fuente canónica: columna agregada escrita en Ajustes al guardar.
+        // Fallback: sumar detalles sin invoice_id (compat con datos viejos).
+        const aggregatedAdvances = Number(stateRow?.anticipos_de_clientes) || 0;
+        const detailAdvances = advRows
           .filter(a => !a.invoice_id)
           .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+        const previousPeriodAdvances = aggregatedAdvances > 0
+          ? aggregatedAdvances
+          : detailAdvances;
 
         setResult(
           calculateEvasionGap({

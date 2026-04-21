@@ -60,6 +60,10 @@ export default function RentabilidadFormalizacion({
   const [probPct, setProbPct] = useState<number>(Math.round(defaultProb * 100));
   const [showRisks, setShowRisks] = useState(true);
 
+  // Horizonte = año calendario completo (Jan 1 → Dec 31 del año actual).
+  // El periodo medido es de Jan 1 a hoy; escalamos al ritmo actual hasta Dec 31.
+  const horizonMonths = 12;
+
   const penalties = useMemo(
     () =>
       calculatePenalties({
@@ -67,10 +71,10 @@ export default function RentabilidadFormalizacion({
         cashPortion: evasion.cash,
         level: evasion.level as EvasionRiskLevel,
         periodMonths,
-        horizonMonths: 24,
+        horizonMonths,
         probAuditoriaOverride: probPct / 100,
       }),
-    [evasion.gap, evasion.cash, evasion.level, periodMonths, probPct],
+    [evasion.gap, evasion.cash, evasion.level, periodMonths, horizonMonths, probPct],
   );
 
   // Punto de indiferencia: prob a la que ahorro == costo esperado.
@@ -134,7 +138,7 @@ export default function RentabilidadFormalizacion({
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-lg font-bold text-foreground">¿Vale la pena evadir?</h2>
               <Badge variant="outline" className="text-[10px]">
-                Proyección 24 meses
+                Proyección al 31-Dic-{new Date().getFullYear()}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
@@ -148,15 +152,15 @@ export default function RentabilidadFormalizacion({
         <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">
-              Tu brecha proyectada a 24 meses
+              Tu brecha proyectada al 31-Dic
             </p>
             <p className="text-xl font-bold tabular-nums text-foreground">
               {formatCOP(penalties.gapProyectado)}
             </p>
           </div>
           <p className="text-[11px] text-muted-foreground leading-snug">
-            = gap actual ({formatCOP(evasion.gap)}) × (24 meses / {periodMonths}{' '}
-            {periodMonths === 1 ? 'mes' : 'meses'} del periodo).
+            = gap actual ({formatCOP(evasion.gap)}) × (12 meses / {periodMonths}{' '}
+            {periodMonths === 1 ? 'mes' : 'meses'} transcurridos del año).
           </p>
 
           {/* Barra de composición */}
