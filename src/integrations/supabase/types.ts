@@ -23,13 +23,21 @@ export type Database = {
           file_name: string
           file_path: string
           id: string
+          intereses: number | null
           period_end: string | null
           period_start: string | null
+          period_type: Database["public"]["Enums"]["bank_statement_period_type"]
           processed: boolean
           processing_error: string | null
+          retefuente: number | null
+          saldo_actual: number | null
+          saldo_anterior: number | null
+          saldo_promedio: number | null
           statement_month: number | null
           statement_period: string | null
           statement_year: number | null
+          total_abonos: number | null
+          total_cargos: number | null
           transaction_count: number | null
           uploaded_at: string
           user_id: string
@@ -42,13 +50,21 @@ export type Database = {
           file_name: string
           file_path: string
           id?: string
+          intereses?: number | null
           period_end?: string | null
           period_start?: string | null
+          period_type?: Database["public"]["Enums"]["bank_statement_period_type"]
           processed?: boolean
           processing_error?: string | null
+          retefuente?: number | null
+          saldo_actual?: number | null
+          saldo_anterior?: number | null
+          saldo_promedio?: number | null
           statement_month?: number | null
           statement_period?: string | null
           statement_year?: number | null
+          total_abonos?: number | null
+          total_cargos?: number | null
           transaction_count?: number | null
           uploaded_at?: string
           user_id: string
@@ -61,13 +77,21 @@ export type Database = {
           file_name?: string
           file_path?: string
           id?: string
+          intereses?: number | null
           period_end?: string | null
           period_start?: string | null
+          period_type?: Database["public"]["Enums"]["bank_statement_period_type"]
           processed?: boolean
           processing_error?: string | null
+          retefuente?: number | null
+          saldo_actual?: number | null
+          saldo_anterior?: number | null
+          saldo_promedio?: number | null
           statement_month?: number | null
           statement_period?: string | null
           statement_year?: number | null
+          total_abonos?: number | null
+          total_cargos?: number | null
           transaction_count?: number | null
           uploaded_at?: string
           user_id?: string
@@ -1412,6 +1436,7 @@ export type Database = {
         Row: {
           amount: number | null
           balance: number | null
+          bank_code: string | null
           category: string | null
           category_id: string | null
           created_at: string
@@ -1446,6 +1471,7 @@ export type Database = {
         Insert: {
           amount?: number | null
           balance?: number | null
+          bank_code?: string | null
           category?: string | null
           category_id?: string | null
           created_at?: string
@@ -1480,6 +1506,7 @@ export type Database = {
         Update: {
           amount?: number | null
           balance?: number | null
+          bank_code?: string | null
           category?: string | null
           category_id?: string | null
           created_at?: string
@@ -1642,6 +1669,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      bank_statement_period_type: "monthly_close" | "weekly" | "custom"
       collaborator_role: "contadora" | "colaborador"
       module_access_level: "none" | "view" | "edit"
       subscription_plan: "demo" | "basico" | "empresarial" | "pro"
@@ -1780,6 +1808,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      bank_statement_period_type: ["monthly_close", "weekly", "custom"],
       collaborator_role: ["contadora", "colaborador"],
       module_access_level: ["none", "view", "edit"],
       subscription_plan: ["demo", "basico", "empresarial", "pro"],
