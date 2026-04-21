@@ -1,4 +1,4 @@
-import { DollarSign, Clock, RefreshCw, AlertTriangle, ArrowLeftRight } from 'lucide-react';
+import { DollarSign, Clock, AlertTriangle, ArrowLeftRight, Wallet } from 'lucide-react';
 import type { InventoryMetrics as Metrics } from '@/hooks/useInventoryData';
 
 const fmt = (n: number) => n.toLocaleString('es-CO', { maximumFractionDigits: 0 });
@@ -28,14 +28,14 @@ const cards = [
     getBadge: (v: number) => v < 15 ? 'Crítico' : v > 90 ? 'Exceso' : null,
   },
   {
-    key: 'avgRotation',
-    label: 'Rotación Promedio',
-    hint: 'Cuántas veces roto tu inventario al mes. Más alto = más dinámico.',
-    icon: RefreshCw,
-    format: (n: number) => `${n}x`,
+    key: 'totalDifferenceValue',
+    label: 'Diferencia en Costo',
+    hint: 'Plata en riesgo: suma de |Siigo − físico| × costo unitario por producto.',
+    icon: Wallet,
+    format: fmtCurrency,
     color: 'from-violet-500/20 to-purple-500/10',
     iconColor: 'text-violet-400',
-    getBadge: () => null,
+    getBadge: (v: number) => v > 0 ? 'Revisar' : null,
   },
   {
     key: 'pctNoMovement',

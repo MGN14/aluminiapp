@@ -48,6 +48,7 @@ export interface InventoryMetrics {
   avgRotation: number;
   pctNoMovement: number;
   totalDifference: number;
+  totalDifferenceValue: number;
   totalProducts: number;
   criticalCount: number;
   excessCount: number;
@@ -69,8 +70,8 @@ export function useInventoryData() {
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<InventoryMetrics>({
     totalValue: 0, avgDaysOfInventory: 0, avgRotation: 0,
-    pctNoMovement: 0, totalDifference: 0, totalProducts: 0,
-    criticalCount: 0, excessCount: 0,
+    pctNoMovement: 0, totalDifference: 0, totalDifferenceValue: 0,
+    totalProducts: 0, criticalCount: 0, excessCount: 0,
   });
 
   const fetchData = useCallback(async () => {
@@ -132,6 +133,7 @@ export function useInventoryData() {
       const noMovement = enriched.filter(p => p.avg_daily_sales === 0).length;
       const pctNo = enriched.length > 0 ? (noMovement / enriched.length) * 100 : 0;
       const totalDiff = enriched.reduce((s, p) => s + Math.abs(p.difference), 0);
+      const totalDiffValue = enriched.reduce((s, p) => s + Math.abs(p.difference) * (p.cost_per_unit || 0), 0);
 
       setMetrics({
         totalValue,
@@ -139,6 +141,7 @@ export function useInventoryData() {
         avgRotation: Math.round(avgRot * 100) / 100,
         pctNoMovement: Math.round(pctNo),
         totalDifference: totalDiff,
+        totalDifferenceValue: totalDiffValue,
         totalProducts: enriched.length,
         criticalCount: enriched.filter(p => p.status === 'critico').length,
         excessCount: enriched.filter(p => p.status === 'exceso').length,
