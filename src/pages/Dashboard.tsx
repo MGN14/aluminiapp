@@ -27,6 +27,7 @@ import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
 import InitialStateWarning from '@/components/dashboard/InitialStateWarning';
 import FiscalProfileWarning from '@/components/dashboard/FiscalProfileWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
+import UpcomingObligationsCard from '@/components/dashboard/UpcomingObligationsCard';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import DashboardCustomizeModal from '@/components/dashboard/DashboardCustomizeModal';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -698,7 +699,10 @@ function DashboardContent() {
         <InitialStateWarning />
         <OnboardingGuide hasTransactions={transactions.length > 0} />
         <TrialChecklist />
-        <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
+        <div className="grid gap-4 md:grid-cols-2">
+          <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
+          <UpcomingObligationsCard />
+        </div>
 
         {metrics.transactionCount === 0 && transactions.length === 0 ? (
           <Card className="border-0 shadow-sm rounded-2xl">

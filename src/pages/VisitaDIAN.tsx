@@ -13,29 +13,12 @@ import { Badge } from '@/components/ui/badge';
 import { ShieldCheck, Settings, AlertTriangle, Info, Edit2, MessageCircle } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useFiscalConfig } from '@/hooks/useFiscalConfig';
-import { useBusinessObligations } from '@/hooks/useBusinessObligations';
 import { useFinancialHealthScore } from '@/hooks/useFinancialHealthScore';
 import { SCORE_VARIABLES } from '@/hooks/financialHealthScoreUtils';
+import { useUpcomingObligations, diasRestantes } from '@/hooks/useUpcomingObligations';
 import { useNico } from '@/hooks/useNicoContext';
 import { supabase } from '@/integrations/supabase/client';
-import {
-  VENCIMIENTOS_IVA_2026,
-  VENCIMIENTOS_IVA_CUATRIMESTRAL_2026,
-  VENCIMIENTOS_RETEFUENTE_2026,
-  VENCIMIENTOS_RENTA_JURIDICA_2026,
-  VENCIMIENTOS_RENTA_NATURAL_2026,
-  VENCIMIENTOS_ICA_BOGOTA_2026,
-  PERIODOS_IVA,
-  PERIODOS_IVA_CUATRIMESTRAL,
-  MESES_RETEFUENTE,
-  PERIODOS_ICA,
-  CalendarEvent,
-  TIPO_LABEL,
-} from '@/lib/dianCalendar2026';
-
-function diasRestantes(fecha: Date): number {
-  return Math.ceil((fecha.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-}
+import { TIPO_LABEL } from '@/lib/dianCalendar2026';
 
 function getRiskLevel(score: number): { label: string; color: string } {
   if (score >= 90) return { label: 'Bajo', color: 'text-success' };
@@ -65,7 +48,7 @@ function getNicoMessage(score: number): { line1: string; line2: string } {
 
 export default function VisitaDIAN() {
   const { config, saveConfig } = useFiscalConfig();
-  const { obligations } = useBusinessObligations();
+  const { events, urgentes, nitDigit } = useUpcomingObligations(15);
   const { openNico, setPageContext } = useNico();
 
   const currentYear = new Date().getFullYear();
@@ -113,20 +96,7 @@ export default function VisitaDIAN() {
   const [nitInput, setNitInput] = useState('');
   const [rentaType, setRentaType] = useState<'juridica' | 'natural'>('juridica');
 
-  // Último dígito del NIT (antes del guión) — es lo que usa DIAN para el calendario.
-  // Nota: `config.nit_digit` es el dígito de verificación (después del guión), no sirve acá.
-  const nitDigit = config?.nit_ultimo_digito ?? null;
   const effectiveRentaType = config?.persona_type === 'natural' ? 'natural' : (config?.renta_type ?? 'juridica');
-
-  // Perfil fiscal — determina qué obligaciones mostrar
-  const responsableIva = config?.responsable_iva ?? true;
-  const agenteRetencion = config?.agente_retencion ?? false;
-  const autorretenedor = config?.autorretenedor ?? false;
-  const responsableIca = config?.responsable_ica ?? true;
-  const regimen = config?.regimen ?? 'comun';
-  const nivelIngresos = config?.nivel_ingresos ?? 'mas_92k_uvt';
-  // IVA cuatrimestral solo para régimen común con ingresos < 92.000 UVT
-  const ivaCuatrimestral = regimen === 'comun' && nivelIngresos === 'menos_92k_uvt';
 
   // Abrir edición automáticamente si falta NIT
   useEffect(() => {
@@ -150,116 +120,8 @@ export default function VisitaDIAN() {
     setEditingFiscal(false);
   };
 
-  // Construir eventos del calendario (DIAN + ICA + negocio)
-  const events: CalendarEvent[] = useMemo(() => {
-    const list: CalendarEvent[] = [];
-    if (nitDigit !== null) {
-      // IVA — solo si es responsable. Régimen simple no declara IVA por separado.
-      if (responsableIva && regimen !== 'simple') {
-        if (ivaCuatrimestral) {
-          VENCIMIENTOS_IVA_CUATRIMESTRAL_2026[nitDigit]?.forEach((fecha, i) => {
-            list.push({
-              id: `iva-${i}`,
-              tipo: 'iva',
-              descripcion: `IVA Cuatrimestral — ${PERIODOS_IVA_CUATRIMESTRAL[i]}`,
-              fecha: new Date(fecha + 'T12:00:00'),
-              periodo: PERIODOS_IVA_CUATRIMESTRAL[i],
-              origen: 'dian',
-            });
-          });
-        } else {
-          VENCIMIENTOS_IVA_2026[nitDigit]?.forEach((fecha, i) => {
-            list.push({
-              id: `iva-${i}`,
-              tipo: 'iva',
-              descripcion: `IVA Bimestral — ${PERIODOS_IVA[i]}`,
-              fecha: new Date(fecha + 'T12:00:00'),
-              periodo: PERIODOS_IVA[i],
-              origen: 'dian',
-            });
-          });
-        }
-      }
-      // Retefuente — solo si es agente de retención o autorretenedor
-      if (agenteRetencion || autorretenedor) {
-        VENCIMIENTOS_RETEFUENTE_2026[nitDigit]?.forEach((fecha, i) => {
-          list.push({
-            id: `ret-${i}`,
-            tipo: 'retefuente',
-            descripcion: `Retención en la Fuente — ${MESES_RETEFUENTE[i]}`,
-            fecha: new Date(fecha + 'T12:00:00'),
-            periodo: MESES_RETEFUENTE[i],
-            origen: 'dian',
-          });
-        });
-      }
-      // Renta — aplica a todos los declarantes
-      const rentaMap = effectiveRentaType === 'natural'
-        ? VENCIMIENTOS_RENTA_NATURAL_2026
-        : VENCIMIENTOS_RENTA_JURIDICA_2026;
-      const rentaFecha = rentaMap[nitDigit];
-      if (rentaFecha) {
-        list.push({
-          id: 'renta-2025',
-          tipo: 'renta',
-          descripcion: `Declaración de Renta ${effectiveRentaType === 'natural' ? 'Persona Natural' : 'Persona Jurídica'} — Año gravable 2025`,
-          fecha: new Date(rentaFecha + 'T12:00:00'),
-          periodo: '2025',
-          origen: 'dian',
-        });
-      }
-      // ICA Bogotá — solo si es responsable
-      if (responsableIca) {
-        VENCIMIENTOS_ICA_BOGOTA_2026[nitDigit]?.forEach((fecha, i) => {
-          list.push({
-            id: `ica-${i}`,
-            tipo: 'ica',
-            descripcion: `ICA Bogotá — ${PERIODOS_ICA[i]}`,
-            fecha: new Date(fecha + 'T12:00:00'),
-            periodo: PERIODOS_ICA[i],
-            origen: 'ica',
-          });
-        });
-      }
-    }
-
-    // Obligaciones del negocio — generar evento por mes (12 meses desde hoy)
-    const base = new Date();
-    base.setDate(1);
-    for (const ob of obligations) {
-      if (!ob.activa) continue;
-      for (let offset = -1; offset <= 12; offset++) {
-        const y = base.getFullYear();
-        const m = base.getMonth() + offset;
-        const d = new Date(y, m, 1);
-        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        const day = Math.min(ob.dia_mes, lastDay);
-        const fecha = new Date(d.getFullYear(), d.getMonth(), day, 12, 0, 0);
-        list.push({
-          id: `ob-${ob.id}-${d.getFullYear()}-${d.getMonth()}`,
-          tipo: ob.tipo,
-          descripcion: ob.nombre,
-          fecha,
-          periodo: d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' }),
-          monto: ob.monto_estimado,
-          origen: 'negocio',
-        });
-      }
-    }
-
-    return list;
-  }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral]);
-
-  // Próximas urgentes (≤ 15 días)
-  const urgentes = useMemo(() => {
-    return events
-      .filter(ev => {
-        const d = diasRestantes(ev.fecha);
-        return d >= 0 && d <= 15;
-      })
-      .sort((a, b) => a.fecha.getTime() - b.fecha.getTime())
-      .slice(0, 6);
-  }, [events]);
+  // Urgentes mostradas en el banner: máximo 6.
+  const urgentesTop = useMemo(() => urgentes.slice(0, 6), [urgentes]);
 
   return (
     <AppLayout>
@@ -336,6 +198,51 @@ export default function VisitaDIAN() {
           </Card>
         )}
 
+        {/* Próximas urgentes — banner rápido antes del calendario */}
+        {urgentesTop.length > 0 && (
+          <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/20 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="h-4 w-4 text-orange-500" />
+              <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">
+                Próximas obligaciones (15 días)
+              </p>
+            </div>
+            <div className="grid md:grid-cols-2 gap-1">
+              {urgentesTop.map(ev => {
+                const dias = diasRestantes(ev.fecha);
+                return (
+                  <div key={ev.id} className="text-xs text-orange-700 dark:text-orange-300 flex items-center gap-2">
+                    <Badge variant="outline" className="text-[9px] bg-background shrink-0">
+                      {TIPO_LABEL[ev.tipo]}
+                    </Badge>
+                    <span className="truncate">
+                      {ev.descripcion} — {ev.fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                      {' '}({dias === 0 ? '¡hoy!' : `${dias}d`})
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Calendario — lo más llamativo, arriba */}
+        {nitDigit !== null ? (
+          <Card>
+            <CardContent className="pt-6">
+              <CalendarioMensual events={events} />
+            </CardContent>
+          </Card>
+        ) : !editingFiscal && (
+          <Card className="border-dashed">
+            <CardContent className="pt-6 pb-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                Configurá tu NIT para ver el calendario tributario.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Score salud financiera */}
         {scores && risk && nicoMsg && (
           <div className="rounded-3xl border border-border/50 bg-gradient-to-br from-card via-card to-muted/20 p-6 md:p-8 shadow-sm">
@@ -404,51 +311,6 @@ export default function VisitaDIAN() {
           subtitle="Esto es lo que la DIAN podría observarte hoy."
           emptySubtitle="Aún no tengo suficiente información para anticipar problemas. Sube un extracto y una factura para arrancar."
         />
-
-        {/* Próximas urgentes */}
-        {urgentes.length > 0 && (
-          <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/20 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle className="h-4 w-4 text-orange-500" />
-              <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">
-                Próximas obligaciones (15 días)
-              </p>
-            </div>
-            <div className="grid md:grid-cols-2 gap-1">
-              {urgentes.map(ev => {
-                const dias = diasRestantes(ev.fecha);
-                return (
-                  <div key={ev.id} className="text-xs text-orange-700 dark:text-orange-300 flex items-center gap-2">
-                    <Badge variant="outline" className="text-[9px] bg-background shrink-0">
-                      {TIPO_LABEL[ev.tipo]}
-                    </Badge>
-                    <span className="truncate">
-                      {ev.descripcion} — {ev.fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
-                      {' '}({dias === 0 ? '¡hoy!' : `${dias}d`})
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Calendario */}
-        {nitDigit !== null ? (
-          <Card>
-            <CardContent className="pt-6">
-              <CalendarioMensual events={events} />
-            </CardContent>
-          </Card>
-        ) : !editingFiscal && (
-          <Card className="border-dashed">
-            <CardContent className="pt-6 pb-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                Configurá tu NIT para ver el calendario tributario.
-              </p>
-            </CardContent>
-          </Card>
-        )}
 
         <p className="text-xs text-muted-foreground italic flex items-center gap-1">
           <Info className="h-3 w-3" />
