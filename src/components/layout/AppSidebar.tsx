@@ -184,6 +184,22 @@ function SidebarNavItem({
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.title}
                 </span>
+                <span
+                  style={{
+                    fontSize: 8,
+                    padding: '2px 6px',
+                    borderRadius: 99,
+                    fontWeight: 700,
+                    letterSpacing: '0.6px',
+                    background: BRAND,
+                    color: '#fff',
+                    flexShrink: 0,
+                    textTransform: 'uppercase',
+                  }}
+                  title="Módulo exclusivo del Modo Gerencial"
+                >
+                  Gerencial
+                </span>
                 {item.comingSoon && (
                   <span
                     style={{
