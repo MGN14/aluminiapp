@@ -46,7 +46,11 @@ interface NavItem {
   icon: React.ComponentType<any>;
   highlight?: boolean;
   comingSoon?: boolean;
+  /** El ítem SOLO existe en Modo Gerencial (ej: Movimientos en efectivo) */
   gerencial?: boolean;
+  /** El ítem existe siempre, pero su contenido cambia en Modo Gerencial
+   *  (ej: Dashboard, Remisiones, Estado de resultados) */
+  hasGerencialVariant?: boolean;
 }
 
 const documentItems: NavItem[] = [
@@ -62,13 +66,13 @@ const documentItemsGerencial: NavItem[] = [
 const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
   { title: 'Inventarios', url: '/inventarios', icon: Package },
-  { title: 'Remisiones', url: '/remisiones', icon: ClipboardList },
+  { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true },
 ];
 
 const movementItemsGerencial: NavItem[] = [];
 
 const reportItems: NavItem[] = [
-  { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3 },
+  { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3, hasGerencialVariant: true },
   { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt },
   { title: 'Cuentas por cobrar', url: '/reportes/cuentas-por-cobrar', icon: Users },
   { title: 'Cuentas por pagar', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
@@ -130,16 +134,43 @@ function handleHoverLeave(active: boolean) {
   };
 }
 
+function GerencialChip() {
+  return (
+    <span
+      style={{
+        fontSize: 8,
+        padding: '2px 6px',
+        borderRadius: 99,
+        fontWeight: 700,
+        letterSpacing: '0.6px',
+        background: BRAND,
+        color: '#fff',
+        flexShrink: 0,
+        textTransform: 'uppercase',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+      }}
+      title="Este módulo cambia su contenido en Modo Gerencial"
+    >
+      <Zap style={{ width: 8, height: 8 }} />
+      Gerencial
+    </span>
+  );
+}
+
 function SidebarNavItem({
   item,
   collapsed,
   currentPath,
   currentSearch,
+  isGerencial,
 }: {
   item: NavItem;
   collapsed: boolean;
   currentPath: string;
   currentSearch: string;
+  isGerencial: boolean;
 }) {
   const active = isItemActive(item.url, currentPath, currentSearch);
 
@@ -184,22 +215,7 @@ function SidebarNavItem({
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.title}
                 </span>
-                <span
-                  style={{
-                    fontSize: 8,
-                    padding: '2px 6px',
-                    borderRadius: 99,
-                    fontWeight: 700,
-                    letterSpacing: '0.6px',
-                    background: BRAND,
-                    color: '#fff',
-                    flexShrink: 0,
-                    textTransform: 'uppercase',
-                  }}
-                  title="Módulo exclusivo del Modo Gerencial"
-                >
-                  Gerencial
-                </span>
+                <GerencialChip />
                 {item.comingSoon && (
                   <span
                     style={{
@@ -224,6 +240,7 @@ function SidebarNavItem({
   }
 
   const Icon = item.icon;
+  const showVariantChip = isGerencial && item.hasGerencialVariant && !collapsed;
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={active}>
@@ -235,7 +252,14 @@ function SidebarNavItem({
           onMouseLeave={handleHoverLeave(active)}
         >
           <Icon style={{ width: 15, height: 15, flexShrink: 0 }} />
-          {!collapsed && <span>{item.title}</span>}
+          {!collapsed && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.title}
+              </span>
+              {showVariantChip && <GerencialChip />}
+            </span>
+          )}
         </NavLink>
       </SidebarMenuButton>
     </SidebarMenuItem>
@@ -287,6 +311,7 @@ function SidebarSection({
               collapsed={collapsed}
               currentPath={currentPath}
               currentSearch={currentSearch}
+              isGerencial={isGerencial}
             />
           ))}
         </SidebarMenu>
@@ -435,7 +460,14 @@ export default function AppSidebar() {
                     onMouseLeave={handleHoverLeave(currentPath === '/dashboard')}
                   >
                     <LayoutDashboard style={{ width: 15, height: 15, flexShrink: 0 }} />
-                    {!collapsed && <span>Dashboard</span>}
+                    {!collapsed && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          Dashboard
+                        </span>
+                        {isGerencial && <GerencialChip />}
+                      </span>
+                    )}
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
