@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ShieldCheck, Settings, AlertTriangle, Info, Edit2, MessageCircle } from 'lucide-react';
+import { ShieldCheck, Settings, AlertTriangle, Info, Edit2, MessageCircle, Zap } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useFinancialHealthScore } from '@/hooks/useFinancialHealthScore';
@@ -158,9 +158,22 @@ export default function VisitaDIAN() {
               <ShieldCheck className="h-6 w-6 text-red-600 dark:text-red-400" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Visita DIAN</h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-2xl font-bold">Visita DIAN</h1>
+                {isGerencial && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-[oklch(0.43_0.14_155)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
+                    title="Este módulo tiene contenido adicional en Modo Gerencial"
+                  >
+                    <Zap className="h-2.5 w-2.5" />
+                    Gerencial
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-muted-foreground">
-                Calendario tributario y obligaciones del negocio
+                {isGerencial
+                  ? 'Calendario tributario + simulador de rentabilidad de formalizar'
+                  : 'Calendario tributario y obligaciones del negocio'}
               </p>
             </div>
           </div>

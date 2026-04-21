@@ -218,17 +218,28 @@ function DashboardContent() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data, error } = await supabase
-        .from('initial_state_details' as never)
-        .select('amount, invoice_id')
-        .eq('user_id', user.id)
-        .eq('field_type', 'anticipos_de_clientes');
+      // Fuente canónica: columna agregada en initial_financial_state (se escribe
+      // siempre al guardar en Ajustes). Fallback: sumar detalles sin invoice_id.
+      // Mismo patrón que useEvasionGap + MÓDULO 11 del edge function.
+      const [{ data: stateRow }, { data: detailRows, error }] = await Promise.all([
+        supabase
+          .from('initial_financial_state' as never)
+          .select('anticipos_de_clientes')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('initial_state_details' as never)
+          .select('amount, invoice_id')
+          .eq('user_id', user.id)
+          .eq('field_type', 'anticipos_de_clientes'),
+      ]);
       if (error) throw error;
-      const rows = (data || []) as Array<{ amount: number | null; invoice_id: string | null }>;
-      const total = rows
+      const aggregated = Number((stateRow as { anticipos_de_clientes: number | null } | null)?.anticipos_de_clientes) || 0;
+      const rows = (detailRows || []) as Array<{ amount: number | null; invoice_id: string | null }>;
+      const detail = rows
         .filter(d => !d.invoice_id)
         .reduce((s, d) => s + (Number(d.amount) || 0), 0);
-      setPreviousPeriodAdvances(total);
+      setPreviousPeriodAdvances(aggregated > 0 ? aggregated : detail);
     } catch (e) {
       console.error('Error fetching previous period advances:', e);
       setPreviousPeriodAdvances(0);
