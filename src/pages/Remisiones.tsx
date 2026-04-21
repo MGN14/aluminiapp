@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import NewRemisionModal from '@/components/remisiones/NewRemisionModal';
 import RemisionDetailModal from '@/components/remisiones/RemisionDetailModal';
 import VincularFacturaModal from '@/components/remisiones/VincularFacturaModal';
+import { reverseRemisionInventory } from '@/lib/remisionInventory';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -111,7 +112,7 @@ export default function Remisiones() {
       if (!user?.id) return [];
       const { data, error } = await (supabase
         .from('remisiones') as any)
-        .select(`id, date, number, beneficiary, notes, status, created_at, total_manual, module_origin,
+        .select(`id, date, number, beneficiary, notes, status, created_at, total_manual, module_origin, remision_type,
           remision_items(id, reference, product_name, units, unit_cost, total_cost),
           remision_invoices(invoice_id, invoices(id, invoice_number, total_amount, invoice_items(quantity, reference, item_code, line_total)))`)
         .eq('user_id', user.id)
@@ -125,13 +126,20 @@ export default function Remisiones() {
 
 
   const handleDelete = async (id: string, number: string) => {
-    if (!confirm(`¿Querés eliminar la ${number}? Esta acción no se puede deshacer.`)) return;
+    if (!confirm(`¿Querés eliminar la ${number}? Se revertirán los movimientos de inventario que generó.`)) return;
+    try {
+      await reverseRemisionInventory(id);
+    } catch (e) {
+      toast({ title: 'No se pudo revertir el inventario', description: 'La remisión no fue eliminada.', variant: 'destructive' });
+      return;
+    }
     const { error } = await supabase.from('remisiones').delete().eq('id', id);
     if (error) {
       toast({ title: 'No se pudo eliminar', description: 'Intentá de nuevo en un momento.', variant: 'destructive' });
     } else {
       toast({ title: `${number} eliminada correctamente` });
       queryClient.invalidateQueries({ queryKey: ['remisiones'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-products'] });
     }
   };
 
@@ -220,8 +228,9 @@ export default function Remisiones() {
                 <TableHeader>
                   <TableRow>
                     <TableHead># Remisión</TableHead>
+                    <TableHead>Tipo</TableHead>
                     <TableHead>Fecha</TableHead>
-                    <TableHead>Beneficiario</TableHead>
+                    <TableHead>Beneficiario / Proveedor</TableHead>
                     <TableHead className="text-right">Refs.</TableHead>
                     <TableHead className="text-right">Unidades</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
@@ -237,12 +246,18 @@ export default function Remisiones() {
                     const itemsValor = items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
                     const valor = r.total_manual ? Number(r.total_manual) : itemsValor;
                     const status = STATUS_LABELS[r.status] || STATUS_LABELS.pendiente;
-                    const score = !effectiveGerencial ? calcScore(r) : null;
+                    const score = !effectiveGerencial && r.remision_type !== 'compra' ? calcScore(r) : null;
                     const ScoreIcon = score?.icon;
 
+                    const isCompra = r.remision_type === 'compra';
                     return (
                       <TableRow key={r.id}>
                         <TableCell className="font-medium">{r.number}</TableCell>
+                        <TableCell>
+                          <Badge variant={isCompra ? 'default' : 'secondary'} className={isCompra ? 'bg-blue-100 text-blue-700 hover:bg-blue-100' : ''}>
+                            {isCompra ? 'Compra' : 'Venta'}
+                          </Badge>
+                        </TableCell>
                         <TableCell>{formatDate(r.date)}</TableCell>
                         <TableCell>{r.beneficiary}</TableCell>
                         <TableCell className="text-right">{items.length}</TableCell>
@@ -262,15 +277,19 @@ export default function Remisiones() {
                             <Badge variant={status.variant}>{status.label}</Badge>
                           )}
                         </TableCell>
-                        {!effectiveGerencial && score && (
+                        {!effectiveGerencial && (
                           <TableCell>
-                            <button
-                              onClick={() => setScoreDetail({ label: score.label, detail: score.detail, color: score.color })}
-                              className={`flex items-center gap-1 text-xs font-medium ${score.color} hover:opacity-70`}
-                            >
-                              {ScoreIcon && <ScoreIcon className="h-3.5 w-3.5" />}
-                              <span>{score.score}% — {score.label}</span>
-                            </button>
+                            {score ? (
+                              <button
+                                onClick={() => setScoreDetail({ label: score.label, detail: score.detail, color: score.color })}
+                                className={`flex items-center gap-1 text-xs font-medium ${score.color} hover:opacity-70`}
+                              >
+                                {ScoreIcon && <ScoreIcon className="h-3.5 w-3.5" />}
+                                <span>{score.score}% — {score.label}</span>
+                              </button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                         )}
                         <TableCell>
@@ -281,12 +300,12 @@ export default function Remisiones() {
                             <Button variant="ghost" size="icon" onClick={() => setEditingStatusId(editingStatusId === r.id ? null : r.id)} title="Cambiar estado">
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            {effectiveGerencial && (
+                            {effectiveGerencial && !isCompra && (
                               <Button variant="ghost" size="icon" onClick={() => setMoverId(r.id)} title="Mover a Módulo DIAN">
                                 <ArrowRightLeft className="h-4 w-4 text-blue-500" />
                               </Button>
                             )}
-                            {!effectiveGerencial && (
+                            {!effectiveGerencial && !isCompra && (
                               <Button variant="ghost" size="icon" onClick={() => setVincularRemision({ id: r.id, number: r.number })} title="Vincular a factura">
                                 <Link className="h-4 w-4 text-blue-500" />
                               </Button>
