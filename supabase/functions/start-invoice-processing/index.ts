@@ -121,19 +121,10 @@ serve(async (req) => {
       });
     }
 
-    // Call AI for extraction (header + all line items)
-    const aiResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: `Eres un experto en facturación electrónica colombiana. Extrae TODOS los datos de la factura del PDF: cabecera Y cada línea de ítem.
+    // Build AI request based on mode:
+    //  - only_items=true: focused prompt for line items only (smaller schema, more reliable)
+    //  - default: header only (original behavior, fast, avoids timeouts on large PDFs)
+    const headerSystemPrompt = `Eres un experto en facturación electrónica colombiana. Extrae SOLO los datos de cabecera de la factura del PDF.
 Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estructura:
 {
   "invoice_number": "FMGN 276",
@@ -155,19 +146,7 @@ Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estruct
   "total_amount": 61485100,
   "cufe": "abc123...",
   "payment_method": "Crédito",
-  "items": [
-    {
-      "item_code": "001",
-      "reference": "REF-001",
-      "description": "Producto ejemplo",
-      "quantity": 10,
-      "unit_price": 5000,
-      "line_base": 50000,
-      "iva_rate": 0.19,
-      "iva_amount": 9500,
-      "line_total": 59500
-    }
-  ]
+  "items": []
 }
 Reglas:
 - type: "venta" si la empresa emite, "compra" si la recibe.
@@ -176,13 +155,108 @@ Reglas:
 - Montos numéricos sin separadores de miles.
 - Si no encuentras un campo, usa null o string vacío.
 - iva_rate como decimal (0.19 = 19%).
+- items debe ser un array vacío [] por ahora (se extraerán después).`;
 
-Reglas CRÍTICAS para items (extrae TODOS sin excepción):
-- Una factura colombiana típica tiene 10 o más líneas de ítems; extrae ABSOLUTAMENTE TODAS, incluso si son 50+.
-- NO resumas, NO agrupes, NO omitas líneas. Cada fila del detalle con su propio código/descripción/cantidad/valor es un ítem independiente.
-- Si la tabla de productos continúa en varias páginas del PDF, recórrela entera.
-- Si no hay código o referencia, usa string vacío, pero SIEMPRE incluye description, quantity, unit_price, line_base y line_total.`,
+    const itemsSystemPrompt = `Eres un experto en facturación electrónica colombiana. Extrae SOLO las líneas de ítems de la factura del PDF.
+Responde con un JSON con esta estructura exacta:
+{
+  "items": [
+    { "item_code": "001", "reference": "REF-001", "description": "Producto", "quantity": 10, "unit_price": 5000, "line_base": 50000, "iva_rate": 0.19, "iva_amount": 9500, "line_total": 59500 }
+  ]
+}
+Reglas CRÍTICAS:
+- Extrae ABSOLUTAMENTE TODAS las filas de la tabla de productos/servicios. No resumas, no agrupes, no omitas.
+- Si la tabla sigue en varias páginas, recórrela entera.
+- Cada fila con su propio código/descripción/cantidad/valor es un ítem independiente.
+- Si no hay código o referencia en una fila, usa string vacío "", pero siempre incluye description, quantity, unit_price, line_base y line_total.
+- Montos sin separadores de miles. iva_rate como decimal (0.19).`;
+
+    const headerProps = {
+      invoice_number: { type: "string" },
+      prefix: { type: "string" },
+      number_int: { type: ["integer", "null"] },
+      type: { type: "string", enum: ["venta", "compra"] },
+      issue_date: { type: "string" },
+      due_date: { type: ["string", "null"] },
+      counterparty_name: { type: "string" },
+      counterparty_nit: { type: "string" },
+      seller_name: { type: "string" },
+      seller_nit: { type: "string" },
+      buyer_name: { type: "string" },
+      buyer_nit: { type: "string" },
+      city: { type: ["string", "null"] },
+      subtotal_base: { type: "number" },
+      iva_rate: { type: "number" },
+      iva_amount: { type: "number" },
+      total_amount: { type: "number" },
+      cufe: { type: ["string", "null"] },
+      payment_method: { type: ["string", "null"] },
+    };
+
+    const itemsSchema = {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              item_code: { type: "string" },
+              reference: { type: "string" },
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unit_price: { type: "number" },
+              line_base: { type: "number" },
+              iva_rate: { type: "number" },
+              iva_amount: { type: "number" },
+              line_total: { type: "number" },
+            },
+            required: ["description", "quantity", "unit_price", "line_base", "line_total"],
           },
+        },
+      },
+      required: ["items"],
+    };
+
+    const toolDef = only_items
+      ? {
+          type: "function",
+          function: {
+            name: "extract_invoice_items",
+            description: "Extrae todas las líneas de ítems de una factura electrónica colombiana",
+            parameters: itemsSchema,
+          },
+        }
+      : {
+          type: "function",
+          function: {
+            name: "extract_invoice_header",
+            description: "Extrae datos de cabecera de una factura electrónica colombiana",
+            parameters: {
+              type: "object",
+              properties: headerProps,
+              required: [
+                "invoice_number", "type", "issue_date", "counterparty_name",
+                "subtotal_base", "iva_rate", "iva_amount", "total_amount",
+              ],
+            },
+          },
+        };
+
+    const userPromptText = only_items
+      ? "Extrae SOLO todas las líneas de ítems de esta factura electrónica colombiana. No resumas ni omitas ninguna línea. Responde SOLO con el JSON."
+      : "Extrae SOLO los datos de cabecera de esta factura electrónica colombiana. NO extraigas ítems de línea. Responde SOLO con el JSON.";
+
+    const aiResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gemini-2.5-flash",
+        messages: [
+          { role: "system", content: only_items ? itemsSystemPrompt : headerSystemPrompt },
           {
             role: "user",
             content: [
@@ -193,69 +267,12 @@ Reglas CRÍTICAS para items (extrae TODOS sin excepción):
                   file_data: `data:application/pdf;base64,${base64}`,
                 },
               },
-              {
-                type: "text",
-                text: "Extrae la cabecera Y todas las líneas de ítems de esta factura electrónica colombiana. No resumas ni omitas ninguna línea. Responde SOLO con el JSON.",
-              },
+              { type: "text", text: userPromptText },
             ],
           },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "extract_invoice",
-              description: "Extrae cabecera y todas las líneas de ítems de una factura electrónica colombiana",
-              parameters: {
-                type: "object",
-                properties: {
-                  invoice_number: { type: "string" },
-                  prefix: { type: "string" },
-                  number_int: { type: ["integer", "null"] },
-                  type: { type: "string", enum: ["venta", "compra"] },
-                  issue_date: { type: "string" },
-                  due_date: { type: ["string", "null"] },
-                  counterparty_name: { type: "string" },
-                  counterparty_nit: { type: "string" },
-                  seller_name: { type: "string" },
-                  seller_nit: { type: "string" },
-                  buyer_name: { type: "string" },
-                  buyer_nit: { type: "string" },
-                  city: { type: ["string", "null"] },
-                  subtotal_base: { type: "number" },
-                  iva_rate: { type: "number" },
-                  iva_amount: { type: "number" },
-                  total_amount: { type: "number" },
-                  cufe: { type: ["string", "null"] },
-                  payment_method: { type: ["string", "null"] },
-                  items: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        item_code: { type: "string" },
-                        reference: { type: "string" },
-                        description: { type: "string" },
-                        quantity: { type: "number" },
-                        unit_price: { type: "number" },
-                        line_base: { type: "number" },
-                        iva_rate: { type: "number" },
-                        iva_amount: { type: "number" },
-                        line_total: { type: "number" },
-                      },
-                      required: ["description", "quantity", "unit_price", "line_base", "line_total"],
-                    },
-                  },
-                },
-                required: [
-                  "invoice_number", "type", "issue_date", "counterparty_name",
-                  "subtotal_base", "iva_rate", "iva_amount", "total_amount", "items",
-                ],
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "extract_invoice" } },
+        tools: [toolDef],
+        tool_choice: { type: "function", function: { name: toolDef.function.name } },
       }),
     });
 
