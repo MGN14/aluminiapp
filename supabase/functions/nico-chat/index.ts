@@ -649,16 +649,17 @@ serve(async (req) => {
     const pctSoportado = _clamp(1 - pctSinFacturar);
     const scoreFacturacion = baseFacturacionScore > 0 ? _linear(pctSoportado) : 0;
 
-    // 3. Impuestos
-    const ingresosTxS = yearTxAll.filter((tx: any) => (tx.amount ?? 0) > 0);
-    const egresosTxS = yearTxAll.filter((tx: any) => (tx.amount ?? 0) < 0);
-    const relevantesTxS = yearTxAll.filter((tx: any) => (tx.amount ?? 0) !== 0);
-    const pctVentasS = _safePct(ingresosTxS.filter((tx: any) => Boolean(tx.invoice_id)).length, ingresosTxS.length);
-    const pctComprasS = _safePct(egresosTxS.filter((tx: any) => Boolean(tx.invoice_id)).length, egresosTxS.length);
-    const pctVinculadosS = _safePct(relevantesTxS.filter((tx: any) => Boolean(tx.invoice_id) || _isNA(tx.notes)).length, relevantesTxS.length);
-    const hasAnyFiscal = yearTxAll.length > 0 || yearSalesInvoices.length > 0;
-    const completitudFiscal = hasAnyFiscal ? (pctVentasS + pctComprasS + pctVinculadosS) / 3 : 0;
-    const scoreImpuestos = hasAnyFiscal ? _linear(completitudFiscal) : 0;
+    // 3. Control de Inventario (antes Impuestos) — descuadre Siigo vs físico en costo
+    const activeInv = (inventoryProducts ?? []).filter((p: any) => p.active !== false);
+    const totalValueSiigoScore = activeInv.reduce((s: number, p: any) => s + (p.stock_system ?? 0) * (p.cost_per_unit ?? 0), 0);
+    const totalDifferenceValueScore = activeInv.reduce((s: number, p: any) => {
+      if (p.stock_physical === null || p.stock_physical === undefined) return s;
+      return s + Math.abs((p.stock_system ?? 0) - p.stock_physical) * (p.cost_per_unit ?? 0);
+    }, 0);
+    const ratioDescuadreInv = totalValueSiigoScore > 0 ? _clamp(totalDifferenceValueScore / totalValueSiigoScore) : 0;
+    const pctInventarioScore = 1 - ratioDescuadreInv;
+    const hasInventoryScoreData = activeInv.length > 0 && totalValueSiigoScore > 0;
+    const scoreImpuestos = hasInventoryScoreData ? _linear(pctInventarioScore) : 0;
 
     // 4. Cartera y anticipos
     const facturacionTotalScore = yearSalesInvoices.reduce((s: number, inv: any) => s + (inv.total_amount ?? 0), 0);
@@ -690,7 +691,7 @@ serve(async (req) => {
     const scoreTotalCalc = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion) * 10) / 10;
 
     const healthScoreCtx = `Score total: ${scoreTotalCalc}/100 (${monthNames[thisMonth - 1]} ${thisYear})
-Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturacion}/20, Impuestos: ${scoreImpuestos}/20, Cartera y anticipos: ${scoreCartera}/20, Clasificación: ${scoreClasificacion}/20`;
+Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturacion}/20, Control de Inventario: ${scoreImpuestos}/20 (descuadre Siigo vs físico en costo — ratio ${(ratioDescuadreInv * 100).toFixed(1)}%), Cartera y anticipos: ${scoreCartera}/20, Clasificación: ${scoreClasificacion}/20`;
 
     // =============================================
     // MODULE 8: INVENTARIO OPERATIVO
@@ -737,12 +738,18 @@ Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturaci
 ═══════════════════════════════════════════
 MÓDULO 8 — INVENTARIO OPERATIVO
 Fuente: inventario contable (Siigo) + conteo físico (bodega). Permite detectar diferencias operativas.
+IMPORTANTE: la "Diferencia en Costo" de abajo alimenta el factor "Control de Inventario" del Score de Visita DIAN (módulo 7, 20 puntos). Menor descuadre = mejor score.
 ═══════════════════════════════════════════
+
+5 KPIs OFICIALES (los que ve el usuario en la página de Inventario):
+1. Valor Total Inventario: ${fmt(totalInventoryValue)} (Σ unidades Siigo × costo unitario)
+2. Días de Inventario (promedio): ${Math.round(avgDays)} días (ritmo de ventas últimos 30 días)
+3. Sin Movimiento: ${noMovement.length > 0 && enriched.length > 0 ? Math.round((noMovement.length / enriched.length) * 100) : 0}% de referencias sin ventas en 30 días (capital detenido)
+4. Diferencia Unidades: ${totalDifferenceUnits} uds (Σ |Siigo − físico|, señal de fuga o error de registro)
+5. Diferencia en Costo: ${fmt(totalDifferenceValue)} (Σ |Siigo − físico| × costo; plata en riesgo — VARIABLE DEL SCORE)
 
 RESUMEN GENERAL:
 Total referencias activas: ${enriched.length}
-Valor total inventario (sistema): ${fmt(totalInventoryValue)}
-Días promedio de inventario: ${Math.round(avgDays)} días
 Productos en estado crítico (< 15 días): ${criticalProducts.length}
 Productos en exceso (sin rotación): ${excessProducts.length}
 Productos sin movimiento (últimos 30 días): ${noMovement.length}
@@ -751,8 +758,9 @@ Capital inmovilizado (sin movimiento): ${fmt(noMovement.reduce((s: number, p: an
 ANÁLISIS DE DIFERENCIAS (Sistema vs Físico):
 Productos con diferencia: ${productsWithDiff.length} de ${enriched.length}
 Valor total de diferencias: ${fmt(totalDifferenceValue)}
-% de descuadre: ${pctDescuadre.toFixed(1)}%
-${pctDescuadre > 5 ? "⚠ ALERTA: El descuadre supera el 5%. Esto puede indicar ventas sin factura, pérdidas, robos o errores de conteo." : ""}
+% de descuadre (ratio = diff costo / valor total Siigo): ${pctDescuadre.toFixed(1)}%
+Score Control de Inventario derivado: ${totalInventoryValue > 0 ? (Math.max(0, 20 * (1 - Math.min(1, totalDifferenceValue / totalInventoryValue)))).toFixed(1) : 0}/20 pts
+${pctDescuadre > 5 ? "⚠ ALERTA: El descuadre supera el 5%. Esto puede indicar ventas sin factura, pérdidas, robos o errores de conteo, y penaliza el Score de Visita DIAN." : ""}
 
 ${positiveeDiff.length > 0 ? `FALTANTES EN BODEGA (sistema > físico — posible venta sin factura, robo, pérdida):
 ${positiveeDiff.slice(0, 5).map((p: any, i: number) => `${i + 1}. ${p.reference} (${p.name}): faltan ${Math.abs(p.difference)} uds → ${fmt(Math.abs(p.valueDiff))}`).join("\n")}` : ""}
@@ -1029,8 +1037,8 @@ ${inventoryCtx}
       },
       visita_dian: {
         role: `Eres Nico Visita DIAN, el auditor interno de ${empresa}. Piensas como un funcionario DIAN revisando la empresa. Tu trabajo es detectar inconsistencias ANTES de que la DIAN lo haga y prevenir sanciones.`,
-        focus: "Score de salud fiscal. Inconsistencias entre facturación y banco. Riesgos de sanción. Qué pediría la DIAN en una visita real. Cómo subir el score.",
-        modules: "MÓDULO 5 (Alertas), MÓDULO 7 (Salud/Score), MÓDULO 3 (Obligaciones Fiscales). No hagas estrategia ni inventario.",
+        focus: "Score de salud fiscal (5 factores × 20 pts: conciliación, facturación soportada, Control de Inventario — descuadre Siigo vs físico en costo —, cartera/anticipos, clasificación). Inconsistencias entre facturación y banco. Descuadre de inventario como señal fiscal (posibles ventas sin factura). Riesgos de sanción. Qué pediría la DIAN en una visita real. Cómo subir el score.",
+        modules: "MÓDULO 5 (Alertas), MÓDULO 7 (Salud/Score), MÓDULO 3 (Obligaciones Fiscales), MÓDULO 8 (Inventario — alimenta el factor Control de Inventario del score).",
       },
       tesoreria: {
         role: `Eres Nico Tesorería, el encargado de caja y cobranza de ${empresa}. Te preocupa la plata que entra, la que sale y la que falta por cobrar o pagar.`,
@@ -1039,8 +1047,8 @@ ${inventoryCtx}
       },
       inventario: {
         role: `Eres Nico Inventario, el encargado operativo de stock de ${empresa}. Comparas lo contable (Siigo) contra lo físico (bodega) y detectas fugas, excedentes y capital inmovilizado.`,
-        focus: "Diferencias Siigo vs físico. Fugas operativas (robos, ventas sin factura). Productos críticos. Capital detenido en inventario. Impacto de los descuadres en la utilidad real.",
-        modules: "MÓDULO 8 (Inventario operativo) es tu base. No hagas fiscal, ni cartera, ni estrategia.",
+        focus: "KPIs de inventario: Valor Total Siigo, Días de Inventario, % Sin Movimiento, Diferencia en Unidades (Σ|Siigo−físico|) y Diferencia en Costo (Σ|Siigo−físico|·costo). Diferencias Siigo vs físico. Fugas operativas (robos, ventas sin factura). Productos críticos. Capital detenido. Impacto de los descuadres en la utilidad real Y en el Score de Visita DIAN: la Diferencia en Costo sobre el valor total alimenta el factor 'Control de Inventario' (20 pts).",
+        modules: "MÓDULO 8 (Inventario operativo) es tu base. También MÓDULO 7 (Salud/Score) porque la diferencia en costo es una de sus 5 variables.",
       },
       estrategia: {
         role: `Eres Nico Estrategia, el asesor de decisiones grandes de ${empresa}. Miras el futuro, no el presente.`,
@@ -1115,9 +1123,9 @@ Tienes acceso a diez fuentes de datos distintas y debes diferenciarlas siempre:
 
 6. ESTADO INICIAL FINANCIERO: Saldos de apertura del negocio que se suman a los acumulados.
 
-7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 5 factores (conciliación, facturación soportada, impuestos, cartera/anticipos, clasificación) sobre 100 puntos.
+7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 5 factores sobre 100 puntos: conciliación bancaria, facturación soportada, CONTROL DE INVENTARIO (descuadre Siigo vs físico en costo — reemplazó al factor de impuestos; ratio = Σ|diff|·costo / Σ(Siigo·costo); menor ratio = mejor score), cartera/anticipos, clasificación financiera. Cada factor vale 20 puntos. El campo interno se llama "impuestos" en la estructura por compatibilidad con la base de datos, pero representa Control de Inventario.
 
-8. INVENTARIO OPERATIVO: Cruce entre inventario contable (Siigo) e inventario físico (bodega). Permite detectar diferencias operativas como ventas sin factura, robos, pérdidas, errores de conteo, o compras no registradas.
+8. INVENTARIO OPERATIVO: Cruce entre inventario contable (Siigo) e inventario físico (bodega). Permite detectar diferencias operativas como ventas sin factura, robos, pérdidas, errores de conteo, o compras no registradas. IMPORTANTE: el valor total del inventario (Siigo × costo) y la diferencia en costo (Σ|Siigo − físico| × costo) alimentan directamente el factor "Control de Inventario" del Score de Visita DIAN (ver módulo 7). Si el usuario pregunta por qué bajó/subió el score, el descuadre de inventario es una de las palancas.
 
 9. MEMORIA DEL NEGOCIO: Métricas históricas acumuladas (promedios, ciclos, estacionalidad, top clientes y proveedores). Te permiten contextualizar cada evento contra el comportamiento normal del negocio.
 

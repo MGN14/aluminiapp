@@ -26,7 +26,7 @@ const SCORE_COLORS = {
 const VARIABLES = [
   { key: 'conciliacion', label: 'Conciliación Bancaria', color: SCORE_COLORS.conciliacion },
   { key: 'facturacion', label: 'Facturación Soportada', color: SCORE_COLORS.facturacion },
-  { key: 'impuestos', label: 'Control de Impuestos', color: SCORE_COLORS.impuestos },
+  { key: 'impuestos', label: 'Control de Inventario', color: SCORE_COLORS.impuestos },
   { key: 'cartera', label: 'Cartera y Anticipos', color: SCORE_COLORS.cartera },
   { key: 'clasificacion', label: 'Clasificación Financiera', color: SCORE_COLORS.clasificacion },
 ] as const;
@@ -59,9 +59,15 @@ function getVariableExplanation(key: string, details: ScoreDetails): { formula: 
     }
     case 'impuestos': {
       const d = details.impuestos;
+      if (d.totalValueSiigo <= 0) {
+        return {
+          formula: 'Sin inventario cargado',
+          explanation: 'Sube tu maestro de productos y realiza un conteo físico para medir el descuadre.',
+        };
+      }
       return {
-        formula: `${pct(d.pct)} completitud fiscal`,
-        explanation: `Ventas ${pct(d.pctVentas)}, compras ${pct(d.pctCompras)}, vinculados ${pct(d.pctVinculados)}.`,
+        formula: `${pct(d.ratioDescuadre)} descuadre en costo`,
+        explanation: `${fmt(d.totalDifferenceValue)} de diferencia entre Siigo y físico sobre ${fmt(d.totalValueSiigo)} en inventario (${d.productsWithDiff} de ${d.totalProducts} referencias).`,
       };
     }
     case 'cartera': {
@@ -86,7 +92,7 @@ function getVariableExplanation(key: string, details: ScoreDetails): { formula: 
 function getVariableAlert(key: string, score: number): string | null {
   if (key === 'conciliacion' && score < 18) return 'Movimientos sin soporte detectados';
   if (key === 'facturacion' && score < 18) return 'Ingresos sin factura detectados';
-  if (key === 'impuestos' && score < 16) return 'Base fiscal incompleta';
+  if (key === 'impuestos' && score < 16) return 'Descuadre alto entre Siigo y físico';
   if (key === 'cartera' && score < 18) return 'Facturación sin cobrar o anticipos pendientes';
   if (key === 'clasificacion' && score < 18) return 'Transacciones sin clasificar';
   return null;

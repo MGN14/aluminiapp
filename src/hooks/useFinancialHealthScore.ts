@@ -4,6 +4,7 @@ import {
   calculateFinancialHealthMetrics,
   getRecommendations,
   getScoreInterpretation,
+  type HealthInventoryProduct,
   type HealthInvoice,
   type HealthTransaction,
   type HistoricalScore,
@@ -42,7 +43,14 @@ const EMPTY_SCORES: ScoreBreakdown = {
 const EMPTY_DETAILS: ScoreDetails = {
   conciliacion: { pct: 0, montoPendiente: 0, totalMovimientos: 0 },
   facturacion: { pct: 0, ingresosConFactura: 0, ingresosAnticipo: 0, totalIngresos: 0 },
-  impuestos: { pct: 0, pctVentas: 0, pctCompras: 0, pctVinculados: 0 },
+  impuestos: {
+    pct: 0,
+    ratioDescuadre: 0,
+    totalDifferenceValue: 0,
+    totalValueSiigo: 0,
+    productsWithDiff: 0,
+    totalProducts: 0,
+  },
   cartera: {
     pct: 0,
     pctCartera: 0,
@@ -87,7 +95,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       const yearStart = `${year}-01-01`;
       const nextYearStart = `${year + 1}-01-01`;
 
-      const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult, categoriesResult, responsiblesResult, allAdvanceDetailsResult] = await Promise.all([
+      const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult, categoriesResult, responsiblesResult, allAdvanceDetailsResult, inventoryResult] = await Promise.all([
         supabase
           .from('transactions')
           .select('id, date, responsible_id, invoice_id, notes, category_id, amount, type')
@@ -130,6 +138,11 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .select('id, invoice_id, amount, responsible_name')
           .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes'),
+        supabase
+          .from('inventory_products')
+          .select('stock_system, stock_physical, cost_per_unit, active')
+          .eq('user_id', user.id)
+          .eq('active', true),
       ]);
 
       if (txResult.error) throw txResult.error;
@@ -139,6 +152,10 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       const initialState = (initialStateResult.data as any) ?? null;
       const advanceDetails = ((advanceDetailsResult.data || []) as any[]);
       const allAdvanceDetails = ((allAdvanceDetailsResult.data || []) as any[]);
+      // Inventory is a current snapshot (no historical reconstruction per month).
+      // Same snapshot is passed to every month's calc — the inventory score component
+      // therefore remains constant across the year until the user updates inventory.
+      const inventoryProducts = ((inventoryResult.data || []) as any[]) as HealthInventoryProduct[];
 
       // Build category name map for advances calculation
       const categoryNameById = new Map<string, string>();
@@ -268,7 +285,8 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           matchedByInvoice,
           initialState,
           unlinkedAnticiposClientes,
-          totalCurrentPeriodAnticipos
+          totalCurrentPeriodAnticipos,
+          inventoryProducts
         );
 
         monthlyResults.push({ month, scores: monthScores, details: monthDetails });

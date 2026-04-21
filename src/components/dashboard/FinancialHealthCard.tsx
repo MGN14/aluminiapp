@@ -17,7 +17,7 @@ const SCORE_COLORS = {
 const SEGMENT_LABELS: Record<string, string> = {
   conciliacion: 'Conciliación',
   facturacion: 'Facturación',
-  impuestos: 'Impuestos',
+  impuestos: 'Inventario',
   cartera: 'Cartera',
   clasificacion: 'Clasificación',
 };

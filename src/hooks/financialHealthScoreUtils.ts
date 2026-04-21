@@ -10,7 +10,16 @@ export interface ScoreBreakdown {
 export interface ScoreDetails {
   conciliacion: { pct: number; montoPendiente: number; totalMovimientos: number };
   facturacion: { pct: number; ingresosConFactura: number; ingresosAnticipo: number; totalIngresos: number };
-  impuestos: { pct: number; pctVentas: number; pctCompras: number; pctVinculados: number };
+  // `impuestos` is a legacy field key retained for DB compatibility (score_impuestos column).
+  // It now holds the "Control de Inventario" score: mide el descuadre entre Siigo y físico en costo.
+  impuestos: {
+    pct: number;
+    ratioDescuadre: number;
+    totalDifferenceValue: number;
+    totalValueSiigo: number;
+    productsWithDiff: number;
+    totalProducts: number;
+  };
   cartera: {
     pct: number;
     pctCartera: number;
@@ -21,6 +30,13 @@ export interface ScoreDetails {
     ingresosTotal: number;
   };
   clasificacion: { pct: number; completas: number; total: number };
+}
+
+export interface HealthInventoryProduct {
+  stock_system: number | null;
+  stock_physical: number | null;
+  cost_per_unit: number | null;
+  active?: boolean | null;
 }
 
 export interface HistoricalScore {
@@ -105,7 +121,7 @@ export function getRecommendations(scores: ScoreBreakdown): string[] {
   const recs: string[] = [];
   if (scores.conciliacion < 18) recs.push('Existen movimientos bancarios sin soporte. Revisa y vincula facturas, asigna responsables o clasifícalos correctamente.');
   if (scores.facturacion < 18) recs.push('Hay ingresos sin factura asociada ni marcados como anticipo. Esto puede generar inconsistencias frente a la DIAN.');
-  if (scores.impuestos < 16) recs.push('La base fiscal del periodo está incompleta. Faltan facturas de compra o venta que afectan el cálculo del IVA y retenciones.');
+  if (scores.impuestos < 16) recs.push('Hay descuadre entre inventario Siigo y conteo físico. Revisa faltantes para descartar ventas sin factura, pérdidas o errores de registro.');
   if (scores.cartera < 18) recs.push('Una parte importante de tu facturación no ha sido cobrada o tienes anticipos sin factura asociada.');
   if (scores.clasificacion < 18) recs.push('Varias transacciones no tienen categoría, responsable o factura asignada. Completa la información para mejorar tu orden.');
   return recs;
@@ -118,7 +134,8 @@ export function calculateFinancialHealthMetrics(
   matchedByInvoice: Map<string, number>,
   initialState?: { cuentas_por_cobrar?: number; anticipos_de_clientes?: number } | null,
   unlinkedAnticiposClientes?: number,
-  currentPeriodAnticipos?: number
+  currentPeriodAnticipos?: number,
+  inventoryProducts?: HealthInventoryProduct[] | null
 ): { scores: ScoreBreakdown; details: ScoreDetails } {
   const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
   const totalTx = transactions.length;
@@ -143,22 +160,24 @@ export function calculateFinancialHealthMetrics(
   const pctSoportado = clampPct(1 - pctSinFacturar);
   const scoreFacturacion = baseFacturacion > 0 ? linearScore(pctSoportado) : 0;
 
-  // ========== 3. CONTROL DE IMPUESTOS ==========
-  const egresosTx = transactions.filter((tx) => (tx.amount ?? 0) < 0);
-
-  const ingresosConFacturaCount = ingresosTx.filter((tx) => Boolean(tx.invoice_id)).length;
-  const egresosConFacturaCount = egresosTx.filter((tx) => Boolean(tx.invoice_id)).length;
-
-  const relevantes = transactions.filter((tx) => (tx.amount ?? 0) !== 0);
-  const vinculadosCount = relevantes.filter((tx) => Boolean(tx.invoice_id) || isNA(tx.notes)).length;
-
-  const pctVentas = safePct(ingresosConFacturaCount, ingresosTx.length);
-  const pctCompras = safePct(egresosConFacturaCount, egresosTx.length);
-  const pctVinculados = safePct(vinculadosCount, relevantes.length);
-
-  const hasAnyFiscalData = transactions.length > 0 || confirmedInvoices.length > 0;
-  const completitudFiscal = hasAnyFiscalData ? (pctVentas + pctCompras + pctVinculados) / 3 : 0;
-  const scoreImpuestos = hasAnyFiscalData ? linearScore(completitudFiscal) : 0;
+  // ========== 3. CONTROL DE INVENTARIO (antes "Control de Impuestos") ==========
+  // Mide el descuadre entre Siigo y físico en costo: señal DIAN genuina de ventas sin factura,
+  // pérdidas, robos o errores de registro. Ratio = Σ|diff|·costo / Σ(Siigo·costo).
+  // Menor descuadre => mejor score. Guardado en score_impuestos/impuestos por compat DB.
+  const activeInventory = (inventoryProducts ?? []).filter((p) => p.active !== false);
+  const totalValueSiigo = activeInventory.reduce((sum, p) => sum + (p.stock_system ?? 0) * (p.cost_per_unit ?? 0), 0);
+  const totalDifferenceValue = activeInventory.reduce((sum, p) => {
+    if (p.stock_physical === null || p.stock_physical === undefined) return sum;
+    const diff = Math.abs((p.stock_system ?? 0) - p.stock_physical);
+    return sum + diff * (p.cost_per_unit ?? 0);
+  }, 0);
+  const productsWithDiff = activeInventory.filter((p) =>
+    p.stock_physical !== null && p.stock_physical !== undefined && (p.stock_system ?? 0) !== p.stock_physical
+  ).length;
+  const ratioDescuadre = totalValueSiigo > 0 ? clampPct(totalDifferenceValue / totalValueSiigo) : 0;
+  const pctInventario = 1 - ratioDescuadre;
+  const hasInventoryData = activeInventory.length > 0 && totalValueSiigo > 0;
+  const scoreImpuestos = hasInventoryData ? linearScore(pctInventario) : 0;
 
   // ========== 4. CARTERA Y ANTICIPOS ==========
   const initialCxC = initialState?.cuentas_por_cobrar ?? 0;
@@ -225,7 +244,14 @@ export function calculateFinancialHealthMetrics(
       ingresosAnticipo: initialAnticiposClientes,
       totalIngresos: baseFacturacion,
     },
-    impuestos: { pct: completitudFiscal, pctVentas, pctCompras, pctVinculados },
+    impuestos: {
+      pct: pctInventario,
+      ratioDescuadre,
+      totalDifferenceValue,
+      totalValueSiigo,
+      productsWithDiff,
+      totalProducts: activeInventory.length,
+    },
     cartera: {
       pct: riesgoTotal,
       pctCartera,
