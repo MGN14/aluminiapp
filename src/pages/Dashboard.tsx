@@ -29,7 +29,6 @@ import FiscalProfileWarning from '@/components/dashboard/FiscalProfileWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
 import UpcomingObligationsCard from '@/components/dashboard/UpcomingObligationsCard';
 import EvasionGapCard from '@/components/dashboard/EvasionGapCard';
-import EvasionDisclaimer from '@/components/dashboard/EvasionDisclaimer';
 import { calculateEvasionGap } from '@/lib/evasionGap';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import DashboardCustomizeModal from '@/components/dashboard/DashboardCustomizeModal';
@@ -794,14 +793,8 @@ function DashboardContent() {
         <OnboardingGuide hasTransactions={transactions.length > 0} />
         <TrialChecklist />
         {isGerencial && (
-          <>
-            {/* GAP 4 — disclaimer solo en mid/high, linkea al simulador. */}
-            <EvasionDisclaimer
-              evasion={evasionResult}
-              periodMonths={evasionPeriodMonths}
-            />
-            <EvasionGapCard evasion={evasionResult} />
-          </>
+          /* Card unificado: brecha + disclaimer (mid/high) en una sola tarjeta. */
+          <EvasionGapCard evasion={evasionResult} periodMonths={evasionPeriodMonths} />
         )}
         <div className="grid gap-4 md:grid-cols-2">
           <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
