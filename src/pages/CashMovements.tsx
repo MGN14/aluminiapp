@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
+import { useModuleContext } from '@/hooks/useModuleContext';
 
 const CATEGORIES = [
   'Ventas en efectivo',
@@ -42,6 +44,7 @@ function formatCurrency(value: number) {
 }
 
 export default function CashMovements() {
+  const { isGerencial } = useModuleContext();
   const [movements, setMovements] = useState<CashMovement[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -130,6 +133,13 @@ export default function CashMovements() {
     const egresos = movements.filter(m => m.type === 'egreso').reduce((s, m) => s + m.amount, 0);
     return { ingresos, egresos, neto: ingresos - egresos };
   }, [movements]);
+
+  // Guard de modo: los movimientos en efectivo son data sensible del modo gerencial.
+  // Si el admin vuelve a DIAN, lo sacamos de aquí para evitar mezcla de contextos.
+  // (Los hooks se declaran arriba para respetar Rules of Hooks.)
+  if (!isGerencial) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return (
     <AppLayout>

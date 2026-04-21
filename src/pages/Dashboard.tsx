@@ -28,6 +28,7 @@ import InitialStateWarning from '@/components/dashboard/InitialStateWarning';
 import FiscalProfileWarning from '@/components/dashboard/FiscalProfileWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
 import UpcomingObligationsCard from '@/components/dashboard/UpcomingObligationsCard';
+import EvasionGapCard from '@/components/dashboard/EvasionGapCard';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import DashboardCustomizeModal from '@/components/dashboard/DashboardCustomizeModal';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -281,6 +282,22 @@ function DashboardContent() {
     const pendingReconcile = periodTransactions.filter(tx => !tx.responsible_id).length;
     return { saldoActual, totalIngresos, totalEgresos, pendingReconcile, transactionCount: periodTransactions.length, cuatrimestreLabel: `Q${periodSelection.quarter} ${periodSelection.year}`, periodLabel: periodRange.label };
   }, [transactions, periodTransactions, cuatrimestre, periodRange, periodSelection, isGerencial, cashMovements]);
+
+  // Ingresos separados por origen, para medir la brecha DIAN vs Real.
+  // bankIncome = solo lo que pasó por extracto bancario.
+  // cashIncome = solo lo que pasó por movimientos en efectivo.
+  const evasionInputs = useMemo(() => {
+    const bankIncome = periodTransactions
+      .filter(tx => (tx.amount ?? 0) > 0)
+      .reduce((s, tx) => s + (tx.amount ?? 0), 0);
+    const cashIncome = cashMovements
+      .filter(cm => {
+        const d = parseLocalDate(cm.date);
+        return d >= periodRange.start && d <= periodRange.end && cm.type === 'ingreso';
+      })
+      .reduce((s, cm) => s + Number(cm.amount || 0), 0);
+    return { bankIncome, cashIncome };
+  }, [periodTransactions, cashMovements, periodRange]);
 
   const handleInvoiceMetrics = useCallback((m: InvoiceFiscalMetrics) => setInvoiceMetrics(m), []);
 
@@ -699,6 +716,12 @@ function DashboardContent() {
         <InitialStateWarning />
         <OnboardingGuide hasTransactions={transactions.length > 0} />
         <TrialChecklist />
+        {isGerencial && (
+          <EvasionGapCard
+            bankIncome={evasionInputs.bankIncome}
+            cashIncome={evasionInputs.cashIncome}
+          />
+        )}
         <div className="grid gap-4 md:grid-cols-2">
           <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
           <UpcomingObligationsCard />

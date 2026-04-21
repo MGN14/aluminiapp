@@ -221,13 +221,19 @@ export default function PYGReport() {
 
     const cIngresos = [...cur.groups.ingresos];
     const cCostos = [...cur.groups.costos_operacionales];
+    // Serie mensual del efectivo no facturado (solo tracking, ya está sumado dentro de cIngresos)
+    const cCashIncomeMonthly: MonthlyArr = new Array(12).fill(0) as MonthlyArr;
 
     if (isGerencial && cashMovements && cashMovements.length > 0) {
       for (const cm of cashMovements) {
         const m = parseLocalDate(cm.date).getMonth();
         const amount = Number(cm.amount) || 0;
-        if (cm.type === 'ingreso') cIngresos[m] += amount;
-        else if (cm.type === 'egreso') cCostos[m] += amount;
+        if (cm.type === 'ingreso') {
+          cIngresos[m] += amount;
+          cCashIncomeMonthly[m] += amount;
+        } else if (cm.type === 'egreso') {
+          cCostos[m] += amount;
+        }
       }
     }
 
@@ -321,6 +327,10 @@ export default function PYGReport() {
       return out;
     }
 
+    const cashIncomeTotal = sumArr(cCashIncomeMonthly);
+    const cashIncomePct =
+      sumArr(cIngresos) > 0 ? (cashIncomeTotal / sumArr(cIngresos)) * 100 : 0;
+
     const result: PYGRow[] = [
       {
         key: 'ingresos',
@@ -330,6 +340,20 @@ export default function PYGReport() {
         previousValues: pIngresos,
         previousTotal: sumArr(pIngresos),
       },
+      // Sub-fila informativa: desagrega cuánto del Ingresos viene de efectivo
+      // no facturado. NO suma al total (ya está incluida arriba). Solo se
+      // muestra en modo gerencial y si efectivamente hay movimientos.
+      ...(isGerencial && cashIncomeTotal > 0
+        ? [
+            {
+              key: 'ingresos-sin-facturar',
+              label: `• Sin facturar (efectivo) — ${cashIncomePct.toFixed(1)}%`,
+              values: cCashIncomeMonthly,
+              total: cashIncomeTotal,
+              isDetail: true,
+            } as PYGRow,
+          ]
+        : []),
       ...getCatDetailRows('ingresos'),
       // Total Egresos movido aquí: contraparte directa de Ingresos.
       {
