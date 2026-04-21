@@ -136,7 +136,7 @@ function extractClientIp(req: Request): string {
 }
 
 async function countRecentAttempts(
-  admin: ReturnType<typeof createClient>,
+  admin: any,
   email: string,
   ip: string,
 ): Promise<number> {
@@ -155,7 +155,7 @@ async function countRecentAttempts(
 }
 
 async function mostRecentAttemptTimestamp(
-  admin: ReturnType<typeof createClient>,
+  admin: any,
   email: string,
   ip: string,
 ): Promise<number | null> {
@@ -172,7 +172,7 @@ async function mostRecentAttemptTimestamp(
 }
 
 async function oldestAttemptTimestamp(
-  admin: ReturnType<typeof createClient>,
+  admin: any,
   email: string,
   ip: string,
 ): Promise<number | null> {
