@@ -6,6 +6,7 @@ import { TrendingUp, AlertTriangle, Info } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { useFinancialHealthScore, type ScoreDetails } from '@/hooks/useFinancialHealthScore';
+import { SCORE_VARIABLES } from '@/hooks/financialHealthScoreUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -15,21 +16,7 @@ import CFOInsights from '@/components/dashboard/CFOInsights';
 import { PeriodSelection } from '@/components/dashboard/UnifiedPeriodFilter';
 import { useNico } from '@/hooks/useNicoContext';
 
-const SCORE_COLORS = {
-  conciliacion: 'hsl(217, 91%, 60%)',
-  facturacion: 'hsl(152, 69%, 40%)',
-  impuestos: 'hsl(24, 95%, 53%)',
-  cartera: 'hsl(280, 84%, 60%)',
-  clasificacion: 'hsl(220, 9%, 46%)',
-};
-
-const VARIABLES = [
-  { key: 'conciliacion', label: 'Conciliación Bancaria', color: SCORE_COLORS.conciliacion },
-  { key: 'facturacion', label: 'Facturación Soportada', color: SCORE_COLORS.facturacion },
-  { key: 'impuestos', label: 'Control de Inventario', color: SCORE_COLORS.impuestos },
-  { key: 'cartera', label: 'Cartera y Anticipos', color: SCORE_COLORS.cartera },
-  { key: 'clasificacion', label: 'Clasificación Financiera', color: SCORE_COLORS.clasificacion },
-] as const;
+const VARIABLES = SCORE_VARIABLES;
 
 const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
@@ -350,6 +337,9 @@ export default function FinancialHealth() {
                       <span className="text-sm font-medium text-foreground">{v.label}</span>
                     </div>
 
+                    {/* Qué mide esta variable */}
+                    <p className="text-[11px] text-muted-foreground/70 leading-snug">{v.hint}</p>
+
                     {/* Score */}
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-3xl font-bold tracking-tight text-foreground">{value}</span>
@@ -361,7 +351,7 @@ export default function FinancialHealth() {
                       <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pctBar}%` }} />
                     </div>
 
-                    {/* Formula + explanation (max 2 lines) */}
+                    {/* Formula + explanation (datos actuales) */}
                     <div>
                       <p className="text-xs font-semibold text-muted-foreground">{info.formula}</p>
                       <p className="text-xs text-muted-foreground/80 mt-0.5 line-clamp-2">{info.explanation}</p>

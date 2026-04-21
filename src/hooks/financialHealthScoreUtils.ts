@@ -39,6 +39,58 @@ export interface HealthInventoryProduct {
   active?: boolean | null;
 }
 
+// Shared UI metadata for the 5 score variables — fuente única para todas las páginas
+// (FinancialHealth, VisitaDIAN, dashboards). Si cambian nombres o colores, solo acá.
+// Nota: el campo `key: 'impuestos'` se mantiene por compatibilidad con la DB y el tipo
+// ScoreBreakdown; hoy representa "Control de Inventario" (descuadre Siigo vs físico en costo).
+export type ScoreVariableKey = 'conciliacion' | 'facturacion' | 'impuestos' | 'cartera' | 'clasificacion';
+
+export interface ScoreVariableMeta {
+  key: ScoreVariableKey;
+  label: string;
+  shortLabel: string;
+  color: string;
+  hint: string;
+}
+
+export const SCORE_VARIABLES: readonly ScoreVariableMeta[] = [
+  {
+    key: 'conciliacion',
+    label: 'Conciliación Bancaria',
+    shortLabel: 'Conciliación',
+    color: 'hsl(217, 91%, 60%)',
+    hint: 'Qué % de tus movimientos bancarios está soportado con factura, responsable asignado o marcado como N/A.',
+  },
+  {
+    key: 'facturacion',
+    label: 'Facturación Soportada',
+    shortLabel: 'Facturación',
+    color: 'hsl(152, 69%, 40%)',
+    hint: 'Qué % de tus ingresos reales está respaldado por facturas DIAN emitidas.',
+  },
+  {
+    key: 'impuestos',
+    label: 'Control de Inventario',
+    shortLabel: 'Inventario',
+    color: 'hsl(24, 95%, 53%)',
+    hint: 'Qué tan cuadrado está tu inventario Siigo contra el físico, medido en costo. Descuadre alto = posible fuga, venta sin factura o error de registro.',
+  },
+  {
+    key: 'cartera',
+    label: 'Cartera y Anticipos',
+    shortLabel: 'Cartera',
+    color: 'hsl(280, 84%, 60%)',
+    hint: 'Qué % de tu facturación está pendiente de cobro o en anticipos sin factura asociada.',
+  },
+  {
+    key: 'clasificacion',
+    label: 'Clasificación Financiera',
+    shortLabel: 'Clasificación',
+    color: 'hsl(220, 9%, 46%)',
+    hint: 'Qué % de tus transacciones tienen categoría, responsable y factura asignadas correctamente.',
+  },
+] as const;
+
 export interface HistoricalScore {
   month: number;
   year: number;

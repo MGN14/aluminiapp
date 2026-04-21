@@ -15,6 +15,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useBusinessObligations } from '@/hooks/useBusinessObligations';
 import { useFinancialHealthScore } from '@/hooks/useFinancialHealthScore';
+import { SCORE_VARIABLES } from '@/hooks/financialHealthScoreUtils';
 import { useNico } from '@/hooks/useNicoContext';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -35,22 +36,6 @@ import {
 function diasRestantes(fecha: Date): number {
   return Math.ceil((fecha.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
-
-const SCORE_COLORS = {
-  conciliacion: 'hsl(217, 91%, 60%)',
-  facturacion: 'hsl(152, 69%, 40%)',
-  impuestos: 'hsl(24, 95%, 53%)',
-  cartera: 'hsl(280, 84%, 60%)',
-  clasificacion: 'hsl(220, 9%, 46%)',
-};
-
-const SCORE_VARIABLES = [
-  { key: 'conciliacion', label: 'Conciliación Bancaria', color: SCORE_COLORS.conciliacion },
-  { key: 'facturacion', label: 'Facturación Soportada', color: SCORE_COLORS.facturacion },
-  { key: 'impuestos', label: 'Control de Impuestos', color: SCORE_COLORS.impuestos },
-  { key: 'cartera', label: 'Cartera y Anticipos', color: SCORE_COLORS.cartera },
-  { key: 'clasificacion', label: 'Clasificación Financiera', color: SCORE_COLORS.clasificacion },
-] as const;
 
 function getRiskLevel(score: number): { label: string; color: string } {
   if (score >= 90) return { label: 'Bajo', color: 'text-success' };
@@ -107,6 +92,7 @@ export default function VisitaDIAN() {
       name: v.label,
       value: scores[v.key as keyof typeof scores] as number,
       color: v.color,
+      hint: v.hint,
     }));
   }, [scores]);
 
@@ -382,12 +368,17 @@ export default function VisitaDIAN() {
                   <p className="text-sm font-semibold text-foreground">{nicoMsg.line1}</p>
                   <p className="text-sm text-muted-foreground">{nicoMsg.line2}</p>
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center md:justify-start">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-left">
                   {donutData.map((seg) => (
-                    <div key={seg.name} className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: seg.color }} />
-                      <span className="text-[11px] text-muted-foreground">{seg.name}</span>
-                      <span className="text-[11px] font-bold text-foreground">{seg.value}</span>
+                    <div key={seg.name} className="flex items-start gap-2" title={seg.hint}>
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: seg.color }} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-[11px] font-semibold text-foreground">{seg.name}</span>
+                          <span className="text-[11px] font-bold text-foreground">{seg.value}/20</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">{seg.hint}</p>
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -4,23 +4,8 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useFinancialHealthScore, getScoreInterpretation } from '@/hooks/useFinancialHealthScore';
+import { SCORE_VARIABLES } from '@/hooks/financialHealthScoreUtils';
 import { Skeleton } from '@/components/ui/skeleton';
-
-const SCORE_COLORS = {
-  conciliacion: 'hsl(217, 91%, 60%)',
-  facturacion: 'hsl(152, 69%, 40%)',
-  impuestos: 'hsl(25, 95%, 53%)',
-  cartera: 'hsl(280, 84%, 60%)',
-  clasificacion: 'hsl(220, 13%, 50%)',
-};
-
-const SEGMENT_LABELS: Record<string, string> = {
-  conciliacion: 'Conciliación',
-  facturacion: 'Facturación',
-  impuestos: 'Inventario',
-  cartera: 'Cartera',
-  clasificacion: 'Clasificación',
-};
 
 interface Props {
   year: number;
@@ -32,11 +17,11 @@ export default function FinancialHealthCard({ year, month }: Props) {
 
   const donutData = useMemo(() => {
     if (!scores) return [];
-    const keys = ['conciliacion', 'facturacion', 'impuestos', 'cartera', 'clasificacion'] as const;
-    return keys.map(key => ({
-      name: SEGMENT_LABELS[key],
-      value: scores[key],
-      color: SCORE_COLORS[key],
+    return SCORE_VARIABLES.map((v) => ({
+      name: v.shortLabel,
+      value: scores[v.key],
+      color: v.color,
+      hint: v.hint,
     }));
   }, [scores]);
 
@@ -109,7 +94,7 @@ export default function FinancialHealthCard({ year, month }: Props) {
               <p className={`text-sm font-semibold ${interp.color}`}>{interp.level}</p>
               <div className="flex flex-wrap gap-x-2 gap-y-0.5">
                 {donutData.map(seg => (
-                  <div key={seg.name} className="flex items-center gap-1">
+                  <div key={seg.name} className="flex items-center gap-1" title={`${seg.name}: ${seg.hint}`}>
                     <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: seg.color }} />
                     <span className="text-[9px] text-muted-foreground">{seg.value}</span>
                   </div>
