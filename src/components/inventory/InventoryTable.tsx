@@ -18,8 +18,10 @@ interface Props {
   onAddMovement: (product: ProductWithMetrics, type: 'entrada' | 'salida') => void;
 }
 
+type SortKey = 'reference' | 'stock_system' | 'stock_physical' | 'difference' | 'days_of_inventory' | 'status';
+
 export default function InventoryTable({ products, onAdjust, onAddMovement }: Props) {
-  const [sortKey, setSortKey] = useState<'reference' | 'stock_system' | 'days_of_inventory' | 'status'>('status');
+  const [sortKey, setSortKey] = useState<SortKey>('status');
   const [sortAsc, setSortAsc] = useState(true);
 
   const sorted = [...products].sort((a, b) => {
@@ -27,11 +29,20 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
     let cmp = 0;
     if (sortKey === 'status') cmp = statusOrder[a.status] - statusOrder[b.status];
     else if (sortKey === 'reference') cmp = a.reference.localeCompare(b.reference);
+    else if (sortKey === 'stock_physical') {
+      // Nulls always at the end regardless of sort direction
+      const aNull = a.stock_physical === null;
+      const bNull = b.stock_physical === null;
+      if (aNull && bNull) cmp = 0;
+      else if (aNull) return 1;
+      else if (bNull) return -1;
+      else cmp = (a.stock_physical as number) - (b.stock_physical as number);
+    }
     else cmp = (a[sortKey] as number) - (b[sortKey] as number);
     return sortAsc ? cmp : -cmp;
   });
 
-  const toggleSort = (key: typeof sortKey) => {
+  const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
     else { setSortKey(key); setSortAsc(true); }
   };
@@ -71,8 +82,12 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
             <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('stock_system')}>
               <span className="flex items-center justify-end gap-1">Uds. Sistema <ArrowUpDown className="h-3 w-3" /></span>
             </TableHead>
-            <TableHead className="text-right">Uds. Físicas</TableHead>
-            <TableHead className="text-right">Diferencia</TableHead>
+            <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('stock_physical')}>
+              <span className="flex items-center justify-end gap-1">Uds. Físicas <ArrowUpDown className="h-3 w-3" /></span>
+            </TableHead>
+            <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('difference')}>
+              <span className="flex items-center justify-end gap-1">Diferencia <ArrowUpDown className="h-3 w-3" /></span>
+            </TableHead>
             <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('days_of_inventory')}>
               <span className="flex items-center justify-end gap-1">Días Inv. <ArrowUpDown className="h-3 w-3" /></span>
             </TableHead>
