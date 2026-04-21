@@ -40,6 +40,7 @@ export default function EvasionDisclaimer({ evasion, periodMonths = 12 }: Props)
 
   const penalties = calculatePenalties({
     gap: evasion.gap,
+    cashPortion: evasion.cash,
     level: evasion.level as EvasionRiskLevel,
     periodMonths,
     horizonMonths: 24,
@@ -47,6 +48,8 @@ export default function EvasionDisclaimer({ evasion, periodMonths = 12 }: Props)
 
   const isHigh = evasion.level === 'high';
   const hasPenal = penalties.riesgoPenal;
+  const auditablePct =
+    evasion.gap > 0 ? 1 - Math.min(1, evasion.cash / evasion.gap) : 0;
 
   // Copy ajustada al nivel: a mayor riesgo, más crudo.
   const headline = hasPenal
@@ -58,7 +61,7 @@ export default function EvasionDisclaimer({ evasion, periodMonths = 12 }: Props)
   const subhead = hasPenal
     ? `Con ${formatCOP(evasion.gap)} sin facturar este periodo, tu impuesto omitido anualizado pasa las 250 SMLMV. Eso deja de ser sanción administrativa (Art 648 ET) y entra en Art 434A del Código Penal.`
     : isHigh
-    ? `Con ${formatCOP(evasion.gap)} sin facturar, la DIAN puede aplicarte sanción del ${Math.round(DIAN_RATES.sancionInexactitud * 100)}% más intereses. Costo auditoría proyectado: ${formatCOP(penalties.costoAuditoria)}.`
+    ? `Con ${formatCOP(evasion.gap)} sin facturar (${Math.round(auditablePct * 100)}% auditable por la DIAN), el costo esperado si te auditan supera el ahorro. Ver el desglose paso a paso.`
     : `Tenés ${formatCOP(evasion.gap)} sin facturar. Con factura electrónica obligatoria, la DIAN cruza ingresos automáticamente. Mejor revisarlo ahora.`;
 
   const toneClasses = hasPenal
