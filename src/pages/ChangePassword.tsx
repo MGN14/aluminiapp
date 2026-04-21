@@ -82,7 +82,7 @@ export default function ChangePassword() {
     if (user?.id) {
       const { error: flagError } = await supabase
         .from('profiles')
-        .update({ force_password_change: false })
+        .update({ force_password_change: false } as never)
         .eq('user_id', user.id);
 
       if (flagError) {

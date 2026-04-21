@@ -25,7 +25,7 @@ export function useForcePasswordChange(): ForcePasswordChangeState {
     setLoading(true);
     const { data, error } = await supabase
       .from('profiles')
-      .select('force_password_change')
+      .select('force_password_change' as never)
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -34,7 +34,7 @@ export function useForcePasswordChange(): ForcePasswordChangeState {
       console.error('[force_password_change] fetch error', error);
       setRequired(false);
     } else {
-      setRequired(!!data?.force_password_change);
+      setRequired(!!(data as { force_password_change?: boolean } | null)?.force_password_change);
     }
     setLoading(false);
   };

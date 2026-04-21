@@ -9,13 +9,15 @@ export const LAST_ACTIVE_STORAGE_KEY = 'aluminia:last_active_at';
 // Throttle how often we touch localStorage — no need to write on every mousemove.
 const ACTIVITY_PERSIST_THROTTLE_MS = 30 * 1000; // 30s
 
-const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
+const WINDOW_ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
   'mousemove',
   'mousedown',
   'keydown',
   'touchstart',
   'scroll',
   'click',
+];
+const DOCUMENT_ACTIVITY_EVENTS: (keyof DocumentEventMap)[] = [
   'visibilitychange',
 ];
 
@@ -101,14 +103,20 @@ export function startInactivityTracker({
   lastPersistAt = Date.now();
   scheduleTimer();
 
-  ACTIVITY_EVENTS.forEach((evt) => {
+  WINDOW_ACTIVITY_EVENTS.forEach((evt) => {
     window.addEventListener(evt, onActivity, { passive: true });
+  });
+  DOCUMENT_ACTIVITY_EVENTS.forEach((evt) => {
+    document.addEventListener(evt, onActivity, { passive: true });
   });
 
   return () => {
     if (timer !== null) window.clearTimeout(timer);
-    ACTIVITY_EVENTS.forEach((evt) => {
+    WINDOW_ACTIVITY_EVENTS.forEach((evt) => {
       window.removeEventListener(evt, onActivity);
+    });
+    DOCUMENT_ACTIVITY_EVENTS.forEach((evt) => {
+      document.removeEventListener(evt, onActivity);
     });
   };
 }
