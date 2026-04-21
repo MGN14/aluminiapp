@@ -175,14 +175,20 @@ Reglas CRÍTICAS:
       ? "Extrae SOLO todas las líneas de ítems de esta factura electrónica colombiana. No resumas ni omitas ninguna línea. Responde SOLO con el JSON."
       : "Extrae SOLO los datos de cabecera de esta factura electrónica colombiana. NO extraigas ítems de línea. Responde SOLO con el JSON.";
 
-    const aiResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gemini-2.5-flash",
+    // [v2] Retry con backoff + fallback multi-modelo contra 503 UNAVAILABLE y 429 RATE LIMIT.
+    //   1. gemini-2.5-flash (primario) 3 intentos con backoff 0/600/1500ms.
+    //   2. gemini-2.0-flash (fallback) 1 intento con 500ms. Pool independiente
+    //      en Google (15 RPM / 1500 RPD vs 10 RPM / 250 RPD del 2.5), por lo
+    //      que cuando el primario satura, el secundario suele responder.
+    //   3. Si ambos fallan, devolvemos 503 con mensaje claro.
+    // NO reintentamos 401/403/400 (auth/payload) ni 402 (billing).
+    const PRIMARY_MODEL = "gemini-2.5-flash";
+    const FALLBACK_MODEL = "gemini-2.0-flash";
+    const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+
+    function buildBody(model: string): string {
+      return JSON.stringify({
+        model,
         messages: [
           { role: "system", content: only_items ? itemsSystemPrompt : headerSystemPrompt },
           {
@@ -196,27 +202,76 @@ Reglas CRÍTICAS:
             ],
           },
         ],
-      }),
-    });
+      });
+    }
+
+    async function callGemini(model: string): Promise<Response> {
+      return await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${GEMINI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: buildBody(model),
+      });
+    }
+
+    const attempts: Array<{ model: string; delayMs: number; label: string }> = [
+      { model: PRIMARY_MODEL, delayMs: 0, label: "primary-1" },
+      { model: PRIMARY_MODEL, delayMs: 600, label: "primary-2" },
+      { model: PRIMARY_MODEL, delayMs: 1500, label: "primary-3" },
+      { model: FALLBACK_MODEL, delayMs: 500, label: "fallback-1" },
+    ];
+
+    let aiResponse!: Response;
+    let lastStatus = 0;
+    let lastBody = "";
+    let modelUsed = PRIMARY_MODEL;
+
+    for (const { model, delayMs, label } of attempts) {
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+      aiResponse = await callGemini(model);
+      if (aiResponse.ok) {
+        modelUsed = model;
+        if (model !== PRIMARY_MODEL) {
+          console.log(`start-invoice-processing [v2]: sirvió con ${model} (fallback OK tras saturación)`);
+        }
+        break;
+      }
+      lastStatus = aiResponse.status;
+      if (!RETRYABLE.has(aiResponse.status)) break;
+      lastBody = await aiResponse.text().catch(() => "");
+      console.warn(
+        `start-invoice-processing [v2] ${label}: ${model} devolvió ${aiResponse.status}. Siguiente intento…`,
+      );
+    }
 
     if (!aiResponse.ok) {
-      const status = aiResponse.status;
-      const errBody = await aiResponse.text().catch(() => "");
-      console.error("AI error:", status, errBody);
-      const errMsg = status === 429
-        ? "Demasiadas solicitudes, intenta de nuevo en un momento"
-        : status === 402
-        ? "Créditos de IA agotados"
-        : `Error procesando con IA (HTTP ${status})`;
+      const finalStatus = lastStatus || aiResponse.status;
+      const errBody = lastBody || (await aiResponse.text().catch(() => ""));
+      console.error(`start-invoice-processing [v2] AI error tras primario+fallback (${finalStatus}):`, errBody);
+      let errMsg: string;
+      if (finalStatus === 402) {
+        errMsg = "Créditos de IA agotados";
+      } else if (finalStatus === 429) {
+        errMsg = "Gemini free tier saturado (primario y fallback). Esperá 1–2 min e intentá de nuevo.";
+      } else if (RETRYABLE.has(finalStatus)) {
+        errMsg = "Gemini saturado (probamos 2.5-flash y 2.0-flash). Intentá de nuevo en unos segundos.";
+      } else {
+        errMsg = `Error procesando con IA (HTTP ${finalStatus})`;
+      }
       if (!only_items) {
         await supabase.from("invoices").update({ status: "error", processing_error: errMsg }).eq("id", invoice_id);
       }
+      // Devolvemos 503 cuando fue saturación real; 500 para errores no-retryable.
+      const respStatus = RETRYABLE.has(finalStatus) || finalStatus === 402 ? 503 : 500;
       return new Response(JSON.stringify({ error: errMsg, details: errBody.slice(0, 500) }), {
-        status: 500,
+        status: respStatus,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    console.log(`start-invoice-processing [v2]: OK con ${modelUsed}. Parseando…`);
     const aiResult = await aiResponse.json();
     const rawContent: string = aiResult.choices?.[0]?.message?.content || "";
     let extracted: any = null;
@@ -274,9 +329,32 @@ Reglas CRÍTICAS:
           });
         }
       }
-      return new Response(JSON.stringify({ success: true, invoice_id, items_count: extracted.items.length }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+
+      // [v2] Persistir marker de última re-extracción dentro de extracted_data
+      // (JSONB existente). Evita migración de schema y permite al frontend
+      // mostrar "re-extraída el X" por factura. Merge con el JSONB previo.
+      const reextractedAt = new Date().toISOString();
+      const { data: existingInv } = await supabase
+        .from("invoices")
+        .select("extracted_data")
+        .eq("id", invoice_id)
+        .single();
+      const prev = (existingInv?.extracted_data as Record<string, unknown> | null) || {};
+      const mergedExtractedData = { ...prev, items_reextracted_at: reextractedAt };
+      await supabase
+        .from("invoices")
+        .update({ extracted_data: mergedExtractedData })
+        .eq("id", invoice_id);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          invoice_id,
+          items_count: extracted.items.length,
+          items_reextracted_at: reextractedAt,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // Normal flow: update invoice with extracted data → status='ready'

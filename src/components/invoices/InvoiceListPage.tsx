@@ -113,16 +113,27 @@ export default function InvoiceListPage({ type }: Props) {
 
   const summary = useMemo(() => {
     const confirmed = invoices.filter(i => i.status === 'confirmed');
+    // Cuenta de contrapartes únicas (clientes para 'venta', proveedores para 'compra').
+    // Usa counterparty_name; si falta, cae a buyer_name (venta) o seller_name (compra).
+    const uniqueCounterparties = new Set<string>();
+    for (const i of confirmed) {
+      const name = (i.counterparty_name
+        || (type === 'venta' ? i.buyer_name : i.seller_name)
+        || '').trim().toLowerCase();
+      if (name) uniqueCounterparties.add(name);
+    }
     return {
       count: confirmed.length,
       total: confirmed.reduce((s, i) => s + i.total_amount, 0),
       iva: confirmed.reduce((s, i) => s + i.iva_amount, 0),
+      counterpartyCount: uniqueCounterparties.size,
     };
-  }, [invoices]);
+  }, [invoices, type]);
 
   const summaryLabel1 = type === 'venta' ? 'Total facturado' : 'Total comprado';
   const summaryLabel2 = type === 'venta' ? 'IVA generado' : 'IVA descontable';
-  const summaryLabel3 = type === 'venta' ? 'Facturas emitidas' : 'Facturas recibidas';
+  const summaryLabel3 = type === 'venta' ? 'Facturación por cliente total' : 'Proveedores facturando';
+  const summaryValue3 = summary.counterpartyCount;
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -210,7 +221,7 @@ export default function InvoiceListPage({ type }: Props) {
     }
   }, [deleteId, invoices, toast]);
 
-  const reExtractItems = useCallback(async (invoiceId: string): Promise<{ ok: boolean; count?: number; error?: string }> => {
+  const reExtractItems = useCallback(async (invoiceId: string): Promise<{ ok: boolean; count?: number; reextractedAt?: string; error?: string }> => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
@@ -234,10 +245,24 @@ export default function InvoiceListPage({ type }: Props) {
           error: 'La edge function no se actualizó. Pídele a Lovable que despliegue las funciones (start-invoice-processing).',
         };
       }
-      return { ok: true, count: payload.items_count };
+      return {
+        ok: true,
+        count: payload.items_count,
+        reextractedAt: typeof payload?.items_reextracted_at === 'string' ? payload.items_reextracted_at : undefined,
+      };
     } catch (err: any) {
       return { ok: false, error: err?.message || 'Error inesperado' };
     }
+  }, []);
+
+  // Merge optimista del marker items_reextracted_at en la factura local, para
+  // evitar un refetch completo tras cada re-extracción.
+  const markReextractedLocally = useCallback((invoiceId: string, reextractedAt: string) => {
+    setInvoices(prev => prev.map(i => {
+      if (i.id !== invoiceId) return i;
+      const nextExtractedData = { ...(i.extracted_data || {}), items_reextracted_at: reextractedAt };
+      return { ...i, extracted_data: nextExtractedData };
+    }));
   }, []);
 
   const handleReExtractItems = useCallback(async (inv: Invoice) => {
@@ -245,11 +270,12 @@ export default function InvoiceListPage({ type }: Props) {
     const res = await reExtractItems(inv.id);
     setReExtractingId(null);
     if (res.ok) {
+      if (res.reextractedAt) markReextractedLocally(inv.id, res.reextractedAt);
       toast({ title: 'Ítems re-extraídos', description: `${res.count} líneas guardadas para ${inv.invoice_number || inv.display_name || 'la factura'}.` });
     } else {
       toast({ title: 'No se pudo re-extraer', description: res.error, variant: 'destructive' });
     }
-  }, [reExtractItems, toast]);
+  }, [reExtractItems, toast, markReextractedLocally]);
 
   const handleBulkReExtract = useCallback(async () => {
     const targets = invoices.filter(i => i.status === 'confirmed' && (i.storage_path || i.pdf_path));
@@ -261,7 +287,13 @@ export default function InvoiceListPage({ type }: Props) {
     let ok = 0, fail = 0, totalItems = 0;
     for (const inv of targets) {
       const res = await reExtractItems(inv.id);
-      if (res.ok) { ok++; totalItems += res.count ?? 0; } else { fail++; }
+      if (res.ok) {
+        ok++;
+        totalItems += res.count ?? 0;
+        if (res.reextractedAt) markReextractedLocally(inv.id, res.reextractedAt);
+      } else {
+        fail++;
+      }
     }
     setBulkReExtracting(false);
     toast({
@@ -269,7 +301,7 @@ export default function InvoiceListPage({ type }: Props) {
       description: `${ok} facturas OK · ${totalItems} ítems · ${fail} errores`,
       variant: fail > 0 && ok === 0 ? 'destructive' : 'default',
     });
-  }, [invoices, reExtractItems, toast]);
+  }, [invoices, reExtractItems, toast, markReextractedLocally]);
 
   const handleUploadClose = useCallback(() => {
     setUploadOpen(false);
@@ -440,7 +472,7 @@ export default function InvoiceListPage({ type }: Props) {
                 marginTop: 4,
               }}
             >
-              {summary.count}
+              {summaryValue3}
             </div>
           </div>
         </div>
@@ -542,6 +574,17 @@ export default function InvoiceListPage({ type }: Props) {
                       const s = statusLabel[inv.status] || statusLabel.draft;
                       const displayDate = inv.issue_date || inv.created_at;
                       const isDraftOrError = ['draft', 'error', 'uploading', 'processing', 'ready'].includes(inv.status);
+                      const reextractedAtRaw = (inv.extracted_data as { items_reextracted_at?: unknown } | null)?.items_reextracted_at;
+                      const reextractedAt = typeof reextractedAtRaw === 'string' ? reextractedAtRaw : null;
+                      const reextractedLabel = reextractedAt
+                        ? (() => {
+                            try {
+                              return format(new Date(reextractedAt), "d MMM yy HH:mm", { locale: es });
+                            } catch {
+                              return null;
+                            }
+                          })()
+                        : null;
                       return (
                         <TableRow key={inv.id} className={isDraftOrError ? 'bg-warning/5' : ''}>
                           <TableCell className="text-sm">
@@ -575,18 +618,30 @@ export default function InvoiceListPage({ type }: Props) {
                                 <Eye className="h-4 w-4" />
                               </Button>
                               {inv.status === 'confirmed' && (inv.storage_path || inv.pdf_path) && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  title="Re-extraer ítems de línea"
-                                  onClick={() => handleReExtractItems(inv)}
-                                  disabled={reExtractingId === inv.id || bulkReExtracting}
-                                >
-                                  {reExtractingId === inv.id
-                                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                                    : <RefreshCw className="h-4 w-4" />}
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  {reextractedLabel && (
+                                    <span
+                                      className="text-[10px] text-muted-foreground whitespace-nowrap"
+                                      title={`Última re-extracción: ${reextractedLabel}`}
+                                    >
+                                      re-ext. {reextractedLabel}
+                                    </span>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    title={reextractedLabel
+                                      ? `Re-extraer ítems de línea (última: ${reextractedLabel})`
+                                      : 'Re-extraer ítems de línea'}
+                                    onClick={() => handleReExtractItems(inv)}
+                                    disabled={reExtractingId === inv.id || bulkReExtracting}
+                                  >
+                                    {reExtractingId === inv.id
+                                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                                      : <RefreshCw className="h-4 w-4" />}
+                                  </Button>
+                                </div>
                               )}
                               <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Eliminar" onClick={() => setDeleteId(inv.id)}>
                                 <Trash2 className="h-4 w-4" />
