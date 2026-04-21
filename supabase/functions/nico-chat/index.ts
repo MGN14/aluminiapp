@@ -1301,10 +1301,23 @@ ${financialContext}${memoryBlock}`;
       }
       const t = await response.text();
       console.error("AI gateway error:", response.status, t);
-      return new Response(JSON.stringify({ error: "Error al conectar con Nico." }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      // [v2] Incluye status + snippet de Gemini para diagnóstico. Si el toast
+      // no muestra "[v2]", la edge function NO se redeployó.
+      const snippet = t?.slice(0, 200).replace(/\s+/g, " ") ?? "sin body";
+      return new Response(
+        JSON.stringify({
+          error: `Error al conectar con Nico. [v2] Gemini status=${response.status}. ${snippet}`,
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
+
+    // [v2] Flag para confirmar que este binario SÍ está corriendo (útil si
+    // falla después del fetch). No logea data sensible, solo status.
+    console.log("nico-chat [v2]: Gemini response ok, parsing…");
 
     // Parse de la respuesta completa (OpenAI-compat sin streaming).
     const aiJson = await response.json().catch((err) => {
