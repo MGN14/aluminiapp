@@ -1409,18 +1409,23 @@ ${financialContext}${memoryBlock}`;
     // Hacemos la llamada SIN streaming y emitimos SSE "sintético" al cliente
     // para preservar el parser SSE existente en NicoAgentChat.tsx.
     //
-    // [v4] Estrategia multi-modelo contra 503 UNAVAILABLE:
+    // [v5] Estrategia multi-modelo contra 503 UNAVAILABLE y 429 RATE LIMIT:
     //   1. Intentar gemini-2.5-flash (primario) 3 veces con backoff corto.
-    //   2. Si aún está saturado, UN intento con gemini-2.0-flash (fallback).
-    //      El 2.0 es generación anterior, suele estar menos saturado y para
-    //      chat rinde bien. El contexto y el prompt no cambian.
+    //   2. Si aún falla, UN intento con gemini-2.0-flash (fallback).
+    //      El 2.0 es generación anterior, pool independiente (15 RPM / 1500 RPD
+    //      vs 10 RPM / 250 RPD del 2.5-flash). Cuando el free-tier pega 429 en
+    //      el primario, usualmente el secundario responde sin problema.
     //   3. Si ambos fallan, mensaje claro al usuario.
     //
-    // Timing worst-case: ~2.1s en primario + ~2s en fallback = ~4-5s. OK para
-    // un chat donde el usuario espera respuesta.
+    // IMPORTANTE: 429 del free tier de Google (RPM/RPD) se trata igual que 5xx
+    // transitorio para efectos de retry y fallback. NO lo tratamos como
+    // "quota agotada" hasta que el fallback también falle.
+    //
+    // Timing worst-case: ~2.1s en primario + ~2s en fallback = ~4-5s.
     const PRIMARY_MODEL = "gemini-2.5-flash";
     const FALLBACK_MODEL = "gemini-2.0-flash";
-    const RETRYABLE = new Set([500, 502, 503, 504]);
+    // 429 incluido: RPM/RPD del free tier se rotan vía fallback.
+    const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
     function buildBody(model: string): string {
       return JSON.stringify({
@@ -1479,33 +1484,33 @@ ${financialContext}${memoryBlock}`;
     }
 
     if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Límite de uso alcanzado. Intenta de nuevo en unos minutos." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
+      // 402 = billing/credits. No es transitorio, no reintentamos.
       if (response.status === 402) {
         return new Response(
           JSON.stringify({ error: "Se requieren créditos adicionales para continuar." }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      // 5xx después de TODOS los reintentos (primario + fallback): ambos
-      // modelos están caídos. Muy raro; típicamente un outage de Google AI.
+      // Después de TODOS los reintentos + fallback: distinguimos mensaje por
+      // causa para ser honestos con el usuario.
+      const finalStatus = lastStatus || response.status;
       const t = lastBody || (await response.text().catch(() => ""));
-      console.error("AI gateway error tras reintentos + fallback:", lastStatus || response.status, t);
-      const isOverloaded = RETRYABLE.has(lastStatus || response.status);
-      const msg = isOverloaded
-        ? "Nico está saturado en este momento (probamos modelo alternativo y también está ocupado). Intentá de nuevo en unos segundos."
-        : `Error al conectar con Nico. [v4] Gemini status=${lastStatus || response.status}.`;
+      console.error(`AI gateway error tras primario + fallback (${finalStatus}):`, t);
+      let msg: string;
+      if (finalStatus === 429) {
+        msg = "Se agotó temporalmente la cuota de Gemini (free tier limita requests/minuto). Probamos el modelo alternativo y también se agotó. Esperá 1–2 minutos y probá otra vez.";
+      } else if (RETRYABLE.has(finalStatus)) {
+        msg = "Nico está saturado en este momento (probamos modelo alternativo y también está ocupado). Intentá de nuevo en unos segundos.";
+      } else {
+        msg = `Error al conectar con Nico. [v5] Gemini status=${finalStatus}.`;
+      }
       return new Response(
         JSON.stringify({ error: msg }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    console.log(`nico-chat [v4]: OK con ${modelUsed}. Parseando…`);
+    console.log(`nico-chat [v5]: OK con ${modelUsed}. Parseando…`);
 
     // Parse de la respuesta completa (OpenAI-compat sin streaming).
     const aiJson = await response.json().catch((err) => {
