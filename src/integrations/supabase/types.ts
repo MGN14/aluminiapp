@@ -640,6 +640,8 @@ export type Database = {
           notes: string | null
           product_id: string
           quantity: number
+          source_id: string | null
+          source_type: string | null
           total_cost: number
           unit_cost: number
           user_id: string
@@ -653,6 +655,8 @@ export type Database = {
           notes?: string | null
           product_id: string
           quantity?: number
+          source_id?: string | null
+          source_type?: string | null
           total_cost?: number
           unit_cost?: number
           user_id: string
@@ -666,6 +670,8 @@ export type Database = {
           notes?: string | null
           product_id?: string
           quantity?: number
+          source_id?: string | null
+          source_type?: string | null
           total_cost?: number
           unit_cost?: number
           user_id?: string
@@ -1303,6 +1309,7 @@ export type Database = {
           module_origin: string
           notes: string | null
           number: string
+          remision_type: string
           status: string
           total_manual: number | null
           updated_at: string
@@ -1316,6 +1323,7 @@ export type Database = {
           module_origin?: string
           notes?: string | null
           number?: string
+          remision_type?: string
           status?: string
           total_manual?: number | null
           updated_at?: string
@@ -1329,6 +1337,7 @@ export type Database = {
           module_origin?: string
           notes?: string | null
           number?: string
+          remision_type?: string
           status?: string
           total_manual?: number | null
           updated_at?: string
