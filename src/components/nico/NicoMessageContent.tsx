@@ -6,14 +6,17 @@ interface NicoMessageContentProps {
   isLastMessage: boolean;
 }
 
-/** Strip markdown bold/italic markers */
+/** Strip markdown bold/italic/heading/bullet markers */
 function cleanMarkdown(text: string): string {
   return text
     .replace(/\*\*\*(.*?)\*\*\*/g, '$1')
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/\*(.*?)\*/g, '$1')
     .replace(/__(.*?)__/g, '$1')
-    .replace(/_(.*?)_/g, '$1');
+    .replace(/_(.*?)_/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-•]\s+/gm, '')
+    .replace(/\*/g, '');
 }
 
 export default function NicoMessageContent({ content, isStreaming, isLastMessage }: NicoMessageContentProps) {

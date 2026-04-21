@@ -7,8 +7,21 @@ interface NicoMessageBubbleProps {
   isLoading: boolean;
 }
 
+function cleanMarkdown(text: string): string {
+  return text
+    .replace(/\*\*\*(.*?)\*\*\*/g, '$1')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/_(.*?)_/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-•]\s+/gm, '')
+    .replace(/\*/g, '');
+}
+
 export default function NicoMessageBubble({ msg, isLast, isLoading }: NicoMessageBubbleProps) {
   const isUser = msg.role === 'user';
+  const displayText = isUser ? msg.content : cleanMarkdown(msg.content);
 
   return (
     <div
@@ -51,7 +64,7 @@ export default function NicoMessageBubble({ msg, isLast, isLoading }: NicoMessag
           color: isUser ? '#fff' : '#1d1d1f',
         }}
       >
-        {msg.content}
+        {displayText}
         {!isUser && isLast && isLoading && (
           <span
             style={{

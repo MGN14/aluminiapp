@@ -26,14 +26,11 @@ function buildContextNote(ctx: NicoPageContext): string {
   return parts.join(' | ');
 }
 
-const LOAD_LIMIT = 30;
-
 export default function NicoDrawer() {
   const { isOpen, closeNico, pageContext } = useNico();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -68,43 +65,11 @@ export default function NicoDrawer() {
     // We handle this in the provider instead
   }, []);
 
-  // Load history when drawer opens
-  useEffect(() => {
-    if (!isOpen || historyLoaded) return;
-    const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from('nico_messages' as never)
-        .select('id, role, content')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(LOAD_LIMIT) as { data: Msg[] | null };
-      if (data) setMessages([...data].reverse());
-      setHistoryLoaded(true);
-    };
-    load();
-  }, [isOpen, historyLoaded]);
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isOpen]);
 
-  const saveMessage = async (role: 'user' | 'assistant', content: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase.from('nico_messages' as never).insert({
-      user_id: user.id,
-      role,
-      content,
-      page_context: buildContextNote(pageContext),
-    } as never);
-  };
-
-  const clearHistory = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase.from('nico_messages' as never).delete().eq('user_id', user.id);
+  const clearHistory = () => {
     setMessages([]);
   };
 
@@ -116,7 +81,6 @@ export default function NicoDrawer() {
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
-    await saveMessage('user', question);
 
     const contextNote = buildContextNote(pageContext);
     const allMessages = [
@@ -193,7 +157,6 @@ export default function NicoDrawer() {
           }
         }
       }
-      if (assistantText) await saveMessage('assistant', assistantText);
     } catch (e) {
       console.error('Nico error:', e);
       toast.error('No se pudo conectar con Nico');
