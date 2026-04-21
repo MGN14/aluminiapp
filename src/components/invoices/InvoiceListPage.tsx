@@ -224,7 +224,14 @@ export default function InvoiceListPage({ type }: Props) {
       );
       const payload = await resp.json().catch(() => ({}));
       if (!resp.ok) return { ok: false, error: payload?.error || `Error ${resp.status}` };
-      return { ok: true, count: payload?.items_count ?? 0 };
+      // If items_count is missing, the edge function wasn't redeployed (old version still live).
+      if (typeof payload?.items_count !== 'number') {
+        return {
+          ok: false,
+          error: 'La edge function no se actualizó. Pídele a Lovable que despliegue las funciones (start-invoice-processing).',
+        };
+      }
+      return { ok: true, count: payload.items_count };
     } catch (err: any) {
       return { ok: false, error: err?.message || 'Error inesperado' };
     }
