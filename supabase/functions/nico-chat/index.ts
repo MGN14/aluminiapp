@@ -40,7 +40,7 @@ serve(async (req) => {
     const messages = body.messages as Array<{ role: string; content: string }> | undefined;
     const pageContext = body.pageContext;
     const rawAgentKey = typeof body.agent_key === "string" ? body.agent_key : "cfo";
-    const AGENT_KEYS = ["cfo", "contador", "visita_dian", "tesoreria", "inventario", "estrategia"] as const;
+    const AGENT_KEYS = ["cfo", "contador", "visita_dian", "tesoreria", "inventario", "estrategia", "gerencial"] as const;
     type AgentKey = typeof AGENT_KEYS[number];
     const agent_key: AgentKey = (AGENT_KEYS as readonly string[]).includes(rawAgentKey) ? (rawAgentKey as AgentKey) : "cfo";
 
@@ -117,6 +117,7 @@ serve(async (req) => {
       { data: inventoryMovements },
       { data: businessMemory },
       { data: businessPatterns },
+      { data: cashMovements },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -196,6 +197,13 @@ serve(async (req) => {
         .eq("user_id", user.id)
         .order("confidence", { ascending: false })
         .limit(30),
+      // Movimientos en efectivo del año — input del MÓDULO 11 (Brecha DIAN).
+      supabase
+        .from("cash_movements")
+        .select("amount, type, date")
+        .eq("user_id", user.id)
+        .gte("date", yearStart)
+        .lte("date", yearEnd),
     ]);
 
     const fmt = (n: number) =>
@@ -1013,9 +1021,131 @@ ${inventoryCtx}
     const userName = profile?.full_name || "";
     const companyName = profile?.company_name || "No registrada";
 
+    // =============================================
+    // MÓDULO 11 — BRECHA DIAN Y RENTABILIDAD DE FORMALIZAR
+    // (Gerencial). Replicamos inline la lógica de src/lib/evasionGap.ts y
+    // src/lib/evasionPenalties.ts. Si cambian las tasas, sincronizá.
+    // =============================================
+    const DIAN_RATES = {
+      iva: 0.19,
+      renta: 0.35,
+      sancionInexactitud: 1.0,          // Art 648 ET
+      interesMoratoriosAnual: 0.24,     // ~tasa usura − 2pp
+      probAuditoria24m: { low: 0.05, mid: 0.25, high: 0.5 },
+      umbralPenalAnualCOP: 4_270_000_000, // Art 434A CP (250 SMLMV aprox)
+      uiafReporteCOP: 10_000_000,         // UIAF Res 14/2020
+    } as const;
+
+    const bankIncomeYear = (transactions ?? [])
+      .filter((t: any) => {
+        const d = t.date ?? "";
+        const amt = Number(t.amount ?? 0);
+        return amt > 0 && d >= yearStart && d <= yearEnd;
+      })
+      .reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0);
+
+    const cashIncomeYear = ((cashMovements ?? []) as Array<{ amount: number | null; type: string; date: string }>)
+      .filter((c) => c.type === "ingreso")
+      .reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
+    const invoicedYear = (invoices ?? [])
+      .filter((i: any) => {
+        const d = i.issue_date ?? "";
+        return d >= yearStart && d <= yearEnd;
+      })
+      .reduce((s: number, i: any) => s + (Number(i.total_amount) || 0), 0);
+
+    const previousPeriodAdvances = ((initialStateDetails ?? []) as Array<{ field_type: string; amount: number | null; invoice_id: string | null }>)
+      .filter((d) => d.field_type === "anticipos_de_clientes" && !d.invoice_id)
+      .reduce((s, d) => s + (Number(d.amount) || 0), 0);
+
+    const evReal = bankIncomeYear + previousPeriodAdvances + cashIncomeYear;
+    const evDian = Math.min(invoicedYear, evReal);
+    const evGap = Math.max(0, evReal - evDian);
+    const evGapPct = evReal > 0 ? evGap / evReal : 0;
+    const evLevel: "low" | "mid" | "high" =
+      evGapPct >= 0.35 ? "high" : evGapPct >= 0.15 ? "mid" : "low";
+
+    // Proyección a 24 meses (horizonte por default del simulador).
+    const periodMonthsYear = now.getFullYear() === thisYear ? Math.max(1, thisMonth) : 12;
+    const scale24 = 24 / periodMonthsYear;
+    const gapProy = evGap * scale24;
+    const cashProy = Math.min(evGap, cashIncomeYear) * scale24;
+    const auditableProy = Math.max(0, gapProy - cashProy);
+    const taxRate = DIAN_RATES.iva + DIAN_RATES.renta;
+    const impuestoOmitidoTotal = gapProy * taxRate;
+    const impuestoAuditable = auditableProy * taxRate;
+    const sancion = impuestoAuditable * DIAN_RATES.sancionInexactitud;
+    const intereses = impuestoAuditable * DIAN_RATES.interesMoratoriosAnual * (24 / 12 / 2);
+    const costoAuditoria = impuestoAuditable + sancion + intereses;
+    const probAud = DIAN_RATES.probAuditoria24m[evLevel];
+    const costoEsperado = costoAuditoria * probAud;
+    const ahorroEvadir = impuestoOmitidoTotal;
+    const valorEsperadoEvadir = ahorroEvadir - costoEsperado;
+    const impuestoAnualizado = impuestoOmitidoTotal * (12 / 24);
+    const riesgoPenal = impuestoAnualizado >= DIAN_RATES.umbralPenalAnualCOP;
+    const cashSobreUIAF = cashIncomeYear >= DIAN_RATES.uiafReporteCOP;
+    const cashPctDelGap = evGap > 0 ? Math.min(1, cashIncomeYear / evGap) : 0;
+    const auditablePctDelGap = evGap > 0 ? 1 - cashPctDelGap : 0;
+
+    const evasionCtx = evReal <= 0
+      ? "No hay datos suficientes para medir brecha (ingresos reales = 0)."
+      : [
+          `PERIODO: ${thisYear} (${periodMonthsYear} meses transcurridos)`,
+          "",
+          "INGRESOS REALES (Real = Extracto + Anticipos previos + Efectivo):",
+          `- Extracto bancario: ${fmt(bankIncomeYear)}`,
+          `- Anticipos periodos anteriores sin facturar: ${fmt(previousPeriodAdvances)}`,
+          `- Efectivo (cash_movements ingreso): ${fmt(cashIncomeYear)}`,
+          `- TOTAL REAL: ${fmt(evReal)}`,
+          "",
+          "FACTURADO ANTE DIAN:",
+          `- Facturas emitidas (venta, confirmed): ${fmt(invoicedYear)}`,
+          "",
+          "BRECHA:",
+          `- Sin facturar (Real − DIAN): ${fmt(evGap)}`,
+          `- % del total sin facturar: ${(evGapPct * 100).toFixed(1)}%`,
+          `- Nivel: ${evLevel.toUpperCase()} (umbrales: low <15%, mid 15-35%, high ≥35%)`,
+          "",
+          "COMPOSICIÓN DEL GAP:",
+          `- % del gap que es efectivo (no auditable por cruces DIAN): ${(cashPctDelGap * 100).toFixed(1)}%`,
+          `- % del gap que es auditable (banco + anticipos): ${(auditablePctDelGap * 100).toFixed(1)}%`,
+          `- Flag UIAF (efectivo año ≥ $10M): ${cashSobreUIAF ? "SÍ" : "no"}`,
+          "",
+          "PROYECCIÓN A 24 MESES (horizonte estándar del simulador):",
+          `- Gap proyectado: ${fmt(gapProy)}`,
+          `- Proyección auditable: ${fmt(auditableProy)}`,
+          `- Proyección efectivo: ${fmt(cashProy)}`,
+          "",
+          "SI LA DIAN AUDITA (sobre parte auditable):",
+          `- Impuesto omitido auditable (IVA ${(DIAN_RATES.iva*100).toFixed(0)}% + Renta ${(DIAN_RATES.renta*100).toFixed(0)}%): ${fmt(impuestoAuditable)}`,
+          `- Sanción por inexactitud 100% (Art 648 ET): ${fmt(sancion)}`,
+          `- Intereses moratorios (~${(DIAN_RATES.interesMoratoriosAnual*100).toFixed(0)}% EA, 24 meses): ${fmt(intereses)}`,
+          `- COSTO TOTAL si audita: ${fmt(costoAuditoria)}`,
+          `- Probabilidad auditoría 24m (nivel ${evLevel}): ${(probAud*100).toFixed(0)}%`,
+          `- Costo esperado = costo × prob: ${fmt(costoEsperado)}`,
+          "",
+          "VALOR ESPERADO DE EVADIR:",
+          `- Ahorro tributario total (sobre gap completo): ${fmt(ahorroEvadir)}`,
+          `- Valor esperado evadir = ahorro − costo esperado: ${fmt(valorEsperadoEvadir)}`,
+          `  ${valorEsperadoEvadir >= 0 ? "⚠️ Aparenta positivo (usualmente porque el gap es mayormente efectivo). Ver ENEMIGOS DEL EFECTIVO abajo." : "✅ Formalizar gana en valor esperado."}`,
+          "",
+          `RIESGO PENAL (Art 434A CP): ${riesgoPenal ? `SÍ — impuesto anualizado ${fmt(impuestoAnualizado)} supera umbral ${fmt(DIAN_RATES.umbralPenalAnualCOP)} (250 SMLMV/año ⇒ 48-108 meses prisión).` : "no — impuesto anualizado bajo el umbral penal."}`,
+          "",
+          "ENEMIGOS DEL EFECTIVO (aunque no haya cruce directo, la DIAN lo detecta por):",
+          "1. Consignación en cuenta propia/familiar (entra a cruce).",
+          "2. Denuncia de ex-socios, empleados, competidores.",
+          "3. Cruce patrimonial (Art 236 ET): estilo de vida vs patrimonio declarado.",
+          "4. Reporte UIAF obligatorio ≥ $10M en efectivo.",
+          "5. Robo, pérdida o incendio del efectivo sin respaldo.",
+          "6. Cliente corporativo exige factura — perdés contratos grandes.",
+          "7. Sin estados formales, no accedés a crédito formal.",
+        ].join("\n");
+
     const financialContext = baseFinancialContext
       + "\n\n═══════════════════════════════════════════\nMÓDULO 9 — MEMORIA DEL NEGOCIO\n═══════════════════════════════════════════\n\n" + memoryCtx
       + "\n\n═══════════════════════════════════════════\nMÓDULO 10 — PATRONES DETECTADOS\n═══════════════════════════════════════════\n\n" + patternsCtx
+      + "\n\n═══════════════════════════════════════════\nMÓDULO 11 — BRECHA DIAN Y RENTABILIDAD DE FORMALIZAR\n═══════════════════════════════════════════\n\n" + evasionCtx
       + "\n\n═══════════════════════════════════════════\nINFORMACIÓN DEL NEGOCIO\n═══════════════════════════════════════════\n"
       + "Empresa: " + companyName + "\n"
       + "Contacto: " + (userName || "No registrado");
@@ -1054,6 +1184,11 @@ ${inventoryCtx}
         role: `Eres Nico Estrategia, el asesor de decisiones grandes de ${empresa}. Miras el futuro, no el presente.`,
         focus: "Decisiones importantes: en qué invertir, cuándo contratar, cuándo expandir, cuándo apretar gastos. Escenarios 'qué pasaría si'. Proyecciones y predicciones basadas en patrones históricos.",
         modules: "MÓDULO 9 (Memoria del negocio) y MÓDULO 10 (Patrones y predicciones) son tu base. También usas MÓDULO 1 y 2 para contexto histórico.",
+      },
+      gerencial: {
+        role: `Eres Nico Gerencial, el consejero directo del dueño de ${empresa} para la pregunta que realmente importa: ¿vale la pena evadir? Tu trabajo es poner números fríos a la brecha entre lo real y lo facturado, y mostrar por qué formalizar (pagar impuestos legalmente) suele ser más rentable que esconder. Hablás como un asesor que está del mismo lado del empresario y que quiere que duerma tranquilo.`,
+        focus: "Brecha entre ingresos reales y facturación DIAN (MÓDULO 11). Distinción crítica: el efectivo NO es auditable por cruces estándar, pero tiene 7 enemigos (UIAF, denuncias, cruce patrimonial, consignaciones, robo, clientes corporativos, crédito). Rentabilidad esperada de formalizar vs evadir: compará ahorro tributario aparente vs costo esperado (sanción Art 648 ET 100% + intereses 24% + probabilidad auditoría). Riesgo penal Art 434A CP si impuesto omitido anual > 250 SMLMV. Empujá a ver el simulador en /visita-dian#rentabilidad y al disclaimer del Dashboard. No moralices: hablá de plata y riesgo, no de ética.",
+        modules: "MÓDULO 11 (Brecha DIAN y rentabilidad de formalizar) es tu base. Usás MÓDULO 1 (caja), MÓDULO 2 (facturación) y MÓDULO 6 (estado inicial) para contexto. Si preguntan por score fiscal, remití a Nico Visita DIAN.",
       },
     };
     const persona = agentPersonas[agent_key];

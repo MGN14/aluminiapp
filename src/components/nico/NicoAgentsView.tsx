@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import NicoAgentChat, { AgentKey } from './NicoAgentChat';
 import nicoAvatar from '@/assets/nico-avatar.png';
-import { Calculator, ShieldAlert, Wallet, Boxes, Compass, Briefcase } from 'lucide-react';
+import { Calculator, ShieldAlert, Wallet, Boxes, Compass, Briefcase, TrendingUp } from 'lucide-react';
+import { useModuleContext } from '@/hooks/useModuleContext';
 
 type AgentDef = {
   key: AgentKey;
@@ -10,6 +11,13 @@ type AgentDef = {
   tagline: string;
   icon: React.ReactNode;
   suggestions: string[];
+  /**
+   * Modos en los que aparece este agente.
+   * - 'both' (default): visible siempre
+   * - 'dian': solo cuando estás en el módulo DIAN
+   * - 'gerencial': solo cuando estás en el módulo Gerencial (admin)
+   */
+  availableIn?: 'both' | 'dian' | 'gerencial';
 };
 
 const AGENTS: AgentDef[] = [
@@ -91,11 +99,53 @@ const AGENTS: AgentDef[] = [
       '¿Qué pasaría si subo precios 10%?',
     ],
   },
+  {
+    key: 'gerencial',
+    label: 'Gerencial',
+    short: 'Gerencial',
+    tagline: 'Brecha DIAN, efectivo y rentabilidad real de formalizar.',
+    icon: <TrendingUp className="w-4 h-4" />,
+    availableIn: 'gerencial',
+    suggestions: [
+      '¿Cuál es mi brecha real vs lo facturado?',
+      '¿Me conviene formalizar ese efectivo?',
+      '¿Cuánto me costaría si me auditan hoy?',
+      '¿Estoy en zona penal?',
+    ],
+  },
 ];
 
 export default function NicoAgentsView() {
-  const [active, setActive] = useState<AgentKey>('cfo');
-  const activeAgent = AGENTS.find((a) => a.key === active) ?? AGENTS[0];
+  const { isGerencial } = useModuleContext();
+
+  // En modo gerencial: mostramos todos excepto los marcados 'dian' (ninguno hoy).
+  // En modo DIAN: ocultamos los agentes marcados 'gerencial' (ej. Nico Gerencial).
+  const visibleAgents = useMemo(
+    () =>
+      AGENTS.filter((a) => {
+        const mode = a.availableIn ?? 'both';
+        if (mode === 'both') return true;
+        if (mode === 'gerencial') return isGerencial;
+        if (mode === 'dian') return !isGerencial;
+        return true;
+      }),
+    [isGerencial],
+  );
+
+  // Default: en modo gerencial arrancás con Nico Gerencial (es la razón de venir acá).
+  // En modo DIAN, con Nico CFO como siempre.
+  const defaultKey: AgentKey = isGerencial ? 'gerencial' : 'cfo';
+  const [active, setActive] = useState<AgentKey>(defaultKey);
+
+  // Si cambiás de módulo y el agente activo ya no está visible, saltamos al default del modo.
+  useEffect(() => {
+    if (!visibleAgents.some((a) => a.key === active)) {
+      setActive(defaultKey);
+    }
+  }, [visibleAgents, active, defaultKey]);
+
+  const activeAgent =
+    visibleAgents.find((a) => a.key === active) ?? visibleAgents[0];
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 h-[calc(100vh-180px)] min-h-[500px]">
@@ -111,7 +161,7 @@ export default function NicoAgentsView() {
           </div>
         </div>
         <nav className="space-y-1">
-          {AGENTS.map((a) => {
+          {visibleAgents.map((a) => {
             const isActive = a.key === active;
             return (
               <button

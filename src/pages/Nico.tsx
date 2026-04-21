@@ -6,6 +6,7 @@ import NicoPatrones from '@/components/nico/NicoPatrones';
 import NicoReglas from '@/pages/nico/Reglas';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useModuleContext } from '@/hooks/useModuleContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Lock, Loader2, MessageSquare, TrendingUp, Layers, Zap } from 'lucide-react';
@@ -14,6 +15,7 @@ type Tab = 'chat' | 'pronosticos' | 'patrones' | 'reglas';
 
 export default function NicoPage() {
   const { plan, loading: subLoading, isAdmin, isFounder, isTrialing } = useSubscription();
+  const { isGerencial } = useModuleContext();
   const navigate = useNavigate();
   const location = useLocation();
   // Initialize tab from URL (/nico/reglas → reglas)
@@ -74,7 +76,9 @@ export default function NicoPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-foreground">Nico</h1>
-              <p className="text-sm text-muted-foreground">Tu equipo financiero con IA — 6 agentes con memoria</p>
+              <p className="text-sm text-muted-foreground">
+                Tu equipo financiero con IA — {isGerencial ? '7' : '6'} agentes con memoria
+              </p>
             </div>
           </div>
         </div>

@@ -7,7 +7,14 @@ import nicoAvatar from '@/assets/nico-avatar.png';
 import NicoMessageContent from './NicoMessageContent';
 import type { NicoPageContext } from '@/hooks/useNicoContext';
 
-export type AgentKey = 'cfo' | 'contador' | 'visita_dian' | 'tesoreria' | 'inventario' | 'estrategia';
+export type AgentKey =
+  | 'cfo'
+  | 'contador'
+  | 'visita_dian'
+  | 'tesoreria'
+  | 'inventario'
+  | 'estrategia'
+  | 'gerencial';
 export type Msg = { role: 'user' | 'assistant'; content: string };
 
 interface NicoAgentChatProps {
