@@ -36,7 +36,60 @@ serve(async (req) => {
       });
     }
 
-    const { messages, pageContext } = await req.json();
+    const body = await req.json();
+    const messages = body.messages as Array<{ role: string; content: string }> | undefined;
+    const pageContext = body.pageContext;
+    const rawAgentKey = typeof body.agent_key === "string" ? body.agent_key : "cfo";
+    const AGENT_KEYS = ["cfo", "contador", "visita_dian", "tesoreria", "inventario", "estrategia"] as const;
+    type AgentKey = typeof AGENT_KEYS[number];
+    const agent_key: AgentKey = (AGENT_KEYS as readonly string[]).includes(rawAgentKey) ? (rawAgentKey as AgentKey) : "cfo";
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return new Response(JSON.stringify({ error: "messages requerido" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // --- Rate limit (flagged off por defecto) ---
+    const RATE_LIMIT_ENABLED = Deno.env.get("NICO_RATE_LIMIT_ENABLED") === "true";
+    const RATE_LIMIT_MAX = parseInt(Deno.env.get("NICO_RATE_LIMIT_MAX") || "500", 10);
+    const todayBogota = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Bogota" }))
+      .toISOString().split("T")[0];
+    if (RATE_LIMIT_ENABLED) {
+      const { data: usage } = await supabase
+        .from("nico_usage_daily" as never)
+        .select("message_count")
+        .eq("user_id", user.id)
+        .eq("day", todayBogota)
+        .maybeSingle();
+      const used = (usage as { message_count?: number } | null)?.message_count ?? 0;
+      if (used >= RATE_LIMIT_MAX) {
+        return new Response(JSON.stringify({ error: `Alcanzaste el límite diario de ${RATE_LIMIT_MAX} mensajes con Nico. Se reinicia mañana.` }), {
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // --- Load agent memory summary and recent messages ---
+    const [{ data: memoryRow }, { data: recentMsgs }] = await Promise.all([
+      supabase
+        .from("nico_agent_memory" as never)
+        .select("summary, facts")
+        .eq("user_id", user.id)
+        .eq("agent_key", agent_key)
+        .maybeSingle(),
+      supabase
+        .from("nico_messages" as never)
+        .select("role, content, created_at")
+        .eq("user_id", user.id)
+        .eq("agent_key", agent_key)
+        .order("created_at", { ascending: false })
+        .limit(15),
+    ]);
+    const memorySummary = (memoryRow as { summary?: string } | null)?.summary ?? "";
+    const memoryFacts = ((memoryRow as { facts?: unknown[] } | null)?.facts ?? []) as unknown[];
+    const dbHistory = ((recentMsgs ?? []) as Array<{ role: string; content: string }>).slice().reverse();
 
     // --- Dates ---
     const now = new Date();
@@ -960,9 +1013,56 @@ ${inventoryCtx}
       + "Contacto: " + (userName || "No registrado");
 
     // =============================================
+    // AGENT PERSONAS
+    // =============================================
+    const empresa = companyName !== "No registrada" ? companyName : "este negocio";
+    const agentPersonas: Record<AgentKey, { role: string; focus: string; modules: string }> = {
+      cfo: {
+        role: `Eres Nico, el CFO de mano derecha de ${empresa}. Integras TODOS los módulos: caja, facturación, impuestos, cartera, inventario, patrones y salud fiscal. Eres el asesor global que toma la foto completa del negocio.`,
+        focus: "Vista integral del estado ACTUAL del negocio. Conecta puntos entre módulos. Cuando algo no cuadre entre módulos, alértalo.",
+        modules: "TODOS (1-10). Usas todos los módulos según lo que pregunten.",
+      },
+      contador: {
+        role: `Eres Nico Contador, el asesor contable y fiscal de ${empresa}. Tu foco único es la parte tributaria: facturación DIAN, IVA, retefuente, ReteICA, autorretefuente y calendario tributario colombiano.`,
+        focus: "Impuestos. Saldo a favor. Retenciones. Fechas DIAN. Optimización fiscal dentro de la ley. Evita comentar caja, inventario o estrategia — eso no es tu área; si preguntan, remite al agente correspondiente.",
+        modules: "MÓDULO 2 (Facturación DIAN) y MÓDULO 3 (Obligaciones Fiscales) son tu base. También consultas MÓDULO 5 (alertas fiscales).",
+      },
+      visita_dian: {
+        role: `Eres Nico Visita DIAN, el auditor interno de ${empresa}. Piensas como un funcionario DIAN revisando la empresa. Tu trabajo es detectar inconsistencias ANTES de que la DIAN lo haga y prevenir sanciones.`,
+        focus: "Score de salud fiscal. Inconsistencias entre facturación y banco. Riesgos de sanción. Qué pediría la DIAN en una visita real. Cómo subir el score.",
+        modules: "MÓDULO 5 (Alertas), MÓDULO 7 (Salud/Score), MÓDULO 3 (Obligaciones Fiscales). No hagas estrategia ni inventario.",
+      },
+      tesoreria: {
+        role: `Eres Nico Tesorería, el encargado de caja y cobranza de ${empresa}. Te preocupa la plata que entra, la que sale y la que falta por cobrar o pagar.`,
+        focus: "Flujo de caja. Cuentas por cobrar y por pagar. Anticipos sin facturar. Conciliación banco-factura. Quién debe plata y cuándo.",
+        modules: "MÓDULO 1 (Flujo de caja), MÓDULO 4 (Conciliación y cartera), MÓDULO 6 (Estado inicial). No hagas análisis fiscal ni estratégico.",
+      },
+      inventario: {
+        role: `Eres Nico Inventario, el encargado operativo de stock de ${empresa}. Comparas lo contable (Siigo) contra lo físico (bodega) y detectas fugas, excedentes y capital inmovilizado.`,
+        focus: "Diferencias Siigo vs físico. Fugas operativas (robos, ventas sin factura). Productos críticos. Capital detenido en inventario. Impacto de los descuadres en la utilidad real.",
+        modules: "MÓDULO 8 (Inventario operativo) es tu base. No hagas fiscal, ni cartera, ni estrategia.",
+      },
+      estrategia: {
+        role: `Eres Nico Estrategia, el asesor de decisiones grandes de ${empresa}. Miras el futuro, no el presente.`,
+        focus: "Decisiones importantes: en qué invertir, cuándo contratar, cuándo expandir, cuándo apretar gastos. Escenarios 'qué pasaría si'. Proyecciones y predicciones basadas en patrones históricos.",
+        modules: "MÓDULO 9 (Memoria del negocio) y MÓDULO 10 (Patrones y predicciones) son tu base. También usas MÓDULO 1 y 2 para contexto histórico.",
+      },
+    };
+    const persona = agentPersonas[agent_key];
+
+    const memoryBlock = memorySummary || memoryFacts.length > 0
+      ? `\n\n═══════════════════════════════════════════\nMEMORIA DEL AGENTE (conversaciones previas)\n═══════════════════════════════════════════\n${memorySummary}${memoryFacts.length > 0 ? `\n\nHECHOS APRENDIDOS:\n${(memoryFacts as Array<string | { text?: string }>).slice(0, 20).map((f, i) => `${i + 1}. ${typeof f === "string" ? f : (f?.text ?? JSON.stringify(f))}`).join("\n")}` : ""}`
+      : "";
+
+    // =============================================
     // SYSTEM PROMPT
     // =============================================
-    const systemPrompt = `Eres Nico, el asesor contable y financiero de ${companyName !== "No registrada" ? companyName : "este negocio"}. Llevas tiempo acompañando al dueño y conoces el negocio por dentro: sus ciclos, sus clientes, sus gastos recurrentes, sus puntos débiles y sus fortalezas. Hablas como un asesor de confianza que está del mismo lado que el empresario — alguien cercano, que mezcla la precisión de un contador con la tranquilidad de saber que alguien se está ocupando de que el negocio pague lo justo y tome las mejores decisiones.
+    const systemPrompt = `${persona.role}
+
+FOCO ESPECÍFICO DE ESTE AGENTE: ${persona.focus}
+MÓDULOS QUE USAS: ${persona.modules}
+
+Llevas tiempo acompañando al dueño y conoces el negocio por dentro: sus ciclos, sus clientes, sus gastos recurrentes, sus puntos débiles y sus fortalezas. Hablas como un asesor de confianza que está del mismo lado que el empresario — alguien cercano, que mezcla la precisión de un contador con la tranquilidad de saber que alguien se está ocupando del negocio.
 
 TU MISIÓN CENTRAL:
 Que el empresario duerma tranquilo. Eso se logra con tres cosas, siempre:
@@ -1149,13 +1249,18 @@ Si no hay datos: una frase honesta + el siguiente paso concreto.
 FORMATO ESTRICTO:
 Texto corrido, sin markdown de ningún tipo. Cero asteriscos, cero viñetas, cero numeración. Usá puntos y aparte para separar ideas. Moneda colombiana con puntos de miles: $12.450.000. Para comparaciones usá paréntesis: ($3.200.000 más que el mes pasado).
 
-${financialContext}`;
+${financialContext}${memoryBlock}`;
 
     const pageContextNote = pageContext
       ? `\n\nCONTEXTO DE NAVEGACIÓN: El usuario está en "${pageContext.page}"${pageContext.filters ? `. Filtros activos: ${JSON.stringify(pageContext.filters)}` : ""}. Prioriza ese contexto si es relevante.`
       : "";
 
     const finalSystemPrompt = systemPrompt + pageContextNote;
+
+    // Rolling window: use DB history (preferred) or fall back to what came in body
+    const historyForModel = dbHistory.length > 0
+      ? [...dbHistory, messages[messages.length - 1]]
+      : messages;
 
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
@@ -1167,7 +1272,7 @@ ${financialContext}`;
         model: "gemini-2.5-flash",
         messages: [
           { role: "system", content: finalSystemPrompt },
-          ...messages,
+          ...historyForModel,
         ],
         stream: true,
       }),
@@ -1191,7 +1296,85 @@ ${financialContext}`;
       });
     }
 
-    return new Response(response.body, {
+    // --- Intercept stream to buffer assistant text for persistence ---
+    const lastUserMsg = messages[messages.length - 1];
+    const userMessageContent = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
+    let assistantBuffer = "";
+
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    let sseBuffer = "";
+
+    const transform = new TransformStream({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+        sseBuffer += decoder.decode(chunk, { stream: true });
+        let idx: number;
+        while ((idx = sseBuffer.indexOf("\n")) !== -1) {
+          const line = sseBuffer.slice(0, idx).replace(/\r$/, "");
+          sseBuffer = sseBuffer.slice(idx + 1);
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(payload);
+            const delta = parsed?.choices?.[0]?.delta?.content;
+            if (typeof delta === "string") assistantBuffer += delta;
+          } catch {
+            // ignore partial / malformed lines
+          }
+        }
+      },
+      async flush() {
+        // Runs when upstream stream closes
+        try {
+          if (!userMessageContent || !assistantBuffer) return;
+          const pageContextNote2 = pageContext ? `${pageContext.page ?? ""}` : "";
+          const rows = [
+            { user_id: user.id, agent_key, role: "user", content: userMessageContent, page_context: pageContextNote2 },
+            { user_id: user.id, agent_key, role: "assistant", content: assistantBuffer, page_context: pageContextNote2 },
+          ];
+          const insertResult = await supabase.from("nico_messages" as never).insert(rows as never);
+          if (insertResult.error) console.error("persist nico_messages failed:", insertResult.error);
+
+          // Count messages for this (user, agent) — if >= 20, fire summarization in background
+          const { count } = await supabase
+            .from("nico_messages" as never)
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", user.id)
+            .eq("agent_key", agent_key);
+          if ((count ?? 0) >= 20) {
+            fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/summarize-nico-memory`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
+              },
+              body: JSON.stringify({ user_id: user.id, agent_key }),
+            }).catch((err) => console.warn("summarize trigger failed:", err));
+          }
+
+          // Increment daily usage counter (read-then-upsert; acceptable for low traffic)
+          const { data: usageRow } = await supabase
+            .from("nico_usage_daily" as never)
+            .select("message_count")
+            .eq("user_id", user.id)
+            .eq("day", todayBogota)
+            .maybeSingle();
+          const nextCount = ((usageRow as { message_count?: number } | null)?.message_count ?? 0) + 1;
+          await supabase
+            .from("nico_usage_daily" as never)
+            .upsert(
+              { user_id: user.id, day: todayBogota, message_count: nextCount } as never,
+              { onConflict: "user_id,day" } as never,
+            );
+        } catch (err) {
+          console.error("stream flush persistence error:", err);
+        }
+      },
+    });
+
+    return new Response(response.body!.pipeThrough(transform), {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {

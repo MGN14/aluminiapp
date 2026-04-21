@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
-import NicoChat from '@/components/nico/NicoChat';
+import NicoAgentsView from '@/components/nico/NicoAgentsView';
 import NicoPronosticos from '@/components/nico/NicoPronosticos';
 import NicoPatrones from '@/components/nico/NicoPatrones';
 import NicoReglas from '@/pages/nico/Reglas';
@@ -19,7 +19,6 @@ export default function NicoPage() {
   // Initialize tab from URL (/nico/reglas → reglas)
   const initialTab: Tab = location.pathname.endsWith('/reglas') ? 'reglas' : 'chat';
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [preguntaPreload, setPreguntaPreload] = useState<string>('');
 
   const hasAccess = isAdmin || isFounder || isTrialing || ['basico', 'pro', 'empresarial', 'admin'].includes(plan);
 
@@ -62,9 +61,11 @@ export default function NicoPage() {
     </button>
   );
 
+  const isChatTab = tab === 'chat';
+
   return (
     <AppLayout>
-      <div className="max-w-3xl mx-auto">
+      <div className={isChatTab ? 'max-w-6xl mx-auto' : 'max-w-3xl mx-auto'}>
         {/* Header */}
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
@@ -73,28 +74,21 @@ export default function NicoPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-foreground">Nico</h1>
-              <p className="text-sm text-muted-foreground">Tu analista financiero inteligente</p>
+              <p className="text-sm text-muted-foreground">Tu equipo financiero con IA — 6 agentes con memoria</p>
             </div>
           </div>
-          <p className="text-muted-foreground text-sm mt-3 max-w-lg">
-            Pregúntale a Nico sobre tus finanzas o consultá los pronósticos basados en tu historial real.
-          </p>
         </div>
 
         {/* Tabs */}
         <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit mb-5 flex-wrap">
-          {tabBtn('chat', <MessageSquare className="h-4 w-4" />, 'Consultar a Nico')}
+          {tabBtn('chat', <MessageSquare className="h-4 w-4" />, 'Agentes')}
           {tabBtn('pronosticos', <TrendingUp className="h-4 w-4" />, 'Pronósticos')}
           {tabBtn('patrones', <Layers className="h-4 w-4" />, 'Patrones')}
           {tabBtn('reglas', <Zap className="h-4 w-4" />, 'Reglas')}
         </div>
 
         {/* Contenido */}
-        {tab === 'chat' && (
-          <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
-            <NicoChat initialMessage={preguntaPreload} onMessageSent={() => setPreguntaPreload('')} />
-          </div>
-        )}
+        {tab === 'chat' && <NicoAgentsView />}
 
         {tab === 'pronosticos' && (
           <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
@@ -104,10 +98,7 @@ export default function NicoPage() {
 
         {tab === 'patrones' && (
           <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
-            <NicoPatrones onPreguntarNico={(pregunta) => {
-              setPreguntaPreload(pregunta);
-              setTab('chat');
-            }} />
+            <NicoPatrones onPreguntarNico={() => setTab('chat')} />
           </div>
         )}
 
