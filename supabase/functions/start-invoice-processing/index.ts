@@ -121,11 +121,11 @@ serve(async (req) => {
       });
     }
 
-    // Build AI request based on mode:
-    //  - only_items=true: focused prompt for line items only (smaller schema, more reliable)
-    //  - default: header only (original behavior, fast, avoids timeouts on large PDFs)
+    // Build AI request based on mode. We use the OpenAI-compatible Gemini endpoint
+    // with image_url (data URL) and inline JSON (no tool-calling), matching the pattern
+    // that reliably works in parse-bancolombia-pdf.
     const headerSystemPrompt = `Eres un experto en facturación electrónica colombiana. Extrae SOLO los datos de cabecera de la factura del PDF.
-Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estructura:
+Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estructura exacta:
 {
   "invoice_number": "FMGN 276",
   "prefix": "FMGN",
@@ -158,7 +158,7 @@ Reglas:
 - items debe ser un array vacío [] por ahora (se extraerán después).`;
 
     const itemsSystemPrompt = `Eres un experto en facturación electrónica colombiana. Extrae SOLO las líneas de ítems de la factura del PDF.
-Responde con un JSON con esta estructura exacta:
+Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estructura exacta:
 {
   "items": [
     { "item_code": "001", "reference": "REF-001", "description": "Producto", "quantity": 10, "unit_price": 5000, "line_base": 50000, "iva_rate": 0.19, "iva_amount": 9500, "line_total": 59500 }
@@ -168,80 +168,8 @@ Reglas CRÍTICAS:
 - Extrae ABSOLUTAMENTE TODAS las filas de la tabla de productos/servicios. No resumas, no agrupes, no omitas.
 - Si la tabla sigue en varias páginas, recórrela entera.
 - Cada fila con su propio código/descripción/cantidad/valor es un ítem independiente.
-- Si no hay código o referencia en una fila, usa string vacío "", pero siempre incluye description, quantity, unit_price, line_base y line_total.
+- Si no hay código o referencia en una fila, usa "" (string vacío), pero siempre incluye description, quantity, unit_price, line_base y line_total.
 - Montos sin separadores de miles. iva_rate como decimal (0.19).`;
-
-    const headerProps = {
-      invoice_number: { type: "string" },
-      prefix: { type: "string" },
-      number_int: { type: ["integer", "null"] },
-      type: { type: "string", enum: ["venta", "compra"] },
-      issue_date: { type: "string" },
-      due_date: { type: ["string", "null"] },
-      counterparty_name: { type: "string" },
-      counterparty_nit: { type: "string" },
-      seller_name: { type: "string" },
-      seller_nit: { type: "string" },
-      buyer_name: { type: "string" },
-      buyer_nit: { type: "string" },
-      city: { type: ["string", "null"] },
-      subtotal_base: { type: "number" },
-      iva_rate: { type: "number" },
-      iva_amount: { type: "number" },
-      total_amount: { type: "number" },
-      cufe: { type: ["string", "null"] },
-      payment_method: { type: ["string", "null"] },
-    };
-
-    const itemsSchema = {
-      type: "object",
-      properties: {
-        items: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              item_code: { type: "string" },
-              reference: { type: "string" },
-              description: { type: "string" },
-              quantity: { type: "number" },
-              unit_price: { type: "number" },
-              line_base: { type: "number" },
-              iva_rate: { type: "number" },
-              iva_amount: { type: "number" },
-              line_total: { type: "number" },
-            },
-            required: ["description", "quantity", "unit_price", "line_base", "line_total"],
-          },
-        },
-      },
-      required: ["items"],
-    };
-
-    const toolDef = only_items
-      ? {
-          type: "function",
-          function: {
-            name: "extract_invoice_items",
-            description: "Extrae todas las líneas de ítems de una factura electrónica colombiana",
-            parameters: itemsSchema,
-          },
-        }
-      : {
-          type: "function",
-          function: {
-            name: "extract_invoice_header",
-            description: "Extrae datos de cabecera de una factura electrónica colombiana",
-            parameters: {
-              type: "object",
-              properties: headerProps,
-              required: [
-                "invoice_number", "type", "issue_date", "counterparty_name",
-                "subtotal_base", "iva_rate", "iva_amount", "total_amount",
-              ],
-            },
-          },
-        };
 
     const userPromptText = only_items
       ? "Extrae SOLO todas las líneas de ítems de esta factura electrónica colombiana. No resumas ni omitas ninguna línea. Responde SOLO con el JSON."
@@ -260,60 +188,61 @@ Reglas CRÍTICAS:
           {
             role: "user",
             content: [
-              {
-                type: "file",
-                file: {
-                  filename: invoice.original_filename || "factura.pdf",
-                  file_data: `data:application/pdf;base64,${base64}`,
-                },
-              },
               { type: "text", text: userPromptText },
+              {
+                type: "image_url",
+                image_url: { url: `data:application/pdf;base64,${base64}` },
+              },
             ],
           },
         ],
-        tools: [toolDef],
-        tool_choice: { type: "function", function: { name: toolDef.function.name } },
       }),
     });
 
     if (!aiResponse.ok) {
       const status = aiResponse.status;
+      const errBody = await aiResponse.text().catch(() => "");
+      console.error("AI error:", status, errBody);
       const errMsg = status === 429
         ? "Demasiadas solicitudes, intenta de nuevo en un momento"
         : status === 402
         ? "Créditos de IA agotados"
-        : "Error procesando con IA";
-      console.error("AI error:", status);
+        : `Error procesando con IA (HTTP ${status})`;
       if (!only_items) {
         await supabase.from("invoices").update({ status: "error", processing_error: errMsg }).eq("id", invoice_id);
       }
-      return new Response(JSON.stringify({ error: errMsg }), {
+      return new Response(JSON.stringify({ error: errMsg, details: errBody.slice(0, 500) }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const aiResult = await aiResponse.json();
-    let extracted: any;
-    const toolCall = aiResult.choices?.[0]?.message?.tool_calls?.[0];
-    if (toolCall?.function?.arguments) {
-      extracted = typeof toolCall.function.arguments === "string"
-        ? JSON.parse(toolCall.function.arguments)
-        : toolCall.function.arguments;
-    } else {
-      const content = aiResult.choices?.[0]?.message?.content || "";
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const rawContent: string = aiResult.choices?.[0]?.message?.content || "";
+    let extracted: any = null;
+    try {
+      let clean = rawContent.trim();
+      if (clean.startsWith("```json")) clean = clean.slice(7);
+      else if (clean.startsWith("```")) clean = clean.slice(3);
+      if (clean.endsWith("```")) clean = clean.slice(0, -3);
+      clean = clean.trim();
+      extracted = JSON.parse(clean);
+    } catch {
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        extracted = JSON.parse(jsonMatch[0]);
-      } else {
-        if (!only_items) {
-          await supabase.from("invoices").update({ status: "error", processing_error: "No se pudo extraer datos" }).eq("id", invoice_id);
-        }
-        return new Response(JSON.stringify({ error: "No se pudo extraer datos" }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        try { extracted = JSON.parse(jsonMatch[0]); } catch { /* fall through */ }
       }
+    }
+
+    if (!extracted) {
+      console.error("Failed to parse AI response:", rawContent.slice(0, 500));
+      if (!only_items) {
+        await supabase.from("invoices").update({ status: "error", processing_error: "No se pudo extraer datos" }).eq("id", invoice_id);
+      }
+      return new Response(JSON.stringify({ error: "No se pudo extraer datos" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // Ensure items is always an array
