@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 vite.config.ts.timestamp-*.mjs
 supabase/.temp/
+
+# Bank fixtures — contienen número de cuenta real y transacciones reales.
+# Solo el README se commitea; los archivos de datos quedan locales.
+test-fixtures/bancolombia/*
+!test-fixtures/bancolombia/README.md

@@ -4,6 +4,7 @@ import { fetchWithAuthRetry } from '@/lib/authRetry';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
 import PDFUploader from '@/components/PDFUploader';
+import WeeklyCsvUploader from '@/components/statements/WeeklyCsvUploader';
 import DeleteStatementButton from '@/components/statements/DeleteStatementButton';
 import StatementConfigModal from '@/components/statements/StatementConfigModal';
 import { Button } from '@/components/ui/button';
@@ -243,6 +244,23 @@ export default function StatementUpload() {
           </div>
 
           <PDFUploader onUploadComplete={handleUploadComplete} />
+
+          {/* Upload semanal por CSV/ZIP (Fase 2 conciliación semanal).
+              Vive en paralelo al PDF uploader para no romper el flujo existente. */}
+          <div style={{ marginTop: 20 }}>
+            <div
+              style={{
+                fontFamily: 'inherit',
+                fontSize: 13,
+                color: 'rgba(0,0,0,0.55)',
+                marginBottom: 10,
+              }}
+            >
+              <strong style={{ color: '#1d1d1f' }}>¿Tenés los movimientos en CSV o ZIP?</strong>{' '}
+              Subilos acá para cargas semanales sin OCR (es más rápido y preciso).
+            </div>
+            <WeeklyCsvUploader onUploadComplete={fetchStatements} />
+          </div>
 
           {/* Nico rules indicator */}
           {rules.filter(r => r.active).length > 0 && (
