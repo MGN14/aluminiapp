@@ -18,6 +18,9 @@ import { SCORE_VARIABLES } from '@/hooks/financialHealthScoreUtils';
 import { useUpcomingObligations, diasRestantes } from '@/hooks/useUpcomingObligations';
 import { usePaidObligations } from '@/hooks/usePaidObligations';
 import { useNico } from '@/hooks/useNicoContext';
+import { useModuleContext } from '@/hooks/useModuleContext';
+import { useEvasionGap } from '@/hooks/useEvasionGap';
+import RentabilidadFormalizacion from '@/components/gerencial/RentabilidadFormalizacion';
 import { supabase } from '@/integrations/supabase/client';
 import { TIPO_LABEL } from '@/lib/dianCalendar2026';
 
@@ -52,9 +55,29 @@ export default function VisitaDIAN() {
   const { events, urgentes, nitDigit } = useUpcomingObligations(15);
   const { isPaid } = usePaidObligations();
   const { openNico, setPageContext } = useNico();
+  const { isGerencial } = useModuleContext();
 
   const currentYear = new Date().getFullYear();
   const { scores } = useFinancialHealthScore(currentYear);
+  // El simulador "¿Vale la pena evadir?" (GAP 3) solo tiene sentido en modo
+  // gerencial, donde sumamos efectivo + anticipos previos. En modo DIAN no hay
+  // forma de medir la brecha real.
+  const { result: evasionResult, periodMonths: evasionPeriodMonths } = useEvasionGap({
+    year: currentYear,
+    enabled: isGerencial,
+  });
+
+  // Scroll al ancla #rentabilidad cuando llega el link desde Dashboard.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isGerencial) return;
+    if (window.location.hash !== '#rentabilidad') return;
+    // esperar a que el componente esté montado
+    const t = setTimeout(() => {
+      document.getElementById('rentabilidad')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [isGerencial]);
 
   const [hasTransactions, setHasTransactions] = useState(false);
   useEffect(() => {
@@ -303,6 +326,16 @@ export default function VisitaDIAN() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* ¿Vale la pena evadir? (GAP 3, solo en modo gerencial) */}
+        {isGerencial && evasionResult && (
+          <section id="rentabilidad" className="scroll-mt-6">
+            <RentabilidadFormalizacion
+              evasion={evasionResult}
+              periodMonths={evasionPeriodMonths}
+            />
+          </section>
         )}
 
         {/* Posibles problemas ante la DIAN (Nico insights) */}

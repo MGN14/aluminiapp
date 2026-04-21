@@ -2,20 +2,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, AlertTriangle, ShieldCheck, Banknote } from 'lucide-react';
 import {
-  calculateEvasionGap,
   LEVEL_COPY,
+  type EvasionGapResult,
   type EvasionLevel,
 } from '@/lib/evasionGap';
 
 interface Props {
-  /** Total de ingresos por extracto bancario en el periodo */
-  bankIncome: number;
-  /** Anticipos de clientes arrastrados de periodos anteriores (no conciliados) */
-  previousPeriodAdvances: number;
-  /** Ingresos en efectivo del periodo */
-  cashIncome: number;
-  /** Total facturado a la DIAN en el periodo (invoices type='venta') */
-  invoicedAmount: number;
+  /** Resultado ya calculado de calculateEvasionGap (Dashboard lo calcula una sola
+   *  vez y lo comparte con EvasionDisclaimer). */
+  evasion: EvasionGapResult;
 }
 
 const TONE_STYLES: Record<EvasionLevel, {
@@ -56,18 +51,7 @@ function formatCOP(n: number): string {
   }).format(n);
 }
 
-export default function EvasionGapCard({
-  bankIncome,
-  previousPeriodAdvances,
-  cashIncome,
-  invoicedAmount,
-}: Props) {
-  const result = calculateEvasionGap({
-    bankIncome,
-    previousPeriodAdvances,
-    cashIncome,
-    invoicedAmount,
-  });
+export default function EvasionGapCard({ evasion: result }: Props) {
   const tone = TONE_STYLES[result.level];
   const copy = LEVEL_COPY[result.level];
   const { Icon } = tone;

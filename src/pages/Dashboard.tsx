@@ -29,6 +29,8 @@ import FiscalProfileWarning from '@/components/dashboard/FiscalProfileWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
 import UpcomingObligationsCard from '@/components/dashboard/UpcomingObligationsCard';
 import EvasionGapCard from '@/components/dashboard/EvasionGapCard';
+import EvasionDisclaimer from '@/components/dashboard/EvasionDisclaimer';
+import { calculateEvasionGap } from '@/lib/evasionGap';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import DashboardCustomizeModal from '@/components/dashboard/DashboardCustomizeModal';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -326,7 +328,7 @@ function DashboardContent() {
   //                            (initial_state_details, no dependen del periodo).
   // - cashIncome             = SUM(cash_movements 'ingreso') del periodo.
   // - invoicedAmount         = SUM(invoices.total_amount type='venta') del periodo.
-  const evasionInputs = useMemo(() => {
+  const evasionResult = useMemo(() => {
     const bankIncome = periodTransactions
       .filter(tx => (tx.amount ?? 0) > 0)
       .reduce((s, tx) => s + (tx.amount ?? 0), 0);
@@ -342,13 +344,26 @@ function DashboardContent() {
         return d >= periodRange.start && d <= periodRange.end;
       })
       .reduce((s, inv) => s + (inv.total_amount || 0), 0);
-    return {
+    return calculateEvasionGap({
       bankIncome,
       previousPeriodAdvances,
       cashIncome,
       invoicedAmount,
-    };
+    });
   }, [periodTransactions, cashMovements, periodRange, salesInvoices, previousPeriodAdvances]);
+
+  // Meses efectivos del periodo seleccionado, para proyecciones en
+  // EvasionDisclaimer. 'year' / 'quarter' / 'month' → mapeo simple.
+  const evasionPeriodMonths = useMemo(() => {
+    switch (periodSelection.type) {
+      case 'month':
+        return 1;
+      case 'quarter':
+        return 3;
+      default:
+        return 12;
+    }
+  }, [periodSelection.type]);
 
   const handleInvoiceMetrics = useCallback((m: InvoiceFiscalMetrics) => setInvoiceMetrics(m), []);
 
@@ -768,12 +783,14 @@ function DashboardContent() {
         <OnboardingGuide hasTransactions={transactions.length > 0} />
         <TrialChecklist />
         {isGerencial && (
-          <EvasionGapCard
-            bankIncome={evasionInputs.bankIncome}
-            previousPeriodAdvances={evasionInputs.previousPeriodAdvances}
-            cashIncome={evasionInputs.cashIncome}
-            invoicedAmount={evasionInputs.invoicedAmount}
-          />
+          <>
+            {/* GAP 4 — disclaimer solo en mid/high, linkea al simulador. */}
+            <EvasionDisclaimer
+              evasion={evasionResult}
+              periodMonths={evasionPeriodMonths}
+            />
+            <EvasionGapCard evasion={evasionResult} />
+          </>
         )}
         <div className="grid gap-4 md:grid-cols-2">
           <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
