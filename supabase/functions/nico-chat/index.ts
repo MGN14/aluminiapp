@@ -1270,6 +1270,9 @@ ${financialContext}${memoryBlock}`;
       ? [...dbHistory, messages[messages.length - 1]]
       : messages;
 
+    // NOTA: Gemini OpenAI-compat con stream:true es inestable (devuelve 500).
+    // Hacemos la llamada SIN streaming y emitimos SSE "sintético" al cliente
+    // para preservar el parser SSE existente en NicoAgentChat.tsx.
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: {
@@ -1282,7 +1285,6 @@ ${financialContext}${memoryBlock}`;
           { role: "system", content: finalSystemPrompt },
           ...historyForModel,
         ],
-        stream: true,
       }),
     });
 
@@ -1304,85 +1306,101 @@ ${financialContext}${memoryBlock}`;
       });
     }
 
-    // --- Intercept stream to buffer assistant text for persistence ---
+    // Parse de la respuesta completa (OpenAI-compat sin streaming).
+    const aiJson = await response.json().catch((err) => {
+      console.error("nico-chat: error parseando respuesta Gemini:", err);
+      return null;
+    });
+    const assistantText: string =
+      aiJson?.choices?.[0]?.message?.content ??
+      "";
+
+    if (!assistantText) {
+      console.error("nico-chat: respuesta de Gemini sin contenido:", JSON.stringify(aiJson)?.slice(0, 500));
+      return new Response(JSON.stringify({ error: "Nico no devolvió respuesta. Intenta otra vez." }), {
+        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const lastUserMsg = messages[messages.length - 1];
     const userMessageContent = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
-    let assistantBuffer = "";
 
-    const decoder = new TextDecoder();
-    const encoder = new TextEncoder();
-    let sseBuffer = "";
+    // Persistencia: ocurre en paralelo al streaming al cliente, sin bloquearlo.
+    const persist = async () => {
+      try {
+        if (!userMessageContent || !assistantText) return;
+        const pageContextNote2 = pageContext ? `${pageContext.page ?? ""}` : "";
+        const rows = [
+          { user_id: user.id, agent_key, role: "user", content: userMessageContent, page_context: pageContextNote2 },
+          { user_id: user.id, agent_key, role: "assistant", content: assistantText, page_context: pageContextNote2 },
+        ];
+        const insertResult = await supabase.from("nico_messages" as never).insert(rows as never);
+        if (insertResult.error) console.error("persist nico_messages failed:", insertResult.error);
 
-    const transform = new TransformStream({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-        sseBuffer += decoder.decode(chunk, { stream: true });
-        let idx: number;
-        while ((idx = sseBuffer.indexOf("\n")) !== -1) {
-          const line = sseBuffer.slice(0, idx).replace(/\r$/, "");
-          sseBuffer = sseBuffer.slice(idx + 1);
-          if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (!payload || payload === "[DONE]") continue;
-          try {
-            const parsed = JSON.parse(payload);
-            const delta = parsed?.choices?.[0]?.delta?.content;
-            if (typeof delta === "string") assistantBuffer += delta;
-          } catch {
-            // ignore partial / malformed lines
-          }
+        // Count messages for this (user, agent) — if >= 20, fire summarization in background
+        const { count } = await supabase
+          .from("nico_messages" as never)
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("agent_key", agent_key);
+        if ((count ?? 0) >= 20) {
+          fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/summarize-nico-memory`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
+            },
+            body: JSON.stringify({ user_id: user.id, agent_key }),
+          }).catch((err) => console.warn("summarize trigger failed:", err));
         }
-      },
-      async flush() {
-        // Runs when upstream stream closes
+
+        // Increment daily usage counter (read-then-upsert; acceptable for low traffic)
+        const { data: usageRow } = await supabase
+          .from("nico_usage_daily" as never)
+          .select("message_count")
+          .eq("user_id", user.id)
+          .eq("day", todayBogota)
+          .maybeSingle();
+        const nextCount = ((usageRow as { message_count?: number } | null)?.message_count ?? 0) + 1;
+        await supabase
+          .from("nico_usage_daily" as never)
+          .upsert(
+            { user_id: user.id, day: todayBogota, message_count: nextCount } as never,
+            { onConflict: "user_id,day" } as never,
+          );
+      } catch (err) {
+        console.error("persistence error:", err);
+      }
+    };
+
+    // Construir stream SSE sintético en formato OpenAI para que el cliente
+    // (NicoAgentChat.tsx) lo consuma con su parser existente de `choices[0].delta.content`.
+    // Troceamos el texto en chunks pequeños para dar sensación de streaming.
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
         try {
-          if (!userMessageContent || !assistantBuffer) return;
-          const pageContextNote2 = pageContext ? `${pageContext.page ?? ""}` : "";
-          const rows = [
-            { user_id: user.id, agent_key, role: "user", content: userMessageContent, page_context: pageContextNote2 },
-            { user_id: user.id, agent_key, role: "assistant", content: assistantBuffer, page_context: pageContextNote2 },
-          ];
-          const insertResult = await supabase.from("nico_messages" as never).insert(rows as never);
-          if (insertResult.error) console.error("persist nico_messages failed:", insertResult.error);
-
-          // Count messages for this (user, agent) — if >= 20, fire summarization in background
-          const { count } = await supabase
-            .from("nico_messages" as never)
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", user.id)
-            .eq("agent_key", agent_key);
-          if ((count ?? 0) >= 20) {
-            fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/summarize-nico-memory`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
-              },
-              body: JSON.stringify({ user_id: user.id, agent_key }),
-            }).catch((err) => console.warn("summarize trigger failed:", err));
+          const CHUNK_SIZE = 24; // caracteres por evento — balance UX/overhead
+          const total = assistantText.length;
+          for (let i = 0; i < total; i += CHUNK_SIZE) {
+            const slice = assistantText.slice(i, i + CHUNK_SIZE);
+            const payload = JSON.stringify({
+              choices: [{ delta: { content: slice } }],
+            });
+            controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
           }
-
-          // Increment daily usage counter (read-then-upsert; acceptable for low traffic)
-          const { data: usageRow } = await supabase
-            .from("nico_usage_daily" as never)
-            .select("message_count")
-            .eq("user_id", user.id)
-            .eq("day", todayBogota)
-            .maybeSingle();
-          const nextCount = ((usageRow as { message_count?: number } | null)?.message_count ?? 0) + 1;
-          await supabase
-            .from("nico_usage_daily" as never)
-            .upsert(
-              { user_id: user.id, day: todayBogota, message_count: nextCount } as never,
-              { onConflict: "user_id,day" } as never,
-            );
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         } catch (err) {
-          console.error("stream flush persistence error:", err);
+          console.error("synthetic SSE error:", err);
+        } finally {
+          controller.close();
+          // Persistir después de cerrar el stream al cliente.
+          persist();
         }
       },
     });
 
-    return new Response(response.body!.pipeThrough(transform), {
+    return new Response(stream, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {
