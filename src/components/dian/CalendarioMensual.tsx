@@ -6,7 +6,9 @@ import {
 } from '@/lib/dianCalendar2026';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ChevronLeft, ChevronRight, CalendarDays, Check } from 'lucide-react';
+import { usePaidObligations } from '@/hooks/usePaidObligations';
 
 interface Props {
   events: CalendarEvent[];
@@ -41,6 +43,7 @@ function fmtMoney(n: number | null | undefined): string {
 export default function CalendarioMensual({ events, initialDate }: Props) {
   const [cursor, setCursor] = useState<Date>(() => initialDate ?? new Date());
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const { isPaid, togglePaid } = usePaidObligations();
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -131,15 +134,19 @@ export default function CalendarioMensual({ events, initialDate }: Props) {
                 {d}
               </span>
               <div className="flex-1 flex flex-col gap-0.5 overflow-hidden">
-                {dayEvents.slice(0, 3).map(ev => (
-                  <span
-                    key={ev.id}
-                    className={`text-[9px] leading-tight px-1 py-0.5 rounded border truncate ${TIPO_COLOR[ev.tipo]}`}
-                    title={ev.descripcion}
-                  >
-                    {TIPO_LABEL[ev.tipo]}
-                  </span>
-                ))}
+                {dayEvents.slice(0, 3).map(ev => {
+                  const paid = isPaid(ev);
+                  return (
+                    <span
+                      key={ev.id}
+                      className={`text-[9px] leading-tight px-1 py-0.5 rounded border truncate flex items-center gap-1 ${TIPO_COLOR[ev.tipo]} ${paid ? 'opacity-50 line-through' : ''}`}
+                      title={paid ? `✓ Pagada — ${ev.descripcion}` : ev.descripcion}
+                    >
+                      {paid && <Check className="h-2.5 w-2.5 shrink-0" />}
+                      <span className="truncate">{TIPO_LABEL[ev.tipo]}</span>
+                    </span>
+                  );
+                })}
                 {dayEvents.length > 3 && (
                   <span className="text-[9px] text-muted-foreground">+{dayEvents.length - 3} más</span>
                 )}
@@ -167,22 +174,36 @@ export default function CalendarioMensual({ events, initialDate }: Props) {
             <p className="text-sm text-muted-foreground">Sin obligaciones este día.</p>
           ) : (
             <div className="space-y-2">
-              {selectedEvents.map(ev => (
-                <div key={ev.id} className={`p-3 rounded border ${TIPO_COLOR[ev.tipo]}`}>
-                  <div className="flex items-start gap-2">
-                    <Badge variant="outline" className="text-[10px] shrink-0 bg-background">
-                      {TIPO_LABEL[ev.tipo]}
-                    </Badge>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{ev.descripcion}</p>
-                      <p className="text-xs opacity-80 mt-0.5">
-                        {ev.periodo}
-                        {ev.monto ? ` · ${fmtMoney(ev.monto)}` : ''}
-                      </p>
+              {selectedEvents.map(ev => {
+                const paid = isPaid(ev);
+                return (
+                  <div
+                    key={ev.id}
+                    className={`p-3 rounded border ${TIPO_COLOR[ev.tipo]} ${paid ? 'opacity-60' : ''}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        checked={paid}
+                        onCheckedChange={() => togglePaid(ev)}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <Badge variant="outline" className="text-[10px] shrink-0 bg-background">
+                        {TIPO_LABEL[ev.tipo]}
+                      </Badge>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-medium ${paid ? 'line-through' : ''}`}>
+                          {ev.descripcion}
+                        </p>
+                        <p className="text-xs opacity-80 mt-0.5">
+                          {ev.periodo}
+                          {ev.monto ? ` · ${fmtMoney(ev.monto)}` : ''}
+                          {paid && <span className="ml-1 font-semibold">· ✓ Pagada</span>}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

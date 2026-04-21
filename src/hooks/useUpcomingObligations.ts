@@ -132,6 +132,7 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
           periodo: d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' }),
           monto: ob.monto_estimado,
           origen: 'negocio',
+          obligationId: ob.id,
         });
       }
     }

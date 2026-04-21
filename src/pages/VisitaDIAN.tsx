@@ -16,6 +16,7 @@ import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useFinancialHealthScore } from '@/hooks/useFinancialHealthScore';
 import { SCORE_VARIABLES } from '@/hooks/financialHealthScoreUtils';
 import { useUpcomingObligations, diasRestantes } from '@/hooks/useUpcomingObligations';
+import { usePaidObligations } from '@/hooks/usePaidObligations';
 import { useNico } from '@/hooks/useNicoContext';
 import { supabase } from '@/integrations/supabase/client';
 import { TIPO_LABEL } from '@/lib/dianCalendar2026';
@@ -49,6 +50,7 @@ function getNicoMessage(score: number): { line1: string; line2: string } {
 export default function VisitaDIAN() {
   const { config, saveConfig } = useFiscalConfig();
   const { events, urgentes, nitDigit } = useUpcomingObligations(15);
+  const { isPaid } = usePaidObligations();
   const { openNico, setPageContext } = useNico();
 
   const currentYear = new Date().getFullYear();
@@ -120,8 +122,8 @@ export default function VisitaDIAN() {
     setEditingFiscal(false);
   };
 
-  // Urgentes mostradas en el banner: máximo 6.
-  const urgentesTop = useMemo(() => urgentes.slice(0, 6), [urgentes]);
+  // Urgentes mostradas en el banner: máximo 6, filtra pagadas.
+  const urgentesTop = useMemo(() => urgentes.filter(ev => !isPaid(ev)).slice(0, 6), [urgentes, isPaid]);
 
   return (
     <AppLayout>

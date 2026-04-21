@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Link } from 'react-router-dom';
 import { ArrowRight, CalendarClock, AlertTriangle } from 'lucide-react';
 import { useUpcomingObligations, diasRestantes } from '@/hooks/useUpcomingObligations';
+import { usePaidObligations } from '@/hooks/usePaidObligations';
 import { TIPO_LABEL } from '@/lib/dianCalendar2026';
 
 const MAX_ITEMS = 5;
@@ -24,16 +26,17 @@ function urgencyBg(days: number): string {
 
 export default function UpcomingObligationsCard() {
   const { events, nitDigit } = useUpcomingObligations(UPCOMING_WINDOW_DAYS);
+  const { isPaid, togglePaid } = usePaidObligations();
 
   const upcoming = useMemo(() => {
     return events
       .filter(ev => {
         const d = diasRestantes(ev.fecha);
-        return d >= 0 && d <= UPCOMING_WINDOW_DAYS;
+        return d >= 0 && d <= UPCOMING_WINDOW_DAYS && !isPaid(ev);
       })
       .sort((a, b) => a.fecha.getTime() - b.fecha.getTime())
       .slice(0, MAX_ITEMS);
-  }, [events]);
+  }, [events, isPaid]);
 
   // Estado sin configurar: CTA suave.
   if (nitDigit === null) {
@@ -115,6 +118,17 @@ export default function UpcomingObligationsCard() {
                   key={ev.id}
                   className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${urgencyBg(dias)}`}
                 >
+                  <span
+                    onClick={e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      togglePaid(ev);
+                    }}
+                    className="shrink-0 flex items-center"
+                    title="Marcar como pagada"
+                  >
+                    <Checkbox className="h-3.5 w-3.5" />
+                  </span>
                   <Badge variant="outline" className="text-[9px] py-0 px-1.5 h-4 shrink-0 bg-background">
                     {TIPO_LABEL[ev.tipo]}
                   </Badge>

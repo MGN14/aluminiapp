@@ -102,6 +102,8 @@ export interface CalendarEvent {
   periodo: string;
   monto?: number | null;
   origen: 'dian' | 'ica' | 'negocio';
+  // For negocio events: ID of the business_obligation row (needed to toggle `completadas`).
+  obligationId?: string;
 }
 
 export const TIPO_COLOR: Record<ObligacionTipo, string> = {

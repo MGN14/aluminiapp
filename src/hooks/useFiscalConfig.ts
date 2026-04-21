@@ -24,6 +24,7 @@ export interface FiscalConfig {
   nivel_ingresos: 'menos_92k_uvt' | 'mas_92k_uvt' | null;
   actividad_principal: 'comercial' | 'servicios' | 'industrial' | 'construccion' | 'otro' | null;
   codigo_ciiu: string | null;
+  paid_dian_events: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +46,7 @@ export interface FiscalConfigInput {
   nivel_ingresos?: 'menos_92k_uvt' | 'mas_92k_uvt' | null;
   actividad_principal?: 'comercial' | 'servicios' | 'industrial' | 'construccion' | 'otro' | null;
   codigo_ciiu?: string | null;
+  paid_dian_events?: string[] | null;
 }
 
 export function useFiscalConfig() {
