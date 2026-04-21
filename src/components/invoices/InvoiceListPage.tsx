@@ -18,7 +18,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, Package, RefreshCw } from 'lucide-react';
+import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, Package, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
@@ -105,6 +105,9 @@ export default function InvoiceListPage({ type }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [reExtractingId, setReExtractingId] = useState<string | null>(null);
   const [bulkReExtracting, setBulkReExtracting] = useState(false);
+  // Progreso visible mientras corre la re-extracción (single o bulk).
+  // current=1/total=1 para single; current=k/total=N para bulk.
+  const [reExtractProgress, setReExtractProgress] = useState<{ current: number; total: number; name: string } | null>(null);
 
   const isEmpresarial = plan === 'empresarial' || plan === 'pro' || plan === 'admin' || isTrialing;
 
@@ -113,27 +116,39 @@ export default function InvoiceListPage({ type }: Props) {
 
   const summary = useMemo(() => {
     const confirmed = invoices.filter(i => i.status === 'confirmed');
-    // Cuenta de contrapartes únicas (clientes para 'venta', proveedores para 'compra').
-    // Usa counterparty_name; si falta, cae a buyer_name (venta) o seller_name (compra).
-    const uniqueCounterparties = new Set<string>();
-    for (const i of confirmed) {
-      const name = (i.counterparty_name
-        || (type === 'venta' ? i.buyer_name : i.seller_name)
-        || '').trim().toLowerCase();
-      if (name) uniqueCounterparties.add(name);
-    }
     return {
       count: confirmed.length,
       total: confirmed.reduce((s, i) => s + i.total_amount, 0),
       iva: confirmed.reduce((s, i) => s + i.iva_amount, 0),
-      counterpartyCount: uniqueCounterparties.size,
     };
+  }, [invoices]);
+
+  // Ranking de facturación agrupada por contraparte (cliente para 'venta',
+  // proveedor para 'compra'), ordenado de mayor a menor.
+  // Normaliza por name.toLowerCase() para unificar duplicados por casing/espacios.
+  const counterpartyRanking = useMemo(() => {
+    const confirmed = invoices.filter(i => i.status === 'confirmed');
+    const map = new Map<string, { name: string; total: number; count: number }>();
+    for (const i of confirmed) {
+      const rawName = (i.counterparty_name
+        || (type === 'venta' ? i.buyer_name : i.seller_name)
+        || '').trim();
+      const displayName = rawName || 'Sin identificar';
+      const key = displayName.toLowerCase();
+      const prev = map.get(key);
+      if (prev) {
+        prev.total += i.total_amount;
+        prev.count += 1;
+      } else {
+        map.set(key, { name: displayName, total: i.total_amount, count: 1 });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
   }, [invoices, type]);
 
   const summaryLabel1 = type === 'venta' ? 'Total facturado' : 'Total comprado';
   const summaryLabel2 = type === 'venta' ? 'IVA generado' : 'IVA descontable';
-  const summaryLabel3 = type === 'venta' ? 'Facturación por cliente total' : 'Proveedores facturando';
-  const summaryValue3 = summary.counterpartyCount;
+  const rankingTitle = type === 'venta' ? 'Facturación por cliente' : 'Facturación por proveedor';
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -266,12 +281,20 @@ export default function InvoiceListPage({ type }: Props) {
   }, []);
 
   const handleReExtractItems = useCallback(async (inv: Invoice) => {
+    const displayName = inv.invoice_number || inv.display_name || inv.original_filename || 'la factura';
     setReExtractingId(inv.id);
+    setReExtractProgress({ current: 1, total: 1, name: displayName });
     const res = await reExtractItems(inv.id);
     setReExtractingId(null);
+    setReExtractProgress(null);
     if (res.ok) {
-      if (res.reextractedAt) markReextractedLocally(inv.id, res.reextractedAt);
-      toast({ title: 'Ítems re-extraídos', description: `${res.count} líneas guardadas para ${inv.invoice_number || inv.display_name || 'la factura'}.` });
+      // Fallback: si la edge function vieja no devuelve items_reextracted_at,
+      // igual marcamos con timestamp local para que el check verde aparezca
+      // inmediatamente en esta sesión. El refetch/recarga la perdería, pero
+      // una vez que Lovable despliegue la nueva versión quedará persistida en DB.
+      const stamp = res.reextractedAt || new Date().toISOString();
+      markReextractedLocally(inv.id, stamp);
+      toast({ title: 'Ítems re-extraídos', description: `${res.count} líneas guardadas para ${displayName}.` });
     } else {
       toast({ title: 'No se pudo re-extraer', description: res.error, variant: 'destructive' });
     }
@@ -285,16 +308,23 @@ export default function InvoiceListPage({ type }: Props) {
     }
     setBulkReExtracting(true);
     let ok = 0, fail = 0, totalItems = 0;
-    for (const inv of targets) {
+    for (let idx = 0; idx < targets.length; idx++) {
+      const inv = targets[idx];
+      const displayName = inv.invoice_number || inv.display_name || inv.original_filename || 'factura';
+      setReExtractingId(inv.id);
+      setReExtractProgress({ current: idx + 1, total: targets.length, name: displayName });
       const res = await reExtractItems(inv.id);
       if (res.ok) {
         ok++;
         totalItems += res.count ?? 0;
-        if (res.reextractedAt) markReextractedLocally(inv.id, res.reextractedAt);
+        const stamp = res.reextractedAt || new Date().toISOString();
+        markReextractedLocally(inv.id, stamp);
       } else {
         fail++;
       }
     }
+    setReExtractingId(null);
+    setReExtractProgress(null);
     setBulkReExtracting(false);
     toast({
       title: 'Re-extracción masiva completa',
@@ -377,8 +407,31 @@ export default function InvoiceListPage({ type }: Props) {
           </div>
         </div>
 
+        {/* Banner de progreso de re-extracción (visible durante single o bulk) */}
+        {reExtractProgress && (
+          <div
+            style={{
+              background: 'oklch(0.52 0.16 240 / 0.06)',
+              border: '1.5px solid oklch(0.52 0.16 240 / 0.18)',
+              borderRadius: 12,
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}
+          >
+            <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'oklch(0.52 0.16 240)', flexShrink: 0 }} />
+            <div style={{ fontSize: 13, color: '#1d1d1f' }}>
+              <span style={{ fontWeight: 600 }}>
+                Re-extrayendo {reExtractProgress.total > 1 ? `${reExtractProgress.current} de ${reExtractProgress.total}` : 'factura'}:
+              </span>{' '}
+              <span style={{ color: '#6e6e73' }}>{reExtractProgress.name}</span>
+            </div>
+          </div>
+        )}
+
         {/* Micro summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div
             style={{
               background: '#fff',
@@ -443,6 +496,10 @@ export default function InvoiceListPage({ type }: Props) {
               {formatCurrency(summary.iva)}
             </div>
           </div>
+        </div>
+
+        {/* Ranking de facturación agrupada por cliente/proveedor (mayor a menor) */}
+        {counterpartyRanking.length > 0 && (
           <div
             style={{
               background: '#fff',
@@ -459,23 +516,75 @@ export default function InvoiceListPage({ type }: Props) {
                 letterSpacing: '0.8px',
                 textTransform: 'uppercase',
                 color: '#a1a1a6',
+                marginBottom: 12,
               }}
             >
-              {summaryLabel3}
+              {rankingTitle} · {counterpartyRanking.length} {counterpartyRanking.length === 1 ? (type === 'venta' ? 'cliente' : 'proveedor') : (type === 'venta' ? 'clientes' : 'proveedores')}
             </div>
-            <div
-              style={{
-                fontSize: 22,
-                fontWeight: 700,
-                letterSpacing: '-0.5px',
-                color: '#1d1d1f',
-                marginTop: 4,
-              }}
-            >
-              {summaryValue3}
+            <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+              {counterpartyRanking.map((r, idx) => {
+                const pct = summary.total > 0 ? (r.total / summary.total) * 100 : 0;
+                return (
+                  <div
+                    key={`${r.name}-${idx}`}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '28px 1fr auto',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '8px 0',
+                      borderBottom: idx < counterpartyRanking.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: '#a1a1a6',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      #{idx + 1}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          color: '#1d1d1f',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {r.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: '#6e6e73',
+                          marginTop: 2,
+                        }}
+                      >
+                        {r.count} {r.count === 1 ? 'factura' : 'facturas'} · {pct.toFixed(1)}%
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: '#1d1d1f',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {formatCurrency(r.total)}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        </div>
+        )}
 
         {/* Filters */}
         <div className="flex gap-3 flex-wrap items-end">
@@ -590,8 +699,19 @@ export default function InvoiceListPage({ type }: Props) {
                           <TableCell className="text-sm">
                             {format(parseLocalDate(displayDate), 'dd MMM yy', { locale: es })}
                           </TableCell>
-                          <TableCell className="font-medium text-sm truncate max-w-[200px]">
-                            {inv.display_name || inv.invoice_number || inv.original_filename || '—'}
+                          <TableCell className="font-medium text-sm max-w-[220px]">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="truncate">
+                                {inv.display_name || inv.invoice_number || inv.original_filename || '—'}
+                              </span>
+                              {reextractedAt && (
+                                <CheckCircle2
+                                  className="h-3.5 w-3.5 flex-shrink-0"
+                                  style={{ color: 'oklch(0.43 0.14 155)' }}
+                                  aria-label="Ítems re-extraídos"
+                                />
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-sm truncate max-w-[180px]">
                             {inv.counterparty_name || (type === 'venta' ? inv.buyer_name : inv.seller_name) || '—'}
