@@ -1409,18 +1409,30 @@ ${financialContext}${memoryBlock}`;
     // Hacemos la llamada SIN streaming y emitimos SSE "sintético" al cliente
     // para preservar el parser SSE existente en NicoAgentChat.tsx.
     //
-    // [v3] Retry con backoff: gemini-2.5-flash devuelve 503 UNAVAILABLE en
-    // horas pico ("This model is currently experiencing high demand"). Es
-    // transitorio, se resuelve reintentando. También cubrimos 500/502/504.
-    const geminiBody = JSON.stringify({
-      model: "gemini-2.5-flash",
-      messages: [
-        { role: "system", content: finalSystemPrompt },
-        ...historyForModel,
-      ],
-    });
+    // [v4] Estrategia multi-modelo contra 503 UNAVAILABLE:
+    //   1. Intentar gemini-2.5-flash (primario) 3 veces con backoff corto.
+    //   2. Si aún está saturado, UN intento con gemini-2.0-flash (fallback).
+    //      El 2.0 es generación anterior, suele estar menos saturado y para
+    //      chat rinde bien. El contexto y el prompt no cambian.
+    //   3. Si ambos fallan, mensaje claro al usuario.
+    //
+    // Timing worst-case: ~2.1s en primario + ~2s en fallback = ~4-5s. OK para
+    // un chat donde el usuario espera respuesta.
+    const PRIMARY_MODEL = "gemini-2.5-flash";
+    const FALLBACK_MODEL = "gemini-2.0-flash";
+    const RETRYABLE = new Set([500, 502, 503, 504]);
 
-    async function callGemini(): Promise<Response> {
+    function buildBody(model: string): string {
+      return JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: finalSystemPrompt },
+          ...historyForModel,
+        ],
+      });
+    }
+
+    async function callGemini(model: string): Promise<Response> {
       return await fetch(
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         {
@@ -1429,30 +1441,40 @@ ${financialContext}${memoryBlock}`;
             Authorization: `Bearer ${GEMINI_API_KEY}`,
             "Content-Type": "application/json",
           },
-          body: geminiBody,
+          body: buildBody(model),
         },
       );
     }
 
-    const RETRYABLE = new Set([500, 502, 503, 504]);
-    const BACKOFF_MS = [0, 600, 1500]; // 3 intentos: inmediato, 600ms, 1.5s
+    // Plan de intentos: [modelo, delayAntesDeIntento]
+    const attempts: Array<{ model: string; delayMs: number; label: string }> = [
+      { model: PRIMARY_MODEL, delayMs: 0, label: "primary-1" },
+      { model: PRIMARY_MODEL, delayMs: 600, label: "primary-2" },
+      { model: PRIMARY_MODEL, delayMs: 1500, label: "primary-3" },
+      { model: FALLBACK_MODEL, delayMs: 500, label: "fallback-1" },
+    ];
+
     let response!: Response;
     let lastStatus = 0;
     let lastBody = "";
+    let modelUsed = PRIMARY_MODEL;
 
-    for (let attempt = 0; attempt < BACKOFF_MS.length; attempt++) {
-      if (BACKOFF_MS[attempt] > 0) {
-        await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+    for (const { model, delayMs, label } of attempts) {
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+      response = await callGemini(model);
+      if (response.ok) {
+        modelUsed = model;
+        if (model !== PRIMARY_MODEL) {
+          console.log(`nico-chat [v4]: sirvió con ${model} (fallback OK tras saturación)`);
+        }
+        break;
       }
-      response = await callGemini();
-      if (response.ok) break;
       lastStatus = response.status;
-      // Solo reintentamos 5xx transitorios. 4xx (401, 403, 429, 400) se
-      // cortan inmediato — no tiene sentido reintentar auth/quota/payload.
+      // 4xx (401, 403, 429, 400) se cortan inmediato — no sirve reintentar.
       if (!RETRYABLE.has(response.status)) break;
       lastBody = await response.text();
       console.warn(
-        `nico-chat [v3]: Gemini ${response.status} intento ${attempt + 1}/${BACKOFF_MS.length}. Reintentando…`,
+        `nico-chat [v4] ${label}: ${model} devolvió ${response.status}. Siguiente intento…`,
       );
     }
 
@@ -1469,20 +1491,21 @@ ${financialContext}${memoryBlock}`;
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      // 5xx después de reintentos: típicamente Gemini saturado.
+      // 5xx después de TODOS los reintentos (primario + fallback): ambos
+      // modelos están caídos. Muy raro; típicamente un outage de Google AI.
       const t = lastBody || (await response.text().catch(() => ""));
-      console.error("AI gateway error tras reintentos:", lastStatus || response.status, t);
+      console.error("AI gateway error tras reintentos + fallback:", lastStatus || response.status, t);
       const isOverloaded = RETRYABLE.has(lastStatus || response.status);
       const msg = isOverloaded
-        ? "Nico está saturado en este momento (Gemini devolvió alta demanda). Intentá de nuevo en unos segundos."
-        : `Error al conectar con Nico. [v3] Gemini status=${lastStatus || response.status}.`;
+        ? "Nico está saturado en este momento (probamos modelo alternativo y también está ocupado). Intentá de nuevo en unos segundos."
+        : `Error al conectar con Nico. [v4] Gemini status=${lastStatus || response.status}.`;
       return new Response(
         JSON.stringify({ error: msg }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    console.log("nico-chat [v3]: Gemini response ok, parsing…");
+    console.log(`nico-chat [v4]: OK con ${modelUsed}. Parseando…`);
 
     // Parse de la respuesta completa (OpenAI-compat sin streaming).
     const aiJson = await response.json().catch((err) => {
