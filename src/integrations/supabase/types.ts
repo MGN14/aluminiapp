@@ -962,8 +962,42 @@ export type Database = {
         }
         Relationships: []
       }
+      nico_agent_memory: {
+        Row: {
+          agent_key: string
+          facts: Json
+          id: string
+          last_summarized_at: string | null
+          message_count_at_summary: number
+          summary: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent_key: string
+          facts?: Json
+          id?: string
+          last_summarized_at?: string | null
+          message_count_at_summary?: number
+          summary?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent_key?: string
+          facts?: Json
+          id?: string
+          last_summarized_at?: string | null
+          message_count_at_summary?: number
+          summary?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       nico_messages: {
         Row: {
+          agent_key: string
           content: string
           created_at: string
           id: string
@@ -972,6 +1006,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          agent_key?: string
           content: string
           created_at?: string
           id?: string
@@ -980,11 +1015,30 @@ export type Database = {
           user_id: string
         }
         Update: {
+          agent_key?: string
           content?: string
           created_at?: string
           id?: string
           page_context?: string | null
           role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      nico_usage_daily: {
+        Row: {
+          day: string
+          message_count: number
+          user_id: string
+        }
+        Insert: {
+          day?: string
+          message_count?: number
+          user_id: string
+        }
+        Update: {
+          day?: string
+          message_count?: number
           user_id?: string
         }
         Relationships: []
