@@ -552,7 +552,7 @@ export default function PYGReport() {
                     {m}
                   </TableHead>
                 ))}
-                <TableHead className="text-right font-semibold min-w-[140px] border-l border-border">
+                <TableHead className="sticky right-0 z-30 bg-muted/80 backdrop-blur-sm text-right font-semibold min-w-[140px] border-l border-border">
                   Total
                 </TableHead>
               </TableRow>
@@ -655,7 +655,8 @@ export default function PYGReport() {
                         </TableCell>
                       ))}
                       <TableCell className={cn(
-                        'text-right tabular-nums border-l border-border',
+                        'sticky right-0 z-10 text-right tabular-nums border-l border-border',
+                        stickyBg,
                         row.isDetail && 'text-xs',
                         row.isSubDetail && 'text-[11px] text-muted-foreground/80',
                         row.isNet && 'text-base',

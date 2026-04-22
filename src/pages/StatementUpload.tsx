@@ -233,21 +233,31 @@ export default function StatementUpload() {
           >
             <Info className="h-4 w-4" style={{ marginTop: 2, flexShrink: 0 }} />
             <div style={{ fontFamily: 'inherit' }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4, fontFamily: 'inherit' }}>
-                Dos formas de cargar
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6, fontFamily: 'inherit' }}>
+                ¿Con qué frecuencia conciliás tus cuentas?
               </div>
-              <div style={{ fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit' }}>
-                Usá el <strong>PDF</strong> para el cierre mensual oficial del banco, o el{' '}
-                <strong>CSV/ZIP</strong> para movimientos semanales (más rápido y preciso, sin OCR).
+              <div style={{ fontSize: 13, lineHeight: 1.55, fontFamily: 'inherit' }}>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Semanal</strong> → subí el <strong>CSV/ZIP</strong> de movimientos desde el portal (rápido, sin OCR). Al cierre del mes, validás con el PDF oficial.
+                </div>
+                <div>
+                  <strong>Mensual</strong> → subí el <strong>PDF</strong> oficial del banco, una sola vez al mes.
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Split: PDF (cierre mensual) | CSV/ZIP (semanal) */}
+          {/* Split: PDF (cierre mensual) | CSV/ZIP (semanal).
+              alignItems:stretch + flex:1 en el Card wrapper garantiza que los
+              dos uploaders queden del mismo alto aunque sus contenidos internos
+              difieran (el PDFUploader tiene botón, el CSV no). */}
           <style>{`
             @media (max-width: 767px) {
               .upload-split { grid-template-columns: 1fr !important; }
             }
+            .upload-card-wrap { flex: 1; display: flex; flex-direction: column; min-height: 260px; }
+            .upload-card-wrap > :first-child { flex: 1; display: flex; flex-direction: column; }
+            .upload-card-wrap > :first-child > :first-child { flex: 1; display: flex; flex-direction: column; justify-content: center; }
           `}</style>
           <div
             className="upload-split"
@@ -255,6 +265,7 @@ export default function StatementUpload() {
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
               gap: 20,
+              alignItems: 'stretch',
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -270,7 +281,9 @@ export default function StatementUpload() {
               >
                 Cierre mensual (PDF)
               </h2>
-              <PDFUploader onUploadComplete={handleUploadComplete} />
+              <div className="upload-card-wrap">
+                <PDFUploader onUploadComplete={handleUploadComplete} />
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -286,7 +299,9 @@ export default function StatementUpload() {
               >
                 Movimientos semanales (CSV/ZIP)
               </h2>
-              <WeeklyCsvUploader onUploadComplete={fetchStatements} />
+              <div className="upload-card-wrap">
+                <WeeklyCsvUploader onUploadComplete={fetchStatements} />
+              </div>
             </div>
           </div>
 
