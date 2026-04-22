@@ -130,20 +130,32 @@ export default function EnviarExportModal({ open, onOpenChange, transactionCount
           .eq('user_id', user!.id);
       }
 
-      // Invocar edge function
+      // Invocar edge function con fetch directo para poder leer el body de error
+      // (supabase.functions.invoke oculta el mensaje detrás de "non-2xx status").
       const fileName = `aluminia_movimientos_${new Date().toISOString().split('T')[0]}.xlsx`;
-      const { data, error } = await supabase.functions.invoke('send-export-email', {
-        body: {
-          to_email: toEmail,
-          message,
-          file_base64: base64,
-          file_name: fileName,
-          transaction_count: transactionCount,
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-export-email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            to_email: toEmail,
+            message,
+            file_base64: base64,
+            file_name: fileName,
+            transaction_count: transactionCount,
+          }),
         },
-      });
-
-      if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
+      );
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok || payload?.error) {
+        throw new Error(payload?.error || `Error ${resp.status}`);
+      }
 
       toast({
         title: '✓ Correo enviado',
