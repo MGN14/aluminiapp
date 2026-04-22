@@ -312,24 +312,69 @@ Reglas CRÍTICAS:
 
     // Re-extract items only: replace invoice_items in DB, don't touch invoice header/status.
     if (only_items) {
-      await supabase.from("invoice_items").delete().eq("invoice_id", invoice_id);
-      if (extracted.items.length > 0) {
-        const rows = extracted.items.map((it: Record<string, unknown>) => ({
-          invoice_id,
-          user_id: userId,
-          item_code: (it.item_code as string) || null,
-          reference: (it.reference as string) || null,
-          description: (it.description as string) || null,
-          quantity: (it.quantity as number) ?? 1,
-          unit_price: (it.unit_price as number) ?? 0,
-          line_base: (it.line_base as number) ?? 0,
-          iva_rate: (it.iva_rate as number) ?? 0.19,
-          iva_amount: (it.iva_amount as number) ?? 0,
-          line_total: (it.line_total as number) ?? 0,
-        }));
+      const rows = extracted.items.map((it: Record<string, unknown>) => ({
+        invoice_id,
+        user_id: userId,
+        item_code: (it.item_code as string) || null,
+        reference: (it.reference as string) || null,
+        description: (it.description as string) || null,
+        quantity: (it.quantity as number) ?? 1,
+        unit_price: (it.unit_price as number) ?? 0,
+        line_base: (it.line_base as number) ?? 0,
+        iva_rate: (it.iva_rate as number) ?? 0.19,
+        iva_amount: (it.iva_amount as number) ?? 0,
+        line_total: (it.line_total as number) ?? 0,
+      }));
+
+      // Backup-and-restore para delete+insert atómico sin RPC.
+      // Si el insert falla después del delete, los ítems anteriores quedan perdidos.
+      // Los leemos antes, borramos, insertamos; si el insert falla, reintroducimos
+      // el snapshot anterior. Evita el escenario "IA falló y perdí las líneas
+      // confirmadas que tenía".
+      const { data: previousItems, error: backupErr } = await supabase
+        .from("invoice_items")
+        .select("invoice_id, user_id, item_code, reference, description, quantity, unit_price, line_base, iva_rate, iva_amount, line_total")
+        .eq("invoice_id", invoice_id);
+
+      if (backupErr) {
+        console.error("Backup items error:", backupErr);
+        return new Response(JSON.stringify({ error: "Error leyendo ítems previos" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { error: deleteErr } = await supabase
+        .from("invoice_items")
+        .delete()
+        .eq("invoice_id", invoice_id);
+
+      if (deleteErr) {
+        console.error("Delete items error:", deleteErr);
+        return new Response(JSON.stringify({ error: "Error limpiando ítems previos" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (rows.length > 0) {
         const { error: itemsErr } = await supabase.from("invoice_items").insert(rows);
         if (itemsErr) {
           console.error("Insert items error:", itemsErr);
+          // Restaurar snapshot para no dejar la factura vacía de líneas.
+          if (previousItems && previousItems.length > 0) {
+            const { error: restoreErr } = await supabase
+              .from("invoice_items")
+              .insert(previousItems);
+            if (restoreErr) {
+              console.error(
+                "CRITICAL: restore after failed insert also failed",
+                { invoice_id, restoreErr, lostItems: previousItems.length },
+              );
+            } else {
+              console.log(`Restored ${previousItems.length} previous items after failed re-extract`);
+            }
+          }
           return new Response(JSON.stringify({ error: "Error guardando ítems" }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
