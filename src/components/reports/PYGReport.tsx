@@ -543,16 +543,16 @@ export default function PYGReport() {
         <div className="overflow-x-auto relative">
           <Table>
             <TableHeader className="sticky top-0 z-20">
-              <TableRow className="bg-muted/80 backdrop-blur-sm">
-                <TableHead className="sticky left-0 z-30 bg-muted/80 backdrop-blur-sm min-w-[220px] font-semibold">
+              <TableRow className="bg-muted">
+                <TableHead className="sticky left-0 z-30 bg-muted min-w-[220px] font-semibold">
                   Concepto
                 </TableHead>
                 {MONTH_NAMES.map((m) => (
-                  <TableHead key={m} className="text-right font-semibold min-w-[110px]">
+                  <TableHead key={m} className="text-right font-semibold min-w-[110px] bg-muted">
                     {m}
                   </TableHead>
                 ))}
-                <TableHead className="sticky right-0 z-30 bg-muted/80 backdrop-blur-sm text-right font-semibold min-w-[140px] border-l border-border">
+                <TableHead className="sticky right-0 z-30 bg-muted text-right font-semibold min-w-[140px] border-l border-border">
                   Total
                 </TableHead>
               </TableRow>
@@ -576,9 +576,18 @@ export default function PYGReport() {
                   const netBg = row.isNet
                     ? (row.total > 0 ? 'bg-success/10' : row.total < 0 ? 'bg-destructive/10' : 'bg-muted/40')
                     : '';
+                  // IMPORTANTE: los backgrounds de las celdas sticky tienen que
+                  // ser 100% opacos. Si usamos alpha (bg-*/10, bg-*/30) las cells
+                  // de los meses que scrollean por debajo se ven a través y el
+                  // texto se superpone. Por eso acá todos son colores sólidos
+                  // (bg-green-50, bg-red-50, bg-muted, bg-card → todos sin /N).
                   const stickyBg = row.isNet
-                    ? (row.total > 0 ? 'bg-success/10' : row.total < 0 ? 'bg-destructive/10' : 'bg-muted/40')
-                    : row.isSubtotal ? 'bg-muted/30' : 'bg-card';
+                    ? (row.total > 0
+                        ? 'bg-green-50 dark:bg-green-950'
+                        : row.total < 0
+                          ? 'bg-red-50 dark:bg-red-950'
+                          : 'bg-muted')
+                    : row.isSubtotal ? 'bg-muted' : 'bg-card';
 
                   return (
                     <TableRow
