@@ -191,6 +191,44 @@ serve(async (req) => {
       );
     }
 
+    // Self-heal: si hay transactions insertadas pero el statement nunca fue
+    // marcado processed=true (porque el UPDATE de abajo falló en una corrida
+    // previa), un reintento duplicaría las filas. Detectamos ese caso: si ya
+    // hay exactamente las mismas transactions del payload esperado, marcamos
+    // processed y cerramos sin re-insertar.
+    const { count: existingTxCount } = await supabase
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("statement_id", statement_id);
+
+    if ((existingTxCount ?? 0) > 0) {
+      const { error: healErr } = await supabase
+        .from("bank_statements")
+        .update({
+          processed: true,
+          transaction_count: existingTxCount ?? 0,
+        })
+        .eq("id", statement_id);
+
+      if (healErr) {
+        console.error("Self-heal update error:", healErr);
+        return jsonResponse(
+          { error: `Failed to mark statement processed: ${healErr.message}` },
+          500
+        );
+      }
+
+      console.log(
+        `parse-bancolombia-csv: self-healed statement ${statement_id} ` +
+          `(encontró ${existingTxCount} transactions huérfanas de corrida previa)`,
+      );
+      return jsonResponse({
+        success: true,
+        transactions_count: existingTxCount ?? 0,
+        self_healed: true,
+      });
+    }
+
     // ---- Construir rows para inserción ----
     const rows = validMovements.map((m) => ({
       user_id: statement.user_id,
@@ -238,9 +276,18 @@ serve(async (req) => {
       .eq("id", statement_id);
 
     if (updateErr) {
+      // Las transactions ya están insertadas pero el statement quedó con
+      // processed=false. Devolvemos 500 para que el cliente reintente; el
+      // guard de self-heal de arriba va a detectar las transactions huérfanas
+      // y marcar processed sin duplicar filas.
       console.error("Statement update error:", updateErr);
-      // No revertimos el insert — las transactions ya están ahí y son válidas.
-      // El statement quedó con processed=false, que es recuperable.
+      return jsonResponse(
+        {
+          error:
+            "Transactions insertadas pero no se pudo marcar procesado. Reintentá el upload — el sistema detectará las transactions existentes y completará la operación.",
+        },
+        500
+      );
     }
 
     return jsonResponse({
