@@ -8,6 +8,22 @@ const logStep = (step: string, details?: Record<string, unknown>) => {
 const WOMPI_SANDBOX_URL = "https://sandbox.wompi.co/v1";
 const PLAN_AMOUNT_CENTS = 39900000; // $399,000 COP
 
+// Debe coincidir con signReference() en create-wompi-checkout.
+async function computeReferenceSig(payload: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  const hex = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hex.slice(0, 16);
+}
+
 serve(async (req) => {
   // Webhooks are POST only, no CORS needed (server-to-server)
   if (req.method !== "POST") {
@@ -108,48 +124,54 @@ serve(async (req) => {
       return new Response("Amount mismatch", { status: 400 });
     }
 
-    // Step 3: Find user from customer_data or reference
-    // Try to extract user_id from customer_references or payment link reference
-    let userId: string | null = null;
+    // Step 3: Find user via HMAC-signed reference.
+    // El reference se genera server-side en create-wompi-checkout firmando
+    // `${userId}-${plan}-${timestamp}` con WOMPI_EVENTS_SECRET y anexando 16 hex.
+    // Formato: `aluminia-{plan}-{uuid}-{timestamp}-{sig16}`
+    // Descartamos customer_references.user_id porque lo rellena el pagador
+    // (manipulable) y payment_link_id porque apunta al mismo dato inseguro.
+    const reference: string = verifyData?.data?.reference || transaction?.reference || "";
+    const refMatch = reference.match(
+      /^aluminia-(basico|empresarial)-([a-f0-9-]{36})-(\d+)-([a-f0-9]{16})$/
+    );
 
-    // Check reference field (format: aluminia-basico-{userId}-{timestamp})
-    const reference = verifyData?.data?.reference || transaction?.reference || "";
-    const refMatch = reference.match(/aluminia-basico-([a-f0-9-]{36})-/);
-    if (refMatch) {
-      userId = refMatch[1];
+    if (!refMatch) {
+      logStep("Reference format invalid or unsigned", { reference: reference.slice(0, 80) });
+      return new Response("Invalid reference", { status: 400 });
     }
 
-    // Also check customer_data references
-    if (!userId) {
-      const customerRefs = verifyData?.data?.customer_data?.customer_references || [];
-      const userIdRef = customerRefs.find((r: any) => r.label === "user_id");
-      if (userIdRef?.value) {
-        userId = userIdRef.value;
-      }
+    const [, refPlan, refUserId, refTimestamp, refSig] = refMatch;
+    const expectedSig = await computeReferenceSig(
+      `${refUserId}-${refPlan}-${refTimestamp}`,
+      eventsSecret,
+    );
+
+    if (expectedSig !== refSig) {
+      logStep("Reference signature mismatch", { expected: expectedSig, got: refSig });
+      return new Response("Invalid reference signature", { status: 401 });
     }
 
-    // Also check payment_link_id and look up from payment link
-    if (!userId) {
-      const paymentLinkId = verifyData?.data?.payment_link_id;
-      if (paymentLinkId) {
-        const linkRes = await fetch(`${WOMPI_SANDBOX_URL}/payment_links/${paymentLinkId}`, {
-          headers: { Authorization: `Bearer ${wompiPrivateKey}` },
-        });
-        if (linkRes.ok) {
-          const linkData = await linkRes.json();
-          const refs = linkData?.data?.customer_data?.customer_references || [];
-          const ref = refs.find((r: any) => r.label === "user_id");
-          if (ref?.value) userId = ref.value;
-        }
-      }
-    }
+    const userId: string = refUserId;
+    logStep("User identified via signed reference", { userId, plan: refPlan });
 
-    if (!userId) {
-      logStep("Could not determine user_id from transaction");
-      return new Response("User not found", { status: 400 });
-    }
+    // Step 3.5: Idempotency — si ya activamos este transactionId, no repetimos.
+    // Evita que reintentos de Wompi (timeouts, 5xx transitorios) extiendan el
+    // periodo ni dupliquen logs. Comparamos por wompi_transaction_id que es único
+    // por transacción en Wompi.
+    const { data: existingSub } = await supabase
+      .from("user_subscriptions")
+      .select("wompi_transaction_id, plan_expires_at")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    logStep("User identified", { userId });
+    if (existingSub?.wompi_transaction_id === transactionId) {
+      logStep("Webhook replay ignored (already processed)", {
+        userId,
+        transactionId,
+        expiresAt: existingSub.plan_expires_at,
+      });
+      return new Response("OK", { status: 200 });
+    }
 
     // Step 4: Activate plan
     const now = new Date();

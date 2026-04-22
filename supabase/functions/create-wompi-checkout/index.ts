@@ -11,6 +11,25 @@ const logStep = (step: string, details?: Record<string, unknown>) => {
 
 const WOMPI_SANDBOX_URL = "https://sandbox.wompi.co/v1";
 
+// HMAC-SHA256 sobre `${userId}-${plan}-${timestamp}` usando WOMPI_EVENTS_SECRET.
+// Se anexa al reference para que wompi-webhook pueda verificar que el user_id
+// no fue adulterado por el pagador (sin esto, un atacante podría inyectar un
+// user_id ajeno vía customer_references y activar el plan de otra cuenta).
+async function signReference(payload: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  const hex = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hex.slice(0, 16);
+}
+
 interface PlanConfig {
   name: string;
   description: string;
@@ -106,9 +125,15 @@ serve(async (req) => {
     const wompiPrivateKey = Deno.env.get("WOMPI_PRIVATE_KEY");
     if (!wompiPrivateKey) throw new Error("WOMPI_PRIVATE_KEY is not set");
 
+    const eventsSecret = Deno.env.get("WOMPI_EVENTS_SECRET") ?? "";
+    if (!eventsSecret) throw new Error("WOMPI_EVENTS_SECRET is not set");
+
     const origin = req.headers.get("origin") || "https://aluminia.app";
     const basePlan = planKey.replace("-anual", "");
-    const reference = `aluminia-${basePlan}-${userJson.id}-${Date.now()}`;
+    const timestamp = Date.now();
+    const payload = `${userJson.id}-${basePlan}-${timestamp}`;
+    const sig = await signReference(payload, eventsSecret);
+    const reference = `aluminia-${basePlan}-${userJson.id}-${timestamp}-${sig}`;
 
     const linkRes = await fetch(`${WOMPI_SANDBOX_URL}/payment_links`, {
       method: "POST",
@@ -124,6 +149,9 @@ serve(async (req) => {
         currency: "COP",
         amount_in_cents: planConfig.amount_in_cents,
         redirect_url: `${origin}/dashboard?payment=success`,
+        // reference: lo atamos al payment_link para que viaje firmado hasta el webhook.
+        // Wompi lo propaga al transaction.reference cuando el usuario paga.
+        reference,
         customer_data: {
           customer_references: [
             { label: "user_id", is_required: true },
