@@ -57,11 +57,28 @@ interface Suggestion {
   transactionAmount: number;
 }
 
+interface InitialCxCRow {
+  id: string;
+  responsible_name: string | null;
+  amount: number;
+  paid_amount: number;
+  pending: number;
+  details: PaymentDetail[];
+}
+
+interface VincularSaldoInicialTarget {
+  id: string;
+  responsible_name: string | null;
+  pending: number;
+  total_amount: number;
+}
+
 export default function AccountsReceivableReport() {
   const { user } = useAuth();
   const [year, setYear] = useState(currentYear);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [vincularInvoice, setVincularInvoice] = useState<InvoiceWithPayments | null>(null);
+  const [vincularSaldoInicial, setVincularSaldoInicial] = useState<VincularSaldoInicialTarget | null>(null);
 
   const toggleRow = (id: string) => {
     setExpandedRows(prev => {
@@ -98,10 +115,67 @@ export default function AccountsReceivableReport() {
 
       const { data: invoices, error: invErr } = invoicesRes;
       const initialCxCDetails = (initialDetailsRes.data as any[]) || [];
-      const initialCxC = initialCxCDetails.reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
 
       if (invErr) throw invErr;
-      if (!invoices?.length && initialCxCDetails.length === 0) return { receivables: [], suggestions: [], initialCxC: 0, initialCxCDetails };
+      if (!invoices?.length && initialCxCDetails.length === 0) return { receivables: [], suggestions: [], initialCxC: 0, initialCxCRows: [] as InitialCxCRow[] };
+
+      // Matches against initial balances (partial payments)
+      const initialIds = initialCxCDetails.map((d: any) => d.id);
+      let iniMatches: any[] = [];
+      const iniMatchTxIds = new Set<string>();
+      if (initialIds.length > 0) {
+        const { data: iniMatchRes } = await supabase
+          .from('initial_balance_matches' as any)
+          .select('initial_state_detail_id, transaction_id, matched_amount')
+          .eq('user_id', user.id)
+          .in('initial_state_detail_id', initialIds);
+        iniMatches = (iniMatchRes as any[]) || [];
+        iniMatches.forEach((m: any) => iniMatchTxIds.add(m.transaction_id));
+      }
+
+      // Resolve tx descriptions/dates for initial-balance matches
+      const iniMatchTxMap = new Map<string, { description: string; date: string }>();
+      if (iniMatchTxIds.size > 0) {
+        const { data: iniMatchTxs } = await supabase
+          .from('transactions')
+          .select('id, description, date')
+          .in('id', [...iniMatchTxIds]);
+        (iniMatchTxs || []).forEach((t: any) => iniMatchTxMap.set(t.id, { description: t.description, date: t.date }));
+      }
+
+      // Build per-initial-detail payment map
+      const iniPaidByDetail = new Map<string, number>();
+      const iniDetailsByDetail = new Map<string, PaymentDetail[]>();
+      initialIds.forEach((id: string) => {
+        iniPaidByDetail.set(id, 0);
+        iniDetailsByDetail.set(id, []);
+      });
+      iniMatches.forEach((m: any) => {
+        const amt = Math.abs(m.matched_amount ?? 0);
+        const tx = iniMatchTxMap.get(m.transaction_id);
+        iniPaidByDetail.set(m.initial_state_detail_id, (iniPaidByDetail.get(m.initial_state_detail_id) || 0) + amt);
+        iniDetailsByDetail.get(m.initial_state_detail_id)?.push({
+          type: 'match',
+          label: tx?.description || 'Conciliación manual',
+          amount: amt,
+          date: tx?.date,
+        });
+      });
+
+      const initialCxCRows: InitialCxCRow[] = initialCxCDetails.map((d: any) => {
+        const paid = iniPaidByDetail.get(d.id) || 0;
+        const pending = Math.max(0, (d.amount ?? 0) - paid);
+        return {
+          id: d.id,
+          responsible_name: d.responsible_name,
+          amount: d.amount ?? 0,
+          paid_amount: paid,
+          pending,
+          details: iniDetailsByDetail.get(d.id) || [],
+        };
+      });
+
+      const initialCxC = initialCxCRows.reduce((s, r) => s + r.pending, 0);
 
       const invoiceIds = invoices.map(i => i.id);
 
@@ -260,7 +334,7 @@ export default function AccountsReceivableReport() {
         }
       }
 
-      return { receivables: unpaid, suggestions, allReceivables: receivables, initialCxC, initialCxCDetails };
+      return { receivables: unpaid, suggestions, allReceivables: receivables, initialCxC, initialCxCRows };
     },
     enabled: !!user,
   });
@@ -439,7 +513,7 @@ export default function AccountsReceivableReport() {
                         Cargando datos...
                       </TableCell>
                     </TableRow>
-                  ) : !data?.receivables?.length && !data?.initialCxCDetails?.length ? (
+                  ) : !data?.receivables?.length && !data?.initialCxCRows?.length ? (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
@@ -451,25 +525,120 @@ export default function AccountsReceivableReport() {
                   ) : (
                     <>
                       {/* Initial CxC balances per client */}
-                      {(data?.initialCxCDetails || []).map((detail: any) => (
-                        <TableRow key={`initial-${detail.id}`} className="bg-warning/5 border-l-2 border-l-warning">
-                          <TableCell className="w-8 px-2"></TableCell>
-                          <TableCell className="text-sm font-medium text-warning">
-                            📋 Saldo inicial
-                          </TableCell>
-                          <TableCell className="text-sm font-medium">
-                            {detail.responsible_name || 'Sin nombre'}
-                          </TableCell>
-                          <TableCell className="text-sm whitespace-nowrap text-muted-foreground">Periodo anterior</TableCell>
-                          <TableCell className="text-right text-sm font-medium">{formatCurrency(detail.amount)}</TableCell>
-                          <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
-                          <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(detail.amount)}</TableCell>
-                          <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
-                          <TableCell className="text-center">
-                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {(data?.initialCxCRows || []).filter((r) => r.pending > 0).map((detail) => {
+                        const rowKey = `initial-${detail.id}`;
+                        const isExpanded = expandedRows.has(rowKey);
+                        const hasDetails = detail.details.length > 0;
+                        const status: 'pagada' | 'parcial' | 'pendiente' = detail.pending <= 0
+                          ? 'pagada'
+                          : detail.paid_amount > 0 ? 'parcial' : 'pendiente';
+                        return (
+                          <React.Fragment key={rowKey}>
+                            <TableRow
+                              className={cn(
+                                'bg-warning/5 border-l-2 border-l-warning cursor-pointer hover:bg-warning/10',
+                                isExpanded && 'bg-warning/15'
+                              )}
+                              onClick={() => toggleRow(rowKey)}
+                            >
+                              <TableCell className="w-8 px-2">
+                                {isExpanded
+                                  ? <ChevronDown className="h-4 w-4 text-warning" />
+                                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                              </TableCell>
+                              <TableCell className="text-sm font-medium text-warning">📋 Saldo inicial</TableCell>
+                              <TableCell className="text-sm font-medium">{detail.responsible_name || 'Sin nombre'}</TableCell>
+                              <TableCell className="text-sm whitespace-nowrap text-muted-foreground">Periodo anterior</TableCell>
+                              <TableCell className="text-right text-sm font-medium">{formatCurrency(detail.amount)}</TableCell>
+                              <TableCell className="text-right text-sm text-success">{formatCurrency(detail.paid_amount)}</TableCell>
+                              <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(detail.pending)}</TableCell>
+                              <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
+                              <TableCell className="text-center">
+                                {status === 'parcial'
+                                  ? <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Parcial</Badge>
+                                  : <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>}
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && (
+                              <TableRow key={`${rowKey}-details`} className="hover:bg-transparent">
+                                <TableCell colSpan={9} className="p-0">
+                                  <div className="bg-warning/5 border-l-2 border-l-warning mx-0">
+                                    <div className="px-6 py-4 space-y-3">
+                                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                        <Receipt className="h-4 w-4 text-warning" />
+                                        Abonos a este saldo inicial
+                                      </p>
+                                      {hasDetails ? (
+                                        <div className="space-y-2">
+                                          {detail.details.map((d, idx) => (
+                                            <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border/60">
+                                              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/60 shrink-0">
+                                                {detailIcon(d.type)}
+                                              </div>
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-0.5">
+                                                  {detailTypeBadge(d.type)}
+                                                  {d.date && (
+                                                    <span className="text-xs text-muted-foreground">
+                                                      {format(parseLocalDate(d.date), 'dd MMM yyyy', { locale: es })}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                <p className="text-sm text-foreground truncate">{d.label}</p>
+                                              </div>
+                                              <span className="text-sm font-bold whitespace-nowrap text-success">
+                                                −{formatCurrency(d.amount)}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="text-xs text-muted-foreground italic">
+                                          Aún no hay abonos vinculados a este saldo inicial.
+                                        </p>
+                                      )}
+                                      {hasDetails && (
+                                        <>
+                                          <div className="flex items-center justify-between pt-3 border-t border-border">
+                                            <span className="text-sm font-semibold text-muted-foreground">Total abonado</span>
+                                            <span className="text-base font-bold text-success">−{formatCurrency(detail.paid_amount)}</span>
+                                          </div>
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-sm font-semibold text-muted-foreground">Saldo pendiente</span>
+                                            <span className="text-base font-bold text-destructive">{formatCurrency(detail.pending)}</span>
+                                          </div>
+                                        </>
+                                      )}
+                                      <div className="flex items-center justify-between gap-3 pt-3 border-t border-border">
+                                        <p className="text-xs text-muted-foreground">
+                                          ¿Recibiste un pago bancario de este cliente histórico? Vinculalo al saldo.
+                                        </p>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="shrink-0 gap-1 text-xs border-warning/40 text-warning hover:bg-warning/10"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setVincularSaldoInicial({
+                                              id: detail.id,
+                                              responsible_name: detail.responsible_name,
+                                              pending: detail.pending,
+                                              total_amount: detail.amount,
+                                            });
+                                          }}
+                                        >
+                                          <Link2 className="h-3.5 w-3.5" />
+                                          Vincular pago
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                       {data.receivables.map((inv) => {
                       const isExpanded = expandedRows.has(inv.id);
                       const hasDetails = (inv.details?.length ?? 0) > 0;
@@ -743,6 +912,13 @@ export default function AccountsReceivableReport() {
             pending: vincularInvoice.pending,
             total_amount: vincularInvoice.total_amount,
           } : null}
+          onSuccess={() => { refetch(); }}
+        />
+
+        <VincularPagoModal
+          open={!!vincularSaldoInicial}
+          onOpenChange={(v) => { if (!v) setVincularSaldoInicial(null); }}
+          saldoInicial={vincularSaldoInicial}
           onSuccess={() => { refetch(); }}
         />
       </div>

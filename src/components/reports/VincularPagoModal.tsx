@@ -19,16 +19,26 @@ import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 
+interface InvoiceTarget {
+  id: string;
+  invoice_number: string;
+  counterparty_name: string | null;
+  pending: number;
+  total_amount: number;
+}
+
+interface SaldoInicialTarget {
+  id: string;
+  responsible_name: string | null;
+  pending: number;
+  total_amount: number;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  invoice: {
-    id: string;
-    invoice_number: string;
-    counterparty_name: string | null;
-    pending: number;
-    total_amount: number;
-  } | null;
+  invoice?: InvoiceTarget | null;
+  saldoInicial?: SaldoInicialTarget | null;
   onSuccess?: () => void;
 }
 
@@ -52,7 +62,7 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-export default function VincularPagoModal({ open, onOpenChange, invoice, onSuccess }: Props) {
+export default function VincularPagoModal({ open, onOpenChange, invoice, saldoInicial, onSuccess }: Props) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -61,6 +71,28 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const [applyAmount, setApplyAmount] = useState<string>('');
 
+  const mode: 'invoice' | 'saldo_inicial' | null = invoice ? 'invoice' : saldoInicial ? 'saldo_inicial' : null;
+
+  const target = useMemo(() => {
+    if (invoice) {
+      return {
+        title: `factura ${invoice.invoice_number}`,
+        clientName: invoice.counterparty_name || '',
+        pending: invoice.pending,
+        successLabel: invoice.invoice_number,
+      };
+    }
+    if (saldoInicial) {
+      return {
+        title: `saldo inicial de ${saldoInicial.responsible_name || 'sin nombre'}`,
+        clientName: saldoInicial.responsible_name || '',
+        pending: saldoInicial.pending,
+        successLabel: `saldo inicial de ${saldoInicial.responsible_name || 'sin nombre'}`,
+      };
+    }
+    return null;
+  }, [invoice, saldoInicial]);
+
   const selectedTx = useMemo(
     () => txs.find(t => t.id === selectedTxId) || null,
     [txs, selectedTxId]
@@ -68,15 +100,15 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
 
   // Load unmatched income transactions + their existing partial matches
   useEffect(() => {
-    if (!open || !user || !invoice) return;
+    if (!open || !user || !target) return;
     void loadUnmatched();
     setSelectedTxId(null);
     setApplyAmount('');
     setSearch('');
-  }, [open, user?.id, invoice?.id]);
+  }, [open, user?.id, invoice?.id, saldoInicial?.id]);
 
   const loadUnmatched = async () => {
-    if (!user || !invoice) return;
+    if (!user || !target) return;
     setLoading(true);
     try {
       // 1. All income transactions with NO direct invoice link.
@@ -94,17 +126,25 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
 
       const txIds = (raw || []).map(t => t.id);
 
-      // 2. Existing partial matches for these transactions
-      const { data: existingMatches } = txIds.length
-        ? await supabase
-            .from('invoice_transaction_matches')
-            .select('transaction_id, matched_amount')
-            .eq('user_id', user.id)
-            .in('transaction_id', txIds)
-        : { data: [] as any[] };
+      // 2. Existing partial matches for these transactions — both against
+      //    invoices AND against initial balances count toward tx "used up".
+      const [invMatchesRes, iniMatchesRes] = txIds.length
+        ? await Promise.all([
+            supabase
+              .from('invoice_transaction_matches')
+              .select('transaction_id, matched_amount')
+              .eq('user_id', user.id)
+              .in('transaction_id', txIds),
+            supabase
+              .from('initial_balance_matches' as any)
+              .select('transaction_id, matched_amount')
+              .eq('user_id', user.id)
+              .in('transaction_id', txIds),
+          ])
+        : [{ data: [] as any[] }, { data: [] as any[] }];
 
       const matchedByTx = new Map<string, number>();
-      (existingMatches || []).forEach((m: any) => {
+      [...(invMatchesRes.data || []), ...(iniMatchesRes.data || [])].forEach((m: any) => {
         const cur = matchedByTx.get(m.transaction_id) || 0;
         matchedByTx.set(m.transaction_id, cur + Math.abs(m.matched_amount ?? 0));
       });
@@ -120,7 +160,7 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
         (resps || []).forEach((r: any) => respMap.set(r.id, r.name));
       }
 
-      const clientName = (invoice.counterparty_name || '').toLowerCase().trim();
+      const clientName = (target.clientName || '').toLowerCase().trim();
 
       const enriched: UnmatchedTx[] = (raw || [])
         .map(t => {
@@ -176,13 +216,13 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
 
   const handleSelectTx = (tx: UnmatchedTx) => {
     setSelectedTxId(tx.id);
-    // Default: min(tx.remaining, invoice.pending)
-    const defaultApply = Math.min(tx.remaining, invoice?.pending ?? 0);
+    // Default: min(tx.remaining, target.pending)
+    const defaultApply = Math.min(tx.remaining, target?.pending ?? 0);
     setApplyAmount(String(Math.round(defaultApply)));
   };
 
   const handleConfirm = async () => {
-    if (!user || !invoice || !selectedTx) return;
+    if (!user || !target || !selectedTx) return;
 
     const amt = Number(applyAmount);
     if (!Number.isFinite(amt) || amt <= 0) {
@@ -193,31 +233,43 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
       toast.error(`El monto excede el saldo disponible del movimiento (${formatCurrency(selectedTx.remaining)})`);
       return;
     }
-    if (amt > invoice.pending) {
-      toast.error(`El monto excede el saldo de la factura (${formatCurrency(invoice.pending)})`);
+    if (amt > target.pending) {
+      toast.error(`El monto excede el saldo pendiente (${formatCurrency(target.pending)})`);
       return;
     }
 
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('invoice_transaction_matches')
-        .insert({
-          invoice_id: invoice.id,
-          transaction_id: selectedTx.id,
-          user_id: user.id,
-          matched_amount: amt,
-          match_type: 'manual',
-        } as any);
-
-      if (error) throw error;
+      if (mode === 'invoice' && invoice) {
+        const { error } = await supabase
+          .from('invoice_transaction_matches')
+          .insert({
+            invoice_id: invoice.id,
+            transaction_id: selectedTx.id,
+            user_id: user.id,
+            matched_amount: amt,
+            match_type: 'manual',
+          } as any);
+        if (error) throw error;
+      } else if (mode === 'saldo_inicial' && saldoInicial) {
+        const { error } = await supabase
+          .from('initial_balance_matches' as any)
+          .insert({
+            initial_state_detail_id: saldoInicial.id,
+            transaction_id: selectedTx.id,
+            user_id: user.id,
+            matched_amount: amt,
+            match_type: 'manual',
+          } as any);
+        if (error) throw error;
+      }
 
       const leftover = selectedTx.remaining - amt;
       const leftoverMsg = leftover > 0
-        ? ` Saldo disponible: ${formatCurrency(leftover)} para otra factura.`
+        ? ` Saldo disponible: ${formatCurrency(leftover)} para otro vínculo.`
         : '';
 
-      toast.success(`Pago vinculado a ${invoice.invoice_number}.${leftoverMsg}`);
+      toast.success(`Pago vinculado a ${target.successLabel}.${leftoverMsg}`);
       onSuccess?.();
       onOpenChange(false);
     } catch (err: any) {
@@ -228,7 +280,7 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
     }
   };
 
-  if (!invoice) return null;
+  if (!target) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -236,17 +288,19 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Link2 className="h-5 w-5 text-primary" />
-            Vincular pago a factura {invoice.invoice_number}
+            Vincular pago a {target.title}
           </DialogTitle>
           <DialogDescription className="space-y-1">
+            {target.clientName && (
+              <span className="block">
+                Cliente: <strong>{target.clientName}</strong>
+              </span>
+            )}
             <span className="block">
-              Cliente: <strong>{invoice.counterparty_name || 'Sin nombre'}</strong>
-            </span>
-            <span className="block">
-              Saldo pendiente: <strong className="text-destructive">{formatCurrency(invoice.pending)}</strong>
+              Saldo pendiente: <strong className="text-destructive">{formatCurrency(target.pending)}</strong>
             </span>
             <span className="block text-xs">
-              Si el movimiento es mayor al saldo, el excedente queda disponible para otras facturas del mismo cliente.
+              Si el movimiento es mayor al saldo, el excedente queda disponible para otros vínculos del mismo cliente.
             </span>
           </DialogDescription>
         </DialogHeader>
@@ -337,10 +391,10 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
             <div className="bg-muted/40 border border-border rounded-md p-3 space-y-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <Label htmlFor="apply-amount" className="text-sm font-medium">
-                  Monto a aplicar a esta factura
+                  Monto a aplicar
                 </Label>
                 <span className="text-xs text-muted-foreground">
-                  Disponible: {formatCurrency(selectedTx.remaining)} · Saldo factura: {formatCurrency(invoice.pending)}
+                  Disponible: {formatCurrency(selectedTx.remaining)} · Saldo pendiente: {formatCurrency(target.pending)}
                 </span>
               </div>
               <Input
@@ -355,7 +409,7 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, onSucce
               {Number(applyAmount) > 0 && Number(applyAmount) < selectedTx.remaining && (
                 <p className="text-xs text-muted-foreground">
                   Sobran <strong>{formatCurrency(selectedTx.remaining - Number(applyAmount))}</strong> del movimiento,
-                  disponibles para vincular a otra factura del mismo cliente.
+                  disponibles para vincular a otro saldo del mismo cliente.
                 </p>
               )}
             </div>
