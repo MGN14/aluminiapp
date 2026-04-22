@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, TrendingDown } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useFinancialHealthScore, getScoreInterpretation } from '@/hooks/useFinancialHealthScore';
-import { SCORE_VARIABLES } from '@/hooks/financialHealthScoreUtils';
+import { SCORE_VARIABLES, ScoreVariableKey } from '@/hooks/financialHealthScoreUtils';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface Props {
@@ -12,26 +12,43 @@ interface Props {
   month: number;
 }
 
+// Mensajes accionables por variable — mostrados cuando la variable es el punto más débil.
+const ACTION_MESSAGES: Record<ScoreVariableKey, string> = {
+  conciliacion: 'Asigná responsable o factura a los movimientos bancarios sin soporte.',
+  facturacion: 'Emití facturas DIAN de los ingresos que todavía no están respaldados.',
+  impuestos: 'Revisá descuadres entre inventario Siigo y el conteo físico.',
+  cartera: 'Cobrá las cuentas por cobrar o asociá facturas a los anticipos pendientes.',
+  clasificacion: 'Completá categoría y responsable en las transacciones pendientes.',
+};
+
 export default function FinancialHealthCard({ year, month }: Props) {
   const { scores, loading } = useFinancialHealthScore(year, month);
 
   const donutData = useMemo(() => {
     if (!scores) return [];
     return SCORE_VARIABLES.map((v) => ({
+      key: v.key,
       name: v.shortLabel,
+      label: v.label,
       value: scores[v.key],
       color: v.color,
       hint: v.hint,
     }));
   }, [scores]);
 
+  // La variable con menor score — "tu punto más débil".
+  const weakest = useMemo(() => {
+    if (!scores || donutData.length === 0) return null;
+    return donutData.reduce((min, cur) => (cur.value < min.value ? cur : min), donutData[0]);
+  }, [scores, donutData]);
+
   const bgValue = scores ? Math.max(0, 100 - scores.total) : 100;
 
   if (loading) {
     return (
-      <Card>
+      <Card className="h-full">
         <CardContent className="p-4">
-          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-48 w-full" />
         </CardContent>
       </Card>
     );
@@ -42,11 +59,11 @@ export default function FinancialHealthCard({ year, month }: Props) {
   const interp = getScoreInterpretation(scores.total);
 
   return (
-    <Link to="/financial-health" className="block group">
-      <Card className="overflow-hidden border border-border hover:border-primary/20 transition-colors cursor-pointer">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-4">
-            {/* Donut */}
+    <Link to="/financial-health" className="block group h-full">
+      <Card className="overflow-hidden border border-border hover:border-primary/20 transition-colors cursor-pointer h-full">
+        <CardContent className="p-4 h-full flex flex-col">
+          {/* Header: Donut + score + level */}
+          <div className="flex items-center gap-4 mb-3">
             <div className="relative w-24 h-24 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -88,22 +105,66 @@ export default function FinancialHealthCard({ year, month }: Props) {
               </div>
             </div>
 
-            {/* Info */}
-            <div className="flex-1 min-w-0 space-y-1.5">
+            <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-muted-foreground">Visita DIAN</p>
               <p className={`text-sm font-semibold ${interp.color}`}>{interp.level}</p>
-              <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                {donutData.map(seg => (
-                  <div key={seg.name} className="flex items-center gap-1" title={`${seg.name}: ${seg.hint}`}>
-                    <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: seg.color }} />
-                    <span className="text-[9px] text-muted-foreground">{seg.value}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-1 text-[11px] text-primary/70 group-hover:text-primary font-medium transition-colors pt-0.5">
-                Ver análisis completo <ArrowRight className="h-3 w-3" />
-              </div>
             </div>
+          </div>
+
+          {/* Variable más baja destacada */}
+          {weakest && (
+            <div
+              className="rounded-lg border border-border/60 bg-muted/40 p-2.5 mb-3"
+              style={{ borderLeftColor: weakest.color, borderLeftWidth: '3px' }}
+            >
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <TrendingDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                    Tu punto más débil
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold tabular-nums shrink-0" style={{ color: weakest.color }}>
+                  {weakest.value.toFixed(1)}/20
+                </span>
+              </div>
+              <p className="text-xs font-semibold text-foreground">{weakest.label}</p>
+              <p className="text-[10px] text-muted-foreground leading-snug mt-0.5">
+                {ACTION_MESSAGES[weakest.key]}
+              </p>
+            </div>
+          )}
+
+          {/* Mini-barras de las 5 variables */}
+          <div className="space-y-1.5 flex-1">
+            {donutData.map((seg) => {
+              const pct = Math.max(0, Math.min(100, (seg.value / 20) * 100));
+              return (
+                <div key={seg.key} className="flex items-center gap-2" title={seg.hint}>
+                  <div
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: seg.color }}
+                  />
+                  <span className="text-[10px] text-muted-foreground flex-1 truncate">
+                    {seg.name}
+                  </span>
+                  <div className="w-16 h-1 rounded-full bg-muted overflow-hidden shrink-0">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${pct}%`, backgroundColor: seg.color }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-medium tabular-nums w-8 text-right text-foreground">
+                    {seg.value.toFixed(1)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* CTA */}
+          <div className="flex items-center gap-1 text-[11px] text-primary/70 group-hover:text-primary font-medium transition-colors pt-3">
+            Ver análisis completo <ArrowRight className="h-3 w-3" />
           </div>
         </CardContent>
       </Card>
