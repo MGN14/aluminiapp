@@ -65,7 +65,9 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
+        // gemini-2.0-flash: 1500 RPD / 15 RPM free tier (6x más que 2.5-flash).
+        // Calidad suficiente para extracción de facturas electrónicas.
+        model: "gemini-2.0-flash",
         messages: [
           {
             role: "system",

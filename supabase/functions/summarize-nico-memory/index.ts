@@ -110,7 +110,10 @@ ${conversationText}`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
+        // gemini-2.0-flash-lite: 1500 RPD / 30 RPM free tier. Resumir memoria
+        // no requiere la calidad de 2.5; el modelo lite es suficiente y libera
+        // quota para la UI principal (chat y parsers).
+        model: "gemini-2.0-flash-lite",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },

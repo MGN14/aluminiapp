@@ -268,7 +268,8 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
+        // gemini-2.0-flash: 1500 RPD / 15 RPM free tier (6x más que 2.5-flash).
+        model: "gemini-2.0-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { 

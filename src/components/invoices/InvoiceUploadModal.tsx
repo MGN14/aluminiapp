@@ -19,8 +19,9 @@ interface Props {
 
 type Step = 'upload' | 'uploading' | 'processing' | 'review' | 'error';
 
-const POLL_INTERVAL_MS = 2000;
-const MAX_POLLS = 90;
+// Polling: 4s × 45 = 3 min timeout total. Antes 2s × 90 = 3 min con doble carga.
+const POLL_INTERVAL_MS = 4000;
+const MAX_POLLS = 45;
 
 function mapExtracted(draft: Invoice, ed: any): ExtractedInvoiceData {
   return {

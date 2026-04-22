@@ -1550,13 +1550,14 @@ ${financialContext}${memoryBlock}`;
         const insertResult = await supabase.from("nico_messages" as never).insert(rows as never);
         if (insertResult.error) console.error("persist nico_messages failed:", insertResult.error);
 
-        // Count messages for this (user, agent) — if >= 20, fire summarization in background
+        // Threshold subido de 20 a 50 mensajes. Con 7 agentes, 20 era demasiado
+        // agresivo y quemaba quota Gemini. 50 = ~25 intercambios usuario/asistente.
         const { count } = await supabase
           .from("nico_messages" as never)
           .select("id", { count: "exact", head: true })
           .eq("user_id", user.id)
           .eq("agent_key", agent_key);
-        if ((count ?? 0) >= 20) {
+        if ((count ?? 0) >= 50) {
           fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/summarize-nico-memory`, {
             method: "POST",
             headers: {

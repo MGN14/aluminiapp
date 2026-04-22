@@ -175,21 +175,16 @@ Reglas CRÍTICAS:
       ? "Extrae SOLO todas las líneas de ítems de esta factura electrónica colombiana. No resumas ni omitas ninguna línea. Responde SOLO con el JSON."
       : "Extrae SOLO los datos de cabecera de esta factura electrónica colombiana. NO extraigas ítems de línea. Responde SOLO con el JSON.";
 
-    // [v3] Retry con backoff + fallback multi-modelo contra 503 UNAVAILABLE y 429 RATE LIMIT.
-    //   1. gemini-2.5-flash (primario) 3 intentos con backoff 0/600/1500ms.
-    //   2. gemini-2.0-flash (fallback-1) 1 intento con 500ms. Pool independiente
-    //      en Google (15 RPM / 1500 RPD vs 10 RPM / 250 RPD del 2.5), por lo
-    //      que cuando el primario satura, el secundario suele responder.
-    //   3. gemini-2.0-flash-lite (fallback-2) 1 intento con 400ms. Tercer pool
-    //      de quota separado (30 RPM / 1500 RPD en free tier). Modelo más
-    //      liviano, misma API compat. Se usa solo cuando los dos anteriores
-    //      están saturados. La calidad de extracción es ligeramente menor pero
-    //      aceptable como red de seguridad — mejor que devolver 503.
-    //   4. Si los tres fallan, devolvemos 503 con mensaje claro.
+    // [v4] Modelos ordenados por QUOTA disponible en free tier (no por calidad):
+    //   1. gemini-2.0-flash (primario) — 1500 RPD / 15 RPM. 6x más quota que 2.5
+    //      y suficiente para parsing de facturas. Antes era fallback.
+    //   2. gemini-2.0-flash-lite (fallback-1) — 1500 RPD / 30 RPM. Pool separado.
+    //   3. gemini-2.5-flash (fallback-2) — 250 RPD / 10 RPM. Mejor calidad pero
+    //      se satura rápido; se deja al final como último recurso.
     // NO reintentamos 401/403/400 (auth/payload) ni 402 (billing).
-    const PRIMARY_MODEL = "gemini-2.5-flash";
-    const FALLBACK_MODEL = "gemini-2.0-flash";
-    const FALLBACK_MODEL_2 = "gemini-2.0-flash-lite";
+    const PRIMARY_MODEL = "gemini-2.0-flash";
+    const FALLBACK_MODEL = "gemini-2.0-flash-lite";
+    const FALLBACK_MODEL_2 = "gemini-2.5-flash";
     const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
     function buildBody(model: string): string {
