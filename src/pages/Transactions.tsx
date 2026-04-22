@@ -23,7 +23,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -38,6 +40,18 @@ interface Statement {
   display_name: string | null;
   transaction_count: number;
   statement_year: number | null;
+  period_start: string | null;
+  period_end: string | null;
+  period_type: string | null;
+}
+
+function getEffectiveYear(stmt: Pick<Statement, 'statement_year' | 'period_start'>): number | null {
+  if (typeof stmt.statement_year === 'number') return stmt.statement_year;
+  if (stmt.period_start) {
+    const d = new Date(stmt.period_start + 'T00:00:00');
+    if (!isNaN(d.getTime())) return d.getFullYear();
+  }
+  return null;
 }
 
 interface ReteicaConfig {
@@ -101,12 +115,12 @@ export default function Transactions() {
   }, [selectedStatement, selectedYear, statements]);
 
   const fetchStatements = async () => {
-    const { data } = await supabase
+    const { data } = await (supabase
       .from('bank_statements')
-      .select('id, file_name, display_name, transaction_count, statement_year')
+      .select('id, file_name, display_name, transaction_count, statement_year, period_start, period_end, period_type')
       .is('deleted_at', null)
       .order('statement_year', { ascending: false })
-      .order('uploaded_at', { ascending: false });
+      .order('uploaded_at', { ascending: false }) as any);
 
     const nextStatements = (data || []) as Statement[];
     setStatements(nextStatements);
@@ -114,7 +128,7 @@ export default function Transactions() {
     const years = Array.from(
       new Set(
         nextStatements
-          .map((stmt) => stmt.statement_year)
+          .map((stmt) => getEffectiveYear(stmt))
           .filter((year): year is number => typeof year === 'number')
       )
     ).sort((a, b) => b - a);
@@ -125,17 +139,14 @@ export default function Transactions() {
 
     setAvailableYears(years);
 
-    // If the current-year default has no statements but other years do, auto-switch
-    // to the most recent year with statements so the user isn't staring at an empty
-    // list after uploading a statement from a prior year.
     setSelectedYear((prev) => {
       if (prev !== String(currentYear)) return prev;
-      const hasCurrent = nextStatements.some((s) => s.statement_year === currentYear);
+      const hasCurrent = nextStatements.some((s) => getEffectiveYear(s) === currentYear);
       if (hasCurrent) return prev;
-      const mostRecent = nextStatements.find(
-        (s): s is Statement & { statement_year: number } => typeof s.statement_year === 'number'
-      );
-      return mostRecent ? String(mostRecent.statement_year) : prev;
+      const mostRecent = nextStatements
+        .map((s) => getEffectiveYear(s))
+        .find((y): y is number => typeof y === 'number');
+      return mostRecent ? String(mostRecent) : prev;
     });
   };
 
@@ -226,8 +237,14 @@ export default function Transactions() {
   const filteredStatements = useMemo(() => {
     if (selectedYear === 'all') return statements;
     const year = Number(selectedYear);
-    return statements.filter((stmt) => stmt.statement_year === year);
+    return statements.filter((stmt) => getEffectiveYear(stmt) === year);
   }, [statements, selectedYear]);
+
+  const groupedStatements = useMemo(() => {
+    const monthly = filteredStatements.filter((s) => !s.period_type || s.period_type === 'monthly_close');
+    const weekly = filteredStatements.filter((s) => s.period_type === 'weekly');
+    return { monthly, weekly };
+  }, [filteredStatements]);
 
   useEffect(() => {
     if (selectedStatement === 'all') return;
@@ -361,12 +378,28 @@ export default function Transactions() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos los extractos</SelectItem>
-                    {filteredStatements.map((stmt) => (
-                      <SelectItem key={stmt.id} value={stmt.id}>
-                        {stmt.display_name || stmt.file_name}
-                        {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
-                      </SelectItem>
-                    ))}
+                    {groupedStatements.monthly.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>📋 Cierres mensuales</SelectLabel>
+                        {groupedStatements.monthly.map((stmt) => (
+                          <SelectItem key={stmt.id} value={stmt.id}>
+                            {stmt.display_name || stmt.file_name}
+                            {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    {groupedStatements.weekly.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>📊 Movimientos semanales</SelectLabel>
+                        {groupedStatements.weekly.map((stmt) => (
+                          <SelectItem key={stmt.id} value={stmt.id}>
+                            {stmt.display_name || stmt.file_name}
+                            {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

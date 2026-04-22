@@ -205,7 +205,7 @@ export default function StatementUpload() {
               letterSpacing: '-0.01em',
             }}
           >
-            Sube tu extracto bancario (PDF)
+            Sube tu extracto bancario
           </h1>
           <p
             style={{
@@ -234,32 +234,60 @@ export default function StatementUpload() {
             <Info className="h-4 w-4" style={{ marginTop: 2, flexShrink: 0 }} />
             <div style={{ fontFamily: 'inherit' }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4, fontFamily: 'inherit' }}>
-                Formato esperado del PDF
+                Dos formas de cargar
               </div>
               <div style={{ fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit' }}>
-                Soportamos distintos formatos de extractos bancarios. El PDF debe contener la tabla de movimientos con: fecha, descripción, valor y saldo.
-                Algunos formatos pueden requerir ajuste de plantilla.
+                Usá el <strong>PDF</strong> para el cierre mensual oficial del banco, o el{' '}
+                <strong>CSV/ZIP</strong> para movimientos semanales (más rápido y preciso, sin OCR).
               </div>
             </div>
           </div>
 
-          <PDFUploader onUploadComplete={handleUploadComplete} />
-
-          {/* Upload semanal por CSV/ZIP (Fase 2 conciliación semanal).
-              Vive en paralelo al PDF uploader para no romper el flujo existente. */}
-          <div style={{ marginTop: 20 }}>
-            <div
-              style={{
-                fontFamily: 'inherit',
-                fontSize: 13,
-                color: 'rgba(0,0,0,0.55)',
-                marginBottom: 10,
-              }}
-            >
-              <strong style={{ color: '#1d1d1f' }}>¿Tenés los movimientos en CSV o ZIP?</strong>{' '}
-              Subilos acá para cargas semanales sin OCR (es más rápido y preciso).
+          {/* Split: PDF (cierre mensual) | CSV/ZIP (semanal) */}
+          <style>{`
+            @media (max-width: 767px) {
+              .upload-split { grid-template-columns: 1fr !important; }
+            }
+          `}</style>
+          <div
+            className="upload-split"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 20,
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <h2
+                style={{
+                  fontFamily: 'inherit',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: '#1d1d1f',
+                  margin: 0,
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                Cierre mensual (PDF)
+              </h2>
+              <PDFUploader onUploadComplete={handleUploadComplete} />
             </div>
-            <WeeklyCsvUploader onUploadComplete={fetchStatements} />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <h2
+                style={{
+                  fontFamily: 'inherit',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: '#1d1d1f',
+                  margin: 0,
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                Movimientos semanales (CSV/ZIP)
+              </h2>
+              <WeeklyCsvUploader onUploadComplete={fetchStatements} />
+            </div>
           </div>
 
           {/* Nico rules indicator */}

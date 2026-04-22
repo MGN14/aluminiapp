@@ -252,9 +252,17 @@ function DashboardContent() {
   const initializePeriodFromData = async () => {
     try {
       const preferredType = savedPeriodType || 'year';
-      const { data: statement } = await supabase.from('bank_statements').select('statement_month, statement_year').is('deleted_at', null).order('uploaded_at', { ascending: false }).limit(1).maybeSingle();
+      const { data: statement } = await supabase.from('bank_statements').select('statement_month, statement_year, period_start').is('deleted_at', null).order('uploaded_at', { ascending: false }).limit(1).maybeSingle() as { data: { statement_month: number | null; statement_year: number | null; period_start: string | null } | null };
       if (statement?.statement_month && statement?.statement_year) {
         setPeriodSelectionRaw({ type: preferredType, month: statement.statement_month, quarter: Math.ceil(statement.statement_month / 3), year: statement.statement_year });
+        setPeriodInitialized(true);
+        return;
+      }
+      // Weekly statements have null month/year — derive from period_start
+      if (statement?.period_start) {
+        const d = new Date(statement.period_start + 'T00:00:00');
+        const month = d.getMonth() + 1;
+        setPeriodSelectionRaw({ type: preferredType, month, quarter: Math.ceil(month / 3), year: d.getFullYear() });
         setPeriodInitialized(true);
         return;
       }

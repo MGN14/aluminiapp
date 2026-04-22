@@ -18,6 +18,7 @@ import { useDropzone } from "react-dropzone";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useReconciliationRules } from "@/hooks/useReconciliationRules";
 import { fetchWithAuthRetry } from "@/lib/authRetry";
 import {
   readBancolombiaFile,
@@ -80,6 +81,7 @@ function formatDate(iso: string): string {
 export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { applyRulesToStatement } = useReconciliationRules();
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [errorMsg, setErrorMsg] = useState<string>("");
@@ -262,10 +264,21 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
 
       const result = await res.json();
 
+      // Apply Nico reconciliation rules to the freshly inserted transactions
+      let rulesApplied = 0;
+      try {
+        rulesApplied = await applyRulesToStatement(stmt.id);
+      } catch (e) {
+        console.warn("applyRulesToStatement failed:", e);
+      }
+
       setPhase("done");
       toast({
         title: "¡Movimientos cargados!",
-        description: `Se importaron ${result.transactions_count} transacciones.`,
+        description:
+          rulesApplied > 0
+            ? `Se importaron ${result.transactions_count} transacciones. Nico aplicó ${rulesApplied} regla${rulesApplied > 1 ? "s" : ""} automáticamente. 🎉`
+            : `Se importaron ${result.transactions_count} transacciones.`,
       });
       onUploadComplete?.();
 

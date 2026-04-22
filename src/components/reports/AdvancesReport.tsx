@@ -88,15 +88,27 @@ export default function AdvancesReport() {
         return hasResponsible && isVentas && !isRespOtros && hasNoInvoice;
       });
 
-      // Get statement names
+      // Get statement names (weekly statements have null month/year — fallback to date range)
       const statementIds = [...new Set(filtered.map(t => t.statement_id))];
       let statementsMap = new Map<string, string>();
       if (statementIds.length > 0) {
         const { data: statements } = await supabase
           .from('bank_statements')
-          .select('id, display_name, bank_name')
+          .select('id, display_name, bank_name, period_start, period_end, statement_month, statement_year')
           .in('id', statementIds);
-        if (statements) statements.forEach(s => statementsMap.set(s.id, s.display_name || s.bank_name));
+        if (statements) {
+          statements.forEach((s: any) => {
+            let label = s.display_name || s.bank_name;
+            if (!s.display_name && s.statement_month == null && s.statement_year == null && s.period_start && s.period_end) {
+              const fmt = (iso: string) => {
+                const [, m, d] = iso.split('-');
+                return `${d}/${m}`;
+              };
+              label = `Movimientos semana ${fmt(s.period_start)}-${fmt(s.period_end)}`;
+            }
+            statementsMap.set(s.id, label);
+          });
+        }
       }
 
       // Get user invoices for reconciliation
