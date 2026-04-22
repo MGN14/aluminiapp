@@ -456,12 +456,15 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
   });
 
   return (
-    <Dialog open={open} onOpenChange={() => { /* controlled */ }}>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent
         className="max-w-3xl max-h-[90vh] overflow-y-auto"
         aria-describedby="invoice-upload-desc"
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          // Block accidental outside-click only while subiendo el archivo;
+          // durante processing se permite cerrar (la extracción sigue en backend).
+          if (step === 'uploading') e.preventDefault();
+        }}
       >
         <DialogHeader>
           <DialogTitle>

@@ -512,6 +512,7 @@ export default function StatementUpload() {
           initialYear={editingStatement?.statement_year}
           initialAccountNumber={editingStatement?.account_number}
           onSaved={handleModalSaved}
+          onClose={() => setModalOpen(false)}
           required={!editingStatement} // Required only after a new upload
         />
       )}

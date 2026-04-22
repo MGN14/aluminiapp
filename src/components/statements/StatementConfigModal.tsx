@@ -73,6 +73,8 @@ interface StatementConfigModalProps {
   initialYear?: number | null;
   initialAccountNumber?: string | null;
   onSaved: () => void;
+  /** Called when the user dismisses the modal without saving (X, ESC, outside click). Ignored if `required` is true. */
+  onClose?: () => void;
   /** If true the modal cannot be dismissed without saving */
   required?: boolean;
 }
@@ -85,6 +87,7 @@ export default function StatementConfigModal({
   initialYear,
   initialAccountNumber,
   onSaved,
+  onClose,
   required = false,
 }: StatementConfigModalProps) {
   const { toast } = useToast();
@@ -216,6 +219,7 @@ export default function StatementConfigModal({
       onOpenChange={(v) => {
         // If required, prevent closing without saving
         if (!v && required) return;
+        if (!v && onClose) onClose();
       }}
     >
       <DialogContent className="sm:max-w-md" onInteractOutside={required ? (e) => e.preventDefault() : undefined}>
