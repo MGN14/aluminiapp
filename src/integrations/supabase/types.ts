@@ -469,6 +469,51 @@ export type Database = {
         }
         Relationships: []
       }
+      initial_balance_matches: {
+        Row: {
+          created_at: string
+          id: string
+          initial_state_detail_id: string
+          match_type: string
+          matched_amount: number
+          transaction_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          initial_state_detail_id: string
+          match_type?: string
+          matched_amount: number
+          transaction_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          initial_state_detail_id?: string
+          match_type?: string
+          matched_amount?: number
+          transaction_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "initial_balance_matches_initial_state_detail_id_fkey"
+            columns: ["initial_state_detail_id"]
+            isOneToOne: false
+            referencedRelation: "initial_state_details"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "initial_balance_matches_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       initial_financial_state: {
         Row: {
           anticipos_a_proveedores: number
