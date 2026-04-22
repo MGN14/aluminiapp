@@ -304,8 +304,12 @@ export default function Export() {
   // Genera un Blob del xlsx (sin disparar descarga). Usado por el envío por email.
   const buildWorkbookBlob = async (): Promise<Blob> => {
     const { sheet1Data, sheet2Data, sheet3Data } = buildWorkbookData();
-    const blob = await writeXlsxFile([sheet1Data, sheet2Data, sheet3Data] as any, XLSX_OPTIONS as any);
-    return blob as Blob;
+    // Sin `fileName`, writeXlsxFile devuelve Blob (TS elige el overload void por los `as any`).
+    const result = await (writeXlsxFile as unknown as (d: unknown, o: unknown) => Promise<Blob>)(
+      [sheet1Data, sheet2Data, sheet3Data],
+      XLSX_OPTIONS,
+    );
+    return result;
   };
 
   const handleExport = async () => {
