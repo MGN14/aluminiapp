@@ -175,15 +175,21 @@ Reglas CRÍTICAS:
       ? "Extrae SOLO todas las líneas de ítems de esta factura electrónica colombiana. No resumas ni omitas ninguna línea. Responde SOLO con el JSON."
       : "Extrae SOLO los datos de cabecera de esta factura electrónica colombiana. NO extraigas ítems de línea. Responde SOLO con el JSON.";
 
-    // [v2] Retry con backoff + fallback multi-modelo contra 503 UNAVAILABLE y 429 RATE LIMIT.
+    // [v3] Retry con backoff + fallback multi-modelo contra 503 UNAVAILABLE y 429 RATE LIMIT.
     //   1. gemini-2.5-flash (primario) 3 intentos con backoff 0/600/1500ms.
-    //   2. gemini-2.0-flash (fallback) 1 intento con 500ms. Pool independiente
+    //   2. gemini-2.0-flash (fallback-1) 1 intento con 500ms. Pool independiente
     //      en Google (15 RPM / 1500 RPD vs 10 RPM / 250 RPD del 2.5), por lo
     //      que cuando el primario satura, el secundario suele responder.
-    //   3. Si ambos fallan, devolvemos 503 con mensaje claro.
+    //   3. gemini-2.0-flash-lite (fallback-2) 1 intento con 400ms. Tercer pool
+    //      de quota separado (30 RPM / 1500 RPD en free tier). Modelo más
+    //      liviano, misma API compat. Se usa solo cuando los dos anteriores
+    //      están saturados. La calidad de extracción es ligeramente menor pero
+    //      aceptable como red de seguridad — mejor que devolver 503.
+    //   4. Si los tres fallan, devolvemos 503 con mensaje claro.
     // NO reintentamos 401/403/400 (auth/payload) ni 402 (billing).
     const PRIMARY_MODEL = "gemini-2.5-flash";
     const FALLBACK_MODEL = "gemini-2.0-flash";
+    const FALLBACK_MODEL_2 = "gemini-2.0-flash-lite";
     const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
     function buildBody(model: string): string {
@@ -221,6 +227,7 @@ Reglas CRÍTICAS:
       { model: PRIMARY_MODEL, delayMs: 600, label: "primary-2" },
       { model: PRIMARY_MODEL, delayMs: 1500, label: "primary-3" },
       { model: FALLBACK_MODEL, delayMs: 500, label: "fallback-1" },
+      { model: FALLBACK_MODEL_2, delayMs: 400, label: "fallback-2" },
     ];
 
     let aiResponse!: Response;
@@ -254,9 +261,9 @@ Reglas CRÍTICAS:
       if (finalStatus === 402) {
         errMsg = "Créditos de IA agotados";
       } else if (finalStatus === 429) {
-        errMsg = "Gemini free tier saturado (primario y fallback). Esperá 1–2 min e intentá de nuevo.";
+        errMsg = "Gemini free tier saturado (los 3 modelos). Esperá 1–2 min e intentá de nuevo.";
       } else if (RETRYABLE.has(finalStatus)) {
-        errMsg = "Gemini saturado (probamos 2.5-flash y 2.0-flash). Intentá de nuevo en unos segundos.";
+        errMsg = "Gemini saturado (probamos 2.5-flash, 2.0-flash y 2.0-flash-lite). Intentá de nuevo en unos segundos.";
       } else {
         errMsg = `Error procesando con IA (HTTP ${finalStatus})`;
       }
