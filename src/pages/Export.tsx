@@ -5,17 +5,14 @@ import { Transaction, Category, Responsible, getCurrentCuatrimestre, getCurrentM
 import { parseLocalDate } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Download, FileSpreadsheet, Loader2, ShieldAlert, ArrowRight, AlertTriangle, FileDown, Mail, CheckCircle, Landmark, Scale, AlertCircle } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Download, FileSpreadsheet, Loader2, ShieldAlert, ArrowRight, AlertTriangle, FileDown, Mail, CheckCircle, Landmark, Scale, AlertCircle, Send, ChevronDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import writeXlsxFile from 'write-excel-file';
 import { toast as sonnerToast } from 'sonner';
+import EnviarExportModal from '@/components/export/EnviarExportModal';
+import { useAuth } from '@/hooks/useAuth';
 
 interface StatementOption {
   id: string;
@@ -27,24 +24,56 @@ interface StatementOption {
 
 export default function Export() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [statements, setStatements] = useState<StatementOption[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
-  const [selectedStatement, setSelectedStatement] = useState<string>('all');
+  // Set de IDs seleccionados. null = aún no inicializado; "all" = todos seleccionados.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(['__all__']));
   const [loading, setLoading] = useState(false);
   const [lastExportedAt, setLastExportedAt] = useState<Date | null>(null);
   const [hasEditsAfterExport, setHasEditsAfterExport] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [canSendEmail, setCanSendEmail] = useState(false);
 
   useEffect(() => {
     fetchStatements();
     fetchCategories();
     fetchResponsibles();
-  }, []);
+    checkEmailPermission();
+  }, [user?.id]);
 
   useEffect(() => {
     fetchTransactions();
-  }, [selectedStatement]);
+  }, [selectedIds]);
+
+  // Admin (owner) siempre puede. Colaborador requiere permiso 'exportar' = 'edit'.
+  const checkEmailPermission = async () => {
+    if (!user) return setCanSendEmail(false);
+    // ¿Es owner? (no aparece como collaborator de ningún owner con user_id = su id)
+    const { data: asCollaborator } = await supabase
+      .from('collaborators')
+      .select('id')
+      .eq('collaborator_user_id', user.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (!asCollaborator) {
+      // Es owner de su propia cuenta
+      setCanSendEmail(true);
+      return;
+    }
+    // Es colaborador: chequear nivel de acceso al módulo exportar
+    const { data: perm } = await supabase
+      .from('collaborator_permissions')
+      .select('access_level')
+      .eq('collaborator_id', asCollaborator.id)
+      .eq('module_key', 'exportar')
+      .maybeSingle();
+    setCanSendEmail(perm?.access_level === 'edit');
+  };
 
   // Track if transactions were edited after last export
   useEffect(() => {
@@ -84,13 +113,49 @@ export default function Export() {
       .is('deleted_at', null)
       .order('date', { ascending: false });
 
-    if (selectedStatement !== 'all') {
-      query = query.eq('statement_id', selectedStatement);
+    // Filtro por extractos seleccionados (null = todos)
+    const ids = [...selectedIds];
+    if (!ids.includes('__all__') && ids.length > 0) {
+      query = query.in('statement_id', ids);
+    } else if (!ids.includes('__all__') && ids.length === 0) {
+      // Nada seleccionado: forzar query vacío
+      setTransactions([]);
+      return;
     }
 
     const { data } = await query;
     setTransactions((data as Transaction[]) || []);
   };
+
+  // Toggle de "Todos" vs selección granular
+  const toggleStatement = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (id === '__all__') {
+        return new Set(['__all__']);
+      }
+      next.delete('__all__');
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      if (next.size === 0) return new Set(['__all__']);
+      return next;
+    });
+  };
+
+  const getStatementLabel = (stmt: StatementOption) => {
+    if (stmt.display_name) return stmt.display_name;
+    return `${stmt.bank_name} ${stmt.statement_month ?? ''}/${stmt.statement_year ?? ''}`;
+  };
+
+  const selectedStatementLabel = useMemo(() => {
+    if (selectedIds.has('__all__')) return 'Todos los extractos';
+    const count = selectedIds.size;
+    if (count === 1) {
+      const stmt = statements.find(s => selectedIds.has(s.id));
+      return stmt ? getStatementLabel(stmt) : '1 extracto';
+    }
+    return `${count} extractos seleccionados`;
+  }, [selectedIds, statements]);
 
   const getCategoryName = (tx: Transaction) => {
     if (tx.category_id) {
@@ -144,14 +209,8 @@ export default function Export() {
     };
   }, [transactions]);
 
-  const handleExport = async () => {
-    setLoading(true);
-    try {
-      if (!transactions || transactions.length === 0) {
-        toast({ title: 'Sin datos', description: 'No hay transacciones para exportar.', variant: 'destructive' });
-        return;
-      }
-
+  // Construye los datos de las 3 sheets. Compartido entre descarga y envío por mail.
+  const buildWorkbookData = () => {
       const txHeader = [
         { value: 'Fecha', fontWeight: 'bold' as const },
         { value: 'Descripción', fontWeight: 'bold' as const },
@@ -225,22 +284,45 @@ export default function Export() {
         [{ type: String, value: 'Pendientes por Conciliar' }, { type: Number, value: pending }],
       ] as any;
 
+      return { sheet1Data, sheet2Data, sheet3Data };
+  };
+
+  const XLSX_OPTIONS = {
+    sheets: ['Transacciones', 'Resumen DIAN', 'Resumen General'],
+    columns: [
+      [
+        { width: 12 }, { width: 50 }, { width: 15 }, { width: 12 },
+        { width: 18 }, { width: 15 }, { width: 10 }, { width: 10 },
+        { width: 15 }, { width: 10 }, { width: 12 }, { width: 15 },
+        { width: 10 }, { width: 25 },
+      ],
+      [{ width: 30 }, { width: 15 }, { width: 18 }, { width: 15 }],
+      [{ width: 25 }, { width: 18 }],
+    ],
+  };
+
+  // Genera un Blob del xlsx (sin disparar descarga). Usado por el envío por email.
+  const buildWorkbookBlob = async (): Promise<Blob> => {
+    const { sheet1Data, sheet2Data, sheet3Data } = buildWorkbookData();
+    const blob = await writeXlsxFile([sheet1Data, sheet2Data, sheet3Data] as any, XLSX_OPTIONS as any);
+    return blob as Blob;
+  };
+
+  const handleExport = async () => {
+    setLoading(true);
+    try {
+      if (!transactions || transactions.length === 0) {
+        toast({ title: 'Sin datos', description: 'No hay transacciones para exportar.', variant: 'destructive' });
+        return;
+      }
+
+      const { sheet1Data, sheet2Data, sheet3Data } = buildWorkbookData();
       const fileName = `aluminia_export_${new Date().toISOString().split('T')[0]}.xlsx`;
 
       await writeXlsxFile([sheet1Data, sheet2Data, sheet3Data] as any, {
-        sheets: ['Transacciones', 'Resumen DIAN', 'Resumen General'],
+        ...XLSX_OPTIONS,
         fileName,
-        columns: [
-          [
-            { width: 12 }, { width: 50 }, { width: 15 }, { width: 12 },
-            { width: 18 }, { width: 15 }, { width: 10 }, { width: 10 },
-            { width: 15 }, { width: 10 }, { width: 12 }, { width: 15 },
-            { width: 10 }, { width: 25 },
-          ],
-          [{ width: 30 }, { width: 15 }, { width: 18 }, { width: 15 }],
-          [{ width: 25 }, { width: 18 }],
-        ],
-      });
+      } as any);
 
       setLastExportedAt(new Date());
       setHasEditsAfterExport(false);
@@ -255,11 +337,6 @@ export default function Export() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const getStatementLabel = (stmt: StatementOption) => {
-    if (stmt.display_name) return stmt.display_name;
-    return `${stmt.bank_name} ${stmt.statement_month ?? ''}/${stmt.statement_year ?? ''}`;
   };
 
   const steps = [
@@ -331,20 +408,41 @@ export default function Export() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Extracto</label>
-              <Select value={selectedStatement} onValueChange={setSelectedStatement}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos los extractos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los extractos</SelectItem>
-                  {statements.map((stmt) => (
-                    <SelectItem key={stmt.id} value={stmt.id}>
-                      {getStatementLabel(stmt)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <label className="text-sm font-medium text-foreground">Extractos a incluir</label>
+              <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between font-normal">
+                    <span className="truncate">{selectedStatementLabel}</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <div className="max-h-80 overflow-y-auto">
+                    <button
+                      type="button"
+                      onClick={() => toggleStatement('__all__')}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted border-b border-border"
+                    >
+                      <Checkbox checked={selectedIds.has('__all__')} className="pointer-events-none" />
+                      <span className="font-medium">Todos los extractos</span>
+                    </button>
+                    {statements.map(stmt => {
+                      const checked = selectedIds.has('__all__') || selectedIds.has(stmt.id);
+                      return (
+                        <button
+                          key={stmt.id}
+                          type="button"
+                          onClick={() => toggleStatement(stmt.id)}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted"
+                        >
+                          <Checkbox checked={checked} className="pointer-events-none" />
+                          <span className="truncate">{getStatementLabel(stmt)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="p-4 rounded-lg bg-muted/50 border border-border">
@@ -362,26 +460,52 @@ export default function Export() {
               </ul>
             </div>
 
-            <Button
-              onClick={handleExport}
-              disabled={loading || transactions.length === 0}
-              className="w-full"
-              size="lg"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Exportando...
-                </>
-              ) : (
-                <>
-                  <Download className="h-4 w-4 mr-2" />
-                  Descargar Excel
-                </>
-              )}
-            </Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Button
+                onClick={handleExport}
+                disabled={loading || transactions.length === 0}
+                className="w-full"
+                size="lg"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Exportando...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Descargar Excel
+                  </>
+                )}
+              </Button>
+
+              <Button
+                onClick={() => setSendModalOpen(true)}
+                disabled={loading || transactions.length === 0 || !canSendEmail}
+                className="w-full"
+                size="lg"
+                variant="outline"
+                title={!canSendEmail ? 'Requiere permiso de edición en el módulo Exportar' : undefined}
+              >
+                <Send className="h-4 w-4 mr-2" />
+                Enviar por correo
+              </Button>
+            </div>
+            {!canSendEmail && (
+              <p className="text-xs text-muted-foreground text-center -mt-3">
+                El envío por correo está disponible para administradores y colaboradores con permiso de edición en Exportar.
+              </p>
+            )}
           </CardContent>
         </Card>
+
+        <EnviarExportModal
+          open={sendModalOpen}
+          onOpenChange={setSendModalOpen}
+          transactionCount={transactions.length}
+          buildWorkbookBlob={buildWorkbookBlob}
+        />
 
         {/* BLOQUE 3 – Intro reportes */}
         <div className="space-y-2">
