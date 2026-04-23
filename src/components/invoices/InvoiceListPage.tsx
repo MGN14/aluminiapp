@@ -18,7 +18,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, Package, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, Package, RefreshCw, CheckCircle2, Plug } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
@@ -107,6 +107,7 @@ export default function InvoiceListPage({ type }: Props) {
   const [bulkReExtracting, setBulkReExtracting] = useState(false);
   const [confirmBulkDeleteErrors, setConfirmBulkDeleteErrors] = useState(false);
   const [bulkDeletingErrors, setBulkDeletingErrors] = useState(false);
+  const [siigoSyncing, setSiigoSyncing] = useState(false);
   // Progreso visible mientras corre la re-extracción (single o bulk).
   // current=1/total=1 para single; current=k/total=N para bulk.
   const [reExtractProgress, setReExtractProgress] = useState<{ current: number; total: number; name: string } | null>(null);
@@ -402,6 +403,30 @@ export default function InvoiceListPage({ type }: Props) {
     setUploadOpen(true);
   }, []);
 
+  const handleSiigoSync = useCallback(async () => {
+    setSiigoSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('siigo-sync-invoices', {
+        body: { kinds: [type] },
+      });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || 'No se pudo sincronizar');
+      toast({
+        title: 'Siigo sincronizado',
+        description: `${data.synced ?? 0} facturas procesadas${data.skipped ? `, ${data.skipped} omitidas` : ''}.`,
+      });
+      await fetchInvoices();
+    } catch (e: any) {
+      toast({
+        title: 'Error sincronizando Siigo',
+        description: e.message ?? 'Conecta primero en Configuración.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSiigoSyncing(false);
+    }
+  }, [type, toast, fetchInvoices]);
+
   if (subLoading) {
     return (
       <AppLayout>
@@ -471,6 +496,16 @@ export default function InvoiceListPage({ type }: Props) {
                 Re-extraer ítems
               </Button>
             )}
+            <Button
+              variant="outline"
+              onClick={handleSiigoSync}
+              disabled={siigoSyncing}
+              className="gap-2"
+              title={`Importar ${type === 'venta' ? 'facturas de venta' : 'facturas de compra'} desde Siigo`}
+            >
+              {siigoSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
+              Sincronizar Siigo
+            </Button>
             <Button onClick={handleOpenUpload} className="gap-2">
               <Upload className="h-4 w-4" />
               Subir factura PDF
@@ -775,6 +810,12 @@ export default function InvoiceListPage({ type }: Props) {
                               <span className="truncate">
                                 {inv.display_name || inv.invoice_number || inv.original_filename || '—'}
                               </span>
+                              {inv.source === 'siigo' && (
+                                <Badge variant="secondary" className="h-4 px-1.5 text-[10px] gap-0.5 flex-shrink-0" title="Importada desde Siigo">
+                                  <Plug className="h-2.5 w-2.5" />
+                                  Siigo
+                                </Badge>
+                              )}
                               {reextractedAt && (
                                 <CheckCircle2
                                   className="h-3.5 w-3.5 flex-shrink-0"

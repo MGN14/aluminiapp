@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import PlanBadge from '@/components/subscription/PlanBadge';
 import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
+import SiigoConnectionCard from '@/components/settings/SiigoConnectionCard';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mail, Building2, Shield, LogOut, Key, Save, ClipboardList, Pencil } from 'lucide-react';
 
@@ -299,6 +300,9 @@ export default function Settings() {
 
         {/* Section 4: Initial Financial State */}
         <InitialFinancialStateCard />
+
+        {/* Section 4.5: Siigo integration */}
+        <SiigoConnectionCard />
 
         {/* Section 5: Security */}
         <Card>

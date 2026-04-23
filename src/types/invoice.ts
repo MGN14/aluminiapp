@@ -26,6 +26,8 @@ export interface Invoice {
   payment_method: string | null;
   notes: string | null;
   status: 'draft' | 'confirmed' | 'error' | 'uploading' | 'processing' | 'ready';
+  source?: 'manual' | 'siigo';
+  siigo_id?: string | null;
   storage_path: string | null;
   pdf_path: string | null;
   extracted_data: any | null;
