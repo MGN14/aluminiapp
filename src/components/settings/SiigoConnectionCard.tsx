@@ -158,15 +158,20 @@ export default function SiigoConnectionCard() {
           <>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label htmlFor="siigo-username">Usuario Siigo (correo)</Label>
+                <Label htmlFor="siigo-username">Usuario API Siigo</Label>
                 <Input
                   id="siigo-username"
-                  type="email"
+                  type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="contador@empresa.com"
+                  placeholder="USUARIO@empresa.com"
                   autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
                 />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Cópialo tal cual aparece en Siigo → Credenciales API → "Usuario API". Respeta mayúsculas y minúsculas.
+                </p>
               </div>
               <div>
                 <Label htmlFor="siigo-access-key">
