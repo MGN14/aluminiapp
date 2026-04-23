@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,36 +11,43 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
-import Index from "./pages/Index";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import ChangePassword from "./pages/ChangePassword";
-import Dashboard from "./pages/Dashboard";
-import StatementUpload from "./pages/StatementUpload";
-import Transactions from "./pages/Transactions";
-import Export from "./pages/Export";
-import Terms from "./pages/Terms";
-import Privacy from "./pages/Privacy";
-import Pricing from "./pages/Pricing";
-import Contact from "./pages/Contact";
-import Settings from "./pages/Settings";
-import Reports from "./pages/Reports";
-import Nico from "./pages/Nico";
-import InvoicesVenta from "./pages/InvoicesVenta";
-import InvoicesCompra from "./pages/InvoicesCompra";
-import FinancialHealth from "./pages/FinancialHealth";
-import VisitaDIAN from "./pages/VisitaDIAN";
-import Inventory from "./pages/Inventory";
-import Collaborators from "./pages/Collaborators";
-import ComingSoon from "./pages/ComingSoon";
-import Remisiones from "./pages/Remisiones";
-import CashMovements from "./pages/CashMovements";
-import Onboarding from "./pages/Onboarding";
-import NotFound from "./pages/NotFound";
+
+const Index = lazy(() => import("./pages/Index"));
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const ChangePassword = lazy(() => import("./pages/ChangePassword"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const StatementUpload = lazy(() => import("./pages/StatementUpload"));
+const Transactions = lazy(() => import("./pages/Transactions"));
+const Export = lazy(() => import("./pages/Export"));
+const Terms = lazy(() => import("./pages/Terms"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Reports = lazy(() => import("./pages/Reports"));
+const Nico = lazy(() => import("./pages/Nico"));
+const InvoicesVenta = lazy(() => import("./pages/InvoicesVenta"));
+const InvoicesCompra = lazy(() => import("./pages/InvoicesCompra"));
+const FinancialHealth = lazy(() => import("./pages/FinancialHealth"));
+const VisitaDIAN = lazy(() => import("./pages/VisitaDIAN"));
+const Inventory = lazy(() => import("./pages/Inventory"));
+const Collaborators = lazy(() => import("./pages/Collaborators"));
+const ComingSoon = lazy(() => import("./pages/ComingSoon"));
+const Remisiones = lazy(() => import("./pages/Remisiones"));
+const CashMovements = lazy(() => import("./pages/CashMovements"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+
+const RouteFallback = () => (
+  <div className="flex h-screen w-full items-center justify-center">
+    <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+  </div>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -52,6 +60,7 @@ const App = () => (
           <BrowserRouter>
             <SessionExpiredModal />
             <AuthDebugPanel />
+            <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
@@ -176,6 +185,7 @@ const App = () => (
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
           </BrowserRouter>
         </TooltipProvider>
         </ModuleProvider>
