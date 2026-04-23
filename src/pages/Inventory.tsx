@@ -31,17 +31,29 @@ export default function Inventory() {
   const handleSiigoSync = async () => {
     setSiigoSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke('siigo-sync-products', {
-        body: {},
-      });
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || 'Sincronización falló');
+      // Step 1: sync product catalog from Siigo /v1/products
+      const sync = await supabase.functions.invoke('siigo-sync-products', { body: {} });
+      if (sync.error) throw sync.error;
+      if (!sync.data?.ok) throw new Error(sync.data?.error || 'Sincronización falló');
+
+      // Step 2: recalculate cost_per_unit from purchase invoices (Plan B —
+      // Siigo's API doesn't expose the "Saldo de productos y valoración de
+      // inventarios" report, so we compute weighted-avg cost from compras).
+      const recalc = await supabase.functions.invoke('recalculate-inventory-costs', { body: {} });
+      const recalcData = recalc.data ?? {};
+
       await refetch();
+
+      const synced = sync.data.synced ?? 0;
+      const updated = recalcData.updated ?? 0;
+      const skippedBits = sync.data.skipped ? `, ${sync.data.skipped} omitidos` : '';
+      const costBits = updated > 0
+        ? ` Costos recalculados desde compras: ${updated} productos.`
+        : recalcData.message ? ` ${recalcData.message}` : '';
+
       toast({
         title: 'Inventario sincronizado',
-        description: `${data.synced ?? 0} productos importados desde Siigo${
-          data.skipped ? `, ${data.skipped} omitidos` : ''
-        }.`,
+        description: `${synced} productos importados desde Siigo${skippedBits}.${costBits}`,
       });
     } catch (e: any) {
       toast({
