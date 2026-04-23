@@ -28,6 +28,17 @@ const PAGE_SIZE = 100;
 
 type Kind = "venta" | "compra";
 
+interface SiigoLine {
+  code?: string;
+  product?: { code?: string; description?: string };
+  description?: string;
+  quantity?: number;
+  price?: number;
+  discount?: number | { value?: number; percentage?: number };
+  taxes?: Array<{ id?: number; name?: string; percentage?: number; value?: number }>;
+  total?: number;
+}
+
 interface SiigoInvoice {
   id: string;
   document?: { id?: number; code?: string };
@@ -42,6 +53,7 @@ interface SiigoInvoice {
   taxes?: Array<{ id?: number; name?: string; percentage?: number; value?: number }>;
   stamp?: { cufe?: string };
   payments?: Array<{ name?: string }>;
+  items?: SiigoLine[];
 }
 
 serve(async (req) => {
@@ -117,7 +129,13 @@ serve(async (req) => {
     let inserted = 0;
     let updated = 0;
     let skipped = 0;
+    let itemsInserted = 0;
     const errors: string[] = [];
+
+    const apiHeaders = {
+      Authorization: `Bearer ${access_token}`,
+      "Partner-Id": creds.partner_id,
+    };
 
     for (const kind of kinds) {
       const path = kind === "venta" ? "/v1/invoices" : "/v1/purchases";
@@ -129,12 +147,7 @@ serve(async (req) => {
         url.searchParams.set("page", String(page));
         url.searchParams.set("page_size", String(PAGE_SIZE));
 
-        const res = await fetch(url.toString(), {
-          headers: {
-            Authorization: `Bearer ${access_token}`,
-            "Partner-Id": creds.partner_id,
-          },
-        });
+        const res = await fetch(url.toString(), { headers: apiHeaders });
         if (!res.ok) {
           const detail = await res.text().catch(() => "");
           errors.push(`${kind} page ${page}: ${res.status} ${detail.slice(0, 200)}`);
@@ -147,17 +160,50 @@ serve(async (req) => {
         for (const inv of results) {
           try {
             const row = mapSiigoInvoice(inv, kind, userId);
-            const { error } = await admin
+            const { data: upserted, error } = await admin
               .from("invoices")
               .upsert(row, { onConflict: "user_id,siigo_id" })
-              .select("id");
-            if (error) {
-              errors.push(`${kind} ${inv.id}: ${error.message}`);
+              .select("id")
+              .single();
+            if (error || !upserted) {
+              errors.push(`${kind} ${inv.id}: ${error?.message ?? "upsert returned no row"}`);
               skipped++;
-            } else {
-              // upsert returns the row but doesn't tell us insert vs update;
-              // count both as "synced" for the user.
-              inserted++;
+              continue;
+            }
+            inserted++;
+
+            // Sync line items. Try the items already in the list response;
+            // if absent, fetch the detail endpoint /v1/{kind}/{id} once.
+            let items: SiigoLine[] = inv.items ?? [];
+            if (items.length === 0) {
+              try {
+                const detailRes = await fetch(`${SIIGO_BASE}${path}/${inv.id}`, { headers: apiHeaders });
+                if (detailRes.ok) {
+                  const detail = await detailRes.json() as SiigoInvoice;
+                  items = detail.items ?? [];
+                }
+              } catch {
+                // detail fetch is best-effort; carry on with header-only sync
+              }
+            }
+
+            if (items.length > 0) {
+              // Idempotent: replace any prior items for this invoice on re-sync.
+              await admin.from("invoice_items")
+                .delete()
+                .eq("invoice_id", upserted.id)
+                .eq("user_id", userId);
+              const lineRows = items
+                .map(line => mapSiigoLine(line, upserted.id, userId, row.iva_rate))
+                .filter(r => r.quantity > 0 || r.unit_price > 0);
+              if (lineRows.length > 0) {
+                const { error: itemsErr } = await admin.from("invoice_items").insert(lineRows);
+                if (itemsErr) {
+                  errors.push(`${kind} ${inv.id} items: ${itemsErr.message}`);
+                } else {
+                  itemsInserted += lineRows.length;
+                }
+              }
             }
           } catch (mapErr) {
             errors.push(`${kind} ${inv.id}: ${(mapErr as Error).message}`);
@@ -182,6 +228,7 @@ serve(async (req) => {
       synced: inserted,
       updated,
       skipped,
+      items_inserted: itemsInserted,
       errors: errors.slice(0, 20),
       since,
       until,
@@ -232,6 +279,54 @@ function mapSiigoInvoice(inv: SiigoInvoice, kind: Kind, userId: string) {
     payment_method: inv.payments?.[0]?.name ?? null,
     extracted_data: inv as unknown as Record<string, unknown>,
     confidence_score: 1,
+  };
+}
+
+function mapSiigoLine(
+  line: SiigoLine,
+  invoiceId: string,
+  userId: string,
+  fallbackIvaRate: number,
+) {
+  const code = line.product?.code ?? line.code ?? null;
+  const description = line.product?.description ?? line.description ?? code ?? "";
+  const quantity = num(line.quantity) || 1;
+  const unitPrice = num(line.price);
+  const grossBase = quantity * unitPrice;
+
+  // Discount can be a flat number or {value, percentage}
+  let discountAmount = 0;
+  if (typeof line.discount === "number") {
+    discountAmount = num(line.discount);
+  } else if (line.discount && typeof line.discount === "object") {
+    if (line.discount.value != null) discountAmount = num(line.discount.value);
+    else if (line.discount.percentage != null) discountAmount = grossBase * (num(line.discount.percentage) / 100);
+  }
+  const lineBase = Math.max(0, grossBase - discountAmount);
+
+  const ivaTax = (line.taxes ?? []).find(
+    (t) => /iva/i.test(t.name ?? "") || t.percentage === 19,
+  );
+  const ivaRate = ivaTax?.percentage != null
+    ? num(ivaTax.percentage) / 100
+    : fallbackIvaRate ?? 0;
+  const ivaAmount = ivaTax?.value != null
+    ? num(ivaTax.value)
+    : Math.round(lineBase * ivaRate);
+  const lineTotal = num(line.total) || (lineBase + ivaAmount);
+
+  return {
+    invoice_id: invoiceId,
+    user_id: userId,
+    item_code: code,
+    reference: code,
+    description,
+    quantity,
+    unit_price: unitPrice,
+    line_base: lineBase,
+    iva_rate: ivaRate,
+    iva_amount: ivaAmount,
+    line_total: lineTotal,
   };
 }
 
