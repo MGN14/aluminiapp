@@ -31,3 +31,5 @@ test-fixtures/bancolombia/*
 !test-fixtures/bancolombia/README.md
 .migration-backup/
 .vercel
+.lovable/
+.claude/
