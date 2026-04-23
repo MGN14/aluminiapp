@@ -100,7 +100,7 @@ export default function AccountsReceivableReport() {
       const [invoicesRes, initialDetailsRes] = await Promise.all([
         supabase
           .from('invoices')
-          .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount')
+          .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito')
           .eq('user_id', user.id)
           .eq('type', 'venta')
           .gte('issue_date', startDate)
@@ -268,7 +268,12 @@ export default function AccountsReceivableReport() {
 
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
-        const paid = paymentsByInvoice.get(inv.id) || 0;
+        const diasCredito = (inv as any).dias_credito ?? 0;
+        // "Contado" (dias_credito=0): paid at issue date by definition. Don't
+        // count as accounts receivable even if no transaction was registered yet.
+        const isContado = diasCredito === 0;
+        const rawPaid = paymentsByInvoice.get(inv.id) || 0;
+        const paid = isContado ? inv.total_amount : rawPaid;
         // Use the saved retefuente values from the invoice module directly
         // Only fall back to 2.5% if rate is null (never configured), not if explicitly 0
         const savedRetefuente = (inv as any).retefuente_cliente_amount ?? 0;
@@ -291,7 +296,7 @@ export default function AccountsReceivableReport() {
         }
 
         const totalDeducted = paid + retefuenteCliente;
-        const pending = Math.max(0, inv.total_amount - totalDeducted);
+        const pending = isContado ? 0 : Math.max(0, inv.total_amount - totalDeducted);
         const daysSince = differenceInDays(today, new Date(inv.issue_date));
         let status: 'pagada' | 'parcial' | 'pendiente' = 'pendiente';
         if (pending <= 0) status = 'pagada';

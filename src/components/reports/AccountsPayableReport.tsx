@@ -111,9 +111,13 @@ export default function AccountsPayableReport() {
 
       const today = new Date();
       const payables: InvoiceWithAging[] = invoices.map(inv => {
-        const paid = paymentsByInvoice.get(inv.id) || 0;
-        const pending = Math.max(0, inv.total_amount - paid);
         const diasCredito = (inv as any).dias_credito ?? 0;
+        // "Contado" (dias_credito=0): paid at issue date by definition. Don't
+        // count as accounts payable even if no transaction was registered yet.
+        const isContado = diasCredito === 0;
+        const rawPaid = paymentsByInvoice.get(inv.id) || 0;
+        const paid = isContado ? inv.total_amount : rawPaid;
+        const pending = Math.max(0, inv.total_amount - paid);
         const dueDate = inv.due_date || addDays(new Date(inv.issue_date), diasCredito).toISOString().slice(0, 10);
         const daysRemaining = differenceInDays(new Date(dueDate), today);
         const daysOverdue = -daysRemaining;
