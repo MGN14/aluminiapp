@@ -105,8 +105,23 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
       setStep('processing');
       startPolling(draft.id);
     } else if (draft.status === 'error') {
-      setStep('error');
-      setErrorMessage(draft.processing_error || 'La extracción anterior falló.');
+      // If the row has extracted_data OR populated columns from a previous
+      // successful run, jump straight to review so the user can validate/edit
+      // and confirm — instead of being stuck at the bare error screen.
+      const hasUsableData =
+        !!draft.extracted_data ||
+        (draft.total_amount && draft.total_amount > 0) ||
+        !!draft.invoice_number ||
+        !!draft.counterparty_name;
+      if (hasUsableData) {
+        const ed = (draft.extracted_data as any) || {};
+        setExtracted(mapExtracted(draft, ed));
+        setRawExtracted(draft.extracted_data || null);
+        setStep('review');
+      } else {
+        setStep('error');
+        setErrorMessage(draft.processing_error || 'La extracción anterior falló.');
+      }
     } else if (draft.extracted_data) {
       const ed = draft.extracted_data as any;
       setExtracted(mapExtracted(draft, ed));
