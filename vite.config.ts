@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
 
 // https://vitejs.dev/config/
@@ -11,7 +12,20 @@ export default defineConfig(() => ({
       overlay: false,
     },
   },
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Source maps upload to Sentry (only when SENTRY_AUTH_TOKEN is set — CI/Vercel)
+    process.env.SENTRY_AUTH_TOKEN &&
+      sentryVitePlugin({
+        org: "aluminia",
+        project: "javascript-react",
+        authToken: process.env.SENTRY_AUTH_TOKEN,
+        sourcemaps: {
+          filesToDeleteAfterUpload: ["./dist/**/*.map"],
+        },
+        telemetry: false,
+      }),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -24,11 +38,13 @@ export default defineConfig(() => ({
     include: ["react", "react-dom", "react/jsx-runtime", "react-dom/client"],
   },
   build: {
+    sourcemap: true,
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
         manualChunks: {
           "react-vendor": ["react", "react-dom", "react-router-dom"],
+          "sentry": ["@sentry/react"],
           "charts": ["recharts"],
           "icons": ["lucide-react"],
           "radix": [
