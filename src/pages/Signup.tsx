@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { lovable } from '@/integrations/lovable/index';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Loader2,
@@ -284,8 +283,12 @@ export default function Signup() {
   const handleGoogleSignIn = async () => {
     setError('');
     setGoogleLoading(true);
-    const { error } = await lovable.auth.signInWithOAuth('google', {
-      redirect_uri: `${window.location.origin}/dashboard`,
+    // OAuth directo contra Supabase (sin pasar por Lovable).
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
     });
     if (error) {
       setError(error.message || 'Error al iniciar sesión con Google');

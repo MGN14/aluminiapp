@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { lovable } from '@/integrations/lovable/index';
+import { supabase } from '@/integrations/supabase/client';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Loader2,
@@ -153,8 +153,14 @@ export default function Login() {
   const handleGoogleSignIn = async () => {
     setError('');
     setGoogleLoading(true);
-    const { error } = await lovable.auth.signInWithOAuth('google', {
-      redirect_uri: `${window.location.origin}/dashboard`,
+    // OAuth directo contra Supabase (sin pasar por el package de Lovable,
+    // que apuntaba a la infra vieja). Supabase maneja el redirect al
+    // consent screen de Google y vuelve a /dashboard con la sesión lista.
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
     });
     if (error) {
       setError(error.message || 'Error al iniciar sesión con Google');
