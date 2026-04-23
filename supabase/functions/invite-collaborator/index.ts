@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const origin = req.headers.get("origin") || "https://aluminiapp.lovable.app";
+    const origin = req.headers.get("origin") || Deno.env.get("APP_URL") || "https://aluminiapp.com";
 
     // Check if user already exists in auth
     const { data: { users: allUsers } } = await adminClient.auth.admin.listUsers();
