@@ -52,7 +52,18 @@ serve(async (req) => {
     const accessKey = (body?.access_key ?? "").trim();
     const partnerId = (body?.partner_id ?? DEFAULT_PARTNER).trim();
 
+    console.log("siigo-connect: input", {
+      userId,
+      hasBody: !!body,
+      username,
+      partnerId,
+      accessKeyLen: accessKey.length,
+      accessKeyHead: accessKey.slice(0, 6),
+      accessKeyTail: accessKey.slice(-4),
+    });
+
     if (!username || !accessKey) {
+      console.log("siigo-connect: missing fields");
       return json({ error: "username y access_key son requeridos" }, 400);
     }
 
@@ -66,8 +77,17 @@ serve(async (req) => {
       body: JSON.stringify({ username, access_key: accessKey }),
     });
 
+    console.log("siigo-connect: siigo response", {
+      status: siigoRes.status,
+      ok: siigoRes.ok,
+    });
+
     if (!siigoRes.ok) {
       const detail = await siigoRes.text().catch(() => "");
+      console.log("siigo-connect: siigo rejected", {
+        status: siigoRes.status,
+        detail: detail.slice(0, 500),
+      });
       return json(
         {
           ok: false,
@@ -88,7 +108,16 @@ serve(async (req) => {
     }
 
     // 2) Encrypt and persist via service role (RLS-safe).
-    const encrypted = await encryptSecret(accessKey);
+    let encrypted: string;
+    try {
+      encrypted = await encryptSecret(accessKey);
+    } catch (cryptErr) {
+      console.log("siigo-connect: encryption failed", (cryptErr as Error).message);
+      return json(
+        { ok: false, error: "Error de cifrado", detail: (cryptErr as Error).message },
+        500,
+      );
+    }
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
     const { error: upsertErr } = await admin
@@ -106,14 +135,17 @@ serve(async (req) => {
       );
 
     if (upsertErr) {
+      console.log("siigo-connect: upsert failed", upsertErr.message);
       return json(
         { ok: false, error: "No se pudo guardar la conexión", detail: upsertErr.message },
         500,
       );
     }
 
+    console.log("siigo-connect: success", { userId, username });
     return json({ ok: true, connection_status: "connected" });
   } catch (e) {
+    console.log("siigo-connect: unexpected error", (e as Error).message, (e as Error).stack);
     return json(
       { ok: false, error: "Error inesperado", detail: (e as Error).message },
       500,
