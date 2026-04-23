@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, History, BookOpen } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck, History, BookOpen, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 import InventoryMetrics from '@/components/inventory/InventoryMetrics';
 import InventoryInsights from '@/components/inventory/InventoryInsights';
 import InventoryChart from '@/components/inventory/InventoryChart';
@@ -17,12 +19,40 @@ type Tab = 'inventario' | 'maestro';
 
 export default function Inventory() {
   const { products, movements, metrics, loading, addProduct, addMovement, refetch } = useInventoryData();
+  const { toast } = useToast();
   const [tab, setTab] = useState<Tab>('inventario');
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [showPhysical, setShowPhysical] = useState(false);
+  const [siigoSyncing, setSiigoSyncing] = useState(false);
   const [adjustProduct, setAdjustProduct] = useState<ProductWithMetrics | null>(null);
   const [adjustMode, setAdjustMode] = useState<'adjust' | 'entrada' | 'salida'>('adjust');
+
+  const handleSiigoSync = async () => {
+    setSiigoSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('siigo-sync-products', {
+        body: {},
+      });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || 'Sincronización falló');
+      await refetch();
+      toast({
+        title: 'Inventario sincronizado',
+        description: `${data.synced ?? 0} productos importados desde Siigo${
+          data.skipped ? `, ${data.skipped} omitidos` : ''
+        }.`,
+      });
+    } catch (e: any) {
+      toast({
+        title: 'No se pudo sincronizar',
+        description: e.message ?? 'Verifica que tengas Siigo conectado en Ajustes.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSiigoSyncing(false);
+    }
+  };
 
   const openMovement = (product: ProductWithMetrics, type: 'entrada' | 'salida') => {
     setAdjustProduct(product);
@@ -78,9 +108,19 @@ export default function Inventory() {
               <ClipboardCheck className="h-4 w-4" />
               Inventario físico
             </Button>
+            <Button
+              variant="outline"
+              onClick={handleSiigoSync}
+              disabled={siigoSyncing}
+              size="sm"
+              className="gap-2 rounded-xl border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+            >
+              {siigoSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Sincronizar Siigo
+            </Button>
             <Button variant="outline" onClick={() => setShowBulk(true)} size="sm" className="gap-2 rounded-xl">
               <Upload className="h-4 w-4" />
-              Carga Siigo
+              Carga CSV
             </Button>
             <Button onClick={() => setShowAdd(true)} size="sm" className="gap-2 rounded-xl">
               <Plus className="h-4 w-4" />

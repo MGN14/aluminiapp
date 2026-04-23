@@ -17,6 +17,9 @@ export interface InventoryProduct {
   active: boolean;
   created_at: string;
   updated_at: string;
+  source?: 'manual' | 'siigo';
+  siigo_id?: string | null;
+  last_siigo_sync_at?: string | null;
 }
 
 export interface InventoryMovement {
