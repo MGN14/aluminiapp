@@ -29,3 +29,5 @@ supabase/.temp/
 # Solo el README se commitea; los archivos de datos quedan locales.
 test-fixtures/bancolombia/*
 !test-fixtures/bancolombia/README.md
+.migration-backup/
+.vercel

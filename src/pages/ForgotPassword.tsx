@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, FileSpreadsheet, ArrowLeft, Mail, CheckCircle2 } from 'lucide-react';
+import { Loader2, FileSpreadsheet, ArrowLeft, Mail, CheckCircle2, KeyRound } from 'lucide-react';
 import TurnstileWidget from '@/components/auth/TurnstileWidget';
 
 export default function ForgotPassword() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -39,12 +40,14 @@ export default function ForgotPassword() {
 
     setLoading(true);
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     const options: Parameters<typeof supabase.auth.resetPasswordForEmail>[1] & { captchaToken?: string } = {
       redirectTo: `${window.location.origin}/reset-password`,
     };
     if (captchaToken) options.captchaToken = captchaToken;
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, options as any);
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, options as any);
 
     setLoading(false);
 
@@ -92,8 +95,18 @@ export default function ForgotPassword() {
                   </div>
                 </div>
                 <p className="text-center text-sm text-muted-foreground">
-                  Si existe una cuenta con el correo <strong>{email}</strong>, recibirás un enlace para restablecer tu contraseña.
+                  Si existe una cuenta con el correo <strong>{email}</strong>, recibirás un correo con un <strong>enlace</strong> y un <strong>código de 6 dígitos</strong>.
                 </p>
+                <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+                  <strong>¿Usas Hotmail u Outlook?</strong> Su sistema de seguridad a veces invalida el enlace automáticamente. Si el enlace no funciona, usa el código de 6 dígitos que aparece en el correo.
+                </div>
+                <Button
+                  onClick={() => navigate('/reset-password', { state: { email: email.trim().toLowerCase() } })}
+                  className="w-full h-11"
+                >
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  Ingresar código de 6 dígitos
+                </Button>
                 <Button asChild variant="outline" className="w-full">
                   <Link to="/login">
                     <ArrowLeft className="w-4 h-4 mr-2" />

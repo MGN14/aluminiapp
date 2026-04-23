@@ -1,18 +1,41 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, FileSpreadsheet, Lock, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Loader2, FileSpreadsheet, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, Mail, KeyRound } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import PasswordRequirements from '@/components/auth/PasswordRequirements';
 import { evaluatePassword, translatePasswordError } from '@/lib/passwordPolicy';
 
+/**
+ * Password reset page — supports 3 verification paths to survive email providers
+ * that pre-fetch one-time links (Hotmail/Outlook Safe Links, corporate ATP, etc):
+ *
+ *  1. `?token_hash=xxx&type=recovery` query param — Supabase SPA-safe format.
+ *     The token is only verified when our JS runs `verifyOtp({ token_hash })`,
+ *     so Safe Links HTTP pre-fetches don't consume it. Requires email template
+ *     linking to `{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery`.
+ *
+ *  2. `#access_token=xxx&type=recovery` URL hash — legacy implicit flow where
+ *     Supabase's /auth/v1/verify endpoint consumes the token server-side and
+ *     redirects here with fresh tokens in the hash. Vulnerable to Safe Links
+ *     pre-fetch (token consumed before user clicks) but kept for backwards compat.
+ *
+ *  3. Manual 6-digit OTP code — user copies the `{{ .Token }}` value shown in
+ *     the email and types it alongside their email. Bulletproof fallback: no
+ *     URL to pre-fetch. Exchanges via `verifyOtp({ email, token, type: 'recovery' })`.
+ */
 export default function ResetPassword() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Email carried from ForgotPassword page (for OTP fallback)
+  const initialEmail = (location.state as { email?: string } | null)?.email ?? '';
+
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -20,69 +43,139 @@ export default function ResetPassword() {
   const [success, setSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [tokenError, setTokenError] = useState(false);
+
+  // Verification state machine
+  const [phase, setPhase] = useState<'initializing' | 'sessionReady' | 'needCode' | 'linkError'>('initializing');
+  const [userEmail, setUserEmail] = useState(initialEmail);
+  const [otpEmail, setOtpEmail] = useState(initialEmail);
+  const [otpCode, setOtpCode] = useState('');
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
-  const [userEmail, setUserEmail] = useState('');
-  const [sessionReady, setSessionReady] = useState(false);
-  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
     let resolved = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const resolve = (ok: boolean, email?: string) => {
+    const markReady = (email: string) => {
       if (resolved) return;
       resolved = true;
-      if (ok && email) {
-        setUserEmail(email);
-        setSessionReady(true);
-      } else {
-        setTokenError(true);
-        setError('Link inválido o expirado. Por favor solicita un nuevo enlace.');
-      }
-      setInitializing(false);
+      if (timer) clearTimeout(timer);
+      setUserEmail(email);
+      setPhase('sessionReady');
     };
 
-    // Check for error_description in hash (Supabase sends this for expired links)
+    const markNeedCode = () => {
+      if (resolved) return;
+      resolved = true;
+      if (timer) clearTimeout(timer);
+      setPhase('needCode');
+    };
+
+    const markLinkError = (msg?: string) => {
+      if (resolved) return;
+      resolved = true;
+      if (timer) clearTimeout(timer);
+      if (msg) setError(msg);
+      setPhase('linkError');
+    };
+
+    // 1. Safe-Links-proof flow: ?token_hash=xxx&type=recovery
+    const searchParams = new URLSearchParams(window.location.search);
+    const tokenHash = searchParams.get('token_hash');
+    const typeFromQuery = searchParams.get('type');
+
+    if (tokenHash && typeFromQuery === 'recovery') {
+      supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' }).then(({ data, error }) => {
+        if (error) {
+          markLinkError('El enlace expiró o ya fue usado. Usa el código de 6 dígitos del correo, o solicita uno nuevo.');
+        } else if (data.session?.user?.email) {
+          // Clean the URL so refresh doesn't re-trigger
+          window.history.replaceState({}, '', window.location.pathname);
+          markReady(data.session.user.email);
+        } else {
+          markLinkError();
+        }
+      });
+      // Don't fall through to other paths while this resolves
+      return () => {
+        resolved = true;
+      };
+    }
+
+    // 2. Error in URL hash (Supabase sends this for already-expired links)
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const errorDescription = hashParams.get('error_description');
     if (errorDescription) {
-      resolve(false);
-      setError(decodeURIComponent(errorDescription));
+      markLinkError(decodeURIComponent(errorDescription).replace(/\+/g, ' '));
       return;
     }
 
-    // Listen for the PASSWORD_RECOVERY event — Supabase fires this automatically
-    // when it detects and processes the recovery code/token from the URL.
-    // This is the correct way to handle it; manual exchangeCodeForSession causes
-    // a race condition (Supabase already consumed the one-time code on init).
+    // 3. Legacy implicit flow: Supabase fires PASSWORD_RECOVERY when it processes
+    //    the #access_token=... fragment on load
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        resolve(true, session?.user?.email ?? '');
+      if (event === 'PASSWORD_RECOVERY' && session?.user?.email) {
+        markReady(session.user.email);
       }
     });
 
-    // Fallback: check if there's already an active session (auto-processed before
-    // our listener was registered)
+    // 4. Fallback: maybe a session already exists (processed before listener registered)
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user?.email) {
-        resolve(true, session.user.email);
+        markReady(session.user.email);
       }
     });
 
-    // If nothing fires within 4s, the link is genuinely invalid/expired
-    const timer = setTimeout(() => resolve(false), 4000);
+    // 5. After 3s with no resolution, show manual code entry (Hotmail Safe Links path)
+    timer = setTimeout(() => markNeedCode(), 3000);
 
     return () => {
+      resolved = true;
       subscription.unsubscribe();
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    // Validations
+    const email = otpEmail.trim().toLowerCase();
+    const token = otpCode.trim().replace(/\s+/g, '');
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Ingresa un correo electrónico válido');
+      return;
+    }
+    if (!token || !/^\d{6}$/.test(token)) {
+      setError('El código debe ser de 6 dígitos');
+      return;
+    }
+
+    setVerifyingOtp(true);
+    const { data, error: otpError } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'recovery',
+    });
+    setVerifyingOtp(false);
+
+    if (otpError || !data.session?.user?.email) {
+      setError(
+        otpError?.message?.toLowerCase().includes('expired')
+          ? 'El código expiró. Solicita uno nuevo.'
+          : 'Código inválido. Revisa el correo y el número.'
+      );
+      return;
+    }
+
+    setUserEmail(data.session.user.email);
+    setPhase('sessionReady');
+  };
+
+  const handleSetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
     if (!password || !confirmPassword) {
       setError('Por favor completa ambos campos');
       return;
@@ -100,40 +193,38 @@ export default function ResetPassword() {
     }
 
     setLoading(true);
-
     const { error: updateError } = await supabase.auth.updateUser({ password });
-
     setLoading(false);
 
     if (updateError) {
-      if (updateError.message.includes('expired') || updateError.message.includes('invalid') || updateError.message.includes('session')) {
-        setTokenError(true);
-        setError('La sesión ha expirado. Solicita un nuevo enlace.');
+      if (/expired|invalid|session/i.test(updateError.message)) {
+        setPhase('linkError');
+        setError('La sesión expiró. Solicita un nuevo enlace.');
       } else {
         setError(translatePasswordError(updateError.message));
       }
-    } else {
-      setSuccess(true);
-      toast({
-        title: "Contraseña actualizada",
-        description: "Tu contraseña ha sido cambiada exitosamente",
-      });
-      // Sign out and redirect to login after 2 seconds
-      setTimeout(async () => {
-        await supabase.auth.signOut();
-        navigate('/login');
-      }, 2000);
-    }
-  };
-
-  const handleResendReset = async () => {
-    if (!userEmail) {
-      navigate('/forgot-password');
       return;
     }
 
+    setSuccess(true);
+    toast({
+      title: 'Contraseña actualizada',
+      description: 'Tu contraseña ha sido cambiada exitosamente',
+    });
+    setTimeout(async () => {
+      await supabase.auth.signOut();
+      navigate('/login');
+    }, 2000);
+  };
+
+  const handleResendReset = async () => {
+    const email = userEmail || otpEmail;
+    if (!email) {
+      navigate('/forgot-password');
+      return;
+    }
     setResendLoading(true);
-    const { error: resendError } = await supabase.auth.resetPasswordForEmail(userEmail, {
+    const { error: resendError } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
     setResendLoading(false);
@@ -142,15 +233,18 @@ export default function ResetPassword() {
       setError(resendError.message);
     } else {
       toast({
-        title: "Enlace enviado",
-        description: "Revisa tu correo para el nuevo enlace de recuperación",
+        title: 'Correo enviado',
+        description: 'Revisa tu bandeja (y Spam). El código tiene 6 dígitos.',
       });
-      navigate('/forgot-password');
+      setPhase('needCode');
+      setOtpEmail(email);
+      setError('');
     }
   };
 
-  // Show loading state while initializing
-  if (initializing) {
+  // ------- UI -------
+
+  if (phase === 'initializing') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4">
         <div className="flex flex-col items-center gap-4">
@@ -162,9 +256,8 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
       <div className="w-full max-w-md animate-fade-in">
-        {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-8">
           <div className="w-10 h-10 rounded-lg gradient-brand flex items-center justify-center">
             <FileSpreadsheet className="w-6 h-6 text-primary-foreground" />
@@ -175,18 +268,27 @@ export default function ResetPassword() {
         <Card className="border-border shadow-lg">
           <CardHeader className="text-center pb-4">
             <CardTitle className="text-2xl font-semibold">
-              {success ? '¡Contraseña Actualizada!' : tokenError ? 'Enlace Inválido' : 'Nueva Contraseña'}
+              {success
+                ? '¡Contraseña Actualizada!'
+                : phase === 'linkError'
+                ? 'Enlace inválido'
+                : phase === 'needCode'
+                ? 'Ingresa el código'
+                : 'Nueva Contraseña'}
             </CardTitle>
             <CardDescription>
               {success
                 ? 'Tu contraseña ha sido actualizada exitosamente'
-                : tokenError
-                ? 'El enlace de recuperación ha expirado o es inválido'
+                : phase === 'linkError'
+                ? 'El enlace del correo ya fue usado o expiró'
+                : phase === 'needCode'
+                ? 'Copia el código de 6 dígitos del correo'
                 : 'Ingresa tu nueva contraseña'}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {success ? (
+            {/* SUCCESS */}
+            {success && (
               <div className="space-y-6">
                 <div className="flex justify-center">
                   <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
@@ -197,7 +299,10 @@ export default function ResetPassword() {
                   Serás redirigido al inicio de sesión en unos segundos...
                 </p>
               </div>
-            ) : tokenError ? (
+            )}
+
+            {/* LINK ERROR — show resend option */}
+            {!success && phase === 'linkError' && (
               <div className="space-y-6">
                 <div className="flex justify-center">
                   <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
@@ -210,29 +315,118 @@ export default function ResetPassword() {
                   </Alert>
                 )}
                 <p className="text-center text-sm text-muted-foreground">
-                  El enlace de recuperación puede haber expirado. Solicita uno nuevo.
+                  Algunos proveedores de correo (Hotmail, Outlook) abren automáticamente los enlaces por seguridad, lo que los invalida.
+                  Usa el <strong>código de 6 dígitos</strong> del correo en lugar del enlace.
                 </p>
-                <Button 
-                  onClick={handleResendReset} 
+                <Button
+                  onClick={() => {
+                    setPhase('needCode');
+                    setError('');
+                  }}
                   className="w-full h-11"
-                  disabled={resendLoading}
+                  variant="outline"
                 >
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  Ingresar código manualmente
+                </Button>
+                <Button onClick={handleResendReset} className="w-full h-11" disabled={resendLoading}>
                   {resendLoading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Enviando...
                     </>
                   ) : (
-                    'Solicitar nuevo enlace'
+                    'Enviar nuevo correo'
                   )}
                 </Button>
               </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
+            )}
+
+            {/* NEED CODE — user types 6-digit OTP from email */}
+            {!success && phase === 'needCode' && (
+              <form onSubmit={handleVerifyOtp} className="space-y-4">
                 {error && (
                   <Alert variant="destructive">
                     <AlertDescription>{error}</AlertDescription>
                   </Alert>
+                )}
+
+                <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
+                  Copia el <strong>código de 6 dígitos</strong> que aparece en el correo que te enviamos.
+                  Si no lo ves, revisa <strong>Spam</strong> o el buzón de correo no deseado.
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="otpEmail">Correo electrónico</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="otpEmail"
+                      type="email"
+                      placeholder="tu@empresa.com"
+                      value={otpEmail}
+                      onChange={(e) => setOtpEmail(e.target.value)}
+                      className="h-11 pl-10"
+                      autoComplete="email"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="otpCode">Código de 6 dígitos</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="otpCode"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d{6}"
+                      maxLength={6}
+                      placeholder="123456"
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                      className="h-11 pl-10 tracking-widest text-lg font-mono"
+                      autoComplete="one-time-code"
+                    />
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full h-11" disabled={verifyingOtp}>
+                  {verifyingOtp ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Verificando...
+                    </>
+                  ) : (
+                    'Verificar código'
+                  )}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  onClick={handleResendReset}
+                  disabled={resendLoading}
+                >
+                  {resendLoading ? 'Enviando...' : '¿No te llegó? Reenviar correo'}
+                </Button>
+              </form>
+            )}
+
+            {/* SESSION READY — user sets new password */}
+            {!success && phase === 'sessionReady' && (
+              <form onSubmit={handleSetPassword} className="space-y-4">
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                {userEmail && (
+                  <p className="text-sm text-muted-foreground text-center">
+                    Restableciendo contraseña para <strong>{userEmail}</strong>
+                  </p>
                 )}
 
                 <div className="space-y-2">
@@ -246,6 +440,7 @@ export default function ResetPassword() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="h-11 pl-10 pr-10"
+                      autoComplete="new-password"
                     />
                     <button
                       type="button"
@@ -269,6 +464,7 @@ export default function ResetPassword() {
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       className="h-11 pl-10 pr-10"
+                      autoComplete="new-password"
                     />
                     <button
                       type="button"
