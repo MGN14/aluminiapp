@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { Progress } from '@/components/ui/progress';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useReconciliationRules, ReconciliationRule } from '@/hooks/useReconciliationRules';
 import CrearReglaModal from '@/components/nico/CrearReglaModal';
-import { Pencil, Trash2, Zap, Loader2, Sparkles } from 'lucide-react';
+import { Pencil, Trash2, Zap, Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 function formatCOP(n: number) {
@@ -22,10 +23,43 @@ function formatCOP(n: number) {
 }
 
 export default function NicoReglas() {
-  const { rules, isLoading, toggleRule, deleteRule } = useReconciliationRules();
+  const { rules, isLoading, toggleRule, deleteRule, applyRulesToAllUserTransactions } = useReconciliationRules();
   const [editRule, setEditRule] = useState<ReconciliationRule | undefined>();
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ReconciliationRule | undefined>();
+  const [applyingAll, setApplyingAll] = useState(false);
+  const [applyProgress, setApplyProgress] = useState<{ current: number; total: number } | null>(null);
+  const [lastResult, setLastResult] = useState<{ total: number; categorized: number; skipped: number; errors: number } | null>(null);
+
+  const activeRulesCount = rules.filter(r => r.active && r.category_id).length;
+
+  const handleApplyAll = async () => {
+    if (activeRulesCount === 0) {
+      toast.info('No hay reglas activas con categoría asignada.');
+      return;
+    }
+    setApplyingAll(true);
+    setLastResult(null);
+    setApplyProgress({ current: 0, total: 0 });
+    try {
+      const result = await applyRulesToAllUserTransactions((current, total) => {
+        setApplyProgress({ current, total });
+      });
+      setLastResult(result);
+      if (result.categorized > 0) {
+        toast.success(`${result.categorized} transacciones categorizadas automáticamente.`);
+      } else if (result.total === 0) {
+        toast.info('No había transacciones sin categoría para procesar.');
+      } else {
+        toast.info(`${result.total} transacciones revisadas; ninguna coincidió con tus reglas.`);
+      }
+    } catch (e: any) {
+      toast.error('Error aplicando reglas: ' + (e?.message ?? 'intenta de nuevo'));
+    } finally {
+      setApplyingAll(false);
+      setApplyProgress(null);
+    }
+  };
 
   const handleToggle = async (rule: ReconciliationRule, active: boolean) => {
     try {
@@ -75,13 +109,47 @@ export default function NicoReglas() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Zap className="h-3.5 w-3.5 text-success" />
-        <span>
-          <strong>{rules.length}</strong> regla{rules.length > 1 ? 's' : ''} configurada{rules.length > 1 ? 's' : ''} —{' '}
-          {rules.filter(r => r.active).length} activa{rules.filter(r => r.active).length === 1 ? '' : 's'}
-        </span>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Zap className="h-3.5 w-3.5 text-success" />
+          <span>
+            <strong>{rules.length}</strong> regla{rules.length > 1 ? 's' : ''} configurada{rules.length > 1 ? 's' : ''} —{' '}
+            {rules.filter(r => r.active).length} activa{rules.filter(r => r.active).length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <Button
+          onClick={handleApplyAll}
+          disabled={applyingAll || activeRulesCount === 0}
+          size="sm"
+          variant="outline"
+          className="gap-2"
+          title="Aplica tus reglas activas a las transacciones sin categoría ya existentes (incluye movimientos de meses anteriores o migrados)."
+        >
+          {applyingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+          Aplicar a transacciones existentes
+        </Button>
       </div>
+
+      {applyingAll && applyProgress && applyProgress.total > 0 && (
+        <div className="space-y-1">
+          <Progress value={Math.round((applyProgress.current / applyProgress.total) * 100)} className="h-2" />
+          <p className="text-[11px] text-muted-foreground text-center">
+            {applyProgress.current} / {applyProgress.total} transacciones
+          </p>
+        </div>
+      )}
+
+      {lastResult && !applyingAll && (
+        <div className="text-xs bg-muted/40 border border-border rounded-md p-3 space-y-0.5">
+          <p className="font-medium text-foreground">Última ejecución</p>
+          <p className="text-muted-foreground">
+            {lastResult.total} sin categoría revisadas · <span className="text-success">{lastResult.categorized} categorizadas</span>
+            {' · '}
+            {lastResult.skipped} sin match
+            {lastResult.errors > 0 && <span className="text-destructive"> · {lastResult.errors} errores</span>}
+          </p>
+        </div>
+      )}
 
       <div className="space-y-2">
         {rules.map(rule => (

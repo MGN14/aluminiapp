@@ -214,6 +214,80 @@ export function useReconciliationRules() {
   };
 
   /**
+   * Batch-apply rules to ALL uncategorized transactions for the current user
+   * (across every statement, including pre-migration data). Returns totals so
+   * the UI can show a progress report.
+   *
+   * This is the retroactive counterpart to applyRulesToStatement, which only
+   * runs at statement-upload time.
+   */
+  const applyRulesToAllUserTransactions = async (
+    onProgress?: (current: number, total: number) => void,
+  ): Promise<{ total: number; categorized: number; skipped: number; errors: number }> => {
+    if (!user?.id) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
+    const activeRules = rules.filter(r => r.active && r.category_id);
+    if (!activeRules.length) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
+
+    const { data: txs, error } = await supabase
+      .from('transactions')
+      .select('id, description, amount, date, category_id')
+      .eq('user_id', user.id)
+      .is('deleted_at', null)
+      .is('category_id', null); // only touch uncategorized — never overwrite
+
+    if (error || !txs?.length) {
+      return { total: 0, categorized: 0, skipped: 0, errors: 0 };
+    }
+
+    const total = txs.length;
+    let categorized = 0;
+    let skipped = 0;
+    let errors = 0;
+    const ruleHits: Record<string, number> = {};
+
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i] as any;
+      let matched = false;
+      for (const rule of activeRules) {
+        if (matchesRule(rule, tx)) {
+          const { error: updErr } = await supabase
+            .from('transactions')
+            .update({ category_id: rule.category_id })
+            .eq('id', tx.id);
+          if (updErr) {
+            errors++;
+          } else {
+            categorized++;
+            ruleHits[rule.id] = (ruleHits[rule.id] ?? 0) + 1;
+          }
+          matched = true;
+          break; // first match wins
+        }
+      }
+      if (!matched) skipped++;
+      onProgress?.(i + 1, total);
+    }
+
+    // Bump match_count / last_matched_at for the rules that fired.
+    const now = new Date().toISOString();
+    for (const [ruleId, hits] of Object.entries(ruleHits)) {
+      const rule = activeRules.find(r => r.id === ruleId);
+      if (!rule) continue;
+      await (supabase as any)
+        .from('reconciliation_rules')
+        .update({ match_count: rule.match_count + hits, last_matched_at: now })
+        .eq('id', ruleId);
+    }
+
+    if (categorized > 0) {
+      qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+    }
+
+    return { total, categorized, skipped, errors };
+  };
+
+  /**
    * Apply rules to a set of transactions (for manual re-processing).
    * Returns the number of transactions categorized.
    */
@@ -264,5 +338,6 @@ export function useReconciliationRules() {
     deleteRule,
     applyRulesToStatement,
     applyRulesToTransactions,
+    applyRulesToAllUserTransactions,
   };
 }

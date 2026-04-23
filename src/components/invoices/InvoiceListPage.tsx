@@ -105,6 +105,8 @@ export default function InvoiceListPage({ type }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [reExtractingId, setReExtractingId] = useState<string | null>(null);
   const [bulkReExtracting, setBulkReExtracting] = useState(false);
+  const [confirmBulkDeleteErrors, setConfirmBulkDeleteErrors] = useState(false);
+  const [bulkDeletingErrors, setBulkDeletingErrors] = useState(false);
   // Progreso visible mientras corre la re-extracción (single o bulk).
   // current=1/total=1 para single; current=k/total=N para bulk.
   const [reExtractProgress, setReExtractProgress] = useState<{ current: number; total: number; name: string } | null>(null);
@@ -333,6 +335,63 @@ export default function InvoiceListPage({ type }: Props) {
     });
   }, [invoices, reExtractItems, toast, markReextractedLocally]);
 
+  // Bulk-delete every invoice in status 'error'. Useful to clean up rows that
+  // accumulated when Gemini was rate-limited or parsing failed repeatedly.
+  // Also removes associated invoice_items rows + storage files.
+  const handleBulkDeleteErrors = useCallback(async () => {
+    const targets = invoices.filter(i => i.status === 'error');
+    if (targets.length === 0) {
+      toast({ title: 'No hay facturas en error para limpiar' });
+      setConfirmBulkDeleteErrors(false);
+      return;
+    }
+    setBulkDeletingErrors(true);
+    let deleted = 0;
+    let failed = 0;
+    try {
+      const ids = targets.map(i => i.id);
+      const storagePaths = targets.map(i => i.storage_path).filter(Boolean) as string[];
+
+      // 1. Delete invoice_items for all targets (single query).
+      const { error: itemsErr } = await supabase
+        .from('invoice_items')
+        .delete()
+        .in('invoice_id', ids);
+      if (itemsErr) console.warn('Error deleting invoice_items bulk:', itemsErr);
+
+      // 2. Delete invoices row-by-row so a single RLS failure doesn't roll back all.
+      for (const id of ids) {
+        const { error } = await supabase.from('invoices').delete().eq('id', id);
+        if (error) failed++;
+        else deleted++;
+      }
+
+      // 3. Remove storage files (best-effort).
+      if (storagePaths.length > 0) {
+        await supabase.storage.from('invoices').remove(storagePaths).catch(() => {});
+      }
+
+      // Optimistic update: remove the successfully deleted error rows.
+      // If some failed we just drop the confirmed-deleted subset; a manual
+      // refresh will reconcile anything out of sync.
+      setInvoices(prev => prev.filter(i => !(i.status === 'error' && ids.includes(i.id))));
+
+      toast({
+        title: 'Limpieza completa',
+        description: `${deleted} facturas eliminadas${failed > 0 ? ` · ${failed} errores` : ''}.`,
+        variant: failed > 0 && deleted === 0 ? 'destructive' : 'default',
+      });
+    } catch (err: any) {
+      console.error('Bulk delete errors:', err);
+      toast({ title: 'Error al limpiar', description: err.message, variant: 'destructive' });
+    } finally {
+      setBulkDeletingErrors(false);
+      setConfirmBulkDeleteErrors(false);
+    }
+  }, [invoices, toast]);
+
+  const errorCount = useMemo(() => invoices.filter(i => i.status === 'error').length, [invoices]);
+
   const handleUploadClose = useCallback(() => {
     setUploadOpen(false);
     setResumeDraft(null);
@@ -388,6 +447,18 @@ export default function InvoiceListPage({ type }: Props) {
             <p className="text-muted-foreground text-sm">Gestiona tus facturas electrónicas</p>
           </div>
           <div className="flex items-center gap-2">
+            {errorCount > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => setConfirmBulkDeleteErrors(true)}
+                disabled={bulkDeletingErrors}
+                className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+                title="Elimina todas las facturas en estado Error"
+              >
+                {bulkDeletingErrors ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Limpiar errores ({errorCount})
+              </Button>
+            )}
             {type === 'venta' && (
               <Button
                 variant="outline"
@@ -799,6 +870,33 @@ export default function InvoiceListPage({ type }: Props) {
             <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
               Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmBulkDeleteErrors}
+        onOpenChange={(open) => { if (!open && !bulkDeletingErrors) setConfirmBulkDeleteErrors(false); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Limpiar {errorCount} factura{errorCount === 1 ? '' : 's'} en error?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminarán <strong>{errorCount}</strong> fila{errorCount === 1 ? '' : 's'} en estado "Error - Reintentar",
+              junto con sus ítems y archivos PDF. Las facturas confirmadas y pendientes no se tocan.
+              Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeletingErrors}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDeleteErrors}
+              disabled={bulkDeletingErrors}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDeletingErrors ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Limpiar {errorCount}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
