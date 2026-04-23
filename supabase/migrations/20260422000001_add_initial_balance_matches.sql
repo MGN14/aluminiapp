@@ -25,19 +25,23 @@ CREATE INDEX IF NOT EXISTS initial_balance_matches_tx_idx
 
 ALTER TABLE public.initial_balance_matches ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "ibm_select_own" ON public.initial_balance_matches;
 CREATE POLICY "ibm_select_own"
   ON public.initial_balance_matches FOR SELECT
   USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "ibm_insert_own" ON public.initial_balance_matches;
 CREATE POLICY "ibm_insert_own"
   ON public.initial_balance_matches FOR INSERT
   WITH CHECK (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "ibm_update_own" ON public.initial_balance_matches;
 CREATE POLICY "ibm_update_own"
   ON public.initial_balance_matches FOR UPDATE
   USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "ibm_delete_own" ON public.initial_balance_matches;
 CREATE POLICY "ibm_delete_own"
   ON public.initial_balance_matches FOR DELETE
   USING (user_id = auth.uid());
