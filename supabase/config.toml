@@ -1,9 +1,29 @@
 project_id = "flmelenvmvhsogtzjjow"
 
+# NOTA: verify_jwt=false en todas. El gateway Supabase del proyecto nuevo no
+# verifica ES256 JWTs (rechaza con UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM).
+# Cada function hace su propia auth via supabase.auth.getUser(token) contra
+# el endpoint /auth/v1/user, o via service_role para llamadas service-to-service.
+
 [functions.parse-bancolombia-pdf]
 verify_jwt = false
 
+[functions.parse-bancolombia-csv]
+verify_jwt = false
+
+[functions.parse-invoice-pdf]
+verify_jwt = false
+
+[functions.start-invoice-processing]
+verify_jwt = false
+
 [functions.send-contact]
+verify_jwt = false
+
+[functions.send-export-email]
+verify_jwt = false
+
+[functions.send-password-reset]
 verify_jwt = false
 
 [functions.create-wompi-checkout]
@@ -15,17 +35,20 @@ verify_jwt = false
 [functions.check-subscription]
 verify_jwt = false
 
-[functions.parse-invoice-pdf]
-verify_jwt = false
-
-[functions.start-invoice-processing]
+[functions.check-rate-limit]
 verify_jwt = false
 
 [functions.cfo-insights]
 verify_jwt = false
 
-[functions.send-password-reset]
+[functions.nico-chat]
 verify_jwt = false
 
-[functions.check-rate-limit]
+[functions.update-business-memory]
+verify_jwt = false
+
+[functions.summarize-nico-memory]
+verify_jwt = false
+
+[functions.invite-collaborator]
 verify_jwt = false
