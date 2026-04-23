@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileSpreadsheet, Loader2, CheckCircle2, Building2, Receipt, Landmark, BarChart2, Factory } from 'lucide-react';
+import * as Sentry from '@sentry/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -178,6 +179,7 @@ export default function Onboarding() {
       await saveConfig.mutateAsync(fiscalPayload);
     } catch (err: any) {
       console.warn('[onboarding] fiscal_config DB save failed, keeping local copy:', err?.message);
+      Sentry.captureException(err, { tags: { feature: 'onboarding', step: 'fiscal_config_save' } });
     }
 
     try {
@@ -187,12 +189,18 @@ export default function Onboarding() {
       };
       if (nombreComercial.trim()) profilePayload.company_name = nombreComercial.trim();
       if (nombreUsuario.trim()) profilePayload.full_name = nombreUsuario.trim();
-      await (supabase as any).from('profiles').upsert(profilePayload, { onConflict: 'user_id' });
+      const { error: profileError } = await (supabase as any)
+        .from('profiles')
+        .upsert(profilePayload, { onConflict: 'user_id' });
+      if (profileError) throw profileError;
     } catch (err: any) {
       console.warn('[onboarding] profile upsert failed:', err?.message);
+      Sentry.captureException(err, { tags: { feature: 'onboarding', step: 'profile_upsert' } });
     }
 
-    try { await markComplete(); } catch { /* no-op, localStorage already set */ }
+    try { await markComplete(); } catch (err) {
+      Sentry.captureException(err, { tags: { feature: 'onboarding', step: 'mark_complete_call' } });
+    }
 
     toast.success('Perfil fiscal guardado. Podés ajustarlo desde Ajustes.');
     setSaving(false);
