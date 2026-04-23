@@ -12,16 +12,27 @@ function getLocalCompleted(userId: string | undefined): boolean {
   }
 }
 
+function setLocalCompleted(userId: string) {
+  try {
+    localStorage.setItem(`onboarding_completed:${userId}`, 'true');
+  } catch {
+    /* private mode */
+  }
+}
+
 export function useOnboardingStatus() {
   const { user } = useAuth();
   const qc = useQueryClient();
+
+  // Fast-path: if localStorage says done, we consider the user onboarded
+  // IMMEDIATELY. The background query below still runs to heal the DB if
+  // needed, but ProtectedRoute won't loop waiting for it.
+  const localCompleted = getLocalCompleted(user?.id);
 
   const { data, isLoading } = useQuery({
     queryKey: ['onboarding-status', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-
-      const localCompleted = getLocalCompleted(user.id);
 
       const { data, error } = await (supabase as any)
         .from('profiles')
@@ -34,9 +45,8 @@ export function useOnboardingStatus() {
 
       const dbCompleted = data?.onboarding_completed === true;
 
-      // Self-heal: localStorage marked completed but DB never registered it
-      // (happens when the original markComplete failed silently in another
-      // browser/device). Sync DB so other browsers stop looping to /onboarding.
+      // Self-heal: if localStorage says done but DB disagrees, sync DB so
+      // other browsers/devices stop redirecting to /onboarding.
       if (localCompleted && !dbCompleted) {
         const { error: healError } = await (supabase as any)
           .from('profiles')
@@ -52,6 +62,13 @@ export function useOnboardingStatus() {
         return { onboarding_completed: true };
       }
 
+      // Reverse heal: if DB says done but localStorage is empty (fresh
+      // incognito / new device), cache it locally so subsequent renders
+      // hit the fast-path.
+      if (dbCompleted && !localCompleted) {
+        setLocalCompleted(user.id);
+      }
+
       return data as { onboarding_completed: boolean } | null;
     },
     enabled: !!user?.id,
@@ -59,12 +76,9 @@ export function useOnboardingStatus() {
   });
 
   const markComplete = async () => {
-    if (!user?.id) return;
-    try {
-      localStorage.setItem(`onboarding_completed:${user.id}`, 'true');
-    } catch {
-      /* localStorage may be unavailable in private mode — DB is the source of truth */
-    }
+    if (!user?.id) throw new Error('No authenticated user');
+    setLocalCompleted(user.id);
+
     const { error } = await (supabase as any)
       .from('profiles')
       .upsert(
@@ -75,13 +89,22 @@ export function useOnboardingStatus() {
       Sentry.captureException(error, {
         tags: { feature: 'onboarding', step: 'mark_complete' },
       });
+      // Don't throw — localStorage is set so the user can proceed; the
+      // background self-heal will retry on next render.
     }
+
+    // Prime the cache so ProtectedRoute's next render sees completed=true
+    // synchronously (no flash of /onboarding redirect).
+    qc.setQueryData(['onboarding-status', user.id], { onboarding_completed: true });
     qc.invalidateQueries({ queryKey: ['onboarding-status'] });
   };
 
+  // Trust localStorage instantly; fall back to DB result.
+  const completed = localCompleted || data?.onboarding_completed === true;
+
   return {
-    isLoading,
-    completed: data?.onboarding_completed ?? false,
+    isLoading: isLoading && !localCompleted,
+    completed,
     markComplete,
   };
 }

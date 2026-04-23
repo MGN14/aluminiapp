@@ -204,7 +204,10 @@ export default function Onboarding() {
 
     toast.success('Perfil fiscal guardado. Podés ajustarlo desde Ajustes.');
     setSaving(false);
-    navigate('/settings', { replace: true });
+    // Hard navigation to guarantee all hooks re-evaluate with the fresh
+    // onboarding_completed=true state. react-router's navigate() can race
+    // with the cache invalidation and bounce the user back to /onboarding.
+    window.location.assign('/dashboard');
   };
 
   return (
