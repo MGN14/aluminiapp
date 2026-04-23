@@ -20,22 +20,27 @@ CREATE TABLE IF NOT EXISTS public.user_siigo_credentials (
 
 ALTER TABLE public.user_siigo_credentials ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users read own siigo creds" ON public.user_siigo_credentials;
 CREATE POLICY "Users read own siigo creds"
   ON public.user_siigo_credentials FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users insert own siigo creds" ON public.user_siigo_credentials;
 CREATE POLICY "Users insert own siigo creds"
   ON public.user_siigo_credentials FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users update own siigo creds" ON public.user_siigo_credentials;
 CREATE POLICY "Users update own siigo creds"
   ON public.user_siigo_credentials FOR UPDATE
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users delete own siigo creds" ON public.user_siigo_credentials;
 CREATE POLICY "Users delete own siigo creds"
   ON public.user_siigo_credentials FOR DELETE
   USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS update_user_siigo_credentials_updated_at ON public.user_siigo_credentials;
 CREATE TRIGGER update_user_siigo_credentials_updated_at
   BEFORE UPDATE ON public.user_siigo_credentials
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
