@@ -1,127 +1,217 @@
-import { useMemo } from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { useMemo, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import type { InventoryMovement } from '@/hooks/useInventoryData';
 
 interface Props { movements: InventoryMovement[]; }
 
 const BRAND = 'oklch(0.43 0.14 155)';
+const DANGER = 'oklch(0.52 0.18 25)';
 const AXIS_COLOR = '#a1a1a6';
 
+type Mode = 'daily' | 'weekly';
+
+function startOfWeekLabel(d: Date): string {
+  const monday = new Date(d);
+  const day = monday.getDay();
+  const diff = monday.getDate() - day + (day === 0 ? -6 : 1);
+  monday.setDate(diff);
+  return monday.toLocaleDateString('es-CO', { month: 'short', day: 'numeric' });
+}
+
 export default function InventoryChart({ movements }: Props) {
+  const [mode, setMode] = useState<Mode>('daily');
+
   const chartData = useMemo(() => {
     if (!movements.length) return [];
 
-    const byDate = new Map<string, number>();
-    const sorted = [...movements].sort((a, b) => a.movement_date.localeCompare(b.movement_date));
+    const now = new Date();
+    const cutoff = new Date(now);
+    cutoff.setDate(cutoff.getDate() - 30);
 
-    sorted.forEach(m => {
-      const d = m.movement_date;
-      const current = byDate.get(d) || 0;
-      const delta = m.movement_type === 'entrada' ? m.quantity : m.movement_type === 'salida' ? -m.quantity : 0;
-      byDate.set(d, current + delta);
+    const recent = movements.filter(m => {
+      const d = new Date(m.movement_date);
+      return d >= cutoff && d <= now;
     });
 
-    let cumulative = 0;
-    return Array.from(byDate.entries()).map(([date, delta]) => {
-      cumulative += delta;
-      return {
-        date: new Date(date).toLocaleDateString('es-CO', { month: 'short', day: 'numeric' }),
-        stock: Math.max(0, cumulative),
-        raw: date,
-      };
-    });
-  }, [movements]);
+    const buckets = new Map<string, { label: string; entradas: number; salidas: number; sortKey: string }>();
 
-  if (!chartData.length) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: 256,
-          borderRadius: 18,
-          border: '1.5px solid rgba(0,0,0,0.07)',
-          background: '#fff',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-        }}
-      >
-        <p style={{ fontSize: 13, color: '#6e6e73', margin: 0 }}>
-          Registra movimientos para ver la evolución
-        </p>
-      </div>
-    );
-  }
+    if (mode === 'daily') {
+      // Seed last 30 days so empty days show as 0
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const iso = d.toISOString().slice(0, 10);
+        buckets.set(iso, {
+          label: d.toLocaleDateString('es-CO', { month: 'short', day: 'numeric' }),
+          entradas: 0,
+          salidas: 0,
+          sortKey: iso,
+        });
+      }
+      recent.forEach(m => {
+        const iso = m.movement_date.slice(0, 10);
+        const b = buckets.get(iso);
+        if (!b) return;
+        if (m.movement_type === 'entrada') b.entradas += m.quantity;
+        else if (m.movement_type === 'salida') b.salidas += m.quantity;
+      });
+    } else {
+      // Weekly buckets (Mon-Sun)
+      for (let i = 4; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i * 7);
+        const key = startOfWeekLabel(d);
+        if (!buckets.has(key)) {
+          buckets.set(key, { label: key, entradas: 0, salidas: 0, sortKey: key });
+        }
+      }
+      recent.forEach(m => {
+        const d = new Date(m.movement_date);
+        const key = startOfWeekLabel(d);
+        const b = buckets.get(key);
+        if (!b) return;
+        if (m.movement_type === 'entrada') b.entradas += m.quantity;
+        else if (m.movement_type === 'salida') b.salidas += m.quantity;
+      });
+    }
+
+    return Array.from(buckets.values());
+  }, [movements, mode]);
+
+  const hasData = chartData.some(d => d.entradas > 0 || d.salidas > 0);
 
   return (
     <div
       style={{
-        position: 'relative',
-        background: 'linear-gradient(135deg, oklch(0.43 0.14 155 / 0.04), oklch(0.55 0.12 165 / 0.01))',
-        border: '1.5px solid rgba(0,0,0,0.07)',
-        borderRadius: 18,
-        padding: 20,
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        background: '#fff',
+        border: '1px solid rgba(0,0,0,0.07)',
+        borderRadius: 16,
+        padding: 18,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
       }}
     >
-      <h3
+      {/* Header */}
+      <div
         style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: '#1d1d1f',
-          margin: 0,
-          marginBottom: 16,
-          letterSpacing: '-0.1px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 14,
+          flexWrap: 'wrap',
+          gap: 10,
         }}
       >
-        Evolución de inventario
-      </h3>
-      <div style={{ height: 256 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-            <defs>
-              <linearGradient id="inventoryGlow" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={BRAND} stopOpacity={0.35} />
-                <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <XAxis
-              dataKey="date"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fontSize: 11, fill: AXIS_COLOR }}
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fontSize: 11, fill: AXIS_COLOR }}
-              width={40}
-            />
-            <Tooltip
-              cursor={{ stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1 }}
-              contentStyle={{
-                backgroundColor: '#fff',
-                border: '1px solid rgba(0,0,0,0.07)',
-                borderRadius: 12,
-                fontSize: 12,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                padding: '8px 12px',
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 650, color: '#1d1d1f' }}>
+            Movimientos de inventario
+          </div>
+          <div style={{ fontSize: 11.5, color: '#a1a1a6', marginTop: 2 }}>
+            Entradas y salidas — últimos 30 días
+          </div>
+        </div>
+        <div
+          style={{
+            display: 'inline-flex',
+            background: '#f5f5f7',
+            borderRadius: 8,
+            padding: 2,
+            gap: 1,
+          }}
+        >
+          {(['daily', 'weekly'] as Mode[]).map(m => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              style={{
+                border: 'none',
+                background: mode === m ? '#fff' : 'transparent',
+                boxShadow: mode === m ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                padding: '5px 10px',
+                fontSize: 11,
+                fontWeight: 550,
+                color: mode === m ? '#1d1d1f' : '#6e6e73',
+                cursor: 'pointer',
+                borderRadius: 6,
+                fontFamily: 'inherit',
+                transition: 'all 0.15s',
               }}
-              labelStyle={{ color: '#6e6e73', fontSize: 11, marginBottom: 2 }}
-              itemStyle={{ color: '#1d1d1f', fontWeight: 600 }}
-              formatter={(value: number) => [`${value} unidades`, 'Stock']}
-            />
-            <Area
-              type="monotone"
-              dataKey="stock"
-              stroke={BRAND}
-              strokeWidth={2.5}
-              fill="url(#inventoryGlow)"
-              dot={false}
-              activeDot={{ r: 5, strokeWidth: 2, stroke: BRAND, fill: '#fff' }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+            >
+              {m === 'daily' ? 'Diario' : 'Semanal'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Chart */}
+      {!hasData ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 160,
+            color: '#a1a1a6',
+            fontSize: 13,
+          }}
+        >
+          Registra movimientos para ver la evolución
+        </div>
+      ) : (
+        <div style={{ height: 180 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} barGap={2}>
+              <CartesianGrid strokeDasharray="2 3" stroke="rgba(0,0,0,0.07)" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10, fill: AXIS_COLOR }}
+                axisLine={{ stroke: 'rgba(0,0,0,0.07)' }}
+                tickLine={false}
+                interval={mode === 'daily' ? 4 : 0}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: AXIS_COLOR }}
+                axisLine={false}
+                tickLine={false}
+                width={32}
+              />
+              <Tooltip
+                cursor={{ fill: 'rgba(0,0,0,0.03)' }}
+                contentStyle={{
+                  background: '#fff',
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  padding: '8px 10px',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                }}
+                labelStyle={{ color: '#1d1d1f', fontWeight: 600, marginBottom: 4 }}
+              />
+              <Bar dataKey="entradas" name="Entradas" fill={BRAND} opacity={0.88} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="salidas" name="Salidas" fill={DANGER} opacity={0.88} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Legend */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 16,
+          marginTop: 10,
+          fontSize: 11.5,
+          color: '#6e6e73',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: BRAND, display: 'inline-block' }} />
+          Entradas
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: DANGER, display: 'inline-block' }} />
+          Salidas
+        </div>
       </div>
     </div>
   );

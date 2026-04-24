@@ -306,9 +306,6 @@ export default function Inventory() {
 
             {/* Table */}
             <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '240ms' }}>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-muted-foreground">Inventario operativo</h3>
-              </div>
               <InventoryTable products={products} onAdjust={openAdjust} onAddMovement={openMovement} />
             </div>
 
