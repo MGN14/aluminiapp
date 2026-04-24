@@ -170,36 +170,34 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           <Label>Fecha emisión</Label>
           <Input type="date" value={form.issue_date} onChange={e => update('issue_date', e.target.value)} />
         </div>
-        {form.type === 'compra' && (
-          <div>
-            <Label>Condiciones de pago</Label>
-            <Select
-              value={String(form.dias_credito)}
-              onValueChange={v => {
-                if (v === 'custom') return;
-                update('dias_credito', Number(v));
-              }}
-            >
-              <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">Contado (0 días)</SelectItem>
-                <SelectItem value="15">15 días</SelectItem>
-                <SelectItem value="30">30 días</SelectItem>
-                <SelectItem value="45">45 días</SelectItem>
-                <SelectItem value="60">60 días</SelectItem>
-                <SelectItem value="90">90 días</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              type="number"
-              min={0}
-              value={form.dias_credito}
-              onChange={e => update('dias_credito', parseInt(e.target.value) || 0)}
-              className="mt-1"
-              placeholder="Días personalizados"
-            />
-          </div>
-        )}
+        <div>
+          <Label>Condiciones de pago</Label>
+          <Select
+            value={String(form.dias_credito)}
+            onValueChange={v => {
+              if (v === 'custom') return;
+              update('dias_credito', Number(v));
+            }}
+          >
+            <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">Contado (0 días)</SelectItem>
+              <SelectItem value="15">15 días</SelectItem>
+              <SelectItem value="30">30 días</SelectItem>
+              <SelectItem value="45">45 días</SelectItem>
+              <SelectItem value="60">60 días</SelectItem>
+              <SelectItem value="90">90 días</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            type="number"
+            min={0}
+            value={form.dias_credito}
+            onChange={e => update('dias_credito', parseInt(e.target.value) || 0)}
+            className="mt-1"
+            placeholder="Días personalizados"
+          />
+        </div>
       </div>
 
       {/* Counterparty */}

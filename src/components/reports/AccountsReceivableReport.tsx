@@ -268,15 +268,11 @@ export default function AccountsReceivableReport() {
 
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
-        const diasCredito = (inv as any).dias_credito ?? 0;
-        const dueDate = (inv as any).due_date as string | null;
-        // Only treat as "contado" when dias_credito=0 AND there's no due_date
-        // beyond issue_date. Siigo-synced invoices leave dias_credito=0 by default
-        // but carry a real due_date, so we must not mark those as paid-at-issue.
-        const hasCreditDueDate = !!dueDate && dueDate > inv.issue_date;
-        const isContado = diasCredito === 0 && !hasCreditDueDate;
+        // No auto-paid shortcut: the "paid" amount must come from real
+        // conciliations, matches or advances. A newly issued invoice stays
+        // pendiente until bank reconciliation moves money against it.
         const rawPaid = paymentsByInvoice.get(inv.id) || 0;
-        const paid = isContado ? inv.total_amount : rawPaid;
+        const paid = rawPaid;
         // Use the saved retefuente values from the invoice module directly
         // Only fall back to 2.5% if rate is null (never configured), not if explicitly 0
         const savedRetefuente = (inv as any).retefuente_cliente_amount ?? 0;
@@ -299,7 +295,7 @@ export default function AccountsReceivableReport() {
         }
 
         const totalDeducted = paid + retefuenteCliente;
-        const pending = isContado ? 0 : Math.max(0, inv.total_amount - totalDeducted);
+        const pending = Math.max(0, inv.total_amount - totalDeducted);
         const daysSince = differenceInDays(today, new Date(inv.issue_date));
         let status: 'pagada' | 'parcial' | 'pendiente' = 'pendiente';
         if (pending <= 0) status = 'pagada';

@@ -112,14 +112,11 @@ export default function AccountsPayableReport() {
       const today = new Date();
       const payables: InvoiceWithAging[] = invoices.map(inv => {
         const diasCredito = (inv as any).dias_credito ?? 0;
-        const dueDateRaw = (inv as any).due_date as string | null;
-        // Only treat as "contado" when dias_credito=0 AND there's no due_date
-        // beyond issue_date. Siigo-synced invoices leave dias_credito=0 by default
-        // but carry a real due_date, so those should remain as accounts payable.
-        const hasCreditDueDate = !!dueDateRaw && dueDateRaw > inv.issue_date;
-        const isContado = diasCredito === 0 && !hasCreditDueDate;
+        // No auto-paid shortcut: stays pendiente until actual conciliation
+        // registers money against it. Siigo ventas/compras were landing directly
+        // in "Facturas pagadas" because of the old contado=auto-paid logic.
         const rawPaid = paymentsByInvoice.get(inv.id) || 0;
-        const paid = isContado ? inv.total_amount : rawPaid;
+        const paid = rawPaid;
         const pending = Math.max(0, inv.total_amount - paid);
         const dueDate = inv.due_date || addDays(new Date(inv.issue_date), diasCredito).toISOString().slice(0, 10);
         const daysRemaining = differenceInDays(new Date(dueDate), today);
