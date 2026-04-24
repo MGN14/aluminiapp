@@ -37,6 +37,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useDashboardCustomization, DashboardModule } from '@/hooks/useDashboardCustomization';
+import MacroTicker from '@/components/dashboard/MacroTicker';
 
 // ── Types ──────────────────────────────────────────────────
 interface TransactionData {
@@ -783,6 +784,9 @@ function DashboardContent() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
+        {/* ─── Macro Ticker (TRM, IPC, etc.) ─── */}
+        <MacroTicker />
+
         {/* ─── Header ─── */}
         <div
           className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"
