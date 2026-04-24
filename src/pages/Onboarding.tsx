@@ -1,180 +1,209 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FileSpreadsheet, Loader2, CheckCircle2, Building2, Receipt, Landmark, BarChart2, Factory } from 'lucide-react';
 import * as Sentry from '@sentry/react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
-import { useFiscalConfig } from '@/hooks/useFiscalConfig';
-import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
-import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+import { CheckCircle2, ArrowRight, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
-// ── Radio / Checkbox card ─────────────────────────────────────────────────────
-function OptionCard({
-  selected,
-  onClick,
-  label,
-  description,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  label: string;
-  description?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full text-left rounded-xl border-2 px-4 py-3 transition-all',
-        selected
-          ? 'border-accent bg-accent/5 text-foreground'
-          : 'border-border bg-background hover:border-accent/50 text-muted-foreground hover:text-foreground',
-      )}
-    >
-      <div className="flex items-center gap-3">
-        <div className={cn(
-          'w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center',
-          selected ? 'border-accent bg-accent' : 'border-muted-foreground',
-        )}>
-          {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-        </div>
-        <div>
-          <p className="text-sm font-medium text-foreground">{label}</p>
-          {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
-        </div>
-      </div>
-    </button>
-  );
-}
+import OnboardingShell from '@/components/onboarding/OnboardingShell';
+import { INITIAL_STATE, type OnboardingState } from '@/components/onboarding/state';
+import Step01Welcome from '@/components/onboarding/steps/Step01Welcome';
+import Step02Persona from '@/components/onboarding/steps/Step02Persona';
+import Step03NIT from '@/components/onboarding/steps/Step03NIT';
+import Step04Regimen from '@/components/onboarding/steps/Step04Regimen';
+import Step05Responsabilidades from '@/components/onboarding/steps/Step05Responsabilidades';
+import Step06Actividad from '@/components/onboarding/steps/Step06Actividad';
+import Step07Siigo from '@/components/onboarding/steps/Step07Siigo';
+import Step08Resumen from '@/components/onboarding/steps/Step08Resumen';
+import Step09Welcome from '@/components/onboarding/steps/Step09Welcome';
+import Step10Tour from '@/components/onboarding/steps/Step10Tour';
 
-// ── Boolean pair (Sí / No) ────────────────────────────────────────────────────
-function YesNo({
-  value,
-  onChange,
-}: {
-  value: boolean | null;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <OptionCard selected={value === true} onClick={() => onChange(true)} label="Sí" />
-      <OptionCard selected={value === false} onClick={() => onChange(false)} label="No" />
-    </div>
-  );
-}
+import { useAuth } from '@/hooks/useAuth';
+import { useFiscalConfig } from '@/hooks/useFiscalConfig';
+import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
+import { supabase } from '@/integrations/supabase/client';
 
-// ── Section header ─────────────────────────────────────────────────────────────
-function SectionHeader({ icon: Icon, number, title }: { icon: any; number: string; title: string }) {
-  return (
-    <div className="flex items-center gap-3 mb-5 pb-3 border-b border-border">
-      <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
-        <Icon className="w-4 h-4 text-accent" />
-      </div>
-      <div>
-        <p className="text-[10px] font-semibold text-accent uppercase tracking-wider">{number}</p>
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-      </div>
-    </div>
-  );
-}
+const LEFT_CONTENT: Array<{ headline: React.ReactNode; subtitle?: React.ReactNode }> = [
+  {
+    headline: (
+      <>
+        Tu negocio,
+        <br />
+        <span style={{ color: 'oklch(0.60 0.14 155)' }}>entendido</span> desde el día 1
+      </>
+    ),
+    subtitle: 'Pocas preguntas, ejemplos claros, y alertas que sí sirven desde el primer login.',
+  },
+  {
+    headline: (
+      <>
+        ¿Quién <span style={{ color: 'oklch(0.60 0.14 155)' }}>factura</span>?
+      </>
+    ),
+    subtitle: 'La misma venta se declara diferente si es una persona o una empresa. Arrancamos por lo básico.',
+  },
+  {
+    headline: (
+      <>
+        Tu <span style={{ color: 'oklch(0.60 0.14 155)' }}>NIT</span>,
+        <br />y nada más
+      </>
+    ),
+    subtitle:
+      'Necesitamos dos dígitos para saber cuándo te toca declarar. No reportamos nada a la DIAN en tu nombre.',
+  },
+  {
+    headline: (
+      <>
+        ¿Bajo qué <span style={{ color: 'oklch(0.60 0.14 155)' }}>régimen</span> operas?
+      </>
+    ),
+    subtitle: 'Cambia qué impuestos calculamos y qué reportes sugerimos. Si no sabes, pregúntale al contador.',
+  },
+  {
+    headline: (
+      <>
+        ¿Qué <span style={{ color: 'oklch(0.60 0.14 155)' }}>impuestos</span> tocan?
+      </>
+    ),
+    subtitle: 'Marcas lo que aplica a tu negocio. Si no estás seguro, "No" — siempre se cambia después.',
+  },
+  {
+    headline: (
+      <>
+        ¿A qué te <span style={{ color: 'oklch(0.60 0.14 155)' }}>dedicas</span>?
+      </>
+    ),
+    subtitle: 'Ajustamos los KPIs, las alertas y los reportes al tipo de operación que tienes.',
+  },
+  {
+    headline: (
+      <>
+        Conecta <span style={{ color: 'oklch(0.60 0.14 155)' }}>Siigo</span> de una
+      </>
+    ),
+    subtitle: 'Si ya usas Siigo, traemos tus ventas sin que digites nada. Si no, saltamos y listo.',
+  },
+  {
+    headline: (
+      <>
+        Última <span style={{ color: 'oklch(0.60 0.14 155)' }}>revisada</span>
+      </>
+    ),
+    subtitle: 'Verifica que todo esté bien antes de guardar. Todo se puede editar después.',
+  },
+  {
+    headline: (
+      <>
+        <span style={{ color: 'oklch(0.60 0.14 155)' }}>Listo</span> para arrancar
+      </>
+    ),
+    subtitle: 'Tu perfil quedó guardado. Ahora te mostramos lo que puedes hacer con AluminIA.',
+  },
+  {
+    headline: (
+      <>
+        Empieza donde <span style={{ color: 'oklch(0.60 0.14 155)' }}>prefieras</span>
+      </>
+    ),
+    subtitle: 'AluminIA tiene 5 partes principales. Entra donde más te urja, puedes volver a este tour cuando quieras.',
+  },
+];
 
-// ── Field wrapper ──────────────────────────────────────────────────────────────
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div className="space-y-2">
-      <Label className="text-sm font-medium">
-        {label}
-        {required && <span className="text-destructive ml-1">*</span>}
-      </Label>
-      {children}
-    </div>
-  );
-}
-
-// ── Main component ─────────────────────────────────────────────────────────────
 export default function Onboarding() {
   const { user } = useAuth();
   const { saveConfig } = useFiscalConfig();
   const { markComplete } = useOnboardingStatus();
-  const navigate = useNavigate();
+
+  const [stepIndex, setStepIndex] = useState(0);
+  const [state, setState] = useState<OnboardingState>({
+    ...INITIAL_STATE,
+    nombreUsuario: user?.user_metadata?.full_name ?? '',
+  });
   const [saving, setSaving] = useState(false);
 
-  // 1. IDENTIFICACIÓN
-  const [personaType, setPersonaType] = useState<'natural' | 'juridica' | null>(null);
-  const [nitUltimoDigito, setNitUltimoDigito] = useState('');
-  const [digitoVerificacion, setDigitoVerificacion] = useState('');
-  const [nombreComercial, setNombreComercial] = useState('');
-  const [nombreUsuario, setNombreUsuario] = useState(user?.user_metadata?.full_name ?? '');
+  const update = <K extends keyof OnboardingState>(key: K, value: OnboardingState[K]) => {
+    setState((s) => ({ ...s, [key]: value }));
+  };
 
-  // 2. RÉGIMEN
-  const [regimen, setRegimen] = useState<'comun' | 'simple' | 'especial' | null>(null);
-
-  // 3. RESPONSABILIDADES
-  const [responsableIva, setResponsableIva] = useState<boolean | null>(null);
-  const [agenteRetencion, setAgenteRetencion] = useState<boolean | null>(null);
-  const [autorretenedor, setAutorretenedor] = useState<boolean | null>(null);
-  const [responsableIca, setResponsableIca] = useState<boolean | null>(null);
-  const [facturacionElectronica, setFacturacionElectronica] = useState<boolean | null>(null);
-  const [nombreFacturador, setNombreFacturador] = useState('');
-
-  // 4. INGRESOS
-  const [nivelIngresos, setNivelIngresos] = useState<'menos_92k_uvt' | 'mas_92k_uvt' | null>(null);
-
-  // 5. ACTIVIDAD
-  const [actividadPrincipal, setActividadPrincipal] = useState<'comercial' | 'servicios' | 'industrial' | 'construccion' | 'otro' | null>(null);
-  const [codigoCiiu, setCodigoCiiu] = useState('');
+  const goTo = (idx: number) => setStepIndex(Math.max(0, Math.min(idx, LEFT_CONTENT.length - 1)));
 
   const requiredComplete =
-    personaType !== null &&
-    nitUltimoDigito.trim() !== '' &&
-    digitoVerificacion.trim() !== '' &&
-    regimen !== null &&
-    responsableIva !== null &&
-    agenteRetencion !== null &&
-    autorretenedor !== null &&
-    responsableIca !== null &&
-    facturacionElectronica !== null &&
-    codigoCiiu.trim() !== '';
+    state.personaType !== null &&
+    state.nitUltimoDigito.trim() !== '' &&
+    state.digitoVerificacion.trim() !== '' &&
+    state.regimen !== null &&
+    state.responsableIva !== null &&
+    state.agenteRetencion !== null &&
+    state.autorretenedor !== null &&
+    state.responsableIca !== null &&
+    state.facturacionElectronica !== null &&
+    state.actividadPrincipal !== null &&
+    state.codigoCiiu.trim() !== '';
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const canGoNextForStep = (i: number): boolean => {
+    switch (i) {
+      case 0:
+        return true;
+      case 1:
+        return state.personaType !== null;
+      case 2:
+        return state.nitUltimoDigito.trim() !== '' && state.digitoVerificacion.trim() !== '';
+      case 3:
+        return state.regimen !== null;
+      case 4:
+        return (
+          state.responsableIva !== null &&
+          state.agenteRetencion !== null &&
+          state.autorretenedor !== null &&
+          state.responsableIca !== null &&
+          state.facturacionElectronica !== null
+        );
+      case 5:
+        return state.actividadPrincipal !== null && state.codigoCiiu.trim() !== '';
+      case 6:
+        if (state.siigoChoice === 'yes') {
+          return state.siigoUsername.trim() !== '' && state.siigoAccessKey.trim() !== '';
+        }
+        return state.siigoChoice !== null;
+      case 7:
+        return requiredComplete;
+      default:
+        return true;
+    }
+  };
+
+  const handleConfirm = async () => {
     if (!requiredComplete) {
-      toast.error('Completa todos los campos obligatorios (*) para continuar');
+      toast.error('Revisa los campos marcados. Algunos están incompletos.');
       return;
     }
     setSaving(true);
 
     const fiscalPayload = {
-      persona_type: personaType!,
-      nit_ultimo_digito: parseInt(nitUltimoDigito),
-      nit_digit: parseInt(digitoVerificacion),
-      renta_type: (personaType === 'natural' ? 'natural' : 'juridica') as 'natural' | 'juridica',
-      regimen: regimen!,
-      responsable_iva: responsableIva!,
-      agente_retencion: agenteRetencion!,
-      autorretenedor: autorretenedor!,
-      responsable_ica: responsableIca!,
-      facturacion_electronica: facturacionElectronica!,
-      nombre_facturador: nombreFacturador.trim() || null,
-      nivel_ingresos: nivelIngresos,
-      actividad_principal: actividadPrincipal,
-      codigo_ciiu: codigoCiiu.trim(),
+      persona_type: state.personaType!,
+      nit_ultimo_digito: parseInt(state.nitUltimoDigito),
+      nit_digit: parseInt(state.digitoVerificacion),
+      renta_type: (state.personaType === 'natural' ? 'natural' : 'juridica') as 'natural' | 'juridica',
+      regimen: state.regimen!,
+      responsable_iva: state.responsableIva!,
+      agente_retencion: state.agenteRetencion!,
+      autorretenedor: state.autorretenedor!,
+      responsable_ica: state.responsableIca!,
+      facturacion_electronica: state.facturacionElectronica!,
+      nombre_facturador: state.nombreFacturador.trim() || null,
+      nivel_ingresos: state.nivelIngresos,
+      actividad_principal: state.actividadPrincipal!,
+      codigo_ciiu: state.codigoCiiu.trim(),
     };
 
-    // Always persist locally so the user can proceed even if the DB schema isn't migrated yet.
-    // The fiscal_config table and profiles.onboarding_completed column may not exist in prod.
     try {
       if (user?.id) {
         localStorage.setItem(`fiscal_config:${user.id}`, JSON.stringify(fiscalPayload));
         localStorage.setItem(`onboarding_completed:${user.id}`, 'true');
       }
-    } catch { /* localStorage may be unavailable, ignore */ }
+    } catch {
+      /* localStorage may be unavailable */
+    }
 
-    // Try DB saves, but don't block the user if they fail (missing table/column).
     try {
       await saveConfig.mutateAsync(fiscalPayload);
     } catch (err: any) {
@@ -187,8 +216,8 @@ export default function Onboarding() {
         user_id: user!.id,
         onboarding_completed: true,
       };
-      if (nombreComercial.trim()) profilePayload.company_name = nombreComercial.trim();
-      if (nombreUsuario.trim()) profilePayload.full_name = nombreUsuario.trim();
+      if (state.nombreComercial.trim()) profilePayload.company_name = state.nombreComercial.trim();
+      if (state.nombreUsuario.trim()) profilePayload.full_name = state.nombreUsuario.trim();
       const { error: profileError } = await (supabase as any)
         .from('profiles')
         .upsert(profilePayload, { onConflict: 'user_id' });
@@ -198,263 +227,127 @@ export default function Onboarding() {
       Sentry.captureException(err, { tags: { feature: 'onboarding', step: 'profile_upsert' } });
     }
 
-    try { await markComplete(); } catch (err) {
+    // Siigo connect (best-effort; don't block onboarding on failure)
+    if (state.siigoChoice === 'yes' && state.siigoUsername && state.siigoAccessKey) {
+      try {
+        const { data, error } = await supabase.functions.invoke('siigo-connect', {
+          body: {
+            username: state.siigoUsername,
+            access_key: state.siigoAccessKey,
+            partner_id: state.siigoPartnerId || 'aluminiapp',
+          },
+        });
+        if (error) throw error;
+        if (!data?.ok) throw new Error(data?.error || 'Conexión rechazada por Siigo');
+        toast.success('Siigo conectado correctamente');
+      } catch (err: any) {
+        console.warn('[onboarding] siigo-connect failed:', err?.message);
+        Sentry.captureException(err, { tags: { feature: 'onboarding', step: 'siigo_connect' } });
+        toast.warning(
+          'No se pudo conectar Siigo ahora, pero tu perfil quedó guardado. Reintenta desde Ajustes.',
+        );
+      }
+    }
+
+    try {
+      await markComplete();
+    } catch (err) {
       Sentry.captureException(err, { tags: { feature: 'onboarding', step: 'mark_complete_call' } });
     }
 
-    toast.success('Perfil fiscal guardado. Podés ajustarlo desde Ajustes.');
+    toast.success('Perfil fiscal guardado');
     setSaving(false);
-    // Hard navigation to guarantee all hooks re-evaluate with the fresh
-    // onboarding_completed=true state. react-router's navigate() can race
-    // with the cache invalidation and bounce the user back to /onboarding.
-    window.location.assign('/dashboard');
+    setStepIndex(8); // advance to welcome
   };
 
+  const handleTourNavigate = (path: string) => {
+    // Hard navigation to ensure fresh state (onboarding_completed=true already set)
+    window.location.assign(path);
+  };
+
+  // Render step content + CTAs ─────────────────────────────────────────────
+  const leftMeta = LEFT_CONTENT[stepIndex];
+  const isConfirmStep = stepIndex === 7;
+  const isWelcomeStep = stepIndex === 8;
+
+  let stepContent: React.ReactNode = null;
+  let nextLabel = 'Continuar';
+  let nextIcon: React.ReactNode | undefined;
+  let hideNext = false;
+  let hideBack = false;
+
+  switch (stepIndex) {
+    case 0:
+      stepContent = <Step01Welcome />;
+      nextLabel = 'Empezar';
+      nextIcon = <Sparkles style={{ width: 14, height: 14 }} />;
+      hideBack = true;
+      break;
+    case 1:
+      stepContent = <Step02Persona state={state} update={update} />;
+      break;
+    case 2:
+      stepContent = <Step03NIT state={state} update={update} />;
+      break;
+    case 3:
+      stepContent = <Step04Regimen state={state} update={update} />;
+      break;
+    case 4:
+      stepContent = <Step05Responsabilidades state={state} update={update} />;
+      break;
+    case 5:
+      stepContent = <Step06Actividad state={state} update={update} />;
+      break;
+    case 6:
+      stepContent = <Step07Siigo state={state} update={update} />;
+      break;
+    case 7:
+      stepContent = <Step08Resumen state={state} update={update} goTo={goTo} />;
+      nextLabel = 'Confirmar y guardar';
+      nextIcon = <CheckCircle2 style={{ width: 14, height: 14 }} />;
+      break;
+    case 8:
+      stepContent = <Step09Welcome userName={state.nombreUsuario || user?.user_metadata?.full_name} />;
+      nextLabel = 'Empezar tour';
+      nextIcon = <ArrowRight style={{ width: 14, height: 14 }} />;
+      hideBack = true;
+      break;
+    case 9:
+      stepContent = <Step10Tour onNavigate={handleTourNavigate} />;
+      hideNext = true;
+      hideBack = false;
+      break;
+  }
+
+  const handleNext = () => {
+    if (isConfirmStep) {
+      handleConfirm();
+      return;
+    }
+    if (isWelcomeStep) {
+      setStepIndex(9);
+      return;
+    }
+    setStepIndex((i) => Math.min(i + 1, LEFT_CONTENT.length - 1));
+  };
+
+  const handleBack = () => setStepIndex((i) => Math.max(i - 1, 0));
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Top bar */}
-      <div className="border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg gradient-brand flex items-center justify-center shrink-0">
-            <FileSpreadsheet className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-foreground">Configuración inicial</p>
-            <p className="text-xs text-muted-foreground">Completá tu perfil fiscal para comenzar</p>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {[personaType, nitUltimoDigito, digitoVerificacion, regimen, responsableIva, agenteRetencion, autorretenedor, responsableIca, facturacionElectronica, codigoCiiu].filter(v => v !== null && v !== '').length} / 10 obligatorios
-          </div>
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} className="max-w-2xl mx-auto px-4 py-8 space-y-8">
-
-        {/* ── 1. IDENTIFICACIÓN ─────────────────────────────────── */}
-        <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
-          <SectionHeader icon={Building2} number="1" title="Identificación" />
-
-          <Field label="Tipo de persona" required>
-            <div className="grid grid-cols-2 gap-3">
-              <OptionCard
-                selected={personaType === 'natural'}
-                onClick={() => setPersonaType('natural')}
-                label="Persona natural"
-              />
-              <OptionCard
-                selected={personaType === 'juridica'}
-                onClick={() => setPersonaType('juridica')}
-                label="Persona jurídica"
-              />
-            </div>
-          </Field>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Último dígito del NIT (antes del -)" required>
-              <Input
-                type="number"
-                min={0}
-                max={9}
-                maxLength={1}
-                placeholder="Ej: 6"
-                value={nitUltimoDigito}
-                onChange={e => {
-                  const v = e.target.value.replace(/\D/g, '').slice(0, 1);
-                  setNitUltimoDigito(v);
-                }}
-                className="h-11 text-center text-lg font-mono"
-              />
-            </Field>
-
-            <Field label="Dígito de verificación (después del -)" required>
-              <Input
-                type="number"
-                min={0}
-                max={9}
-                maxLength={1}
-                placeholder="Ej: 7"
-                value={digitoVerificacion}
-                onChange={e => {
-                  const v = e.target.value.replace(/\D/g, '').slice(0, 1);
-                  setDigitoVerificacion(v);
-                }}
-                className="h-11 text-center text-lg font-mono"
-              />
-            </Field>
-          </div>
-
-          <Field label="Nombre comercial de la empresa">
-            <Input
-              placeholder="Ej: Distribuidora El Sol"
-              value={nombreComercial}
-              onChange={e => setNombreComercial(e.target.value)}
-              className="h-11"
-            />
-          </Field>
-
-          <Field label="Nombre del usuario">
-            <Input
-              placeholder="Tu nombre completo"
-              value={nombreUsuario}
-              onChange={e => setNombreUsuario(e.target.value)}
-              className="h-11"
-            />
-          </Field>
-        </div>
-
-        {/* ── 2. RÉGIMEN TRIBUTARIO ──────────────────────────────── */}
-        <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
-          <SectionHeader icon={Landmark} number="2" title="Régimen Tributario" />
-
-          <Field label="Tipo de régimen" required>
-            <div className="space-y-3">
-              <OptionCard
-                selected={regimen === 'comun'}
-                onClick={() => setRegimen('comun')}
-                label="Régimen Común"
-                description="Personas jurídicas y naturales con ingresos significativos"
-              />
-              <OptionCard
-                selected={regimen === 'simple'}
-                onClick={() => setRegimen('simple')}
-                label="Régimen Simple de Tributación"
-                description="Simplificación del cumplimiento tributario para pequeños contribuyentes"
-              />
-              <OptionCard
-                selected={regimen === 'especial'}
-                onClick={() => setRegimen('especial')}
-                label="Régimen Especial"
-                description="Cooperativas, fundaciones, asociaciones sin ánimo de lucro"
-              />
-            </div>
-          </Field>
-        </div>
-
-        {/* ── 3. RESPONSABILIDADES TRIBUTARIAS ──────────────────── */}
-        <div className="rounded-2xl border border-border bg-card p-6 space-y-6">
-          <SectionHeader icon={Receipt} number="3" title="Responsabilidades Tributarias" />
-
-          <Field label="¿Eres responsable de IVA?" required>
-            <YesNo value={responsableIva} onChange={setResponsableIva} />
-          </Field>
-
-          <Field label="¿Realizas retenciones en la fuente?" required>
-            <YesNo value={agenteRetencion} onChange={setAgenteRetencion} />
-          </Field>
-
-          <Field label="¿Eres autorretenedor?" required>
-            <YesNo value={autorretenedor} onChange={setAutorretenedor} />
-          </Field>
-
-          <Field label="¿Tu empresa paga ICA (Impuesto de Industria y Comercio)?" required>
-            <YesNo value={responsableIca} onChange={setResponsableIca} />
-          </Field>
-
-          <Field label="¿Estás obligado a facturación electrónica?" required>
-            <YesNo value={facturacionElectronica} onChange={setFacturacionElectronica} />
-          </Field>
-
-          {facturacionElectronica && (
-            <Field label="Nombre del facturador electrónico">
-              <Input
-                placeholder="Ej: Siigo, Alegra, Facturante..."
-                value={nombreFacturador}
-                onChange={e => setNombreFacturador(e.target.value)}
-                className="h-11"
-              />
-            </Field>
-          )}
-        </div>
-
-        {/* ── 4. NIVEL DE INGRESOS ───────────────────────────────── */}
-        <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
-          <SectionHeader icon={BarChart2} number="4" title="Nivel de Ingresos" />
-          <p className="text-xs text-muted-foreground -mt-2">
-            Sugerimos usar los ingresos declarados ante la DIAN del año anterior.
-          </p>
-
-          <Field label="Ingresos del año anterior (aproximado)">
-            <div className="space-y-3">
-              <OptionCard
-                selected={nivelIngresos === 'menos_92k_uvt'}
-                onClick={() => setNivelIngresos('menos_92k_uvt')}
-                label="Menos de 92.000 UVT"
-                description="≈ menos de $4.300 millones COP (2024)"
-              />
-              <OptionCard
-                selected={nivelIngresos === 'mas_92k_uvt'}
-                onClick={() => setNivelIngresos('mas_92k_uvt')}
-                label="Más de 92.000 UVT"
-                description="≈ más de $4.300 millones COP (2024)"
-              />
-            </div>
-          </Field>
-        </div>
-
-        {/* ── 5. ACTIVIDAD ECONÓMICA ─────────────────────────────── */}
-        <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
-          <SectionHeader icon={Factory} number="5" title="Actividad Económica" />
-
-          <Field label="Actividad principal del negocio">
-            <div className="space-y-2">
-              {([
-                { value: 'comercial', label: 'Comercial', desc: 'Compra y venta de bienes' },
-                { value: 'servicios', label: 'Servicios', desc: 'Prestación de servicios' },
-                { value: 'industrial', label: 'Industrial / producción', desc: 'Fabricación o transformación' },
-                { value: 'construccion', label: 'Construcción', desc: 'Obras civiles e inmobiliarias' },
-                { value: 'otro', label: 'Otro', desc: '' },
-              ] as const).map(opt => (
-                <OptionCard
-                  key={opt.value}
-                  selected={actividadPrincipal === opt.value}
-                  onClick={() => setActividadPrincipal(opt.value)}
-                  label={opt.label}
-                  description={opt.desc || undefined}
-                />
-              ))}
-            </div>
-          </Field>
-
-          <Field label="Código CIIU" required>
-            <Input
-              placeholder="Ej: 4711, 6201..."
-              value={codigoCiiu}
-              onChange={e => setCodigoCiiu(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              className="h-11 font-mono"
-              maxLength={6}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Mira tu RUT, casilla 46
-            </p>
-          </Field>
-        </div>
-
-        {/* ── Submit ─────────────────────────────────────────────── */}
-        <div className="pb-8">
-          {!requiredComplete && (
-            <p className="text-xs text-muted-foreground text-center mb-3">
-              Completa los campos marcados con <span className="text-destructive">*</span> para continuar
-            </p>
-          )}
-          <Button
-            type="submit"
-            className="w-full h-12 text-base"
-            disabled={saving || !requiredComplete}
-          >
-            {saving ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Guardando...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                Completar configuración y entrar a AluminIA
-              </>
-            )}
-          </Button>
-        </div>
-      </form>
-    </div>
+    <OnboardingShell
+      stepIndex={stepIndex}
+      leftHeadline={leftMeta.headline}
+      leftSubtitle={leftMeta.subtitle}
+      onBack={hideBack ? undefined : handleBack}
+      onNext={hideNext ? undefined : handleNext}
+      canGoNext={canGoNextForStep(stepIndex)}
+      nextLabel={nextLabel}
+      nextLoading={saving}
+      nextIcon={nextIcon}
+      hideBack={hideBack || stepIndex === 0}
+      hideNext={hideNext}
+    >
+      {stepContent}
+    </OnboardingShell>
   );
 }

@@ -46,11 +46,15 @@ const INGRESOS_LABEL: Record<string, string> = {
 };
 
 const ACTIVIDAD_LABEL: Record<string, string> = {
-  comercial: 'Comercial',
+  distribuidor: 'Distribuidor',
+  fabricante: 'Fabricante',
   servicios: 'Servicios',
-  industrial: 'Industrial / producción',
   construccion: 'Construcción',
-  otro: 'Otro',
+  mixto: 'Mixto',
+  // Legacy fallback (pre-migration rows)
+  comercial: 'Distribuidor',
+  industrial: 'Fabricante',
+  otro: 'Mixto',
 };
 
 export default function Settings() {

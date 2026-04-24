@@ -22,7 +22,7 @@ export interface FiscalConfig {
   facturacion_electronica: boolean;
   nombre_facturador: string | null;
   nivel_ingresos: 'menos_92k_uvt' | 'mas_92k_uvt' | null;
-  actividad_principal: 'comercial' | 'servicios' | 'industrial' | 'construccion' | 'otro' | null;
+  actividad_principal: 'distribuidor' | 'fabricante' | 'servicios' | 'construccion' | 'mixto' | null;
   codigo_ciiu: string | null;
   paid_dian_events: string[] | null;
   created_at: string;
@@ -44,7 +44,7 @@ export interface FiscalConfigInput {
   facturacion_electronica?: boolean;
   nombre_facturador?: string | null;
   nivel_ingresos?: 'menos_92k_uvt' | 'mas_92k_uvt' | null;
-  actividad_principal?: 'comercial' | 'servicios' | 'industrial' | 'construccion' | 'otro' | null;
+  actividad_principal?: 'distribuidor' | 'fabricante' | 'servicios' | 'construccion' | 'mixto' | null;
   codigo_ciiu?: string | null;
   paid_dian_events?: string[] | null;
 }
