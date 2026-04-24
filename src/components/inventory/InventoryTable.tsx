@@ -1,15 +1,36 @@
 import { useState } from 'react';
-import { Package, ArrowUpDown, Plus, Minus, Eye, Bot } from 'lucide-react';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Package, ArrowUpDown, Plus, Minus, Pencil, Bot } from 'lucide-react';
 import type { ProductWithMetrics, InventoryStatus } from '@/hooks/useInventoryData';
 
-const statusConfig: Record<InventoryStatus, { label: string; className: string }> = {
-  critico: { label: 'Crítico', className: 'bg-destructive/10 text-destructive border-destructive/30' },
-  alerta: { label: 'Alerta', className: 'bg-warning/10 text-warning border-warning/30' },
-  sano: { label: 'Sano', className: 'bg-success/10 text-success border-success/30' },
-  exceso: { label: 'Exceso', className: 'bg-violet-500/10 text-violet-500 border-violet-500/30' },
+const STATUS_STYLES: Record<InventoryStatus, { label: string; dot: string; color: string; bg: string; border: string }> = {
+  critico: {
+    label: 'Crítico',
+    dot:   'oklch(0.52 0.18 25)',
+    color: 'oklch(0.52 0.18 25)',
+    bg:    'oklch(0.58 0.20 25 / 0.10)',
+    border:'oklch(0.58 0.20 25 / 0.22)',
+  },
+  alerta: {
+    label: 'Alerta',
+    dot:   'oklch(0.55 0.17 70)',
+    color: 'oklch(0.55 0.17 70)',
+    bg:    'oklch(0.70 0.17 70 / 0.12)',
+    border:'oklch(0.70 0.17 70 / 0.25)',
+  },
+  sano: {
+    label: 'Saludable',
+    dot:   'oklch(0.43 0.14 155)',
+    color: 'oklch(0.43 0.14 155)',
+    bg:    'oklch(0.43 0.14 155 / 0.10)',
+    border:'oklch(0.43 0.14 155 / 0.22)',
+  },
+  exceso: {
+    label: 'Exceso',
+    dot:   'oklch(0.50 0.17 305)',
+    color: 'oklch(0.50 0.17 305)',
+    bg:    'oklch(0.55 0.17 305 / 0.10)',
+    border:'oklch(0.55 0.17 305 / 0.22)',
+  },
 };
 
 interface Props {
@@ -19,6 +40,85 @@ interface Props {
 }
 
 type SortKey = 'reference' | 'stock_system' | 'stock_physical' | 'difference' | 'days_of_inventory' | 'status';
+
+const thStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '0.7px',
+  textTransform: 'uppercase',
+  color: '#a1a1a6',
+  padding: '12px 16px',
+  textAlign: 'left',
+  borderBottom: '1px solid rgba(0,0,0,0.07)',
+  background: '#f5f5f7',
+  cursor: 'default',
+  whiteSpace: 'nowrap',
+};
+
+const tdStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: '#1d1d1f',
+  padding: '12px 16px',
+  borderBottom: '1px solid rgba(0,0,0,0.07)',
+  whiteSpace: 'nowrap',
+};
+
+function SortableTh({ label, active, asc, onClick, align = 'left' }: { label: string; active: boolean; asc: boolean; onClick: () => void; align?: 'left' | 'right' }) {
+  return (
+    <th
+      style={{ ...thStyle, cursor: 'pointer', textAlign: align, userSelect: 'none' }}
+      onClick={onClick}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+        {label}
+        <ArrowUpDown
+          style={{
+            width: 10,
+            height: 10,
+            color: active ? 'oklch(0.43 0.14 155)' : '#a1a1a6',
+            transform: active && !asc ? 'rotate(180deg)' : 'none',
+            transition: 'transform 0.15s',
+          }}
+        />
+      </span>
+    </th>
+  );
+}
+
+function ActionButton({ onClick, title, color, bgHover, children }: { onClick: () => void; title: string; color: string; bgHover: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      style={{
+        width: 26,
+        height: 26,
+        borderRadius: 7,
+        background: 'transparent',
+        border: '1px solid rgba(0,0,0,0.07)',
+        color,
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'background 0.15s, border-color 0.15s',
+        fontFamily: 'inherit',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = bgHover;
+        e.currentTarget.style.borderColor = 'transparent';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent';
+        e.currentTarget.style.borderColor = 'rgba(0,0,0,0.07)';
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function InventoryTable({ products, onAdjust, onAddMovement }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('status');
@@ -30,7 +130,6 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
     if (sortKey === 'status') cmp = statusOrder[a.status] - statusOrder[b.status];
     else if (sortKey === 'reference') cmp = a.reference.localeCompare(b.reference);
     else if (sortKey === 'stock_physical') {
-      // Nulls always at the end regardless of sort direction
       const aNull = a.stock_physical === null;
       const bNull = b.stock_physical === null;
       if (aNull && bNull) cmp = 0;
@@ -48,130 +147,195 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
   };
 
   const askNicoAboutProduct = (product: ProductWithMetrics) => {
-    const diffText = product.difference === 0 
+    const diffText = product.difference === 0
       ? 'está alineado con el conteo físico'
-      : product.difference > 0 
+      : product.difference > 0
         ? `tiene ${product.difference} unidades faltantes respecto al físico`
         : `tiene ${Math.abs(product.difference)} unidades de exceso físico`;
-    
+
     const query = `Analiza el producto ${product.reference} (${product.name}). Stock sistema: ${product.stock_system}, Stock físico: ${product.stock_physical ?? 'no contado'}. El inventario ${diffText}. ¿Qué puede estar causando esta diferencia y qué debería hacer?`;
-    
-    window.dispatchEvent(new CustomEvent('nico-prefill', { 
+
+    window.dispatchEvent(new CustomEvent('nico-prefill', {
       detail: { query, pageContext: { page: 'inventory' } }
     }));
   };
 
   if (!products.length) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 gap-4 rounded-2xl border border-border/50 bg-muted/10">
-        <Package className="h-10 w-10 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">Agrega tu primer producto para comenzar</p>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '64px 24px',
+          gap: 16,
+          background: '#fff',
+          border: '1.5px solid rgba(0,0,0,0.07)',
+          borderRadius: 18,
+        }}
+      >
+        <Package style={{ width: 40, height: 40, color: '#a1a1a6' }} />
+        <p style={{ fontSize: 13, color: '#6e6e73', margin: 0 }}>Agrega tu primer producto para comenzar</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-white/[0.06] bg-card/60 backdrop-blur-sm overflow-hidden">
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent border-b border-border/50">
-            <TableHead className="cursor-pointer" onClick={() => toggleSort('reference')}>
-              <span className="flex items-center gap-1">Referencia <ArrowUpDown className="h-3 w-3" /></span>
-            </TableHead>
-            <TableHead>Producto</TableHead>
-            <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('stock_system')}>
-              <span className="flex items-center justify-end gap-1">Uds. Sistema <ArrowUpDown className="h-3 w-3" /></span>
-            </TableHead>
-            <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('stock_physical')}>
-              <span className="flex items-center justify-end gap-1">Uds. Físicas <ArrowUpDown className="h-3 w-3" /></span>
-            </TableHead>
-            <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('difference')}>
-              <span className="flex items-center justify-end gap-1">Diferencia <ArrowUpDown className="h-3 w-3" /></span>
-            </TableHead>
-            <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('days_of_inventory')}>
-              <span className="flex items-center justify-end gap-1">Días Inv. <ArrowUpDown className="h-3 w-3" /></span>
-            </TableHead>
-            <TableHead className="text-right">Rotación</TableHead>
-            <TableHead className="cursor-pointer" onClick={() => toggleSort('status')}>
-              <span className="flex items-center gap-1">Estado <ArrowUpDown className="h-3 w-3" /></span>
-            </TableHead>
-            <TableHead className="text-right">Acciones</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sorted.map(p => {
-            const sc = statusConfig[p.status];
-            const hasPhysical = p.stock_physical !== null;
-            const diff = p.difference;
-            const absDiff = Math.abs(diff);
+    <div
+      style={{
+        background: '#fff',
+        border: '1.5px solid rgba(0,0,0,0.07)',
+        borderRadius: 18,
+        overflow: 'hidden',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      }}
+    >
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'inherit' }}>
+          <thead>
+            <tr>
+              <SortableTh label="Referencia" active={sortKey === 'reference'} asc={sortAsc} onClick={() => toggleSort('reference')} />
+              <th style={thStyle}>Producto</th>
+              <SortableTh label="Uds. Siigo" active={sortKey === 'stock_system'} asc={sortAsc} onClick={() => toggleSort('stock_system')} align="right" />
+              <SortableTh label="Uds. Físicas" active={sortKey === 'stock_physical'} asc={sortAsc} onClick={() => toggleSort('stock_physical')} align="right" />
+              <SortableTh label="Dif." active={sortKey === 'difference'} asc={sortAsc} onClick={() => toggleSort('difference')} align="right" />
+              <SortableTh label="Días Inv." active={sortKey === 'days_of_inventory'} asc={sortAsc} onClick={() => toggleSort('days_of_inventory')} align="right" />
+              <th style={{ ...thStyle, textAlign: 'right' }}>Rotación</th>
+              <SortableTh label="Estado" active={sortKey === 'status'} asc={sortAsc} onClick={() => toggleSort('status')} />
+              <th style={{ ...thStyle, textAlign: 'right' }}>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((p) => {
+              const s = STATUS_STYLES[p.status];
+              const hasPhysical = p.stock_physical !== null;
+              const diff = p.difference;
+              const absDiff = Math.abs(diff);
 
-            // Difference visual states
-            let diffColor = 'text-muted-foreground';
-            let diffLabel = '';
-            if (hasPhysical) {
-              if (diff === 0) {
-                diffColor = 'text-emerald-400';
-                diffLabel = 'Alineado';
-              } else if (diff > 0) {
-                // System > Physical: missing units
-                diffColor = absDiff > 10 ? 'text-destructive' : 'text-amber-400';
-                diffLabel = absDiff > 10 ? 'Faltante crítico' : 'Faltante leve';
-              } else {
-                // Physical > System: excess physical
-                diffColor = 'text-violet-400';
-                diffLabel = 'Exceso físico';
+              let diffColor = '#a1a1a6';
+              let diffLabel = '';
+              if (hasPhysical) {
+                if (diff === 0) {
+                  diffColor = 'oklch(0.43 0.14 155)';
+                  diffLabel = 'Alineado';
+                } else if (diff > 0) {
+                  diffColor = absDiff > 10 ? 'oklch(0.52 0.18 25)' : 'oklch(0.55 0.17 70)';
+                  diffLabel = absDiff > 10 ? 'Faltante crítico' : 'Faltante leve';
+                } else {
+                  diffColor = 'oklch(0.50 0.17 305)';
+                  diffLabel = 'Exceso físico';
+                }
               }
-            }
 
-            return (
-              <TableRow key={p.id} className="border-b border-border/30 hover:bg-muted/30">
-                <TableCell className="font-mono text-sm font-medium">{p.reference}</TableCell>
-                <TableCell className="text-sm">{p.name}</TableCell>
-                <TableCell className="text-right font-mono text-sm">{p.stock_system}</TableCell>
-                <TableCell className="text-right font-mono text-sm text-muted-foreground">{p.stock_physical ?? '—'}</TableCell>
-                <TableCell className="text-right">
-                  {hasPhysical ? (
-                    <span className={`font-mono text-sm font-medium ${diffColor}`} title={diffLabel}>
-                      {diff > 0 ? `+${diff}` : diff === 0 ? '0 ✓' : diff}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground text-sm">—</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-right font-mono text-sm">{p.days_of_inventory >= 999 ? '∞' : `${p.days_of_inventory}d`}</TableCell>
-                <TableCell className="text-right font-mono text-sm">{p.rotation}x</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={`text-[10px] font-semibold uppercase tracking-wider ${sc.className}`}>
-                    {sc.label}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onAddMovement(p, 'entrada')} title="Entrada">
-                      <Plus className="h-3.5 w-3.5 text-success" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onAddMovement(p, 'salida')} title="Salida">
-                      <Minus className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onAdjust(p)} title="Ajustar">
-                      <Eye className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-7 w-7 text-primary hover:text-primary hover:bg-primary/10" 
-                      onClick={() => askNicoAboutProduct(p)} 
-                      title="Preguntar a Nico"
+              return (
+                <tr
+                  key={p.id}
+                  style={{ transition: 'background 0.15s' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f7')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <td style={{ ...tdStyle, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace', fontWeight: 500 }}>
+                    {p.reference}
+                  </td>
+                  <td style={{ ...tdStyle, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', color: '#6e6e73', whiteSpace: 'nowrap' }}>
+                    {p.name}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{p.stock_system}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, monospace', color: hasPhysical ? '#1d1d1f' : '#a1a1a6' }}>
+                    {p.stock_physical ?? '—'}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    {hasPhysical ? (
+                      <span
+                        style={{
+                          fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                          fontWeight: 600,
+                          color: diffColor,
+                        }}
+                        title={diffLabel}
+                      >
+                        {diff > 0 ? `+${diff}` : diff === 0 ? '0 ✓' : diff}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#a1a1a6' }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                    {p.days_of_inventory >= 999 ? '∞' : `${p.days_of_inventory}d`}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, monospace', color: '#6e6e73' }}>
+                    {p.rotation}x
+                  </td>
+                  <td style={tdStyle}>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '3px 10px',
+                        borderRadius: 99,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: s.bg,
+                        color: s.color,
+                        border: `1px solid ${s.border}`,
+                      }}
                     >
-                      <Bot className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: s.dot,
+                          flexShrink: 0,
+                        }}
+                      />
+                      {s.label}
+                    </span>
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    <div style={{ display: 'inline-flex', gap: 4 }}>
+                      <ActionButton
+                        onClick={() => onAddMovement(p, 'entrada')}
+                        title="Entrada"
+                        color="oklch(0.43 0.14 155)"
+                        bgHover="oklch(0.43 0.14 155 / 0.10)"
+                      >
+                        <Plus style={{ width: 13, height: 13 }} />
+                      </ActionButton>
+                      <ActionButton
+                        onClick={() => onAddMovement(p, 'salida')}
+                        title="Salida"
+                        color="oklch(0.52 0.18 25)"
+                        bgHover="oklch(0.58 0.20 25 / 0.10)"
+                      >
+                        <Minus style={{ width: 13, height: 13 }} />
+                      </ActionButton>
+                      <ActionButton
+                        onClick={() => onAdjust(p)}
+                        title="Ajustar"
+                        color="#6e6e73"
+                        bgHover="#f5f5f7"
+                      >
+                        <Pencil style={{ width: 13, height: 13 }} />
+                      </ActionButton>
+                      <ActionButton
+                        onClick={() => askNicoAboutProduct(p)}
+                        title="Preguntar a Nico"
+                        color="oklch(0.43 0.14 155)"
+                        bgHover="oklch(0.43 0.14 155 / 0.10)"
+                      >
+                        <Bot style={{ width: 13, height: 13 }} />
+                      </ActionButton>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

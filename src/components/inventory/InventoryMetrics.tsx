@@ -6,15 +6,34 @@ const fmtCurrency = (n: number) => `$${n.toLocaleString('es-CO', { maximumFracti
 
 interface Props { metrics: Metrics; }
 
-const cards = [
+type CardDef = {
+  key: keyof Metrics;
+  label: string;
+  hint: string;
+  icon: typeof DollarSign;
+  format: (n: number) => string;
+  gradient: string;
+  border: string;
+  iconBg: string;
+  iconColor: string;
+  getBadge: (v: number) => { label: string; bg: string; color: string; border: string } | null;
+};
+
+const BADGE_AMBER = { bg: 'oklch(0.70 0.17 70 / 0.12)', color: 'oklch(0.55 0.17 70)', border: 'oklch(0.70 0.17 70 / 0.25)' };
+const BADGE_RED   = { bg: 'oklch(0.58 0.20 25 / 0.12)', color: 'oklch(0.52 0.18 25)', border: 'oklch(0.58 0.20 25 / 0.25)' };
+const BADGE_VIOLET= { bg: 'oklch(0.55 0.17 305 / 0.12)', color: 'oklch(0.50 0.17 305)', border: 'oklch(0.55 0.17 305 / 0.25)' };
+
+const cards: CardDef[] = [
   {
     key: 'totalValue',
     label: 'Valor Total Inventario',
     hint: 'Suma de unidades Siigo × costo unitario de cada producto.',
     icon: DollarSign,
     format: fmtCurrency,
-    color: 'from-blue-500/20 to-cyan-500/10',
-    iconColor: 'text-blue-400',
+    gradient: 'linear-gradient(135deg, oklch(0.55 0.15 240 / 0.08), oklch(0.65 0.12 220 / 0.03))',
+    border: '1px solid oklch(0.55 0.15 240 / 0.18)',
+    iconBg: 'oklch(0.55 0.15 240 / 0.12)',
+    iconColor: 'oklch(0.55 0.15 240)',
     getBadge: () => null,
   },
   {
@@ -23,9 +42,14 @@ const cards = [
     hint: 'Días promedio que te dura el stock al ritmo de ventas de los últimos 30 días.',
     icon: Clock,
     format: (n: number) => `${n}d`,
-    color: 'from-emerald-500/20 to-green-500/10',
-    iconColor: 'text-emerald-400',
-    getBadge: (v: number) => v < 15 ? 'Crítico' : v > 90 ? 'Exceso' : null,
+    gradient: 'linear-gradient(135deg, oklch(0.43 0.14 155 / 0.08), oklch(0.55 0.12 165 / 0.03))',
+    border: '1px solid oklch(0.43 0.14 155 / 0.22)',
+    iconBg: 'oklch(0.43 0.14 155 / 0.12)',
+    iconColor: 'oklch(0.43 0.14 155)',
+    getBadge: (v: number) =>
+      v < 15 ? { label: 'Crítico', ...BADGE_RED }
+      : v > 90 ? { label: 'Exceso', ...BADGE_VIOLET }
+      : null,
   },
   {
     key: 'pctNoMovement',
@@ -33,9 +57,11 @@ const cards = [
     hint: '% de referencias sin ventas en los últimos 30 días — capital detenido.',
     icon: AlertTriangle,
     format: (n: number) => `${n}%`,
-    color: 'from-violet-500/20 to-purple-500/10',
-    iconColor: 'text-violet-400',
-    getBadge: (v: number) => v > 30 ? 'Alto' : null,
+    gradient: 'linear-gradient(135deg, oklch(0.55 0.17 305 / 0.08), oklch(0.60 0.14 295 / 0.03))',
+    border: '1px solid oklch(0.55 0.17 305 / 0.18)',
+    iconBg: 'oklch(0.55 0.17 305 / 0.12)',
+    iconColor: 'oklch(0.55 0.17 305)',
+    getBadge: (v: number) => (v > 30 ? { label: 'Alto', ...BADGE_AMBER } : null),
   },
   {
     key: 'totalDifference',
@@ -43,9 +69,11 @@ const cards = [
     hint: 'Unidades de descuadre entre Siigo y físico (suma de |Siigo − físico|). Señal de fuga o error de registro.',
     icon: ArrowLeftRight,
     format: fmt,
-    color: 'from-amber-500/20 to-orange-500/10',
-    iconColor: 'text-amber-400',
-    getBadge: (v: number) => v > 0 ? 'Revisar' : null,
+    gradient: 'linear-gradient(135deg, oklch(0.70 0.17 70 / 0.08), oklch(0.75 0.14 60 / 0.03))',
+    border: '1px solid oklch(0.70 0.17 70 / 0.20)',
+    iconBg: 'oklch(0.70 0.17 70 / 0.14)',
+    iconColor: 'oklch(0.55 0.17 70)',
+    getBadge: (v: number) => (v > 0 ? { label: 'Revisar', ...BADGE_AMBER } : null),
   },
   {
     key: 'totalDifferenceValue',
@@ -53,32 +81,113 @@ const cards = [
     hint: 'Plata en riesgo: suma de |Siigo − físico| × costo unitario por producto.',
     icon: Wallet,
     format: fmtCurrency,
-    color: 'from-rose-500/20 to-pink-500/10',
-    iconColor: 'text-rose-400',
-    getBadge: (v: number) => v > 0 ? 'Revisar' : null,
+    gradient: 'linear-gradient(135deg, oklch(0.62 0.20 15 / 0.08), oklch(0.68 0.17 25 / 0.03))',
+    border: '1px solid oklch(0.62 0.20 15 / 0.20)',
+    iconBg: 'oklch(0.62 0.20 15 / 0.14)',
+    iconColor: 'oklch(0.52 0.18 15)',
+    getBadge: (v: number) => (v > 0 ? { label: 'Revisar', ...BADGE_RED } : null),
   },
-] as const;
+];
 
 export default function InventoryMetrics({ metrics }: Props) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-      {cards.map(c => {
-        const value = metrics[c.key as keyof Metrics] as number;
+      {cards.map((c, idx) => {
+        const value = metrics[c.key] as number;
         const badge = c.getBadge(value);
+        const Icon = c.icon;
         return (
           <div
             key={c.key}
-            className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${c.color} backdrop-blur-sm border border-white/[0.06] p-5 transition-all hover:scale-[1.02] hover:shadow-lg`}
+            style={{
+              position: 'relative',
+              background: c.gradient,
+              border: c.border,
+              borderRadius: 14,
+              padding: '18px 20px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              transition: 'transform 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s',
+              animation: `fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) ${idx * 60}ms both`,
+              opacity: 0,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.06)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
+            }}
           >
             {badge && (
-              <span className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-warning/20 text-warning border border-warning/30">
-                {badge}
+              <span
+                style={{
+                  position: 'absolute',
+                  top: 12,
+                  right: 12,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.6px',
+                  padding: '3px 8px',
+                  borderRadius: 99,
+                  background: badge.bg,
+                  color: badge.color,
+                  border: `1px solid ${badge.border}`,
+                }}
+              >
+                {badge.label}
               </span>
             )}
-            <c.icon className={`h-5 w-5 ${c.iconColor} mb-3 opacity-80`} />
-            <p className="text-3xl font-bold tracking-tight text-foreground">{c.format(value)}</p>
-            <p className="text-xs font-medium text-foreground/80 mt-1">{c.label}</p>
-            <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{c.hint}</p>
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                background: c.iconBg,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 10,
+              }}
+            >
+              <Icon style={{ width: 15, height: 15, color: c.iconColor }} />
+            </div>
+            <p
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                letterSpacing: '-0.6px',
+                color: '#1d1d1f',
+                margin: 0,
+                lineHeight: 1.1,
+              }}
+            >
+              {c.format(value)}
+            </p>
+            <p
+              style={{
+                fontSize: 11.5,
+                fontWeight: 550,
+                color: '#1d1d1f',
+                margin: 0,
+                marginTop: 6,
+                letterSpacing: '0.1px',
+              }}
+            >
+              {c.label}
+            </p>
+            <p
+              style={{
+                fontSize: 10.5,
+                color: '#6e6e73',
+                margin: 0,
+                marginTop: 4,
+                lineHeight: 1.4,
+              }}
+            >
+              {c.hint}
+            </p>
           </div>
         );
       })}

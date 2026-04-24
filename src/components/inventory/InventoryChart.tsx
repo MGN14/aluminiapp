@@ -4,11 +4,13 @@ import type { InventoryMovement } from '@/hooks/useInventoryData';
 
 interface Props { movements: InventoryMovement[]; }
 
+const BRAND = 'oklch(0.43 0.14 155)';
+const AXIS_COLOR = '#a1a1a6';
+
 export default function InventoryChart({ movements }: Props) {
   const chartData = useMemo(() => {
     if (!movements.length) return [];
 
-    // Group movements by date, accumulate net stock change
     const byDate = new Map<string, number>();
     const sorted = [...movements].sort((a, b) => a.movement_date.localeCompare(b.movement_date));
 
@@ -32,44 +34,91 @@ export default function InventoryChart({ movements }: Props) {
 
   if (!chartData.length) {
     return (
-      <div className="flex items-center justify-center h-64 rounded-2xl border border-border/50 bg-muted/20">
-        <p className="text-sm text-muted-foreground">Registra movimientos para ver la evolución</p>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: 256,
+          borderRadius: 18,
+          border: '1.5px solid rgba(0,0,0,0.07)',
+          background: '#fff',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}
+      >
+        <p style={{ fontSize: 13, color: '#6e6e73', margin: 0 }}>
+          Registra movimientos para ver la evolución
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-white/[0.06] bg-gradient-to-br from-blue-500/5 to-cyan-500/5 backdrop-blur-sm p-5">
-      <h3 className="text-sm font-medium text-muted-foreground mb-4">Evolución de inventario</h3>
-      <div className="h-64">
+    <div
+      style={{
+        position: 'relative',
+        background: 'linear-gradient(135deg, oklch(0.43 0.14 155 / 0.04), oklch(0.55 0.12 165 / 0.01))',
+        border: '1.5px solid rgba(0,0,0,0.07)',
+        borderRadius: 18,
+        padding: 20,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      }}
+    >
+      <h3
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: '#1d1d1f',
+          margin: 0,
+          marginBottom: 16,
+          letterSpacing: '-0.1px',
+        }}
+      >
+        Evolución de inventario
+      </h3>
+      <div style={{ height: 256 }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
             <defs>
               <linearGradient id="inventoryGlow" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="hsl(152, 69%, 31%)" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="hsl(152, 69%, 31%)" stopOpacity={0} />
+                <stop offset="0%" stopColor={BRAND} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: 'hsl(257, 4.6%, 55.4%)' }} />
-            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: 'hsl(257, 4.6%, 55.4%)' }} width={40} />
+            <XAxis
+              dataKey="date"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fontSize: 11, fill: AXIS_COLOR }}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fontSize: 11, fill: AXIS_COLOR }}
+              width={40}
+            />
             <Tooltip
+              cursor={{ stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1 }}
               contentStyle={{
-                backgroundColor: 'hsl(0, 0%, 100%)',
-                border: '1px solid hsl(256, 1.3%, 92.9%)',
-                borderRadius: '12px',
-                fontSize: '12px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                backgroundColor: '#fff',
+                border: '1px solid rgba(0,0,0,0.07)',
+                borderRadius: 12,
+                fontSize: 12,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                padding: '8px 12px',
               }}
+              labelStyle={{ color: '#6e6e73', fontSize: 11, marginBottom: 2 }}
+              itemStyle={{ color: '#1d1d1f', fontWeight: 600 }}
               formatter={(value: number) => [`${value} unidades`, 'Stock']}
             />
             <Area
               type="monotone"
               dataKey="stock"
-              stroke="hsl(152, 69%, 31%)"
+              stroke={BRAND}
               strokeWidth={2.5}
               fill="url(#inventoryGlow)"
               dot={false}
-              activeDot={{ r: 5, strokeWidth: 2, stroke: 'hsl(152, 69%, 31%)', fill: 'white' }}
+              activeDot={{ r: 5, strokeWidth: 2, stroke: BRAND, fill: '#fff' }}
             />
           </AreaChart>
         </ResponsiveContainer>

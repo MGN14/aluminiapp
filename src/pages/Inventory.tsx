@@ -98,48 +98,176 @@ export default function Inventory() {
         </div>
 
         {/* Header */}
-        {tab === 'inventario' && <div className="flex items-center justify-between animate-fade-in">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-500/10 flex items-center justify-center border border-white/[0.06]">
-              <Package className="h-6 w-6 text-blue-400" />
+        {tab === 'inventario' && (
+          <div
+            className="flex items-center justify-between flex-wrap gap-4"
+            style={{ animation: 'fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background:
+                    'linear-gradient(135deg, oklch(0.55 0.15 240 / 0.18), oklch(0.60 0.12 220 / 0.06))',
+                  border: '1px solid oklch(0.55 0.15 240 / 0.22)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Package style={{ width: 22, height: 22, color: 'oklch(0.55 0.15 240)' }} />
+              </div>
+              <div>
+                <h1
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 700,
+                    letterSpacing: '-0.8px',
+                    color: '#1d1d1f',
+                    margin: 0,
+                    lineHeight: 1.1,
+                  }}
+                >
+                  Inventario bajo control
+                </h1>
+                <p style={{ fontSize: 13, color: '#6e6e73', margin: 0, marginTop: 4 }}>
+                  {loading ? 'Cargando...' : `${metrics.totalProducts} referencias activas`}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Inventario bajo control</h1>
-              <p className="text-sm text-muted-foreground">
-                {loading ? 'Cargando...' : `${metrics.totalProducts} referencias activas`}
-              </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowPhysical(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 36,
+                  padding: '0 14px',
+                  borderRadius: 10,
+                  background: '#fff',
+                  border: '1.5px solid oklch(0.70 0.17 70 / 0.30)',
+                  color: 'oklch(0.55 0.17 70)',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'oklch(0.70 0.17 70 / 0.08)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#fff';
+                }}
+              >
+                <ClipboardCheck style={{ width: 14, height: 14 }} />
+                Inventario físico
+              </button>
+              <button
+                type="button"
+                onClick={handleSiigoSync}
+                disabled={siigoSyncing}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 36,
+                  padding: '0 14px',
+                  borderRadius: 10,
+                  background: '#fff',
+                  border: '1.5px solid oklch(0.43 0.14 155 / 0.30)',
+                  color: 'oklch(0.43 0.14 155)',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  cursor: siigoSyncing ? 'not-allowed' : 'pointer',
+                  opacity: siigoSyncing ? 0.6 : 1,
+                  transition: 'background 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  if (!siigoSyncing) e.currentTarget.style.background = 'oklch(0.43 0.14 155 / 0.08)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#fff';
+                }}
+              >
+                {siigoSyncing ? (
+                  <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" />
+                ) : (
+                  <RefreshCw style={{ width: 14, height: 14 }} />
+                )}
+                Traer de Siigo
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBulk(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 36,
+                  padding: '0 14px',
+                  borderRadius: 10,
+                  background: '#fff',
+                  border: '1.5px solid rgba(0,0,0,0.08)',
+                  color: '#1d1d1f',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f5f5f7';
+                  e.currentTarget.style.borderColor = 'rgba(0,0,0,0.14)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#fff';
+                  e.currentTarget.style.borderColor = 'rgba(0,0,0,0.08)';
+                }}
+              >
+                <Upload style={{ width: 14, height: 14 }} />
+                Carga CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 36,
+                  padding: '0 16px',
+                  borderRadius: 10,
+                  background: '#1d1d1f',
+                  border: 'none',
+                  color: '#fff',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s, box-shadow 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'scale(1.02)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.18)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <Plus style={{ width: 14, height: 14 }} />
+                Agregar producto
+              </button>
             </div>
           </div>
-          <div className="flex gap-2 flex-wrap justify-end">
-            <Button
-              variant="outline"
-              onClick={() => setShowPhysical(true)}
-              size="sm"
-              className="gap-2 rounded-xl border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
-            >
-              <ClipboardCheck className="h-4 w-4" />
-              Inventario físico
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleSiigoSync}
-              disabled={siigoSyncing}
-              size="sm"
-              className="gap-2 rounded-xl border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-            >
-              {siigoSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Traer de Siigo
-            </Button>
-            <Button variant="outline" onClick={() => setShowBulk(true)} size="sm" className="gap-2 rounded-xl">
-              <Upload className="h-4 w-4" />
-              Carga CSV
-            </Button>
-            <Button onClick={() => setShowAdd(true)} size="sm" className="gap-2 rounded-xl">
-              <Plus className="h-4 w-4" />
-              Agregar producto
-            </Button>
-          </div>
-        </div>}
+        )}
 
         {/* Maestro tab */}
         {tab === 'maestro' && (
