@@ -168,6 +168,18 @@ function IndicatorCard({ ind, onClick }: { ind: MacroIndicator; onClick: () => v
         )}
       </div>
       <Sparkline data={sparkValues} isUp={isUp} isDown={isDown} />
+      {ind.trend30dPct !== null && Math.abs(ind.trend30dPct) >= 0.1 && (
+        <div className="flex items-center gap-1 text-[10px] text-slate-400">
+          <span className="font-semibold uppercase tracking-wider text-slate-500">30d</span>
+          <span
+            className={`font-semibold tabular-nums ${
+              ind.trend30dPct > 0 ? 'text-emerald-400' : 'text-red-400'
+            }`}
+          >
+            {ind.trend30dPct > 0 ? '↗' : '↘'} {ind.trend30dPct > 0 ? '+' : ''}{ind.trend30dPct.toFixed(2)}%
+          </span>
+        </div>
+      )}
       <span
         className="absolute top-2 right-2 text-[8.5px] uppercase tracking-wider text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
         aria-hidden="true"

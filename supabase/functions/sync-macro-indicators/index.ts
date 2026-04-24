@@ -376,9 +376,12 @@ async function syncTrm(admin: ReturnType<typeof createClient>) {
 // igual devolvemos un número de Yahoo con timestamp real.
 
 async function syncAluminum(admin: ReturnType<typeof createClient>) {
+  // Yahoo Finance va PRIMERO: API JSON estructurada del LME Aluminum Futures
+  // (ALI=F). Es la fuente más confiable. Trading Economics queda como fallback
+  // (scraping del HTML, parser endurecido para no confundir años con precios).
   const attempts: Array<() => Promise<AluminumResult>> = [
-    aluminumFromTradingEconomics,
     aluminumFromYahooFinance,
+    aluminumFromTradingEconomics,
     aluminumFromHardcode,
   ];
 
@@ -425,23 +428,31 @@ async function aluminumFromTradingEconomics(): Promise<AluminumResult> {
   const md = await firecrawlScrape(url);
   // TE muestra precios en formato "2,584.50" o "2584.5". Buscamos cerca de
   // "Aluminum" o "USD/T". El número típicamente está en el rango 1500-4000.
+  // Anchors deliberadamente NO incluyen "Last Updated" — esa zona contiene
+  // la fecha (ej "April 24, 2026") y antes el regex capturaba el año como precio.
   const candidates = [
     /Aluminum[^0-9]{0,80}/i,
     /USD\/T(?:on|onne)?/i,
-    /Last\s+Updated/i,
   ];
   let value: number | null = null;
   for (const anchor of candidates) {
     const m = anchor.exec(md);
     if (!m) continue;
     const chunk = md.slice(m.index, m.index + 500);
-    // Aluminio típicamente $1,500-$4,000/ton. Filtramos por rango.
-    const numRe = /([0-9]{1,2}[.,]?[0-9]{3}(?:[.,][0-9]{1,2})?|[0-9]{4}(?:[.,][0-9]{1,2})?)/g;
+    // EXIGIMOS DECIMALES — los precios LME en TE vienen como "2,584.50".
+    // Los años (2020-2099) son enteros sin decimales y NO matchean este regex.
+    // Patrones aceptados: "2,584.50", "2,584.5", "2584.50", "2584.5".
+    const numRe = /([0-9]{1,2}[.,][0-9]{3}[.,][0-9]{1,2}|[0-9]{4}[.,][0-9]{1,2})/g;
     let nm: RegExpExecArray | null;
     while ((nm = numRe.exec(chunk)) !== null) {
-      const normalized = nm[1].replace(/,/g, "");
+      const raw = nm[1];
+      // Formato anglo: "2,584.50" → coma=miles, punto=decimal.
+      // Si solo hay coma (caso raro), tratamos coma como decimal.
+      const normalized = raw.includes(",") && raw.includes(".")
+        ? raw.replace(/,/g, "")
+        : raw.replace(",", ".");
       const n = Number(normalized);
-      if (Number.isFinite(n) && n >= 1200 && n <= 5000) {
+      if (Number.isFinite(n) && n >= 1500 && n <= 5000) {
         value = n;
         break;
       }

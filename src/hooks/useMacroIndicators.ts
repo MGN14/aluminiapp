@@ -12,6 +12,9 @@ export interface MacroIndicator {
   deltaPct: number | null;
   history: Array<{ date: string; value: number }>; // ascending; most recent last
   source: 'banrep' | 'superfinanciera' | 'worldbank' | 'tradingeconomics' | 'yahoo_finance' | 'manual' | 'other';
+  // Tendencia 30d: cambio % vs ~30 días atrás (signal alcista/bajista de mediano plazo).
+  // null si no hay suficiente historia (<10 puntos antiguos).
+  trend30dPct: number | null;
 }
 
 interface RawRow {
@@ -92,6 +95,16 @@ export function useMacroIndicators() {
           .slice(0, 30)
           .map(r => ({ date: r.period_date, value: Number(r.value) }))
           .reverse();
+        // Tendencia 30d: comparamos último valor vs el más antiguo de la ventana
+        // de 30 puntos. Pide mínimo 10 puntos para no dar falsa señal.
+        let trend30dPct: number | null = null;
+        if (history.length >= 10) {
+          const oldest = history[0].value;
+          const newest = history[history.length - 1].value;
+          if (oldest > 0) {
+            trend30dPct = ((newest - oldest) / oldest) * 100;
+          }
+        }
         const sourceRaw = (latest.source ?? '').toLowerCase();
         const source: MacroIndicator['source'] = sourceRaw.includes('banrep')
           ? 'banrep'
@@ -117,6 +130,7 @@ export function useMacroIndicators() {
           deltaPct,
           history,
           source,
+          trend30dPct,
         });
       }
       setIndicators(result);

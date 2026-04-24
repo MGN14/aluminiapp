@@ -156,6 +156,58 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
           </button>
         </div>
 
+        {/* Tendencia 30d (banner principal — esto es lo que el inversionista busca de un vistazo) */}
+        {indicator.trend30dPct !== null && (
+          <div className="px-6 pt-4">
+            <div
+              className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border ${
+                indicator.trend30dPct > 0
+                  ? 'bg-emerald-500/[0.06] border-emerald-500/[0.18]'
+                  : indicator.trend30dPct < 0
+                  ? 'bg-red-500/[0.06] border-red-500/[0.18]'
+                  : 'bg-white/[0.04] border-white/[0.06]'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={`text-2xl font-bold ${
+                    indicator.trend30dPct > 0
+                      ? 'text-emerald-400'
+                      : indicator.trend30dPct < 0
+                      ? 'text-red-400'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  {indicator.trend30dPct > 0 ? '↗' : indicator.trend30dPct < 0 ? '↘' : '→'}
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">
+                    Tendencia últimos 30 días
+                  </span>
+                  <span
+                    className={`text-base font-bold tabular-nums ${
+                      indicator.trend30dPct > 0
+                        ? 'text-emerald-400'
+                        : indicator.trend30dPct < 0
+                        ? 'text-red-400'
+                        : 'text-slate-300'
+                    }`}
+                  >
+                    {indicator.trend30dPct > 0 ? '+' : ''}
+                    {indicator.trend30dPct.toFixed(2)}%{' '}
+                    <span className="text-[12px] font-medium text-slate-500">
+                      {indicator.trend30dPct > 0 ? 'al alza' : indicator.trend30dPct < 0 ? 'a la baja' : 'estable'}
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <span className="hidden sm:block text-[10px] text-right text-slate-500 max-w-[180px] leading-snug">
+                Comparación entre el primer y el último valor disponibles en la ventana de 30 publicaciones.
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Range selector */}
         {hasEnoughHistory && (
           <div className="flex items-center gap-1 px-6 pt-4">
