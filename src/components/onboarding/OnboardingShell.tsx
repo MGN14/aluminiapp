@@ -61,11 +61,14 @@ export default function OnboardingShell({
     >
       {/* LEFT PANEL (dark) ─────────────────────────────────────────── */}
       <div
-        className="hidden lg:flex flex-col justify-between"
+        className="hidden lg:flex flex-col"
         style={{
           width: '52%',
           background: '#080d08',
-          position: 'relative',
+          position: 'sticky',
+          top: 0,
+          alignSelf: 'flex-start',
+          height: '100vh',
           overflow: 'hidden',
           padding: '48px 52px',
         }}
@@ -122,7 +125,7 @@ export default function OnboardingShell({
         </div>
 
         {/* Headline + subtitle */}
-        <div style={{ position: 'relative', zIndex: 1, marginTop: 60 }}>
+        <div style={{ position: 'relative', zIndex: 1, marginTop: 60, flex: '1 1 auto', minHeight: 0 }}>
           <h1
             style={{
               fontSize: 'clamp(30px,3.2vw,44px)',
@@ -164,6 +167,8 @@ export default function OnboardingShell({
             display: 'flex',
             flexDirection: 'column',
             gap: 14,
+            flexShrink: 0,
+            marginTop: 'auto',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

@@ -17,7 +17,7 @@ export default function Step03NIT({ state, update }: StepProps) {
           opacity: 0,
         }}
       >
-        Tu NIT y nombre comercial
+        Dos dígitos y tu nombre
       </h2>
       <p
         style={{
@@ -29,7 +29,7 @@ export default function Step03NIT({ state, update }: StepProps) {
           opacity: 0,
         }}
       >
-        Necesitamos los dos dígitos del NIT para saber cuándo te toca declarar. Nada más.
+        Solo te pedimos el dígito antes y después del guion — nunca el NIT completo. Con eso ya sabemos tus fechas de declaración.
       </p>
 
       {/* NIT digits */}
@@ -107,12 +107,12 @@ export default function Step03NIT({ state, update }: StepProps) {
               marginBottom: 4,
             }}
           >
-            AluminIA no reporta a la DIAN
+            Nunca sabemos tu NIT completo
           </div>
           <p style={{ fontSize: 12.5, color: INK2, lineHeight: 1.55, margin: 0 }}>
-            Somos una herramienta de <strong>simulación y análisis</strong> — no somos facturador electrónico ni
-            reportamos información fiscal en tu nombre. Usamos tu NIT solo para saber tus fechas de declaración. Tu
-            contador sigue siendo quien presenta todo ante la DIAN.
+            Solo pedimos <strong>dos dígitos</strong> — el anterior y posterior al guion — y con eso calculamos tus
+            fechas. Somos una herramienta de <strong>simulación y análisis</strong>: no somos facturador electrónico
+            ni reportamos nada a la DIAN. Tu contador sigue siendo quien presenta todo.
           </p>
         </div>
       </div>
@@ -128,14 +128,14 @@ export default function Step03NIT({ state, update }: StepProps) {
         }}
       >
         <TextField
-          label="Nombre comercial (opcional)"
+          label="Nombre comercial"
           hint="Cómo conocen a tu empresa tus clientes."
           value={state.nombreComercial}
           onChange={(v) => update('nombreComercial', v)}
           placeholder="Ej: Distribuidora El Sol"
         />
         <TextField
-          label="Tu nombre (opcional)"
+          label="Tu nombre"
           hint="Así te saludamos en la app."
           value={state.nombreUsuario}
           onChange={(v) => update('nombreUsuario', v)}

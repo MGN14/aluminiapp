@@ -35,10 +35,10 @@ const LEFT_CONTENT: Array<{ headline: React.ReactNode; subtitle?: React.ReactNod
   {
     headline: (
       <>
-        ¿Quién <span style={{ color: 'oklch(0.60 0.14 155)' }}>factura</span>?
+        ¿Qué tipo de <span style={{ color: 'oklch(0.60 0.14 155)' }}>negocio</span>?
       </>
     ),
-    subtitle: 'La misma venta se declara diferente si es una persona o una empresa. Arrancamos por lo básico.',
+    subtitle: 'La misma venta se declara distinto si eres persona natural o una empresa constituida.',
   },
   {
     headline: (
@@ -101,10 +101,11 @@ const LEFT_CONTENT: Array<{ headline: React.ReactNode; subtitle?: React.ReactNod
   {
     headline: (
       <>
-        Empieza donde <span style={{ color: 'oklch(0.60 0.14 155)' }}>prefieras</span>
+        Tu <span style={{ color: 'oklch(0.60 0.14 155)' }}>tour</span> guiado
       </>
     ),
-    subtitle: 'AluminIA tiene 5 partes principales. Entra donde más te urja, puedes volver a este tour cuando quieras.',
+    subtitle:
+      'Empezamos por lo que más nutre a AluminIA — extracto y facturas — y terminamos en el dashboard. 6 pasos, en orden.',
   },
 ];
 
@@ -126,16 +127,23 @@ export default function Onboarding() {
 
   const goTo = (idx: number) => setStepIndex(Math.max(0, Math.min(idx, LEFT_CONTENT.length - 1)));
 
+  const facturadorComplete =
+    state.facturacionElectronica === false ||
+    (state.facturacionElectronica === true && state.nombreFacturador.trim() !== '');
+
   const requiredComplete =
     state.personaType !== null &&
     state.nitUltimoDigito.trim() !== '' &&
     state.digitoVerificacion.trim() !== '' &&
+    state.nombreComercial.trim() !== '' &&
+    state.nombreUsuario.trim() !== '' &&
     state.regimen !== null &&
     state.responsableIva !== null &&
     state.agenteRetencion !== null &&
     state.autorretenedor !== null &&
     state.responsableIca !== null &&
     state.facturacionElectronica !== null &&
+    facturadorComplete &&
     state.actividadPrincipal !== null &&
     state.codigoCiiu.trim() !== '';
 
@@ -146,7 +154,12 @@ export default function Onboarding() {
       case 1:
         return state.personaType !== null;
       case 2:
-        return state.nitUltimoDigito.trim() !== '' && state.digitoVerificacion.trim() !== '';
+        return (
+          state.nitUltimoDigito.trim() !== '' &&
+          state.digitoVerificacion.trim() !== '' &&
+          state.nombreComercial.trim() !== '' &&
+          state.nombreUsuario.trim() !== ''
+        );
       case 3:
         return state.regimen !== null;
       case 4:
@@ -155,7 +168,8 @@ export default function Onboarding() {
           state.agenteRetencion !== null &&
           state.autorretenedor !== null &&
           state.responsableIca !== null &&
-          state.facturacionElectronica !== null
+          state.facturacionElectronica !== null &&
+          facturadorComplete
         );
       case 5:
         return state.actividadPrincipal !== null && state.codigoCiiu.trim() !== '';

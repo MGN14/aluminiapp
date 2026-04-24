@@ -1,5 +1,5 @@
 import YesNoField from '../YesNoField';
-import TextField from '../TextField';
+import FacturadorSelect from '../FacturadorSelect';
 import type { StepProps } from '../state';
 import { INK, INK2 } from '../OnboardingShell';
 
@@ -44,7 +44,7 @@ export default function Step05Responsabilidades({ state, update }: StepProps) {
         <YesNoField
           label="¿Eres responsable de IVA?"
           description="Cobras IVA del 19% (o 5%) en tus facturas de venta."
-          whatWeDo="Calculamos tu IVA por cobrar y por pagar cada 2 meses."
+          whatWeDo="Calculamos tu IVA por cobrar y por pagar con tus facturas de venta y compra en tiempo real."
           value={state.responsableIva}
           onChange={(v) => update('responsableIva', v)}
         />
@@ -78,13 +78,18 @@ export default function Step05Responsabilidades({ state, update }: StepProps) {
         />
 
         {state.facturacionElectronica && (
-          <div style={{ animation: 'fieldIn 0.4s cubic-bezier(0.16,1,0.3,1) both' }}>
-            <TextField
-              label="¿Qué facturador usas?"
-              hint="Para integrarlo (en este onboarding solo soportamos Siigo, más vienen pronto)."
+          <div
+            style={{
+              animation: 'fieldIn 0.4s cubic-bezier(0.16,1,0.3,1) both',
+              padding: 14,
+              background: '#fff',
+              border: '1px solid rgba(0,0,0,0.06)',
+              borderRadius: 14,
+            }}
+          >
+            <FacturadorSelect
               value={state.nombreFacturador}
               onChange={(v) => update('nombreFacturador', v)}
-              placeholder="Ej: Siigo, Alegra, Facturante…"
             />
           </div>
         )}

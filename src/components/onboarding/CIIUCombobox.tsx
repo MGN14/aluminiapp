@@ -50,7 +50,7 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
         onClick={() => setOpen(!open)}
         style={{
           width: '100%',
-          minHeight: 56,
+          minHeight: 52,
           padding: '10px 14px',
           background: '#fff',
           border: open
@@ -62,26 +62,32 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
           fontFamily: 'inherit',
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
+          gap: 10,
           boxShadow: open ? '0 0 0 4px oklch(0.43 0.14 155 / 0.08)' : 'none',
           transition: 'border-color 0.15s, box-shadow 0.15s',
         }}
       >
         {selected ? (
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
+          <>
+            <span
               style={{
-                fontSize: 13,
-                fontWeight: 600,
+                flexShrink: 0,
+                fontSize: 11.5,
+                fontWeight: 700,
                 fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                padding: '4px 8px',
+                borderRadius: 6,
+                background: 'oklch(0.43 0.14 155 / 0.10)',
                 color: BRAND,
-                marginBottom: 2,
+                letterSpacing: 0.3,
               }}
             >
-              CIIU {selected.code}
-            </div>
-            <div
+              {selected.code}
+            </span>
+            <span
               style={{
+                flex: 1,
+                minWidth: 0,
                 fontSize: 14,
                 color: INK,
                 lineHeight: 1.3,
@@ -91,8 +97,8 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
               }}
             >
               {selected.label}
-            </div>
-          </div>
+            </span>
+          </>
         ) : (
           <div style={{ flex: 1, color: INK3, fontSize: 14 }}>
             Buscar código CIIU (ej: panadería, software, 4711)
@@ -100,11 +106,12 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
         )}
         <ChevronDown
           style={{
-            width: 18,
-            height: 18,
+            width: 17,
+            height: 17,
             color: INK2,
             transform: open ? 'rotate(180deg)' : 'rotate(0)',
             transition: 'transform 0.2s',
+            flexShrink: 0,
           }}
         />
       </button>
@@ -209,7 +216,7 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
           )}
 
           {/* Results */}
-          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+          <div style={{ maxHeight: 320, overflowY: 'auto', padding: '4px 0' }}>
             {results.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: INK3 }}>
                 No encontramos códigos con ese término.
@@ -232,8 +239,9 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
                 </button>
               </div>
             ) : (
-              results.map((c) => {
+              results.map((c, idx) => {
                 const isSelected = c.code === value;
+                const isLast = idx === results.length - 1;
                 return (
                   <button
                     key={c.code}
@@ -245,15 +253,15 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
                     style={{
                       width: '100%',
                       textAlign: 'left',
-                      padding: '10px 14px',
+                      padding: '9px 12px',
                       border: 'none',
                       background: isSelected ? 'oklch(0.43 0.14 155 / 0.08)' : 'transparent',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 12,
+                      gap: 10,
                       fontFamily: 'inherit',
-                      borderBottom: '1px solid rgba(0,0,0,0.04)',
+                      borderBottom: isLast ? 'none' : '1px solid rgba(0,0,0,0.04)',
                       transition: 'background 0.1s',
                     }}
                     onMouseEnter={(e) => {
@@ -267,14 +275,15 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
                       style={{
                         flexShrink: 0,
                         fontSize: 11,
-                        fontWeight: 600,
+                        fontWeight: 700,
                         fontFamily: 'ui-monospace, SFMono-Regular, monospace',
                         padding: '3px 7px',
                         borderRadius: 5,
                         background: isSelected ? BRAND : '#f5f5f7',
                         color: isSelected ? '#fff' : INK2,
-                        minWidth: 54,
+                        minWidth: 52,
                         textAlign: 'center',
+                        letterSpacing: 0.3,
                       }}
                     >
                       {c.code}
@@ -285,6 +294,7 @@ export default function CIIUCombobox({ value, onChange, actividad }: Props) {
                         fontSize: 13,
                         color: INK,
                         lineHeight: 1.35,
+                        minWidth: 0,
                       }}
                     >
                       {c.label}

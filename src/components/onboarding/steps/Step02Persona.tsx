@@ -17,7 +17,7 @@ export default function Step02Persona({ state, update }: StepProps) {
           opacity: 0,
         }}
       >
-        ¿Quién factura en tu negocio?
+        ¿Qué tipo de negocio tienes?
       </h2>
       <p
         style={{
@@ -29,7 +29,7 @@ export default function Step02Persona({ state, update }: StepProps) {
           opacity: 0,
         }}
       >
-        Esto cambia cómo se calculan tus impuestos y los plazos para declarar.
+        Esto define cómo se calculan tus impuestos y cuándo te toca declarar.
       </p>
 
       <div
