@@ -137,6 +137,42 @@ serve(async (req) => {
       "Partner-Id": creds.partner_id,
     };
 
+    // Siigo /v1/invoices returns customer as {id, identification} only — no name.
+    // We resolve the name via /v1/customers/{id}, cached per sync to avoid N+1.
+    const customerNameCache = new Map<string, string | null>();
+    async function resolveCustomerName(
+      customer: SiigoInvoice["customer"] | SiigoInvoice["supplier"],
+    ): Promise<string | null> {
+      if (!customer) return null;
+      const inline = Array.isArray(customer.name)
+        ? customer.name.filter(Boolean).join(" ")
+        : customer.name ?? null;
+      if (inline) return inline;
+      const cid = (customer as { id?: string }).id;
+      if (!cid) return null;
+      if (customerNameCache.has(cid)) return customerNameCache.get(cid) ?? null;
+      try {
+        const r = await fetch(`${SIIGO_BASE}/v1/customers/${cid}`, { headers: apiHeaders });
+        if (!r.ok) {
+          customerNameCache.set(cid, null);
+          return null;
+        }
+        const c = await r.json() as {
+          name?: string | string[];
+          commercial_name?: string;
+          person_type?: string;
+        };
+        const resolved = c.commercial_name
+          ?? (Array.isArray(c.name) ? c.name.filter(Boolean).join(" ") : c.name)
+          ?? null;
+        customerNameCache.set(cid, resolved);
+        return resolved;
+      } catch {
+        customerNameCache.set(cid, null);
+        return null;
+      }
+    }
+
     for (const kind of kinds) {
       const path = kind === "venta" ? "/v1/invoices" : "/v1/purchases";
       let page = 1;
@@ -159,7 +195,23 @@ serve(async (req) => {
 
         for (const inv of results) {
           try {
-            const row = mapSiigoInvoice(inv, kind, userId);
+            // Fetch detail if items are missing so we get everything in one shape.
+            let items: SiigoLine[] = inv.items ?? [];
+            if (items.length === 0) {
+              try {
+                const detailRes = await fetch(`${SIIGO_BASE}${path}/${inv.id}`, { headers: apiHeaders });
+                if (detailRes.ok) {
+                  const detail = await detailRes.json() as SiigoInvoice;
+                  items = detail.items ?? [];
+                }
+              } catch {
+                // best-effort
+              }
+            }
+
+            const counterparty = kind === "venta" ? inv.customer : inv.supplier;
+            const counterpartyName = await resolveCustomerName(counterparty);
+            const row = mapSiigoInvoice(inv, kind, userId, items, counterpartyName);
             const { data: upserted, error } = await admin
               .from("invoices")
               .upsert(row, { onConflict: "user_id,siigo_id" })
@@ -171,21 +223,6 @@ serve(async (req) => {
               continue;
             }
             inserted++;
-
-            // Sync line items. Try the items already in the list response;
-            // if absent, fetch the detail endpoint /v1/{kind}/{id} once.
-            let items: SiigoLine[] = inv.items ?? [];
-            if (items.length === 0) {
-              try {
-                const detailRes = await fetch(`${SIIGO_BASE}${path}/${inv.id}`, { headers: apiHeaders });
-                if (detailRes.ok) {
-                  const detail = await detailRes.json() as SiigoInvoice;
-                  items = detail.items ?? [];
-                }
-              } catch {
-                // detail fetch is best-effort; carry on with header-only sync
-              }
-            }
 
             if (items.length > 0) {
               // Idempotent: replace any prior items for this invoice on re-sync.

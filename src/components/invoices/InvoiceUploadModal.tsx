@@ -91,13 +91,30 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     }
   }, [open, resumeDraft]);
 
-  function initFromDraft(draft: Invoice) {
+  // Load normalized items from invoice_items table. Siigo (and re-extraction)
+  // writes to that table using the canonical shape the review form expects
+  // (item_code, reference, unit_price, line_base, iva_amount, line_total).
+  // extracted_data.items often carries the raw vendor shape (e.g. Siigo:
+  // code/price/quantity), which doesn't render correctly.
+  async function loadNormalizedItems(invoiceId: string): Promise<any[]> {
+    const { data } = await supabase
+      .from('invoice_items')
+      .select('item_code, reference, description, quantity, unit_price, line_base, iva_rate, iva_amount, line_total')
+      .eq('invoice_id', invoiceId);
+    return data ?? [];
+  }
+
+  async function initFromDraft(draft: Invoice) {
     setDraftId(draft.id);
     setStoragePath(draft.storage_path);
     setOriginalFilename(draft.original_filename || '');
 
+    // Prefer invoice_items rows when they exist — they carry the normalized shape.
+    const dbItems = await loadNormalizedItems(draft.id);
+
     if (draft.status === 'ready' && draft.extracted_data) {
-      const ed = draft.extracted_data as any;
+      const ed = { ...(draft.extracted_data as any) };
+      if (dbItems.length > 0) ed.items = dbItems;
       setExtracted(mapExtracted(draft, ed));
       setRawExtracted(ed);
       setStep('review');
@@ -114,7 +131,8 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
         !!draft.invoice_number ||
         !!draft.counterparty_name;
       if (hasUsableData) {
-        const ed = (draft.extracted_data as any) || {};
+        const ed = { ...((draft.extracted_data as any) || {}) };
+        if (dbItems.length > 0) ed.items = dbItems;
         setExtracted(mapExtracted(draft, ed));
         setRawExtracted(draft.extracted_data || null);
         setStep('review');
@@ -123,9 +141,16 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
         setErrorMessage(draft.processing_error || 'La extracción anterior falló.');
       }
     } else if (draft.extracted_data) {
-      const ed = draft.extracted_data as any;
+      const ed = { ...(draft.extracted_data as any) };
+      if (dbItems.length > 0) ed.items = dbItems;
       setExtracted(mapExtracted(draft, ed));
       setRawExtracted(ed);
+      setStep('review');
+    } else if (dbItems.length > 0) {
+      // Siigo-sourced invoice: no extracted_data but has invoice_items + column data.
+      const ed: any = { items: dbItems };
+      setExtracted(mapExtracted(draft, ed));
+      setRawExtracted(null);
       setStep('review');
     } else {
       setStep('upload');
