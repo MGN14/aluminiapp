@@ -118,9 +118,12 @@ serve(async (req) => {
     }
     const { access_token } = await authRes.json() as { access_token: string };
 
+    // Re-sync uses a 30-day rolling window instead of last_invoice_pulled_at:
+    // Siigo filters by document date (not API creation), and users often create
+    // invoices backdated a day or two. Using the exact pulled_at timestamp
+    // silently drops invoices with issue_date < pulled_at. First sync uses 90d.
     const since = body.since
-      ?? (creds.last_invoice_pulled_at?.slice(0, 10))
-      ?? daysAgo(90);
+      ?? (creds.last_invoice_pulled_at ? daysAgo(30) : daysAgo(90));
     const until = body.until ?? today();
     const kinds: Kind[] = body.kinds && body.kinds.length > 0
       ? body.kinds
