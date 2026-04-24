@@ -134,6 +134,7 @@ serve(async (req) => {
     let skipped = 0;
     let itemsInserted = 0;
     const errors: string[] = [];
+    const debug: Record<string, unknown> = {};
 
     const apiHeaders = {
       Authorization: `Bearer ${access_token}`,
@@ -194,6 +195,16 @@ serve(async (req) => {
         }
         const payload = await res.json() as { results?: SiigoInvoice[]; pagination?: { total_results?: number } };
         const results = payload.results ?? [];
+        if (page === 1) {
+          const pageDebug = {
+            total_results: payload.pagination?.total_results ?? null,
+            returned: results.length,
+            numbers: results.map(r => r.number ?? r.name ?? r.id).slice(0, 10),
+            url: url.toString(),
+          };
+          debug[`${kind}_page1`] = pageDebug;
+          console.log(`[siigo-sync-invoices] ${kind} page1:`, JSON.stringify(pageDebug));
+        }
         if (results.length === 0) break;
 
         for (const inv of results) {
@@ -273,6 +284,7 @@ serve(async (req) => {
       since,
       until,
       kinds,
+      debug,
     });
   } catch (e) {
     return json({ ok: false, error: "Error inesperado", detail: (e as Error).message }, 500);
