@@ -1,4 +1,4 @@
-import { PartyPopper, Package, Bot, TrendingUp, FileSpreadsheet, Sparkles, Calendar } from 'lucide-react';
+import { PartyPopper, Package, Bot, TrendingUp, FileSpreadsheet, Sparkles, Calendar, Radio } from 'lucide-react';
 import { BRAND, INK, INK2 } from '../OnboardingShell';
 
 const FEATURES = [
@@ -134,6 +134,72 @@ export default function Step09Welcome({ userName }: Props) {
           <div style={{ fontSize: 12.5, color: INK2, lineHeight: 1.5, marginTop: 3 }}>
             Durante estos días usas todo sin límites: reportes P&G, CxC, CxP, anticipos, Visita DIAN y Nico completo.
           </div>
+        </div>
+      </div>
+
+      {/* Live data sources callout — para que se sepa que la macro económica
+          que ven en Dashboard y en Nico son números reales, no inventados. */}
+      <div
+        style={{
+          padding: 14,
+          background: 'linear-gradient(135deg, #0f172a, #1e293b)',
+          borderRadius: 12,
+          marginBottom: 20,
+          color: '#fff',
+          animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.20s both',
+          opacity: 0,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ position: 'relative', display: 'inline-flex', width: 8, height: 8 }}>
+            <span
+              style={{
+                position: 'absolute',
+                inset: 0,
+                borderRadius: '50%',
+                background: '#10b981',
+                opacity: 0.6,
+                animation: 'macroPulse 1.6s ease-out infinite',
+              }}
+            />
+            <span style={{ position: 'relative', width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: '#34d399',
+              letterSpacing: 1.4,
+              textTransform: 'uppercase',
+            }}
+          >
+            Datos en vivo
+          </span>
+          <Radio style={{ width: 12, height: 12, color: '#94a3b8', marginLeft: 'auto' }} />
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6, letterSpacing: '-0.2px' }}>
+          Conectado a Superfinanciera, BanRep y World Bank
+        </div>
+        <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.55, marginBottom: 10 }}>
+          TRM, DTF e IPC anual siempre al día — Nico los usa cuando te asesora y los ves en tu dashboard. Reglas fiscales DIAN 2026 integradas.
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {['Superfinanciera', 'BanRep', 'World Bank', 'DIAN 2026'].map((src) => (
+            <span
+              key={src}
+              style={{
+                fontSize: 10.5,
+                fontWeight: 500,
+                color: '#e2e8f0',
+                padding: '3px 8px',
+                borderRadius: 6,
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              {src}
+            </span>
+          ))}
         </div>
       </div>
 

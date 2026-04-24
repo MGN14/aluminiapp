@@ -205,6 +205,13 @@
   to   { transform: scale(1);   opacity: 1; }
 }
 
+/* Pulso suave para indicador "en vivo" (panel macro, callouts de data feeds). */
+@keyframes macroPulse {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  70%  { transform: scale(2.2); opacity: 0;   }
+  100% { transform: scale(2.2); opacity: 0;   }
+}
+
 @keyframes pulseRing {
   0%, 100% { box-shadow: 0 0 0 8px oklch(0.43 0.14 155 / 0.10), 0 0 0 16px oklch(0.43 0.14 155 / 0.05); }
   50%      { box-shadow: 0 0 0 12px oklch(0.43 0.14 155 / 0.12), 0 0 0 22px oklch(0.43 0.14 155 / 0.04); }
