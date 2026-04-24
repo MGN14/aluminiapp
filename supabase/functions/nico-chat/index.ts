@@ -206,6 +206,21 @@ serve(async (req) => {
         .lte("date", yearEnd),
     ]);
 
+    // Indicadores macro (TRM + futuros). Tabla compartida read-only.
+    const { data: macroRowsRaw } = await supabase
+      .from("macro_indicators" as never)
+      .select("indicator_type, sector_code, sector_name, period_date, value, unit")
+      .order("period_date", { ascending: false })
+      .limit(50);
+    const macroRows = (macroRowsRaw ?? []) as Array<{
+      indicator_type: string;
+      sector_code: string | null;
+      sector_name: string | null;
+      period_date: string;
+      value: number;
+      unit: string | null;
+    }>;
+
     const fmt = (n: number) =>
       new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
     const pct = (a: number, b: number) =>
@@ -1205,6 +1220,35 @@ ${inventoryCtx}
       : "";
 
     // =============================================
+    // CONTEXTO MACRO (datos públicos en tiempo real)
+    // =============================================
+    // Solo TRM por ahora. DTF/IBR/IPC/PIB pendientes (BanRep/DANE bloquean
+    // scraping; queda para integrar con Firecrawl).
+    const trmRows = macroRows
+      .filter(r => r.indicator_type === "trm")
+      .sort((a, b) => b.period_date.localeCompare(a.period_date));
+    const trmHoy = trmRows[0];
+    const trmAyer = trmRows[1];
+    let macroBlock = "";
+    if (trmHoy) {
+      const fmtTrm = (n: number) =>
+        new Intl.NumberFormat("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+      const delta = trmAyer ? trmHoy.value - trmAyer.value : 0;
+      const deltaPct = trmAyer && trmAyer.value > 0 ? (delta / trmAyer.value) * 100 : 0;
+      const deltaTxt = trmAyer
+        ? ` (${delta >= 0 ? "+" : ""}${fmtTrm(delta)} vs ayer, ${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)`
+        : "";
+      macroBlock = `\n\n═══════════════════════════════════════════
+CONTEXTO MACRO (datos públicos al día)
+═══════════════════════════════════════════
+Estás conectado a datos.gov.co (Superfinanciera) y traes los indicadores macro al día.
+
+TRM vigente (${trmHoy.period_date}): $${fmtTrm(trmHoy.value)} COP/USD${deltaTxt}
+
+Cuando el empresario pregunte por TRM, dólar, tasa de cambio, conversión a dólares, importaciones o exportaciones — usá este número, no inventes ni digas "no tengo acceso". Si te preguntan de qué fuente sale, decí que es la TRM oficial de la Superintendencia Financiera publicada vía datos.gov.co, actualizada hoy. Próximamente sumaremos IPC, DTF, IBR y PIB sectorial.`;
+    }
+
+    // =============================================
     // SYSTEM PROMPT
     // =============================================
     const systemPrompt = `${persona.role}
@@ -1399,7 +1443,7 @@ Si no hay datos: una frase honesta + el siguiente paso concreto.
 FORMATO ESTRICTO:
 Texto corrido, sin markdown de ningún tipo. Cero asteriscos, cero viñetas, cero numeración. Usá puntos y aparte para separar ideas. Moneda colombiana con puntos de miles: $12.450.000. Para comparaciones usá paréntesis: ($3.200.000 más que el mes pasado).
 
-${financialContext}${memoryBlock}`;
+${financialContext}${memoryBlock}${macroBlock}`;
 
     const pageContextNote = pageContext
       ? `\n\nCONTEXTO DE NAVEGACIÓN: El usuario está en "${pageContext.page}"${pageContext.filters ? `. Filtros activos: ${JSON.stringify(pageContext.filters)}` : ""}. Prioriza ese contexto si es relevante.`

@@ -52,3 +52,6 @@ verify_jwt = false
 
 [functions.invite-collaborator]
 verify_jwt = false
+
+[functions.sync-macro-indicators]
+verify_jwt = false
