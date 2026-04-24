@@ -776,7 +776,6 @@ export default function InvoiceListPage({ type }: Props) {
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead className="w-[100px]">Fecha</TableHead>
-                      <TableHead>Nombre</TableHead>
                       <TableHead>{counterpartyLabel}</TableHead>
                       <TableHead className="w-[120px]">Número</TableHead>
                       <TableHead className="text-right w-[130px]">Total</TableHead>
@@ -805,10 +804,10 @@ export default function InvoiceListPage({ type }: Props) {
                           <TableCell className="text-sm">
                             {format(parseLocalDate(displayDate), 'dd MMM yy', { locale: es })}
                           </TableCell>
-                          <TableCell className="font-medium text-sm max-w-[220px]">
+                          <TableCell className="font-medium text-sm max-w-[260px]">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="truncate">
-                                {inv.display_name || inv.invoice_number || inv.original_filename || '—'}
+                                {inv.counterparty_name || (type === 'venta' ? inv.buyer_name : inv.seller_name) || '—'}
                               </span>
                               {inv.source === 'siigo' && (
                                 <Badge variant="secondary" className="h-4 px-1.5 text-[10px] gap-0.5 flex-shrink-0" title="Importada desde Siigo">
@@ -824,9 +823,6 @@ export default function InvoiceListPage({ type }: Props) {
                                 />
                               )}
                             </div>
-                          </TableCell>
-                          <TableCell className="text-sm truncate max-w-[180px]">
-                            {inv.counterparty_name || (type === 'venta' ? inv.buyer_name : inv.seller_name) || '—'}
                           </TableCell>
                           <TableCell className="text-sm">{inv.invoice_number || '—'}</TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(inv.total_amount)}</TableCell>
