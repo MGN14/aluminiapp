@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 export interface MacroIndicator {
-  type: string;          // 'trm' | 'ipc_total' | 'dtf' | 'ibr' | ...
-  label: string;         // 'TRM', 'IPC anual', etc.
+  type: string;          // 'trm' | 'ipc_total' | 'dtf' | 'aluminio_lme' | ...
+  label: string;         // 'Dólar', 'Inflación', etc. (colombiano-friendly)
+  sublabel: string;      // 'TRM oficial', 'DTF · BanRep' (sigla técnica)
   value: number;
-  unit: string;          // 'COP' | '%' | 'index'
+  unit: string;          // 'COP' | '%' | 'USD/ton' | ...
   date: string;          // YYYY-MM-DD
   delta: number | null;  // value - previous value, null if no prior
   deltaPct: number | null;
   history: Array<{ date: string; value: number }>; // ascending; most recent last
-  source: 'banrep' | 'superfinanciera' | 'worldbank' | 'manual' | 'other';
+  source: 'banrep' | 'superfinanciera' | 'worldbank' | 'tradingeconomics' | 'yahoo_finance' | 'manual' | 'other';
 }
 
 interface RawRow {
@@ -22,13 +23,28 @@ interface RawRow {
   source?: string | null;
 }
 
+// Nombres "colombianos" para que un dueño de PYME entienda sin diccionario.
+// La sigla técnica (TRM/DTF/IPC/LME) la mostramos como sublabel chico —
+// igual que Bloomberg muestra "USD/COP" en grande pero sabe que es el dólar.
 const LABELS: Record<string, string> = {
-  trm: 'TRM',
-  ipc_total: 'IPC anual',
-  dtf: 'DTF',
-  ibr: 'IBR',
+  trm: 'Dólar',
+  dtf: 'Costo del crédito',
+  ipc_total: 'Inflación',
+  ibr: 'Tasa interbancaria',
+  aluminio_lme: 'Aluminio',
   pib_sector: 'PIB sector',
-  ipc_sector: 'IPC sector',
+  ipc_sector: 'Inflación sector',
+};
+
+// Sigla técnica al lado del label principal — para credibilidad financiera.
+const SUBLABELS: Record<string, string> = {
+  trm: 'TRM oficial',
+  dtf: 'DTF · BanRep',
+  ipc_total: 'IPC anual',
+  ibr: 'IBR · BanRep',
+  aluminio_lme: 'LME · USD/ton',
+  pib_sector: 'DANE',
+  ipc_sector: 'DANE',
 };
 
 const SOURCE_FOR_TYPE: Record<string, MacroIndicator['source']> = {
@@ -36,6 +52,7 @@ const SOURCE_FOR_TYPE: Record<string, MacroIndicator['source']> = {
   dtf: 'banrep',
   ibr: 'banrep',
   ipc_total: 'worldbank', // override below if metadata.source dice otra
+  aluminio_lme: 'other',
 };
 
 export function useMacroIndicators() {
@@ -82,12 +99,17 @@ export function useMacroIndicators() {
             ? 'superfinanciera'
             : sourceRaw.includes('worldbank')
               ? 'worldbank'
-              : sourceRaw === 'manual'
-                ? 'manual'
-                : SOURCE_FOR_TYPE[latest.indicator_type] ?? 'other';
+              : sourceRaw.includes('tradingeconomics') || sourceRaw.includes('trading_economics')
+                ? 'tradingeconomics'
+                : sourceRaw.includes('yahoo')
+                  ? 'yahoo_finance'
+                  : sourceRaw === 'manual'
+                    ? 'manual'
+                    : SOURCE_FOR_TYPE[latest.indicator_type] ?? 'other';
         result.push({
           type: latest.indicator_type,
           label: LABELS[latest.indicator_type] ?? latest.indicator_type.toUpperCase(),
+          sublabel: SUBLABELS[latest.indicator_type] ?? '',
           value: Number(latest.value),
           unit: latest.unit ?? '',
           date: latest.period_date,

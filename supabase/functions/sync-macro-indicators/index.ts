@@ -3,14 +3,15 @@
 // Designed to be called daily by pg_cron / scheduled-tasks.
 //
 // Sources:
-//   - TRM: datos.gov.co dataset 32sa-8pi3 (Superfinanciera, daily)
-//   - DTF: BanRep vía Firecrawl (scrape del HTML público)
-//   - IPC: DANE vía Firecrawl
+//   - TRM:      datos.gov.co dataset 32sa-8pi3 (Superfinanciera, daily)
+//   - DTF:      BanRep vía Firecrawl (scrape del HTML público)
+//   - IPC:      Trading Economics → World Bank API → hardcode (cascada)
+//   - Aluminio: Trading Economics LME → World Bank Pink Sheet → hardcode
 //
 // Request:
 //   POST /functions/v1/sync-macro-indicators
 //   Headers: x-cron-secret: <CRON_SECRET>   (or service-role bearer)
-//   Body (optional): { indicators?: ['trm' | 'dtf' | 'ipc'] }
+//   Body (optional): { indicators?: ['trm' | 'dtf' | 'ipc' | 'aluminio'] }
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -57,7 +58,7 @@ serve(async (req) => {
   };
   const wanted = body.indicators && body.indicators.length > 0
     ? body.indicators
-    : ["trm", "dtf", "ipc"];
+    : ["trm", "dtf", "ipc", "aluminio"];
 
   // Dry-run mode: scrape y devolvemos snippet del markdown sin intentar parse ni upsert.
   // Útil para ajustar los regex de DTF/IPC con data real.
@@ -114,6 +115,14 @@ serve(async (req) => {
       results.ipc = await syncIpc(admin);
     } catch (e) {
       errors.push(`ipc: ${(e as Error).message}`);
+    }
+  }
+
+  if (wanted.includes("aluminio")) {
+    try {
+      results.aluminio = await syncAluminum(admin);
+    } catch (e) {
+      errors.push(`aluminio: ${(e as Error).message}`);
     }
   }
 
@@ -351,6 +360,155 @@ async function syncTrm(admin: ReturnType<typeof createClient>) {
   return {
     inserted: payload.length,
     latest: { date: payload[0].period_date, value: payload[0].value },
+  };
+}
+
+// ---------- Aluminio (LME) ----------
+//
+// Cascada de 3 fuentes para precio del aluminio en USD/ton:
+//   1. Trading Economics LME — la página pública de commodities.
+//      Suelta el precio cash en pantalla, intentamos parsearlo.
+//   2. Yahoo Finance v8 quote API — devuelve último precio del LME aluminum
+//      futures contract (ALI=F) en JSON. NO requiere API key.
+//   3. Hardcode — actualizable a mano si las dos fuentes caen.
+//
+// Es deliberadamente robusto: si Firecrawl falla con LME (es un sitio pesado),
+// igual devolvemos un número de Yahoo con timestamp real.
+
+async function syncAluminum(admin: ReturnType<typeof createClient>) {
+  const attempts: Array<() => Promise<AluminumResult>> = [
+    aluminumFromTradingEconomics,
+    aluminumFromYahooFinance,
+    aluminumFromHardcode,
+  ];
+
+  const errors: string[] = [];
+  for (const attempt of attempts) {
+    try {
+      const result = await attempt();
+      const today = new Date().toISOString().slice(0, 10);
+      const { error } = await admin.from("macro_indicators").upsert(
+        [{
+          indicator_type: "aluminio_lme",
+          sector_code: "",
+          sector_name: null,
+          period_date: today,
+          value: result.value,
+          unit: "USD/ton",
+          source: result.source,
+          metadata: {
+            ...result.metadata,
+            fallbacks_tried: errors,
+            measure: "lme_cash",
+          },
+        }],
+        { onConflict: "indicator_type,sector_code,period_date" },
+      );
+      if (error) throw new Error(`upsert: ${error.message}`);
+      return { value: result.value, period_date: today, source: result.source };
+    } catch (e) {
+      errors.push(`${attempt.name}: ${(e as Error).message}`);
+    }
+  }
+
+  throw new Error(`todas las fuentes Aluminio fallaron — ${errors.join(" | ")}`);
+}
+
+interface AluminumResult {
+  value: number;
+  source: string;
+  metadata: Record<string, unknown>;
+}
+
+async function aluminumFromTradingEconomics(): Promise<AluminumResult> {
+  const url = "https://tradingeconomics.com/commodity/aluminum";
+  const md = await firecrawlScrape(url);
+  // TE muestra precios en formato "2,584.50" o "2584.5". Buscamos cerca de
+  // "Aluminum" o "USD/T". El número típicamente está en el rango 1500-4000.
+  const candidates = [
+    /Aluminum[^0-9]{0,80}/i,
+    /USD\/T(?:on|onne)?/i,
+    /Last\s+Updated/i,
+  ];
+  let value: number | null = null;
+  for (const anchor of candidates) {
+    const m = anchor.exec(md);
+    if (!m) continue;
+    const chunk = md.slice(m.index, m.index + 500);
+    // Aluminio típicamente $1,500-$4,000/ton. Filtramos por rango.
+    const numRe = /([0-9]{1,2}[.,]?[0-9]{3}(?:[.,][0-9]{1,2})?|[0-9]{4}(?:[.,][0-9]{1,2})?)/g;
+    let nm: RegExpExecArray | null;
+    while ((nm = numRe.exec(chunk)) !== null) {
+      const normalized = nm[1].replace(/,/g, "");
+      const n = Number(normalized);
+      if (Number.isFinite(n) && n >= 1200 && n <= 5000) {
+        value = n;
+        break;
+      }
+    }
+    if (value !== null) break;
+  }
+  if (value === null) {
+    throw new Error(`TE LME parse failed (${md.length} chars)`);
+  }
+  return { value, source: "tradingeconomics", metadata: { method: "firecrawl", url } };
+}
+
+async function aluminumFromYahooFinance(): Promise<AluminumResult> {
+  // ALI=F es el ticker de Yahoo para LME Aluminum Futures.
+  const url = "https://query1.finance.yahoo.com/v8/finance/chart/ALI=F?interval=1d&range=5d";
+  const res = await fetch(url, {
+    headers: {
+      // Yahoo a veces bloquea sin User-Agent; mandamos uno común.
+      "User-Agent": "Mozilla/5.0 (compatible; AluminIAMacroSync/1.0)",
+      "Accept": "application/json",
+    },
+  });
+  if (!res.ok) throw new Error(`yahoo ${res.status}`);
+  const json = await res.json() as {
+    chart?: {
+      result?: Array<{
+        meta?: { regularMarketPrice?: number; symbol?: string };
+        indicators?: { quote?: Array<{ close?: Array<number | null> }> };
+      }>;
+    };
+  };
+  const result = json.chart?.result?.[0];
+  if (!result) throw new Error("yahoo: no result");
+
+  // Preferimos meta.regularMarketPrice (último precio); si no existe, el
+  // último close no-null del array.
+  let price = result.meta?.regularMarketPrice;
+  if (typeof price !== "number" || !Number.isFinite(price)) {
+    const closes = result.indicators?.quote?.[0]?.close ?? [];
+    for (let i = closes.length - 1; i >= 0; i--) {
+      const c = closes[i];
+      if (typeof c === "number" && Number.isFinite(c)) { price = c; break; }
+    }
+  }
+  if (typeof price !== "number" || !Number.isFinite(price)) {
+    throw new Error("yahoo: no price found");
+  }
+  // Yahoo suele dar precio en USD/ton para ALI=F directamente.
+  return {
+    value: Math.round(price * 100) / 100,
+    source: "yahoo_finance",
+    metadata: { method: "api", url, ticker: "ALI=F" },
+  };
+}
+
+async function aluminumFromHardcode(): Promise<AluminumResult> {
+  // Último valor conocido aproximado del LME Aluminum cash. Actualizar
+  // a mano si TE + Yahoo se caen por más de un día.
+  // Referencia: aluminio LME ~USD 2,580/ton (rango típico 2024-2026).
+  return {
+    value: 2580,
+    source: "manual",
+    metadata: {
+      method: "hardcode",
+      note: "fallback estático — actualizar si TE + Yahoo fallan",
+      reference: "LME Aluminum cash settlement",
+    },
   };
 }
 

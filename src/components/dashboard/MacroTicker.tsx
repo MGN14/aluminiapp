@@ -7,34 +7,29 @@
 // Mantiene el mismo nombre/export (`MacroTicker`) por compatibilidad con
 // los imports existentes (Dashboard.tsx).
 
+import { useState } from 'react';
 import { TrendingUp, TrendingDown, Minus, Wifi } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMacroIndicators, type MacroIndicator } from '@/hooks/useMacroIndicators';
+import MacroDetailModal from './MacroDetailModal';
 
 const ORDER: Record<string, number> = {
   trm: 1,
   dtf: 2,
   ipc_total: 3,
-  ibr: 4,
-  pib_sector: 5,
-  ipc_sector: 6,
+  aluminio_lme: 4,
+  ibr: 5,
+  pib_sector: 6,
+  ipc_sector: 7,
 };
 
 const SOURCE_LABEL: Record<MacroIndicator['source'], string> = {
   superfinanciera: 'Superfinanciera',
   banrep: 'BanRep',
   worldbank: 'World Bank',
+  tradingeconomics: 'Trading Economics',
+  yahoo_finance: 'LME · Yahoo',
   manual: 'Estimado',
   other: 'Pública',
-};
-
-const TYPE_HINT: Record<string, string> = {
-  trm: 'Tasa Representativa del Mercado · COP/USD',
-  dtf: 'Tasa de captación a 90 días · referencia para crédito',
-  ipc_total: 'Inflación anual de Colombia',
-  ibr: 'Indicador Bancario de Referencia',
-  pib_sector: 'Producto Interno Bruto sectorial',
-  ipc_sector: 'Inflación por sector',
 };
 
 function formatValue(ind: MacroIndicator): string {
@@ -43,6 +38,10 @@ function formatValue(ind: MacroIndicator): string {
   }
   if (ind.unit === '%') {
     return `${ind.value.toFixed(2)}%`;
+  }
+  if (ind.unit === 'USD/ton') {
+    // En la card no entra "/ton"; lo mostramos en el modal de detalle.
+    return `US$${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Math.round(ind.value))}`;
   }
   return new Intl.NumberFormat('es-CO').format(ind.value);
 }
@@ -107,7 +106,7 @@ function Sparkline({ data, isUp, isDown }: { data: number[]; isUp: boolean; isDo
   );
 }
 
-function IndicatorCard({ ind }: { ind: MacroIndicator }) {
+function IndicatorCard({ ind, onClick }: { ind: MacroIndicator; onClick: () => void }) {
   const isUp = ind.delta !== null && ind.delta > 0;
   const isDown = ind.delta !== null && ind.delta < 0;
   const delta = ind.delta;
@@ -115,8 +114,6 @@ function IndicatorCard({ ind }: { ind: MacroIndicator }) {
   const colorClass = isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-slate-400';
   const Icon = isUp ? TrendingUp : isDown ? TrendingDown : Minus;
   const fresh = relativeFreshness(ind.date);
-  const sourceLabel = SOURCE_LABEL[ind.source];
-  const hint = TYPE_HINT[ind.type] ?? '';
 
   // Delta string (% para tasas, abs para COP).
   let deltaTxt: string | null = null;
@@ -133,56 +130,57 @@ function IndicatorCard({ ind }: { ind: MacroIndicator }) {
   const sparkValues = ind.history.map(h => h.value);
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div
-            className="group relative flex flex-col gap-2 px-4 py-3 border-r border-white/[0.06] last:border-r-0 cursor-default transition-colors hover:bg-white/[0.03]"
-            style={{ minWidth: 0 }}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                {ind.label}
-              </span>
-              <span
-                className={`text-[9px] font-semibold uppercase tracking-wider ${
-                  fresh.tone === 'fresh' ? 'text-emerald-400/80' : 'text-amber-400/80'
-                }`}
-              >
-                {fresh.label}
-              </span>
-            </div>
-            <div className="flex items-baseline gap-2 font-mono tabular-nums">
-              <span className="text-lg font-bold text-white tracking-tight">
-                {formatValue(ind)}
-              </span>
-              {deltaTxt && (
-                <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${colorClass}`}>
-                  <Icon className="h-3 w-3" />
-                  {deltaTxt}
-                </span>
-              )}
-            </div>
-            <Sparkline data={sparkValues} isUp={isUp} isDown={isDown} />
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={8} className="max-w-[260px]">
-          <div className="text-xs font-semibold mb-1">{ind.label}</div>
-          {hint && <div className="text-[11px] text-muted-foreground mb-1.5">{hint}</div>}
-          <div className="text-[11px]">
-            Última publicación: <span className="font-medium">{formatDate(ind.date)}</span>
-          </div>
-          <div className="text-[11px]">
-            Fuente: <span className="font-medium">{sourceLabel}</span>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Ver histórico de ${ind.label}`}
+      className="group relative flex flex-col gap-1.5 px-4 py-3 border-r border-white/[0.06] last:border-r-0 cursor-pointer transition-colors hover:bg-white/[0.04] focus:outline-none focus:bg-white/[0.04] text-left"
+      style={{ minWidth: 0, background: 'transparent' }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[12.5px] font-semibold text-white tracking-tight truncate">
+            {ind.label}
+          </span>
+          {ind.sublabel && (
+            <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-slate-500 truncate">
+              {ind.sublabel}
+            </span>
+          )}
+        </div>
+        <span
+          className={`text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap ${
+            fresh.tone === 'fresh' ? 'text-emerald-400/80' : 'text-amber-400/80'
+          }`}
+        >
+          {fresh.label}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2 font-mono tabular-nums">
+        <span className="text-lg font-bold text-white tracking-tight">
+          {formatValue(ind)}
+        </span>
+        {deltaTxt && (
+          <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${colorClass}`}>
+            <Icon className="h-3 w-3" />
+            {deltaTxt}
+          </span>
+        )}
+      </div>
+      <Sparkline data={sparkValues} isUp={isUp} isDown={isDown} />
+      <span
+        className="absolute top-2 right-2 text-[8.5px] uppercase tracking-wider text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
+        aria-hidden="true"
+      >
+        Ver detalle →
+      </span>
+    </button>
   );
 }
 
 export default function MacroTicker() {
   const { indicators, loading } = useMacroIndicators();
+  const [selected, setSelected] = useState<MacroIndicator | null>(null);
 
   if (loading || indicators.length === 0) return null;
 
@@ -235,7 +233,11 @@ export default function MacroTicker() {
         }}
       >
         {sorted.slice(0, 4).map(ind => (
-          <IndicatorCard key={`${ind.type}-${ind.date}`} ind={ind} />
+          <IndicatorCard
+            key={`${ind.type}-${ind.date}`}
+            ind={ind}
+            onClick={() => setSelected(ind)}
+          />
         ))}
       </div>
 
@@ -258,6 +260,8 @@ export default function MacroTicker() {
           Reglas fiscales <span className="text-slate-300 font-medium">DIAN 2026</span> integradas
         </div>
       </div>
+
+      <MacroDetailModal indicator={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }

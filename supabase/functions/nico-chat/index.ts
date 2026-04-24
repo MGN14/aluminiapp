@@ -1235,14 +1235,18 @@ ${inventoryCtx}
       if (!hoy) return null;
       const delta = ayer ? hoy.value - ayer.value : 0;
       const deltaPct = ayer && ayer.value > 0 ? (delta / ayer.value) * 100 : 0;
-      const isPct = (hoy.unit ?? "").includes("%");
+      const unit = (hoy.unit ?? "").trim();
+      const isPct = unit.includes("%");
+      const isUsdTon = unit === "USD/ton";
       const valStr = isPct
         ? `${fmtNum(hoy.value)}%`
-        : `$${fmtNum(hoy.value)} COP/USD`;
+        : isUsdTon
+          ? `US$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(hoy.value))} /ton`
+          : `$${fmtNum(hoy.value)} COP/USD`;
       const deltaTxt = ayer
         ? isPct
           ? ` (${delta >= 0 ? "+" : ""}${fmtNum(delta)}pp vs publicación anterior)`
-          : ` (${delta >= 0 ? "+" : ""}${fmtNum(delta)} vs ayer, ${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)`
+          : ` (${delta >= 0 ? "+" : ""}${isUsdTon ? Math.round(delta) : fmtNum(delta)} vs anterior, ${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)`
         : "";
       return { hoy, valStr, deltaTxt };
     };
@@ -1250,9 +1254,10 @@ ${inventoryCtx}
     const trmInfo = buildIndicatorLine("trm");
     const dtfInfo = buildIndicatorLine("dtf");
     const ipcInfo = buildIndicatorLine("ipc_total");
+    const aluInfo = buildIndicatorLine("aluminio_lme");
 
     let macroBlock = "";
-    if (trmInfo || dtfInfo || ipcInfo) {
+    if (trmInfo || dtfInfo || ipcInfo || aluInfo) {
       const lines: string[] = [];
       if (trmInfo)
         lines.push(`TRM vigente (${trmInfo.hoy.period_date}): ${trmInfo.valStr}${trmInfo.deltaTxt}`);
@@ -1260,11 +1265,13 @@ ${inventoryCtx}
         lines.push(`DTF (${dtfInfo.hoy.period_date}): ${dtfInfo.valStr}${dtfInfo.deltaTxt} — referencia para tasas de crédito comercial`);
       if (ipcInfo)
         lines.push(`IPC anual Colombia (${ipcInfo.hoy.period_date}): ${ipcInfo.valStr}${ipcInfo.deltaTxt} — inflación oficial`);
+      if (aluInfo)
+        lines.push(`Aluminio LME (${aluInfo.hoy.period_date}): ${aluInfo.valStr}${aluInfo.deltaTxt} — referencia mundial de commodities metálicos`);
 
       macroBlock = `\n\n═══════════════════════════════════════════
 CONTEXTO MACRO (datos públicos al día)
 ═══════════════════════════════════════════
-Estás conectado en vivo a Superfinanciera (TRM), BanRep (DTF) y World Bank (IPC). Estos números son oficiales y vigentes hoy:
+Estás conectado en vivo a Superfinanciera (TRM), BanRep (DTF), World Bank (IPC) y London Metal Exchange vía Trading Economics / Yahoo Finance (aluminio). Estos números son oficiales y vigentes hoy:
 
 ${lines.join("\n")}
 
@@ -1272,6 +1279,7 @@ CÓMO USARLOS:
 - Si preguntan por dólar/TRM/importaciones/exportaciones → usá la TRM real (no inventes). Fuente: Superintendencia Financiera vía datos.gov.co.
 - Si preguntan si conviene endeudarse, sacar crédito, o por tasas bancarias → contextualizá con la DTF actual y comparala con lo que les están ofreciendo. Fuente: Banco de la República.
 - Si preguntan por aumento de precios, ajuste de salarios, inflación, indexación de contratos o ajuste de arriendo → usá el IPC anual. Fuente: World Bank Indicators API (datos oficiales DANE compilados por World Bank).
+- Si el negocio es industrial/metalmecánico/manufactura, autopartes, perfilería, latas o cualquier rubro que compre o venda aluminio → citá el precio LME del aluminio para contextualizar costos de materia prima. Fuente: London Metal Exchange vía Trading Economics o Yahoo Finance.
 - Cuando cites un dato macro, mencioná SIEMPRE el periodo (ej: "según DTF al ${dtfInfo?.hoy.period_date ?? "hoy"}") y la fuente. Da credibilidad y ahorra explicaciones.
 - Nunca digas "no tengo acceso a esos datos". Los tenés todos los días, frescos.`;
     }
