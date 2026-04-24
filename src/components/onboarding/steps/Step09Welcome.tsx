@@ -1,4 +1,4 @@
-import { PartyPopper, Package, Bot, TrendingUp, FileSpreadsheet } from 'lucide-react';
+import { PartyPopper, Package, Bot, TrendingUp, FileSpreadsheet, Sparkles, Calendar } from 'lucide-react';
 import { BRAND, INK, INK2 } from '../OnboardingShell';
 
 const FEATURES = [
@@ -73,14 +73,69 @@ export default function Step09Welcome({ userName }: Props) {
           fontSize: 15,
           color: INK2,
           lineHeight: 1.6,
-          marginBottom: 20,
+          marginBottom: 16,
           animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.15s both',
           opacity: 0,
         }}
       >
-        Tu perfil fiscal quedó guardado. Empezamos con el plan <strong style={{ color: INK }}>gratuito</strong>,
-        que incluye todo lo siguiente sin límite:
+        Tu perfil fiscal quedó guardado y tienes acceso completo a AluminIA por los próximos días.
       </p>
+
+      {/* Trial callout — 14 días de prueba */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: 14,
+          background: 'linear-gradient(135deg, oklch(0.43 0.14 155 / 0.10), oklch(0.60 0.14 155 / 0.06))',
+          border: '1px solid oklch(0.43 0.14 155 / 0.22)',
+          borderRadius: 12,
+          marginBottom: 20,
+          animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.18s both',
+          opacity: 0,
+        }}
+      >
+        <div
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 11,
+            background: BRAND,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            boxShadow: '0 4px 14px oklch(0.43 0.14 155 / 0.30)',
+          }}
+        >
+          <Sparkles style={{ width: 20, height: 20, color: '#fff' }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: BRAND,
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+              marginBottom: 2,
+            }}
+          >
+            <Calendar style={{ width: 11, height: 11 }} />
+            Prueba gratuita
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: INK, letterSpacing: '-0.3px' }}>
+            14 días del plan Enterprise, sin costo
+          </div>
+          <div style={{ fontSize: 12.5, color: INK2, lineHeight: 1.5, marginTop: 3 }}>
+            Durante estos días usas todo sin límites: reportes P&G, CxC, CxP, anticipos, Visita DIAN y Nico completo.
+          </div>
+        </div>
+      </div>
 
       <div
         style={{
@@ -135,8 +190,8 @@ export default function Step09Welcome({ userName }: Props) {
           opacity: 0,
         }}
       >
-        Cuando estés listo para reportes avanzados (P&G, CxC, CxP, anticipos, Visita DIAN), puedes activar el
-        plan <strong style={{ color: INK }}>Empresarial</strong> desde Ajustes.
+        Al terminar los 14 días pasas al plan <strong style={{ color: INK }}>gratuito</strong> automáticamente —
+        sin tarjeta de crédito ni sorpresas. Puedes activar el plan Enterprise cuando quieras desde Ajustes.
       </div>
     </div>
   );

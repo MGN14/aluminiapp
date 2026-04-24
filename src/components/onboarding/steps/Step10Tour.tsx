@@ -1,119 +1,8 @@
 import { useState } from 'react';
-import {
-  Landmark,
-  Receipt,
-  Package,
-  Download,
-  Bot,
-  LayoutDashboard,
-  ArrowRight,
-  Check,
-} from 'lucide-react';
+import { ArrowRight, Check } from 'lucide-react';
 import { BRAND, INK, INK2, INK3 } from '../OnboardingShell';
-
-interface Stop {
-  id: string;
-  Icon: typeof Landmark;
-  pill: string;
-  title: string;
-  description: string;
-  bullets: string[];
-  cta: string;
-  path: string;
-}
-
-const STOPS: Stop[] = [
-  {
-    id: 'statements',
-    Icon: Landmark,
-    pill: 'Lo que más nutre a AluminIA',
-    title: 'Extracto bancario',
-    description:
-      'Lo primero: sube tu extracto del banco. Es lo que le da contexto completo a AluminIA sobre el dinero que entra y sale realmente.',
-    bullets: [
-      'Puedes subirlo mensual (una vez al mes) o semanal si quieres ver los números más frescos.',
-      'Soportamos PDF de Bancolombia, Davivienda, BBVA y los demás bancos grandes.',
-      'Nico cruzará esos movimientos con tus facturas automáticamente.',
-    ],
-    cta: 'Subir extracto bancario',
-    path: '/statement-upload',
-  },
-  {
-    id: 'invoices',
-    Icon: Receipt,
-    pill: 'Ventas y compras',
-    title: 'Facturas de venta y compra',
-    description:
-      'Conecta tus facturas electrónicas para que AluminIA calcule IVA, retenciones, márgenes y CxC/CxP sin que digites nada.',
-    bullets: [
-      'Si tienes Siigo conectado, las traemos automáticamente (ventas y compras).',
-      'Si no, puedes cargarlas por XML o DIAN directamente.',
-      'Verás tu utilidad real actualizada cada vez que entra una factura.',
-    ],
-    cta: 'Ir a facturas',
-    path: '/invoices',
-  },
-  {
-    id: 'inventory',
-    Icon: Package,
-    pill: 'Stock y rotación',
-    title: 'Inventarios',
-    description:
-      'Carga los productos que manejas para que veamos cuánto capital tienes detenido, qué se mueve y qué está a punto de quedarse sin stock.',
-    bullets: [
-      'Puedes cargar productos uno a uno o masivamente por CSV.',
-      'Registras entradas y salidas y nosotros calculamos rotación por SKU.',
-      'Nico te avisa cuando algo está por agotarse o quedó capital frenado.',
-    ],
-    cta: 'Ir a inventarios',
-    path: '/inventarios',
-  },
-  {
-    id: 'export',
-    Icon: Download,
-    pill: 'Para tu contador',
-    title: 'Exportar movimientos',
-    description:
-      'Descarga todos tus movimientos categorizados en Excel o CSV para mandarlos a tu contador o integrarlos con otras herramientas.',
-    bullets: [
-      'Exportas por rango de fechas y por tipo de movimiento.',
-      'Incluye la categorización que Nico hizo automáticamente.',
-      'Úsalo para declaraciones bimestrales, ICA, renta o cualquier auditoría.',
-    ],
-    cta: 'Ir a exportar',
-    path: '/export',
-  },
-  {
-    id: 'nico',
-    Icon: Bot,
-    pill: 'Tu copiloto IA',
-    title: 'Nico',
-    description:
-      'Nico revisa tus datos cada día y te dice exactamente qué está pasando con el dinero — sin que tengas que buscar.',
-    bullets: [
-      'Alertas de clientes que te deben hace demasiado tiempo.',
-      'Avisos de productos críticos o capital detenido.',
-      'Análisis y recomendaciones concretas en lenguaje claro.',
-    ],
-    cta: 'Conocer a Nico',
-    path: '/nico',
-  },
-  {
-    id: 'dashboard',
-    Icon: LayoutDashboard,
-    pill: 'Tu resumen diario',
-    title: 'Dashboard',
-    description:
-      'Todo lo anterior se condensa aquí. Tu health score, margen, CxC, CxP y la próxima fecha de declaración en una sola pantalla.',
-    bullets: [
-      'Los KPIs que realmente importan, sin ruido.',
-      'Actualizado automáticamente con cada factura o extracto.',
-      'Es donde recomendamos arrancar cada día.',
-    ],
-    cta: 'Ir al dashboard',
-    path: '/dashboard',
-  },
-];
+import { TOUR_STOPS } from '@/components/tour/tourStops';
+import { jumpToStop } from '@/lib/tourState';
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -121,9 +10,17 @@ interface Props {
 
 export default function Step10Tour({ onNavigate }: Props) {
   const [idx, setIdx] = useState(0);
-  const stop = STOPS[idx];
-  const isLast = idx === STOPS.length - 1;
+  const stop = TOUR_STOPS[idx];
+  const isLast = idx === TOUR_STOPS.length - 1;
   const { Icon } = stop;
+
+  // Primary CTA: activate the persistent tour overlay starting at this stop,
+  // then hard-navigate to the feature. The overlay will guide them through
+  // the remaining stops without ever breaking the flow.
+  const handleGoToStop = () => {
+    jumpToStop(idx);
+    onNavigate(stop.path);
+  };
 
   return (
     <div>
@@ -145,13 +42,13 @@ export default function Step10Tour({ onNavigate }: Props) {
           fontSize: 14.5,
           color: INK2,
           lineHeight: 1.6,
-          marginBottom: 20,
+          marginBottom: 16,
           animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.1s both',
           opacity: 0,
         }}
       >
-        Seguimos este orden porque es lo que más nutre a AluminIA. Empezamos por los datos y
-        terminamos en el dashboard donde ves el resultado.
+        Te acompañamos por los 6 lugares clave de AluminIA. Al entrar a cada uno, el tour sigue
+        contigo en una tarjeta flotante — nunca se corta.
       </p>
 
       {/* Internal tour progress (6 dots) */}
@@ -160,12 +57,12 @@ export default function Step10Tour({ onNavigate }: Props) {
           display: 'flex',
           alignItems: 'center',
           gap: 6,
-          marginBottom: 20,
+          marginBottom: 14,
           animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.15s both',
           opacity: 0,
         }}
       >
-        {STOPS.map((s, i) => {
+        {TOUR_STOPS.map((s, i) => {
           const done = i < idx;
           const active = i === idx;
           return (
@@ -196,7 +93,7 @@ export default function Step10Tour({ onNavigate }: Props) {
           fontWeight: 600,
         }}
       >
-        Paso {idx + 1} de {STOPS.length}
+        Paso {idx + 1} de {TOUR_STOPS.length}
       </div>
 
       {/* Current stop card (remounts on idx change to re-animate) */}
@@ -294,7 +191,7 @@ export default function Step10Tour({ onNavigate }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button
             type="button"
-            onClick={() => onNavigate(stop.path)}
+            onClick={handleGoToStop}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -321,7 +218,7 @@ export default function Step10Tour({ onNavigate }: Props) {
               e.currentTarget.style.boxShadow = 'none';
             }}
           >
-            {stop.cta}
+            {stop.cta} y continuar con el tour
             <ArrowRight style={{ width: 14, height: 14 }} />
           </button>
 
@@ -352,7 +249,7 @@ export default function Step10Tour({ onNavigate }: Props) {
                 e.currentTarget.style.color = INK2;
               }}
             >
-              Saltar por ahora · siguiente paso →
+              Ver el siguiente paso antes de empezar →
             </button>
           )}
         </div>
@@ -376,7 +273,7 @@ export default function Step10Tour({ onNavigate }: Props) {
             fontFamily: 'inherit',
           }}
         >
-          ← Volver al paso anterior del tour
+          ← Paso anterior
         </button>
       )}
     </div>

@@ -11,6 +11,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
+import TourOverlay from "@/components/tour/TourOverlay";
 
 const Index = lazy(() => import("./pages/Index"));
 const Login = lazy(() => import("./pages/Login"));
@@ -186,6 +187,7 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
             </Suspense>
+            <TourOverlay />
           </BrowserRouter>
         </TooltipProvider>
         </ModuleProvider>
