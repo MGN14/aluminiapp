@@ -118,17 +118,23 @@ serve(async (req) => {
     }
     const { access_token } = await authRes.json() as { access_token: string };
 
-    // Pre-load existing siigo-linked products so we can preserve manual cost
-    // overrides (Siigo cost via API is unreliable — never overwrite a non-zero
-    // manual cost with 0).
+    // Pre-load ALL existing products so we can:
+    // 1. Preserve manual cost overrides (never overwrite a non-zero manual cost with 0).
+    // 2. Link manual rows (siigo_id=null) to their Siigo counterpart BY reference —
+    //    otherwise the upsert creates duplicates and leaves the manual row orphaned.
     const { data: existing } = await admin
       .from("inventory_products")
-      .select("siigo_id, cost_per_unit")
-      .eq("user_id", userId)
-      .not("siigo_id", "is", null);
+      .select("id, siigo_id, reference, cost_per_unit")
+      .eq("user_id", userId);
     const existingCosts = new Map<string, number>();
+    const manualByReference = new Map<string, { id: string; cost: number }>();
     for (const row of existing ?? []) {
-      if (row.siigo_id) existingCosts.set(row.siigo_id, Number(row.cost_per_unit) || 0);
+      const cost = Number(row.cost_per_unit) || 0;
+      if (row.siigo_id) {
+        existingCosts.set(row.siigo_id, cost);
+      } else if (row.reference) {
+        manualByReference.set(row.reference.trim().toLowerCase(), { id: row.id, cost });
+      }
     }
 
     let synced = 0;
@@ -160,10 +166,29 @@ serve(async (req) => {
 
       for (const p of results) {
         try {
-          const row = mapSiigoProduct(p, userId, nowIso, existingCosts.get(p.id));
-          const { error } = await admin
-            .from("inventory_products")
-            .upsert(row, { onConflict: "user_id,siigo_id" });
+          // Prefer reusing a manual row that matches by reference — this adopts
+          // the existing product instead of creating a Siigo duplicate next to it.
+          const refKey = (p.code ?? p.reference ?? p.id).trim().toLowerCase();
+          const manualMatch = manualByReference.get(refKey);
+          const carriedCost = existingCosts.get(p.id)
+            ?? (manualMatch?.cost && manualMatch.cost > 0 ? manualMatch.cost : undefined);
+          const row = mapSiigoProduct(p, userId, nowIso, carriedCost);
+
+          let error: { message: string } | null = null;
+          if (manualMatch) {
+            const res = await admin
+              .from("inventory_products")
+              .update(row)
+              .eq("id", manualMatch.id);
+            error = res.error;
+            if (!error) manualByReference.delete(refKey);
+          } else {
+            const res = await admin
+              .from("inventory_products")
+              .upsert(row, { onConflict: "user_id,siigo_id" });
+            error = res.error;
+          }
+
           if (error) {
             errors.push(`${p.id}: ${error.message}`);
             skipped++;
