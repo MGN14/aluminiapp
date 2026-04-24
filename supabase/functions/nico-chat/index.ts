@@ -1222,30 +1222,58 @@ ${inventoryCtx}
     // =============================================
     // CONTEXTO MACRO (datos públicos en tiempo real)
     // =============================================
-    // Solo TRM por ahora. DTF/IBR/IPC/PIB pendientes (BanRep/DANE bloquean
-    // scraping; queda para integrar con Firecrawl).
-    const trmRows = macroRows
-      .filter(r => r.indicator_type === "trm")
-      .sort((a, b) => b.period_date.localeCompare(a.period_date));
-    const trmHoy = trmRows[0];
-    const trmAyer = trmRows[1];
-    let macroBlock = "";
-    if (trmHoy) {
-      const fmtTrm = (n: number) =>
-        new Intl.NumberFormat("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-      const delta = trmAyer ? trmHoy.value - trmAyer.value : 0;
-      const deltaPct = trmAyer && trmAyer.value > 0 ? (delta / trmAyer.value) * 100 : 0;
-      const deltaTxt = trmAyer
-        ? ` (${delta >= 0 ? "+" : ""}${fmtTrm(delta)} vs ayer, ${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)`
+    // Conectados a Superfinanciera (TRM), BanRep (DTF) y World Bank/Trading
+    // Economics (IPC) vía Firecrawl + APIs públicas. Pendientes: IBR, PIB.
+    const fmtNum = (n: number) =>
+      new Intl.NumberFormat("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+    const buildIndicatorLine = (type: string) => {
+      const sorted = macroRows
+        .filter(r => r.indicator_type === type)
+        .sort((a, b) => b.period_date.localeCompare(a.period_date));
+      const hoy = sorted[0];
+      const ayer = sorted[1];
+      if (!hoy) return null;
+      const delta = ayer ? hoy.value - ayer.value : 0;
+      const deltaPct = ayer && ayer.value > 0 ? (delta / ayer.value) * 100 : 0;
+      const isPct = (hoy.unit ?? "").includes("%");
+      const valStr = isPct
+        ? `${fmtNum(hoy.value)}%`
+        : `$${fmtNum(hoy.value)} COP/USD`;
+      const deltaTxt = ayer
+        ? isPct
+          ? ` (${delta >= 0 ? "+" : ""}${fmtNum(delta)}pp vs publicación anterior)`
+          : ` (${delta >= 0 ? "+" : ""}${fmtNum(delta)} vs ayer, ${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)`
         : "";
+      return { hoy, valStr, deltaTxt };
+    };
+
+    const trmInfo = buildIndicatorLine("trm");
+    const dtfInfo = buildIndicatorLine("dtf");
+    const ipcInfo = buildIndicatorLine("ipc_total");
+
+    let macroBlock = "";
+    if (trmInfo || dtfInfo || ipcInfo) {
+      const lines: string[] = [];
+      if (trmInfo)
+        lines.push(`TRM vigente (${trmInfo.hoy.period_date}): ${trmInfo.valStr}${trmInfo.deltaTxt}`);
+      if (dtfInfo)
+        lines.push(`DTF (${dtfInfo.hoy.period_date}): ${dtfInfo.valStr}${dtfInfo.deltaTxt} — referencia para tasas de crédito comercial`);
+      if (ipcInfo)
+        lines.push(`IPC anual Colombia (${ipcInfo.hoy.period_date}): ${ipcInfo.valStr}${ipcInfo.deltaTxt} — inflación oficial`);
+
       macroBlock = `\n\n═══════════════════════════════════════════
 CONTEXTO MACRO (datos públicos al día)
 ═══════════════════════════════════════════
-Estás conectado a datos.gov.co (Superfinanciera) y traes los indicadores macro al día.
+Estás conectado en vivo a Superfinanciera (TRM), BanRep (DTF) y World Bank (IPC). Estos números son oficiales y vigentes hoy:
 
-TRM vigente (${trmHoy.period_date}): $${fmtTrm(trmHoy.value)} COP/USD${deltaTxt}
+${lines.join("\n")}
 
-Cuando el empresario pregunte por TRM, dólar, tasa de cambio, conversión a dólares, importaciones o exportaciones — usá este número, no inventes ni digas "no tengo acceso". Si te preguntan de qué fuente sale, decí que es la TRM oficial de la Superintendencia Financiera publicada vía datos.gov.co, actualizada hoy. Próximamente sumaremos IPC, DTF, IBR y PIB sectorial.`;
+CÓMO USARLOS:
+- Si preguntan por dólar/TRM/importaciones/exportaciones → usá la TRM real (no inventes). Fuente: Superintendencia Financiera vía datos.gov.co.
+- Si preguntan si conviene endeudarse, sacar crédito, o por tasas bancarias → contextualizá con la DTF actual y comparala con lo que les están ofreciendo. Fuente: Banco de la República.
+- Si preguntan por aumento de precios, ajuste de salarios, inflación, indexación de contratos o ajuste de arriendo → usá el IPC anual. Fuente: World Bank Indicators API (datos oficiales DANE compilados por World Bank).
+- Cuando cites un dato macro, mencioná SIEMPRE el periodo (ej: "según DTF al ${dtfInfo?.hoy.period_date ?? "hoy"}") y la fuente. Da credibilidad y ahorra explicaciones.
+- Nunca digas "no tengo acceso a esos datos". Los tenés todos los días, frescos.`;
     }
 
     // =============================================
