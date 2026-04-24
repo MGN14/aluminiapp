@@ -1,7 +1,4 @@
 import { Check, ArrowRight, Loader2, Sparkles } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
 
 export interface PlanData {
   id: string;
@@ -24,6 +21,13 @@ interface PricingCardProps {
   isLoading: boolean;
   onAction: (action: string) => void;
 }
+
+const BRAND = 'oklch(0.43 0.14 155)';
+const BRAND_FAINT = 'oklch(0.43 0.14 155 / 0.10)';
+const BRAND_BORDER = 'oklch(0.43 0.14 155 / 0.40)';
+const INK = '#1d1d1f';
+const INK2 = '#6e6e73';
+const INK3 = '#a1a1a6';
 
 function formatCOP(n: number) {
   return '$' + n.toLocaleString('es-CO');
@@ -53,113 +57,272 @@ export default function PricingCard({
       ? 'COP / año'
       : 'COP / mes';
 
+  const highlighted = plan.highlighted;
+
   return (
     <div
-      className={cn(
-        'relative flex flex-col rounded-2xl border-2 bg-card transition-all duration-300',
-        plan.highlighted
-          ? 'border-success shadow-lg shadow-success/15 scale-[1.03] z-10'
-          : 'border-border',
-        isCurrentPlan && 'ring-2 ring-primary'
-      )}
+      style={{
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        background: '#fff',
+        border: highlighted ? `2px solid ${BRAND_BORDER}` : '1.5px solid rgba(0,0,0,0.08)',
+        borderRadius: 18,
+        padding: 28,
+        boxShadow: highlighted
+          ? '0 12px 40px oklch(0.43 0.14 155 / 0.12), 0 2px 6px rgba(0,0,0,0.04)'
+          : '0 1px 3px rgba(0,0,0,0.04)',
+        transform: highlighted ? 'scale(1.02)' : 'none',
+        transition: 'transform 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s',
+        zIndex: highlighted ? 2 : 1,
+        outline: isCurrentPlan ? `2px solid ${BRAND}` : 'none',
+        outlineOffset: 2,
+      }}
     >
-      {/* Badges */}
       {plan.badge && (
-        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-          <Badge className="bg-success text-success-foreground px-3 py-1 text-xs font-bold shadow-md">
-            <Sparkles className="w-3 h-3 mr-1" />
-            {plan.badge}
-          </Badge>
-        </div>
-      )}
-      {isAnnual && plan.highlighted && (
-        <div className="absolute -top-3.5 right-4">
-          <Badge className="bg-warning text-warning-foreground px-3 py-1 text-xs font-bold shadow-md">
-            Mejor valor
-          </Badge>
-        </div>
-      )}
-      {isCurrentPlan && (
-        <div className="absolute -top-3.5 right-4">
-          <Badge className="bg-primary text-primary-foreground px-3 py-1 text-xs font-bold">
-            Tu plan actual
-          </Badge>
-        </div>
-      )}
-
-      <div className="p-6 pb-4 flex flex-col">
-        <h3 className="text-lg font-bold text-foreground">{plan.name}</h3>
-        <p className="text-sm text-muted-foreground mt-1">{plan.description}</p>
-
-        <div className="mt-5">
-          <span className={cn(
-            'font-bold text-foreground transition-all duration-300',
-            plan.highlighted ? 'text-4xl' : 'text-3xl'
-          )}>
-            {displayPrice}
-          </span>
-          <span className="text-muted-foreground ml-1.5 text-sm">{displayPeriod}</span>
-        </div>
-
-        {/* Annual sub-info */}
-        {!isFree && isAnnual && (
-          <div className="mt-2 space-y-1 animate-fade-in">
-            <p className="text-xs text-muted-foreground">
-              Equivale a {formatCOP(annualMonthly)} COP/mes facturado anualmente
-            </p>
-            <Badge variant="secondary" className="text-xs bg-success/10 text-success border-success/20">
-              🔥 Ahorras {formatCOP(annualSavings)} al año
-            </Badge>
-          </div>
-        )}
-      </div>
-
-      <div className="px-6 pb-6 flex-1 flex flex-col">
-        <ul className="space-y-2.5 flex-1">
-          {plan.features.map((feature, i) => (
-            <li key={i} className="flex items-start gap-2.5">
-              <Check className={cn(
-                'w-4 h-4 flex-shrink-0 mt-0.5',
-                plan.highlighted ? 'text-success' : 'text-muted-foreground'
-              )} />
-              <span className="text-sm text-muted-foreground leading-tight">{feature}</span>
-            </li>
-          ))}
-        </ul>
-
-        {plan.note && (
-          <p className="text-xs text-muted-foreground mt-4 italic border-t border-border pt-3">
-            💡 {plan.note}
-          </p>
-        )}
-
-        <div className="mt-6">
-          <Button
-            className={cn(
-              'w-full transition-all duration-300',
-              plan.highlighted && 'bg-success hover:bg-success/90 text-success-foreground h-12 text-base font-bold shadow-md'
-            )}
-            size={plan.highlighted ? 'lg' : 'default'}
-            variant={plan.highlighted ? 'default' : plan.id === 'demo' ? 'outline' : 'secondary'}
-            disabled={!!isCurrentPlan || isLoading}
-            onClick={() => onAction(plan.ctaAction)}
+        <div
+          style={{
+            position: 'absolute',
+            top: -13,
+            left: '50%',
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              background: BRAND,
+              color: '#fff',
+              padding: '5px 12px',
+              borderRadius: 99,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.4px',
+              textTransform: 'uppercase',
+              boxShadow: '0 4px 12px oklch(0.43 0.14 155 / 0.25)',
+            }}
           >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Redirigiendo...
-              </>
-            ) : isCurrentPlan ? (
-              'Plan actual'
-            ) : (
-              <>
-                {plan.cta}
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </>
-            )}
-          </Button>
+            <Sparkles style={{ width: 11, height: 11 }} />
+            {plan.badge}
+          </span>
         </div>
+      )}
+
+      {isAnnual && highlighted && (
+        <div style={{ position: 'absolute', top: -13, right: 16 }}>
+          <span
+            style={{
+              background: 'oklch(0.70 0.17 70)',
+              color: '#fff',
+              padding: '4px 10px',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.4px',
+              textTransform: 'uppercase',
+            }}
+          >
+            Mejor valor
+          </span>
+        </div>
+      )}
+
+      {isCurrentPlan && !plan.badge && (
+        <div style={{ position: 'absolute', top: -13, right: 16 }}>
+          <span
+            style={{
+              background: INK,
+              color: '#fff',
+              padding: '4px 10px',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.4px',
+              textTransform: 'uppercase',
+            }}
+          >
+            Tu plan actual
+          </span>
+        </div>
+      )}
+
+      <h3
+        style={{
+          fontSize: 17,
+          fontWeight: 700,
+          color: INK,
+          margin: 0,
+          letterSpacing: '-0.3px',
+        }}
+      >
+        {plan.name}
+      </h3>
+      <p style={{ fontSize: 13, color: INK2, margin: '6px 0 0 0', lineHeight: 1.4 }}>
+        {plan.description}
+      </p>
+
+      <div style={{ marginTop: 20, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span
+          style={{
+            fontSize: highlighted ? 42 : 36,
+            fontWeight: 700,
+            color: INK,
+            letterSpacing: '-1.5px',
+            lineHeight: 1,
+          }}
+        >
+          {displayPrice}
+        </span>
+        <span style={{ fontSize: 13, color: INK3, fontWeight: 500 }}>{displayPeriod}</span>
       </div>
+
+      {!isFree && isAnnual && (
+        <div style={{ marginTop: 10 }}>
+          <p style={{ fontSize: 11, color: INK3, margin: 0 }}>
+            Equivale a {formatCOP(annualMonthly)} COP/mes facturado anualmente
+          </p>
+          <span
+            style={{
+              display: 'inline-block',
+              marginTop: 6,
+              fontSize: 11,
+              fontWeight: 600,
+              color: BRAND,
+              background: BRAND_FAINT,
+              padding: '3px 8px',
+              borderRadius: 99,
+              border: `1px solid oklch(0.43 0.14 155 / 0.20)`,
+            }}
+          >
+            Ahorras {formatCOP(annualSavings)} al año
+          </span>
+        </div>
+      )}
+
+      <ul style={{ listStyle: 'none', padding: 0, margin: '24px 0 0 0', flex: 1 }}>
+        {plan.features.map((feature, i) => (
+          <li
+            key={i}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 10,
+              marginBottom: 10,
+              fontSize: 13,
+              color: INK2,
+              lineHeight: 1.5,
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 18,
+                height: 18,
+                borderRadius: 99,
+                background: highlighted ? BRAND_FAINT : 'rgba(0,0,0,0.04)',
+                flexShrink: 0,
+                marginTop: 1,
+              }}
+            >
+              <Check
+                style={{
+                  width: 11,
+                  height: 11,
+                  color: highlighted ? BRAND : INK2,
+                  strokeWidth: 3,
+                }}
+              />
+            </span>
+            <span>{feature}</span>
+          </li>
+        ))}
+      </ul>
+
+      {plan.note && (
+        <p
+          style={{
+            fontSize: 11,
+            color: INK3,
+            fontStyle: 'italic',
+            margin: '16px 0 0 0',
+            paddingTop: 12,
+            borderTop: '1px solid rgba(0,0,0,0.06)',
+            lineHeight: 1.5,
+          }}
+        >
+          {plan.note}
+        </p>
+      )}
+
+      <button
+        onClick={() => onAction(plan.ctaAction)}
+        disabled={!!isCurrentPlan || isLoading}
+        style={{
+          marginTop: 24,
+          width: '100%',
+          height: highlighted ? 46 : 42,
+          border: 'none',
+          borderRadius: 10,
+          cursor: isCurrentPlan || isLoading ? 'not-allowed' : 'pointer',
+          fontSize: highlighted ? 14 : 13,
+          fontWeight: 600,
+          letterSpacing: '-0.1px',
+          background: isCurrentPlan
+            ? 'rgba(0,0,0,0.06)'
+            : highlighted
+              ? BRAND
+              : plan.id === 'demo'
+                ? '#fff'
+                : '#f5f5f7',
+          color: isCurrentPlan
+            ? INK3
+            : highlighted
+              ? '#fff'
+              : INK,
+          boxShadow: highlighted && !isCurrentPlan
+            ? '0 4px 14px oklch(0.43 0.14 155 / 0.30)'
+            : 'none',
+          outline: plan.id === 'demo' && !highlighted ? '1.5px solid rgba(0,0,0,0.10)' : 'none',
+          outlineOffset: -1,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          transition: 'transform 0.15s, box-shadow 0.15s, background 0.15s',
+          opacity: isCurrentPlan ? 0.7 : 1,
+        }}
+        onMouseEnter={(e) => {
+          if (isCurrentPlan || isLoading) return;
+          e.currentTarget.style.transform = 'translateY(-1px)';
+          if (highlighted) {
+            e.currentTarget.style.boxShadow = '0 8px 20px oklch(0.43 0.14 155 / 0.40)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)';
+          if (highlighted && !isCurrentPlan) {
+            e.currentTarget.style.boxShadow = '0 4px 14px oklch(0.43 0.14 155 / 0.30)';
+          }
+        }}
+      >
+        {isLoading ? (
+          <>
+            <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" />
+            Redirigiendo...
+          </>
+        ) : isCurrentPlan ? (
+          'Plan actual'
+        ) : (
+          <>
+            {plan.cta}
+            <ArrowRight style={{ width: 14, height: 14 }} />
+          </>
+        )}
+      </button>
     </div>
   );
 }
