@@ -276,18 +276,43 @@ serve(async (req) => {
   }
 });
 
-function mapSiigoInvoice(inv: SiigoInvoice, kind: Kind, userId: string) {
+function mapSiigoInvoice(
+  inv: SiigoInvoice,
+  kind: Kind,
+  userId: string,
+  items: SiigoLine[],
+  resolvedCounterpartyName: string | null,
+) {
   const counterparty = kind === "venta" ? inv.customer : inv.supplier;
-  const counterpartyName = Array.isArray(counterparty?.name)
-    ? counterparty?.name.filter(Boolean).join(" ")
-    : counterparty?.name ?? null;
 
   const total = num(inv.total);
-  const ivaTax = (inv.taxes ?? []).find(
+
+  // Prefer header-level taxes when Siigo provides them; fall back to summing
+  // from items (Siigo's /v1/invoices returns taxes only inside items).
+  let ivaTax = (inv.taxes ?? []).find(
     (t) => /iva/i.test(t.name ?? "") || t.percentage === 19,
   );
-  const ivaAmount = num(ivaTax?.value);
-  const ivaRate = ivaTax?.percentage ? ivaTax.percentage / 100 : 0;
+  let ivaAmount = num(ivaTax?.value);
+  let ivaRate = ivaTax?.percentage ? ivaTax.percentage / 100 : 0;
+
+  if (ivaAmount === 0 && items.length > 0) {
+    let sumIva = 0;
+    let ratePick = 0;
+    for (const line of items) {
+      const lineIva = (line.taxes ?? []).find(
+        (t) => /iva/i.test(t.name ?? "") || t.percentage === 19,
+      );
+      if (lineIva) {
+        sumIva += num(lineIva.value);
+        if (ratePick === 0 && lineIva.percentage) ratePick = lineIva.percentage / 100;
+      }
+    }
+    if (sumIva > 0) {
+      ivaAmount = sumIva;
+      ivaRate = ratePick;
+    }
+  }
+
   const subtotal = Math.max(total - ivaAmount, 0);
 
   const prefix = inv.document?.code ?? null;
@@ -306,7 +331,7 @@ function mapSiigoInvoice(inv: SiigoInvoice, kind: Kind, userId: string) {
     number_int: number,
     issue_date: inv.date ?? today(),
     due_date: inv.due_date ?? null,
-    counterparty_name: counterpartyName,
+    counterparty_name: resolvedCounterpartyName,
     counterparty_nit: counterparty?.identification ?? null,
     subtotal_base: subtotal,
     iva_rate: ivaRate,
