@@ -49,8 +49,8 @@ const AGENTS: AgentDef[] = [
   },
   {
     key: 'visita_dian',
-    label: 'Visita DIAN',
-    short: 'Visita DIAN',
+    label: 'Ojo, viene la DIAN',
+    short: 'Ojo, viene la DIAN',
     tagline: 'Score de salud fiscal e inconsistencias.',
     icon: <ShieldAlert className="w-4 h-4" />,
     suggestions: [

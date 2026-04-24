@@ -13,8 +13,8 @@ type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp';
 const REPORT_TITLES: Record<ReportTab, string> = {
   pyg: 'Estado de Resultados',
   anticipos: 'Anticipos',
-  cxc: 'Cuentas por Cobrar',
-  cxp: 'Cuentas por Pagar',
+  cxc: 'Lo que me deben',
+  cxp: 'Lo que debo',
 };
 
 interface Props {

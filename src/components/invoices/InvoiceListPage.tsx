@@ -504,7 +504,7 @@ export default function InvoiceListPage({ type }: Props) {
               title={`Importar ${type === 'venta' ? 'facturas de venta' : 'facturas de compra'} desde Siigo`}
             >
               {siigoSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
-              Sincronizar Siigo
+              Traer de Siigo
             </Button>
             <Button onClick={handleOpenUpload} className="gap-2">
               <Upload className="h-4 w-4" />

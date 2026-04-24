@@ -175,7 +175,7 @@ export function CxCCard({ totalCxC, cxcCount, year }: { totalCxC: number; cxcCou
   return (
     <Card className="border-0 shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">Cuentas por Cobrar</CardTitle>
+        <CardTitle className="text-sm font-medium text-muted-foreground">Lo que me deben</CardTitle>
         <div className="w-8 h-8 rounded-xl bg-destructive/10 flex items-center justify-center">
           <Receipt className="h-4 w-4 text-destructive" />
         </div>

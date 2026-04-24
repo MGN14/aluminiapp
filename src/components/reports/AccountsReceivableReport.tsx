@@ -416,7 +416,7 @@ export default function AccountsReceivableReport() {
           <CardHeader className="pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-2">
-                <CardTitle className="text-lg">Cuentas por Cobrar</CardTitle>
+                <CardTitle className="text-lg">Lo que me deben</CardTitle>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Info className="h-4 w-4 text-muted-foreground cursor-help" />
@@ -443,7 +443,7 @@ export default function AccountsReceivableReport() {
         {/* KPI */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Cuentas por Cobrar</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total de lo que me deben</CardTitle>
             <div className="p-2 rounded-lg bg-destructive/10">
               <Receipt className="h-4 w-4 text-destructive" />
             </div>

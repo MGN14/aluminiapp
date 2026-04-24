@@ -413,7 +413,7 @@ export default function Transactions() {
               <CategoryManagement onUpdate={() => { fetchCategories(); }} />
             </div>
             <div className="flex items-center gap-1 text-muted-foreground">
-              <span>Beneficiarios:</span>
+              <span>A quién le pagas:</span>
               <ResponsibleManagement onUpdate={() => { fetchResponsibles(); }} />
             </div>
           </div>

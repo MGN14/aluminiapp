@@ -227,7 +227,7 @@ export default function SiigoConnectionCard() {
                   ) : (
                     <RefreshCw className="h-4 w-4 mr-2" />
                   )}
-                  Sincronizar facturas
+                  Traer facturas de Siigo
                 </Button>
               )}
 

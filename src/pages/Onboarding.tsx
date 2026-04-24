@@ -424,7 +424,7 @@ export default function Onboarding() {
               maxLength={6}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Lo encontrás en tu RUT (casilla 46)
+              Mira tu RUT, casilla 46
             </p>
           </Field>
         </div>

@@ -58,7 +58,7 @@ export const plans: PlanData[] = [
       'Módulo de Facturas DIAN',
       'Conciliación real por número de factura',
       'IVA, ReteICA y ReteFuente desde facturación',
-      'Resumen DIAN mensual',
+      'Las cuentas con la DIAN cada mes',
       'Historial ilimitado',
       'Reportes avanzados con IA',
       'Coach financiero con IA',

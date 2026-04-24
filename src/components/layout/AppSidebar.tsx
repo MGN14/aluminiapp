@@ -74,9 +74,9 @@ const movementItemsGerencial: NavItem[] = [];
 const reportItems: NavItem[] = [
   { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3, hasGerencialVariant: true },
   { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt },
-  { title: 'Cuentas por cobrar', url: '/reportes/cuentas-por-cobrar', icon: Users },
-  { title: 'Cuentas por pagar', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
-  { title: 'Visita DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
+  { title: 'Lo que me deben', url: '/reportes/cuentas-por-cobrar', icon: Users },
+  { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
+  { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 
 const reportItemsGerencial: NavItem[] = [];

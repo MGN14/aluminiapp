@@ -141,8 +141,8 @@ export default function DIANSummary({ invoices }: Props) {
       <Card>
         <CardContent className="py-12 text-center text-muted-foreground">
           <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p className="font-medium">Sin datos para el resumen DIAN</p>
-          <p className="text-sm mt-1">Confirma al menos una factura para ver el resumen fiscal.</p>
+          <p className="font-medium">Todavía no hay con qué rendirle cuentas a la DIAN</p>
+          <p className="text-sm mt-1">Confirma al menos una factura para ver las cuentas.</p>
         </CardContent>
       </Card>
     );

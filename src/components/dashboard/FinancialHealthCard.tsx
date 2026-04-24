@@ -17,7 +17,7 @@ const ACTION_MESSAGES: Record<ScoreVariableKey, string> = {
   conciliacion: 'Asigná responsable o factura a los movimientos bancarios sin soporte.',
   facturacion: 'Emití facturas DIAN de los ingresos que todavía no están respaldados.',
   impuestos: 'Revisá descuadres entre inventario Siigo y el conteo físico.',
-  cartera: 'Cobrá las cuentas por cobrar o asociá facturas a los anticipos pendientes.',
+  cartera: 'Cobrá lo que te deben o asociá facturas a los anticipos pendientes.',
   clasificacion: 'Completá categoría y responsable en las transacciones pendientes.',
 };
 
@@ -106,7 +106,7 @@ export default function FinancialHealthCard({ year, month }: Props) {
             </div>
 
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-muted-foreground">Visita DIAN</p>
+              <p className="text-xs font-medium text-muted-foreground">Ojo, viene la DIAN</p>
               <p className={`text-sm font-semibold ${interp.color}`}>{interp.level}</p>
             </div>
           </div>

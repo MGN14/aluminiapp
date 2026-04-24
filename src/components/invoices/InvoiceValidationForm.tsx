@@ -267,7 +267,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           <div>
             <Label>$ Retefuente cliente</Label>
             <Input type="number" value={form.retefuente_cliente_amount} readOnly className="bg-muted" />
-            <p className="text-xs text-muted-foreground mt-1">Se descuenta de Cuentas por Cobrar</p>
+            <p className="text-xs text-muted-foreground mt-1">Se descuenta de lo que me deben</p>
           </div>
         </div>
       )}

@@ -207,7 +207,7 @@ export default function AccountsPayableReport() {
           <CardHeader className="pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-2">
-                <CardTitle className="text-lg">Cuentas por Pagar</CardTitle>
+                <CardTitle className="text-lg">Lo que debo</CardTitle>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Info className="h-4 w-4 text-muted-foreground cursor-help" />
@@ -278,7 +278,7 @@ export default function AccountsPayableReport() {
         {(data?.payables?.length ?? 0) > 0 && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Distribución por Antigüedad</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Por lo que llevan sin pagar</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="h-[220px]">
@@ -343,7 +343,7 @@ export default function AccountsPayableReport() {
                     <TableHead className="font-semibold text-right">Pagado</TableHead>
                     <TableHead className="font-semibold text-right">Pendiente</TableHead>
                     <TableHead className="font-semibold text-center">Días</TableHead>
-                    <TableHead className="font-semibold text-center">Antigüedad</TableHead>
+                    <TableHead className="font-semibold text-center">Lleva sin pagar</TableHead>
                     <TableHead className="font-semibold text-center">Estado</TableHead>
                   </TableRow>
                 </TableHeader>

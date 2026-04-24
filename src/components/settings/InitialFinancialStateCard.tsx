@@ -56,10 +56,10 @@ const DEFAULT_FORM: InitialStateFormData = {
 type DetailFieldType = InitialStateDetail['field_type'];
 
 const FIELD_TYPE_LABELS: Record<DetailFieldType, string> = {
-  cuentas_por_cobrar: 'Cuentas por cobrar',
+  cuentas_por_cobrar: 'Lo que me deben',
   anticipos_a_proveedores: 'Anticipos a proveedores',
   anticipos_de_clientes: 'Anticipos de clientes',
-  cuentas_por_pagar: 'Cuentas por pagar',
+  cuentas_por_pagar: 'Lo que debo',
 };
 
 interface Responsible {
@@ -376,7 +376,7 @@ export default function InitialFinancialStateCard() {
             </div>
             <Separator className="my-2" />
             <DetailSection
-              fieldType="cuentas_por_cobrar" label="Cuentas por cobrar (por tercero)"
+              fieldType="cuentas_por_cobrar" label="Lo que me deben (por tercero)"
               items={getItemsForType('cuentas_por_cobrar')}
               globalDetails={details}
               onAdd={() => addDetail('cuentas_por_cobrar')}
@@ -401,7 +401,7 @@ export default function InitialFinancialStateCard() {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <CreditCard className="h-4 w-4 text-red-500" />
-              <h3 className="font-medium text-sm">Pasivos</h3>
+              <h3 className="font-medium text-sm">Deudas</h3>
               <span className="ml-auto text-sm font-semibold text-red-600">{formatCurrency(totalPasivos)}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -410,7 +410,7 @@ export default function InitialFinancialStateCard() {
             </div>
             <Separator className="my-2" />
             <DetailSection
-              fieldType="cuentas_por_pagar" label="Cuentas por pagar (por tercero)"
+              fieldType="cuentas_por_pagar" label="Lo que debo (por tercero)"
               items={getItemsForType('cuentas_por_pagar')}
               globalDetails={details}
               onAdd={() => addDetail('cuentas_por_pagar')}
@@ -455,12 +455,12 @@ export default function InitialFinancialStateCard() {
               <span className="font-semibold text-emerald-600">{formatCurrency(totalActivos)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span>Total Pasivos</span>
+              <span>Total Deudas</span>
               <span className="font-semibold text-red-600">{formatCurrency(totalPasivos)}</span>
             </div>
             <Separator />
             <div className="flex justify-between text-sm font-medium">
-              <span>Patrimonio (Activos − Pasivos)</span>
+              <span>Lo que es tuyo de verdad (Activos − Deudas)</span>
               <span className={patrimonio >= 0 ? 'text-emerald-600' : 'text-red-600'}>{formatCurrency(patrimonio)}</span>
             </div>
             {isBalanced && (

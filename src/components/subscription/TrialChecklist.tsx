@@ -8,7 +8,7 @@ const checklistItems: { key: keyof ChecklistType; label: string; icon: React.Com
   { key: 'statement_uploaded', label: 'Subir un extracto bancario', icon: Upload, link: '/statement-upload' },
   { key: 'invoice_uploaded', label: 'Subir una factura', icon: FileText, link: '/invoices' },
   { key: 'invoice_matched', label: 'Asociar factura a movimiento', icon: Link2, link: '/transactions' },
-  { key: 'dian_reviewed', label: 'Revisar Resumen DIAN', icon: BarChart3, link: '/dashboard' },
+  { key: 'dian_reviewed', label: 'Revisar las cuentas con la DIAN', icon: BarChart3, link: '/dashboard' },
 ];
 
 export default function TrialChecklist() {

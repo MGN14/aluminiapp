@@ -86,7 +86,7 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Administrar Beneficiarios</DialogTitle>
+          <DialogTitle>A quién le pagas</DialogTitle>
         </DialogHeader>
         
         <div className="space-y-4">

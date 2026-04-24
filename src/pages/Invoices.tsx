@@ -236,7 +236,7 @@ export default function Invoices() {
           <TabsList>
             <TabsTrigger value="ventas">Ventas</TabsTrigger>
             <TabsTrigger value="compras">Compras</TabsTrigger>
-            <TabsTrigger value="resumen">Resumen DIAN</TabsTrigger>
+            <TabsTrigger value="resumen">Las cuentas con la DIAN</TabsTrigger>
           </TabsList>
 
           <TabsContent value="ventas" className="space-y-4" forceMount={activeTab === 'ventas' ? undefined : true} hidden={activeTab !== 'ventas'}>

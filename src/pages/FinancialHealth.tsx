@@ -95,7 +95,7 @@ function getRiskLevel(score: number): { label: string; color: string } {
 function getNicoMessage(score: number): { line1: string; line2: string; line3: string } {
   if (score >= 90) return {
     line1: 'Todo en orden. Tu negocio está preparado.',
-    line2: 'Si la DIAN revisa hoy, no tendrías problemas.',
+    line2: 'Si hoy se le aparece la DIAN, no tendrías problemas.',
     line3: 'Sigue así y mantén tu disciplina financiera.',
   };
   if (score >= 80) return {
@@ -105,7 +105,7 @@ function getNicoMessage(score: number): { line1: string; line2: string; line3: s
   };
   if (score >= 50) return {
     line1: 'Tienes desorden en varias áreas clave.',
-    line2: 'Si la DIAN revisa hoy, podrías tener inconsistencias.',
+    line2: 'Si hoy se le aparece la DIAN, podrías tener inconsistencias.',
     line3: 'Aún estás a tiempo de corregirlo.',
   };
   return {

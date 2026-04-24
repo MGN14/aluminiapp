@@ -74,11 +74,11 @@ function getEstado(dias: number, completada: boolean): 'completada' | 'vencida' 
 }
 
 const ESTADO_CONFIG = {
-  completada: { label: 'Completada', color: 'bg-green-100 text-green-700', icon: CheckCircle, iconColor: 'text-green-500' },
-  vencida: { label: 'Vencida', color: 'bg-red-100 text-red-700', icon: AlertTriangle, iconColor: 'text-red-500' },
-  urgente: { label: 'Urgente', color: 'bg-orange-100 text-orange-700', icon: AlertTriangle, iconColor: 'text-orange-500' },
-  proxima: { label: 'Próxima', color: 'bg-yellow-100 text-yellow-700', icon: Clock, iconColor: 'text-yellow-500' },
-  ok: { label: 'A tiempo', color: 'bg-muted text-muted-foreground', icon: Calendar, iconColor: 'text-muted-foreground' },
+  completada: { label: 'Listo, cumpliste', color: 'bg-green-100 text-green-700', icon: CheckCircle, iconColor: 'text-green-500' },
+  vencida: { label: '¡Vencida!', color: 'bg-red-100 text-red-700', icon: AlertTriangle, iconColor: 'text-red-500' },
+  urgente: { label: '¡Apriétese los pantalones!', color: 'bg-orange-100 text-orange-700', icon: AlertTriangle, iconColor: 'text-orange-500' },
+  proxima: { label: 'Ya casi', color: 'bg-yellow-100 text-yellow-700', icon: Clock, iconColor: 'text-yellow-500' },
+  ok: { label: 'Tranquilo, hay chance', color: 'bg-muted text-muted-foreground', icon: Calendar, iconColor: 'text-muted-foreground' },
 };
 
 const TIPO_LABELS = {

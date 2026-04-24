@@ -33,7 +33,7 @@ function getRiskLevel(score: number): { label: string; color: string } {
 
 function getNicoMessage(score: number): { line1: string; line2: string } {
   if (score >= 90) return {
-    line1: 'Todo en orden. Si la DIAN revisa hoy, no tendrías problemas.',
+    line1: 'Todo en orden. Si hoy se le aparece la DIAN, no tendrías problemas.',
     line2: 'Sigue así y mantén tu disciplina financiera.',
   };
   if (score >= 80) return {
@@ -159,7 +159,7 @@ export default function VisitaDIAN() {
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold">Visita DIAN</h1>
+                <h1 className="text-2xl font-bold">Ojo, viene la DIAN</h1>
                 {isGerencial && (
                   <span
                     className="inline-flex items-center gap-1 rounded-full bg-[oklch(0.43_0.14_155)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"

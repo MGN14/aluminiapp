@@ -128,7 +128,7 @@ export default function Inventory() {
               className="gap-2 rounded-xl border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
             >
               {siigoSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Sincronizar Siigo
+              Traer de Siigo
             </Button>
             <Button variant="outline" onClick={() => setShowBulk(true)} size="sm" className="gap-2 rounded-xl">
               <Upload className="h-4 w-4" />
