@@ -21,6 +21,7 @@ import {
   Banknote,
   ClipboardList,
   Zap,
+  Wallet,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -76,6 +77,7 @@ const reportItems: NavItem[] = [
   { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt },
   { title: 'Lo que me deben', url: '/reportes/cuentas-por-cobrar', icon: Users },
   { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
+  { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet },
   { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 

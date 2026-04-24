@@ -125,6 +125,10 @@ const App = () => (
                 path="/reportes/cuentas-por-pagar"
                 element={<ProtectedRoute><Reports tab="cxp" /></ProtectedRoute>}
               />
+              <Route
+                path="/reportes/flujo-caja"
+                element={<ProtectedRoute><Reports tab="caja" /></ProtectedRoute>}
+              />
               {/* Legacy redirect */}
               <Route
                 path="/reports"

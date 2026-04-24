@@ -3,11 +3,12 @@ import PYGReport from '@/components/reports/PYGReport';
 import AdvancesReport from '@/components/reports/AdvancesReport';
 import AccountsReceivableReport from '@/components/reports/AccountsReceivableReport';
 import AccountsPayableReport from '@/components/reports/AccountsPayableReport';
+import CashFlowReport from '@/components/reports/CashFlowReport';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Loader2, Crown, TrendingUp, ArrowDownUp, HandCoins, ReceiptText } from 'lucide-react';
+import { Lock, Loader2, Crown, TrendingUp, ArrowDownUp, HandCoins, ReceiptText, Wallet } from 'lucide-react';
 
-type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp';
+type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp' | 'caja';
 
 const BRAND = 'oklch(0.43 0.14 155)';
 const INK = '#1d1d1f';
@@ -53,6 +54,14 @@ const TABS: Record<ReportTab, {
     color: 'oklch(0.55 0.15 240)',
     bg: 'linear-gradient(135deg, oklch(0.55 0.15 240 / 0.18), oklch(0.65 0.12 220 / 0.06))',
     border: '1px solid oklch(0.55 0.15 240 / 0.22)',
+  },
+  caja: {
+    title: 'Flujo de caja',
+    hint: 'Cuánta plata entra, sale y queda en caja mes a mes.',
+    icon: Wallet,
+    color: 'oklch(0.55 0.16 150)',
+    bg: 'linear-gradient(135deg, oklch(0.55 0.16 150 / 0.18), oklch(0.65 0.13 160 / 0.06))',
+    border: '1px solid oklch(0.55 0.16 150 / 0.22)',
   },
 };
 
@@ -189,6 +198,7 @@ export default function Reports({ tab = 'pyg' }: Props) {
         {tab === 'anticipos' && <AdvancesReport />}
         {tab === 'cxc' && <AccountsReceivableReport />}
         {tab === 'cxp' && <AccountsPayableReport />}
+        {tab === 'caja' && <CashFlowReport />}
       </div>
     </AppLayout>
   );
