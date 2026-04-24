@@ -94,39 +94,14 @@ export default function Step06Actividad({ state, update }: StepProps) {
         ))}
       </div>
 
-      {/* CIIU code */}
+      {/* Nivel ingresos — opcional. Va ANTES que el CIIU a propósito:
+          el popover del CIIU (hasta ~400px) se expandiría sobre estas
+          tarjetas y volvería imposible seleccionar una. Con este orden,
+          el dropdown del CIIU se abre al final y no tapa nada. */}
       <div
         style={{
           marginBottom: 24,
           animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.22s both',
-          opacity: 0,
-        }}
-      >
-        <label
-          style={{
-            display: 'block',
-            fontSize: 13,
-            fontWeight: 500,
-            color: INK,
-            marginBottom: 6,
-          }}
-        >
-          Código CIIU
-        </label>
-        <CIIUCombobox
-          value={state.codigoCiiu}
-          onChange={(code) => update('codigoCiiu', code)}
-          actividad={state.actividadPrincipal}
-        />
-        <p style={{ fontSize: 11.5, color: INK2, marginTop: 6, lineHeight: 1.5 }}>
-          Lo encuentras en el RUT casilla 46. Si no lo sabes, busca por palabra (ej: "panadería").
-        </p>
-      </div>
-
-      {/* Nivel ingresos — opcional */}
-      <div
-        style={{
-          animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.28s both',
           opacity: 0,
         }}
       >
@@ -166,6 +141,34 @@ export default function Step06Actividad({ state, update }: StepProps) {
             description="≈ más de $4.300M COP (2024)"
           />
         </div>
+      </div>
+
+      {/* CIIU code — va al final porque su dropdown es pesado. */}
+      <div
+        style={{
+          animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.28s both',
+          opacity: 0,
+        }}
+      >
+        <label
+          style={{
+            display: 'block',
+            fontSize: 13,
+            fontWeight: 500,
+            color: INK,
+            marginBottom: 6,
+          }}
+        >
+          Código CIIU
+        </label>
+        <CIIUCombobox
+          value={state.codigoCiiu}
+          onChange={(code) => update('codigoCiiu', code)}
+          actividad={state.actividadPrincipal}
+        />
+        <p style={{ fontSize: 11.5, color: INK2, marginTop: 6, lineHeight: 1.5 }}>
+          Lo encuentras en el RUT casilla 46. Si no lo sabes, busca por palabra (ej: "panadería").
+        </p>
       </div>
     </div>
   );
