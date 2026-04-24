@@ -112,9 +112,12 @@ export default function AccountsPayableReport() {
       const today = new Date();
       const payables: InvoiceWithAging[] = invoices.map(inv => {
         const diasCredito = (inv as any).dias_credito ?? 0;
-        // "Contado" (dias_credito=0): paid at issue date by definition. Don't
-        // count as accounts payable even if no transaction was registered yet.
-        const isContado = diasCredito === 0;
+        const dueDateRaw = (inv as any).due_date as string | null;
+        // Only treat as "contado" when dias_credito=0 AND there's no due_date
+        // beyond issue_date. Siigo-synced invoices leave dias_credito=0 by default
+        // but carry a real due_date, so those should remain as accounts payable.
+        const hasCreditDueDate = !!dueDateRaw && dueDateRaw > inv.issue_date;
+        const isContado = diasCredito === 0 && !hasCreditDueDate;
         const rawPaid = paymentsByInvoice.get(inv.id) || 0;
         const paid = isContado ? inv.total_amount : rawPaid;
         const pending = Math.max(0, inv.total_amount - paid);

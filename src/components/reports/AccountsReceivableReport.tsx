@@ -100,7 +100,7 @@ export default function AccountsReceivableReport() {
       const [invoicesRes, initialDetailsRes] = await Promise.all([
         supabase
           .from('invoices')
-          .select('id, invoice_number, counterparty_name, issue_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito')
+          .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito')
           .eq('user_id', user.id)
           .eq('type', 'venta')
           .gte('issue_date', startDate)
@@ -269,9 +269,12 @@ export default function AccountsReceivableReport() {
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
         const diasCredito = (inv as any).dias_credito ?? 0;
-        // "Contado" (dias_credito=0): paid at issue date by definition. Don't
-        // count as accounts receivable even if no transaction was registered yet.
-        const isContado = diasCredito === 0;
+        const dueDate = (inv as any).due_date as string | null;
+        // Only treat as "contado" when dias_credito=0 AND there's no due_date
+        // beyond issue_date. Siigo-synced invoices leave dias_credito=0 by default
+        // but carry a real due_date, so we must not mark those as paid-at-issue.
+        const hasCreditDueDate = !!dueDate && dueDate > inv.issue_date;
+        const isContado = diasCredito === 0 && !hasCreditDueDate;
         const rawPaid = paymentsByInvoice.get(inv.id) || 0;
         const paid = isContado ? inv.total_amount : rawPaid;
         // Use the saved retefuente values from the invoice module directly
