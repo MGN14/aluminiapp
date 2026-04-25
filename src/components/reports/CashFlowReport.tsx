@@ -1,17 +1,20 @@
-// Flujo de caja "lite". Toma los registros de `cash_movements` (ingresos/egresos
-// manuales del modo gerencial) y los agrupa mes a mes para mostrar:
-//   - Cards: ingresos, egresos, saldo neto del periodo
-//   - Tabla mensual: saldo inicial → ingresos → egresos → saldo final
-//   - Area chart con saldo acumulado mes a mes
+// Flujo de caja por módulo.
 //
-// Es deliberadamente "lite": NO mezcla con transactions ni con facturas pagadas.
-// Si la mezcla más adelante (cuando tengamos un libro de banco real), este
-// reporte será el lugar natural para hacerlo.
+// **DIAN**: extractos bancarios (transactions) + facturas confirmadas (panel
+//           informativo de CxC/CxP, NO se suman al flujo para evitar doble
+//           conteo — un factura cobrada por banco ya aparece como ingreso
+//           en transactions).
+// **Gerencial**: lo mismo + movimientos en efectivo (cash_movements).
+//
+// El bug previo: pulsaba `cash_movements` siempre, así que en DIAN se filtraba
+// data del módulo gerencial. Ahora `cash_movements` solo se carga si
+// `isGerencial`.
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useModuleContext } from '@/hooks/useModuleContext';
 import {
   AreaChart,
   Area,
@@ -21,7 +24,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { Loader2, TrendingUp, TrendingDown, Wallet, Info } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown, Wallet, Info, FileText, Receipt } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -56,11 +59,11 @@ function formatCurrencyShort(v: number): string {
   return `$${v.toFixed(0)}`;
 }
 
-interface CashMovementRow {
+interface FlowRow {
   date: string;
-  type: string;
+  type: string;        // 'ingreso' | 'egreso'
   amount: number;
-  category: string | null;
+  source: 'extracto' | 'efectivo';
 }
 
 interface MonthAgg {
@@ -75,21 +78,93 @@ interface MonthAgg {
   saldoFinal: number;
 }
 
-function useCashFlowData(userId: string | undefined, year: number) {
+// Trae transactions (extractos bancarios) — siempre, ambos módulos.
+// Solo nos importan las que tienen type='ingreso' o 'egreso' y un amount > 0.
+function useBankFlow(userId: string | undefined, year: number) {
   return useQuery({
-    queryKey: ['cash-flow-report', userId, year],
+    queryKey: ['cash-flow-bank', userId, year],
     queryFn: async () => {
-      if (!userId) return null;
-      // Pedimos también el año anterior para poder "arrancar" el saldo inicial
-      // del año actual con lo acumulado histórico.
+      if (!userId) return [] as FlowRow[];
+      // Pedimos hasta el final del año actual y todo lo previo, para arrancar
+      // con saldo inicial acumulado.
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('date, type, amount')
+        .eq('user_id', userId)
+        .is('deleted_at', null)
+        .lte('date', `${year}-12-31`)
+        .in('type', ['ingreso', 'egreso']);
+      if (error) throw error;
+      return (data ?? [])
+        .filter(r => r.amount != null && Number(r.amount) !== 0)
+        .map((r): FlowRow => ({
+          date: r.date,
+          type: r.type as string,
+          // En transactions, amount puede venir negativo para egresos según
+          // import; absolutizamos y confiamos en `type` para el signo.
+          amount: Math.abs(Number(r.amount)),
+          source: 'extracto',
+        }));
+    },
+    enabled: !!userId,
+  });
+}
+
+// Trae cash_movements — SOLO en gerencial. En DIAN devolvemos array vacío
+// sin pegarle a la base (esto es lo que arregla el leak).
+function useCashFlow(userId: string | undefined, year: number, isGerencial: boolean) {
+  return useQuery({
+    queryKey: ['cash-flow-cash', userId, year, isGerencial],
+    queryFn: async () => {
+      if (!userId || !isGerencial) return [] as FlowRow[];
       const { data, error } = await supabase
         .from('cash_movements')
-        .select('date, type, amount, category')
+        .select('date, type, amount')
         .eq('user_id', userId)
-        .lte('date', `${year}-12-31`)
-        .order('date', { ascending: true });
+        .lte('date', `${year}-12-31`);
       if (error) throw error;
-      return (data ?? []) as CashMovementRow[];
+      return (data ?? []).map((r): FlowRow => ({
+        date: r.date,
+        type: r.type as string,
+        amount: Number(r.amount),
+        source: 'efectivo',
+      }));
+    },
+    enabled: !!userId,
+  });
+}
+
+// Facturas del año — panel informativo (CxC y CxP).
+// No se suman al flujo de caja para evitar doble conteo: una factura cobrada
+// por banco ya aparece en transactions como ingreso.
+interface InvoiceSummary {
+  type: 'venta' | 'compra';
+  total: number;
+}
+
+function useInvoiceSummary(userId: string | undefined, year: number) {
+  return useQuery({
+    queryKey: ['cash-flow-invoices', userId, year],
+    queryFn: async () => {
+      if (!userId) return [] as InvoiceSummary[];
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('type, total_amount, issue_date, status')
+        .eq('user_id', userId)
+        .eq('status', 'confirmed')
+        .gte('issue_date', `${year}-01-01`)
+        .lte('issue_date', `${year}-12-31`);
+      if (error) throw error;
+      const byType = new Map<string, number>();
+      for (const inv of (data ?? [])) {
+        const t = inv.type as string;
+        if (t !== 'venta' && t !== 'compra') continue;
+        byType.set(t, (byType.get(t) ?? 0) + Number(inv.total_amount));
+      }
+      return Array.from(byType.entries()).map(([type, total]) => ({
+        type: type as 'venta' | 'compra',
+        total,
+      }));
     },
     enabled: !!userId,
   });
@@ -97,32 +172,40 @@ function useCashFlowData(userId: string | undefined, year: number) {
 
 export default function CashFlowReport() {
   const { user } = useAuth();
+  const { isGerencial, isDian } = useModuleContext();
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
 
-  const { data: rows, isLoading } = useCashFlowData(user?.id, year);
+  const { data: bankRows, isLoading: loadingBank } = useBankFlow(user?.id, year);
+  const { data: cashRows, isLoading: loadingCash } = useCashFlow(user?.id, year, isGerencial);
+  const { data: invoiceSummary, isLoading: loadingInvoices } = useInvoiceSummary(user?.id, year);
 
-  // Agrupa por (year, month) los movimientos del año actual y suma todo lo previo
-  // como saldo inicial del periodo.
+  const isLoading = loadingBank || loadingCash || loadingInvoices;
+
+  const allRows: FlowRow[] = useMemo(() => {
+    const rows = [...(bankRows ?? [])];
+    if (isGerencial) rows.push(...(cashRows ?? []));
+    return rows;
+  }, [bankRows, cashRows, isGerencial]);
+
+  // Agrupa por (year, month) y suma todo lo previo como saldo inicial.
   const aggregates = useMemo<{ months: MonthAgg[]; saldoArranqueAnio: number }>(() => {
-    if (!rows) return { months: [], saldoArranqueAnio: 0 };
-
     let saldoArranqueAnio = 0;
     const monthMap = new Map<number, { ingresos: number; egresos: number }>();
 
-    for (const r of rows) {
+    for (const r of allRows) {
       const d = new Date(r.date + 'T00:00:00');
       const ry = d.getFullYear();
       const rm = d.getMonth();
       const sign = r.type === 'ingreso' ? 1 : -1;
-      const amt = Number(r.amount) * sign;
+      const amt = r.amount * sign;
 
       if (ry < year) {
         saldoArranqueAnio += amt;
       } else if (ry === year) {
         const cur = monthMap.get(rm) ?? { ingresos: 0, egresos: 0 };
-        if (r.type === 'ingreso') cur.ingresos += Number(r.amount);
-        else cur.egresos += Number(r.amount);
+        if (r.type === 'ingreso') cur.ingresos += r.amount;
+        else cur.egresos += r.amount;
         monthMap.set(rm, cur);
       }
     }
@@ -148,7 +231,7 @@ export default function CashFlowReport() {
       saldoCorriente = saldoFinal;
     }
     return { months, saldoArranqueAnio };
-  }, [rows, year]);
+  }, [allRows, year]);
 
   // Totales del año
   const totals = useMemo(() => {
@@ -166,8 +249,6 @@ export default function CashFlowReport() {
     ? aggregates.months[aggregates.months.length - 1].saldoFinal
     : aggregates.saldoArranqueAnio;
 
-  // Sólo mostramos meses hasta el actual + algunos futuros si tienen movimientos.
-  // Para el chart, mostramos los 12 meses para que se vea la trayectoria completa.
   const chartData = aggregates.months.map((m) => ({
     name: m.label,
     saldo: m.saldoFinal,
@@ -176,7 +257,16 @@ export default function CashFlowReport() {
   }));
 
   const yearOptions = [currentYear, currentYear - 1, currentYear - 2];
-  const hasData = rows && rows.length > 0;
+  const hasData = allRows.length > 0;
+
+  // Facturas: ventas (CxC potencial) y compras (CxP potencial).
+  const ventasFact = invoiceSummary?.find(s => s.type === 'venta')?.total ?? 0;
+  const comprasFact = invoiceSummary?.find(s => s.type === 'compra')?.total ?? 0;
+
+  // Texto informativo según módulo
+  const sourceNote = isGerencial
+    ? 'Incluye extractos bancarios + facturas + movimientos en efectivo.'
+    : 'Incluye extractos bancarios y facturas confirmadas (vista DIAN).';
 
   if (isLoading) {
     return (
@@ -188,7 +278,7 @@ export default function CashFlowReport() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {/* Year selector + small note */}
+      {/* Year selector + module note */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 12, color: INK2, fontWeight: 500 }}>Año:</span>
@@ -214,7 +304,7 @@ export default function CashFlowReport() {
           borderRadius: 8,
         }}>
           <Info style={{ width: 13, height: 13 }} />
-          Basado en movimientos en efectivo registrados manualmente.
+          {sourceNote}
         </div>
       </div>
 
@@ -223,16 +313,18 @@ export default function CashFlowReport() {
           <CardContent style={{ padding: 40, textAlign: 'center' }}>
             <Wallet style={{ width: 36, height: 36, color: INK3, margin: '0 auto 12px' }} />
             <p style={{ fontSize: 14, color: INK2, margin: 0 }}>
-              Aún no hay movimientos en efectivo registrados para {year}.
+              Aún no hay movimientos para {year}.
             </p>
             <p style={{ fontSize: 12.5, color: INK3, margin: '6px 0 0 0' }}>
-              Registralos en <strong>Movimientos en efectivo</strong> para ver el flujo de caja aquí.
+              {isDian
+                ? 'Subí extractos bancarios o facturas para ver el flujo de caja aquí.'
+                : 'Subí extractos, facturas o registrá movimientos en efectivo.'}
             </p>
           </CardContent>
         </Card>
       ) : (
         <>
-          {/* KPI cards */}
+          {/* KPI cards de flujo de caja */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
             <KpiCard
               label="Saldo actual"
@@ -246,14 +338,14 @@ export default function CashFlowReport() {
               value={totals.ingresos}
               icon={TrendingUp}
               tone="success"
-              hint="Entradas de efectivo"
+              hint="Entradas de caja"
             />
             <KpiCard
               label={`Egresos ${year}`}
               value={totals.egresos}
               icon={TrendingDown}
               tone="danger"
-              hint="Salidas de efectivo"
+              hint="Salidas de caja"
             />
             <KpiCard
               label={`Flujo neto ${year}`}
@@ -263,6 +355,47 @@ export default function CashFlowReport() {
               hint={totals.neto >= 0 ? 'Generaste caja' : 'Consumiste caja'}
             />
           </div>
+
+          {/* Panel informativo de facturas (no se suma — referencia) */}
+          {(ventasFact > 0 || comprasFact > 0) && (
+            <Card className="border-0 shadow-sm" style={{ background: 'rgba(0,0,0,0.02)' }}>
+              <CardContent style={{ padding: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <FileText style={{ width: 14, height: 14, color: INK2 }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: INK, letterSpacing: '-0.1px' }}>
+                    Facturación del año {year}
+                  </span>
+                  <span style={{ fontSize: 10.5, color: INK3 }}>
+                    · referencia, no se suma al flujo (evita doble conteo)
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Receipt style={{ width: 16, height: 16, color: SUCCESS }} />
+                    <div>
+                      <p style={{ fontSize: 10.5, color: INK3, margin: 0, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
+                        Facturas de venta
+                      </p>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: INK, margin: '2px 0 0 0', fontVariantNumeric: 'tabular-nums' }}>
+                        {formatCurrency(ventasFact)}
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Receipt style={{ width: 16, height: 16, color: DANGER }} />
+                    <div>
+                      <p style={{ fontSize: 10.5, color: INK3, margin: 0, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
+                        Facturas de compra
+                      </p>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: INK, margin: '2px 0 0 0', fontVariantNumeric: 'tabular-nums' }}>
+                        {formatCurrency(comprasFact)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Chart */}
           <Card className="border-0 shadow-sm">
@@ -355,7 +488,6 @@ export default function CashFlowReport() {
                   <TableBody>
                     {aggregates.months
                       .filter((m) => {
-                        // Mostramos meses con movimientos OR meses ya pasados/actuales
                         const today = new Date();
                         const isPastOrCurrent =
                           m.year < today.getFullYear() ||

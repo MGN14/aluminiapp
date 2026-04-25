@@ -9,6 +9,7 @@ import { SubscriptionProvider } from "@/hooks/useSubscription";
 import { ModuleProvider } from "@/hooks/useModuleContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
+import RouteErrorBoundary from "@/components/RouteErrorBoundary";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
 import TourOverlay from "@/components/tour/TourOverlay";
@@ -61,6 +62,7 @@ const App = () => (
           <BrowserRouter>
             <SessionExpiredModal />
             <AuthDebugPanel />
+            <RouteErrorBoundary>
             <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<Index />} />
@@ -191,6 +193,7 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
             </Suspense>
+            </RouteErrorBoundary>
             <TourOverlay />
           </BrowserRouter>
         </TooltipProvider>
