@@ -34,7 +34,7 @@ export const plans: PlanData[] = [
   {
     id: 'empresarial',
     name: 'Empresarial',
-    monthlyPrice: 500000,
+    monthlyPrice: 599000,
     period: 'COP / mes',
     description: 'Todo lo que tu negocio necesita para crecer con control',
     features: [

@@ -70,7 +70,7 @@ export default function UpgradeLimitModal({
           <div className="bg-muted/50 rounded-lg p-4 space-y-2">
             <p className="text-sm font-medium flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
-              Plan Empresarial — $500.000 COP / mes
+              Plan Empresarial — $599.000 COP / mes
             </p>
             <ul className="text-sm text-muted-foreground space-y-1 ml-6">
               <li>• PDFs ilimitados</li>

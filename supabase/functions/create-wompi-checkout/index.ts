@@ -53,12 +53,12 @@ const PLAN_CONFIGS: Record<string, PlanConfig> = {
   empresarial: {
     name: "Plan Empresarial - AluminIA",
     description: "Acceso por 30 días al plan Empresarial de AluminIA",
-    amount_in_cents: 50000000, // $500,000 COP
+    amount_in_cents: 59900000, // $599,000 COP
   },
   "empresarial-anual": {
     name: "Plan Empresarial Anual - AluminIA",
     description: "Acceso por 12 meses al plan Empresarial de AluminIA",
-    amount_in_cents: 480000000, // $500,000 * 12 * 0.8 = $4,800,000 COP
+    amount_in_cents: 575040000, // $599,000 * 12 * 0.8 = $5,750,400 COP
   },
 };
 
