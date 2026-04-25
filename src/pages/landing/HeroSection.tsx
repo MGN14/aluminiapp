@@ -2,15 +2,15 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, CheckCircle, Play } from 'lucide-react';
 
 const metrics = [
-  { value: '24/7', label: 'DISPONIBILIDAD' },
-  { value: '+15', label: 'BANCOS SOPORTADOS' },
-  { value: '< 2 min', label: 'CONFIGURACIÓN' },
+  { value: '24/7', label: 'IA CONTABLE' },
+  { value: '+15', label: 'BANCOS + SIIGO' },
+  { value: 'DIAN', label: 'SIN SORPRESAS' },
 ];
 
 const trustItems = [
-  'Compatible con la mayoría de bancos en Colombia',
-  'Sin contabilidad complicada',
-  'Información clara en minutos',
+  'Conectado a Siigo y los principales bancos de Colombia',
+  'Inventarios, facturas y flujo de caja en tiempo real',
+  'DIAN-friendly. Decisiones con IA, no con Excel',
 ];
 
 export default function HeroSection() {

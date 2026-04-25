@@ -168,7 +168,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     try {
       const result = await invokeFunctionWithAuthRetry<any>(
         'create-wompi-checkout',
-        { body: { plan: planKey || 'basico' } },
+        { body: { plan: planKey || 'empresarial' } },
         'create-wompi-checkout'
       );
 

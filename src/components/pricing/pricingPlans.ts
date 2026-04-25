@@ -1,60 +1,47 @@
 import type { PlanData } from './PricingCard';
 
+// Pricing simplificado: dos cards.
+//   1. Demo — trial de 14 días con TODO incluido (mismas features del plan
+//      pago). Sin tarjeta. Estrategia PLG: el cliente vive el producto
+//      completo antes de pagar.
+//   2. Empresarial — único tier de pago, $500.000 COP/mes. El descuento
+//      del 20% en pago anual lo aplica PricingCard automáticamente.
+//
+// Eliminado el plan "Básico" intermedio: simplifica la decisión de compra
+// y baja la fricción del funnel ("un solo sí" vs "tres opciones").
 export const plans: PlanData[] = [
   {
     id: 'demo',
     name: 'Demo',
     monthlyPrice: 0,
-    period: 'Para siempre',
-    description: 'Para probar AluminIA con un extracto real',
+    period: '14 días gratis',
+    description: 'Probá AluminIA con todas las funciones, sin tarjeta',
     features: [
-      '1 PDF único (para siempre)',
-      '1 cuenta bancaria',
-      'Clasificación automática de movimientos',
-      'Conciliación manual',
-      'Dashboard básico',
-      'Exportación a Excel',
+      'Todas las funciones del plan Empresarial',
+      'PDFs ilimitados durante el trial',
+      'Conexión con Siigo y bancos',
+      'Módulo de Facturas DIAN completo',
+      'Inventarios y conciliación por factura',
+      'Coach financiero con IA',
+      'Sin tarjeta de crédito requerida',
     ],
-    cta: 'Probar gratis',
+    cta: 'Empezar gratis 14 días',
     ctaAction: 'signup',
     highlighted: false,
-    note: null,
-    badge: null,
-  },
-  {
-    id: 'basico',
-    name: 'Básico',
-    monthlyPrice: 399000,
-    period: 'COP / mes',
-    description: 'Para negocios en crecimiento',
-    features: [
-      '2 PDFs mensuales',
-      '1 cuenta bancaria',
-      '1 usuario incluido',
-      'Dashboard completo',
-      'Conciliaciones automáticas aproximadas',
-      'IVA y retenciones estimadas',
-      'Historial hasta 2 años',
-      'Exportación a Excel',
-      'Análisis financiero con IA',
-      'Coach financiero con IA',
-    ],
-    cta: 'Suscribirme al plan Básico',
-    ctaAction: 'wompi-basico',
-    highlighted: false,
-    note: 'Cálculos fiscales aproximados desde movimientos bancarios',
+    note: 'Después de 14 días podés pasarte a Empresarial o seguir con acceso de solo lectura.',
     badge: null,
   },
   {
     id: 'empresarial',
     name: 'Empresarial',
-    monthlyPrice: 699000,
+    monthlyPrice: 500000,
     period: 'COP / mes',
-    description: 'Para empresas que facturan y quieren control total',
+    description: 'Todo lo que tu negocio necesita para crecer con control',
     features: [
       'PDFs ilimitados',
       'Hasta 2 cuentas bancarias',
       '2 usuarios (Administrador y Auxiliar)',
+      'Conexión con Siigo (facturas en vivo)',
       'Módulo de Facturas DIAN',
       'Conciliación real por número de factura',
       'IVA, ReteICA y ReteFuente desde facturación',
@@ -69,7 +56,7 @@ export const plans: PlanData[] = [
     cta: 'Activar Empresarial',
     ctaAction: 'wompi-empresarial',
     highlighted: true,
-    note: 'Convierte tus facturas en control financiero y de inventario automático.',
+    note: 'Convierte tus facturas, bancos e inventario en control financiero automático.',
     badge: 'Más completo',
   },
 ];

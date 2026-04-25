@@ -32,7 +32,8 @@ export default function UpgradeLimitModal({
   const handleSubscribe = async () => {
     setLoading(true);
     try {
-      const url = await createWompiCheckout();
+      // Único plan de pago: Empresarial. (Plan Básico fue retirado.)
+      const url = await createWompiCheckout('empresarial');
       if (url) {
         window.location.href = url;
       } else {
@@ -69,13 +70,14 @@ export default function UpgradeLimitModal({
           <div className="bg-muted/50 rounded-lg p-4 space-y-2">
             <p className="text-sm font-medium flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
-              Plan Básico - $399.000 COP / 30 días
+              Plan Empresarial — $500.000 COP / mes
             </p>
             <ul className="text-sm text-muted-foreground space-y-1 ml-6">
-              <li>• Hasta 10 PDFs por mes</li>
-              <li>• Dashboard completo</li>
-              <li>• IVA y retenciones automáticas</li>
-              <li>• Exportación a Excel</li>
+              <li>• PDFs ilimitados</li>
+              <li>• Conexión con Siigo y bancos</li>
+              <li>• Módulo de Facturas DIAN + inventarios</li>
+              <li>• Coach financiero con IA</li>
+              <li>• Soporte prioritario</li>
             </ul>
           </div>
         </div>
@@ -88,7 +90,7 @@ export default function UpgradeLimitModal({
                 Redirigiendo a Wompi...
               </>
             ) : (
-              'Suscribirme al plan Básico'
+              'Activar plan Empresarial'
             )}
           </Button>
           <Button variant="outline" onClick={handleViewPlans} className="w-full">

@@ -36,26 +36,29 @@ interface PlanConfig {
   amount_in_cents: number;
 }
 
+// El plan Básico fue retirado en abril 2026. Mantenemos las claves
+// "basico" / "basico-anual" en este config para no romper checkouts en
+// curso de usuarios legacy, pero el funnel nuevo solo enruta a Empresarial.
 const PLAN_CONFIGS: Record<string, PlanConfig> = {
   basico: {
-    name: "Plan Básico - AluminIA",
+    name: "Plan Básico - AluminIA (legacy)",
     description: "Acceso por 30 días al plan Básico de AluminIA",
-    amount_in_cents: 39900000, // $399,000 COP
+    amount_in_cents: 39900000, // $399,000 COP — legacy
   },
   "basico-anual": {
-    name: "Plan Básico Anual - AluminIA",
+    name: "Plan Básico Anual - AluminIA (legacy)",
     description: "Acceso por 12 meses al plan Básico de AluminIA",
-    amount_in_cents: 383040000, // $399,000 * 12 * 0.8 = $3,830,400 COP
+    amount_in_cents: 383040000, // $399,000 * 12 * 0.8 = $3,830,400 COP — legacy
   },
   empresarial: {
     name: "Plan Empresarial - AluminIA",
     description: "Acceso por 30 días al plan Empresarial de AluminIA",
-    amount_in_cents: 69900000, // $699,000 COP
+    amount_in_cents: 50000000, // $500,000 COP
   },
   "empresarial-anual": {
     name: "Plan Empresarial Anual - AluminIA",
     description: "Acceso por 12 meses al plan Empresarial de AluminIA",
-    amount_in_cents: 671040000, // $699,000 * 12 * 0.8 = $6,710,400 COP
+    amount_in_cents: 480000000, // $500,000 * 12 * 0.8 = $4,800,000 COP
   },
 };
 
@@ -70,8 +73,9 @@ serve(async (req) => {
   try {
     logStep("Function started");
 
-    // Parse request body for plan selection
-    let planKey = "basico";
+    // Parse request body for plan selection.
+    // Default = empresarial (único plan de pago activo desde abr/2026).
+    let planKey = "empresarial";
     try {
       const body = await req.json();
       if (body?.plan && typeof body.plan === "string") {
