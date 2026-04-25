@@ -16,7 +16,7 @@ const ORDER: Record<string, number> = {
   trm: 1,
   dtf: 2,
   ipc_total: 3,
-  aluminio_lme: 4,
+  aluminio_smm: 4,
   ibr: 5,
   pib_sector: 6,
   ipc_sector: 7,
@@ -40,8 +40,11 @@ function formatValue(ind: MacroIndicator): string {
     return `${ind.value.toFixed(2)}%`;
   }
   if (ind.unit === 'USD/ton') {
-    // En la card no entra "/ton"; lo mostramos en el modal de detalle.
     return `US$${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Math.round(ind.value))}`;
+  }
+  if (ind.unit === 'CNY/ton') {
+    // SMM Shanghai cotiza en yuanes — usamos ¥ y separadores de miles.
+    return `¥${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Math.round(ind.value))}`;
   }
   return new Intl.NumberFormat('es-CO').format(ind.value);
 }

@@ -39,9 +39,9 @@ const EXPLANATION: Record<string, { what: string; why: string }> = {
     what: 'Es la tasa que se cobran los bancos entre sí. Reemplaza a la DTF en muchos créditos modernos.',
     why: 'Igual que la DTF, pero más usada en créditos corporativos grandes y en derivados.',
   },
-  aluminio_lme: {
-    what: 'Es el precio del aluminio en la Bolsa de Metales de Londres (LME), el referente mundial de commodities metálicos.',
-    why: 'Si tu negocio compra o vende aluminio (latas, perfilería, autopartes), este precio te dice si la materia prima está cara o barata hoy.',
+  aluminio_smm: {
+    what: 'Es el precio spot del aluminio en el Shanghai Metals Market (SMM), el referente que usa el sector metalmecánico colombiano que importa de China.',
+    why: 'Si tu negocio compra aluminio importado (perfilería, autopartes, latas), este precio en yuanes te dice si la materia prima está cara o barata hoy en el origen — antes de fletes y aduana.',
   },
 };
 
@@ -59,6 +59,9 @@ function formatValueFor(ind: MacroIndicator, v: number): string {
   }
   if (ind.unit === 'USD/ton') {
     return `US$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v)} /ton`;
+  }
+  if (ind.unit === 'CNY/ton') {
+    return `¥${new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.round(v))} /ton`;
   }
   return new Intl.NumberFormat('es-CO').format(v);
 }
@@ -257,6 +260,7 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
                       if (indicator.unit === '%') return `${v.toFixed(1)}%`;
                       if (indicator.unit === 'COP' && v >= 1000) return `$${(v / 1000).toFixed(1)}K`;
                       if (indicator.unit === 'USD/ton') return `$${v.toFixed(0)}`;
+                      if (indicator.unit === 'CNY/ton') return `¥${(v / 1000).toFixed(1)}K`;
                       return String(v);
                     }}
                     width={60}

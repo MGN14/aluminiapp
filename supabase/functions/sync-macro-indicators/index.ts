@@ -325,8 +325,10 @@ async function ipcFromHardcode(): Promise<IpcResult> {
 }
 
 async function syncTrm(admin: ReturnType<typeof createClient>) {
-  // Pull last 30 days so we backfill if cron missed runs.
-  const url = `https://www.datos.gov.co/resource/${TRM_DATASET}.json?$limit=30&$order=vigenciadesde DESC`;
+  // Pull last 90 days — esto da histórico suficiente para calcular tendencia 30d
+  // en el frontend desde el primer sync. Es idempotente (upsert por fecha) así
+  // que correrlo varias veces no duplica nada, solo mantiene la ventana fresca.
+  const url = `https://www.datos.gov.co/resource/${TRM_DATASET}.json?$limit=90&$order=vigenciadesde DESC`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`datos.gov.co ${res.status}`);
   const rows = await res.json() as Array<{
@@ -363,26 +365,22 @@ async function syncTrm(admin: ReturnType<typeof createClient>) {
   };
 }
 
-// ---------- Aluminio (LME) ----------
+// ---------- Aluminio (SMM Shanghai) ----------
 //
-// Cascada de 3 fuentes para precio del aluminio en USD/ton:
-//   1. Trading Economics LME — la página pública de commodities.
-//      Suelta el precio cash en pantalla, intentamos parsearlo.
-//   2. Yahoo Finance v8 quote API — devuelve último precio del LME aluminum
-//      futures contract (ALI=F) en JSON. NO requiere API key.
-//   3. Hardcode — actualizable a mano si las dos fuentes caen.
+// SMM = Shanghai Metals Market. Es el referente que aplica al sector
+// metalmecánico colombiano que importa de China. Cotiza en CNY/ton.
 //
-// Es deliberadamente robusto: si Firecrawl falla con LME (es un sitio pesado),
-// igual devolvemos un número de Yahoo con timestamp real.
+// Cascada de 3 fuentes:
+//   1. Trading Economics shanghai-aluminum — scrape vía Firecrawl con waitFor.
+//      La página renderiza precios con JS, por eso necesitamos el render headless.
+//   2. Trading Economics aluminum-cny (alias) — segunda URL como respaldo.
+//   3. Hardcode — referencia ~CNY 19,500/ton (actualizar a mano si falla scrape).
 
 async function syncAluminum(admin: ReturnType<typeof createClient>) {
-  // Yahoo Finance va PRIMERO: API JSON estructurada del LME Aluminum Futures
-  // (ALI=F). Es la fuente más confiable. Trading Economics queda como fallback
-  // (scraping del HTML, parser endurecido para no confundir años con precios).
   const attempts: Array<() => Promise<AluminumResult>> = [
-    aluminumFromYahooFinance,
-    aluminumFromTradingEconomics,
-    aluminumFromHardcode,
+    aluminumSMMFromTradingEconomicsShanghai,
+    aluminumSMMFromTradingEconomicsCNY,
+    aluminumSMMFromHardcode,
   ];
 
   const errors: string[] = [];
@@ -392,17 +390,17 @@ async function syncAluminum(admin: ReturnType<typeof createClient>) {
       const today = new Date().toISOString().slice(0, 10);
       const { error } = await admin.from("macro_indicators").upsert(
         [{
-          indicator_type: "aluminio_lme",
+          indicator_type: "aluminio_smm",
           sector_code: "",
           sector_name: null,
           period_date: today,
           value: result.value,
-          unit: "USD/ton",
+          unit: "CNY/ton",
           source: result.source,
           metadata: {
             ...result.metadata,
             fallbacks_tried: errors,
-            measure: "lme_cash",
+            measure: "smm_shanghai_spot",
           },
         }],
         { onConflict: "indicator_type,sector_code,period_date" },
@@ -414,7 +412,7 @@ async function syncAluminum(admin: ReturnType<typeof createClient>) {
     }
   }
 
-  throw new Error(`todas las fuentes Aluminio fallaron — ${errors.join(" | ")}`);
+  throw new Error(`todas las fuentes Aluminio SMM fallaron — ${errors.join(" | ")}`);
 }
 
 interface AluminumResult {
@@ -423,102 +421,75 @@ interface AluminumResult {
   metadata: Record<string, unknown>;
 }
 
-async function aluminumFromTradingEconomics(): Promise<AluminumResult> {
-  const url = "https://tradingeconomics.com/commodity/aluminum";
-  const md = await firecrawlScrape(url);
-  // TE muestra precios en formato "2,584.50" o "2584.5". Buscamos cerca de
-  // "Aluminum" o "USD/T". El número típicamente está en el rango 1500-4000.
-  // Anchors deliberadamente NO incluyen "Last Updated" — esa zona contiene
-  // la fecha (ej "April 24, 2026") y antes el regex capturaba el año como precio.
+// Parser común para Trading Economics — busca un precio numérico en CNY/ton.
+// SMM Shanghai cotiza típicamente entre 12,000 y 25,000 CNY/ton.
+function parseShanghaiAluminumFromMarkdown(md: string): number | null {
+  // Anchors específicos de la página de Shanghai aluminum en TE.
+  // NO incluimos "Last Updated" porque ahí aparece la fecha (ej "April 24, 2026").
   const candidates = [
     /Aluminum[^0-9]{0,80}/i,
-    /USD\/T(?:on|onne)?/i,
+    /Shanghai\s+Aluminum/i,
+    /CNY\/T(?:on|onne)?/i,
+    /Yuan\/T(?:on|onne)?/i,
   ];
-  let value: number | null = null;
+
+  // Patrón: "19,580", "19,580.00", "19580.5", "19580", admite separadores.
+  // SMM Shanghai cotiza en miles (10000+) — un número de 5 dígitos con o sin
+  // separadores. Excluimos años (4 dígitos) y números chicos.
+  const numRe = /([0-9]{2,3}[.,][0-9]{3}(?:[.,][0-9]{1,2})?|[0-9]{5}(?:[.,][0-9]{1,2})?)/g;
+
   for (const anchor of candidates) {
     const m = anchor.exec(md);
     if (!m) continue;
     const chunk = md.slice(m.index, m.index + 500);
-    // EXIGIMOS DECIMALES — los precios LME en TE vienen como "2,584.50".
-    // Los años (2020-2099) son enteros sin decimales y NO matchean este regex.
-    // Patrones aceptados: "2,584.50", "2,584.5", "2584.50", "2584.5".
-    const numRe = /([0-9]{1,2}[.,][0-9]{3}[.,][0-9]{1,2}|[0-9]{4}[.,][0-9]{1,2})/g;
     let nm: RegExpExecArray | null;
     while ((nm = numRe.exec(chunk)) !== null) {
       const raw = nm[1];
-      // Formato anglo: "2,584.50" → coma=miles, punto=decimal.
-      // Si solo hay coma (caso raro), tratamos coma como decimal.
+      // Formato anglo: coma=miles, punto=decimal. Lo normalizamos quitando comas.
       const normalized = raw.includes(",") && raw.includes(".")
         ? raw.replace(/,/g, "")
-        : raw.replace(",", ".");
+        : raw.replace(",", "");
       const n = Number(normalized);
-      if (Number.isFinite(n) && n >= 1500 && n <= 5000) {
-        value = n;
-        break;
+      // SMM Aluminum: rango histórico amplio 10,000 - 30,000 CNY/ton.
+      if (Number.isFinite(n) && n >= 10000 && n <= 30000) {
+        return n;
       }
     }
-    if (value !== null) break;
   }
+  return null;
+}
+
+async function aluminumSMMFromTradingEconomicsShanghai(): Promise<AluminumResult> {
+  const url = "https://tradingeconomics.com/commodity/shanghai-aluminum";
+  const md = await firecrawlScrape(url);
+  const value = parseShanghaiAluminumFromMarkdown(md);
   if (value === null) {
-    throw new Error(`TE LME parse failed (${md.length} chars)`);
+    throw new Error(`TE Shanghai aluminum parse failed (${md.length} chars)`);
   }
   return { value, source: "tradingeconomics", metadata: { method: "firecrawl", url } };
 }
 
-async function aluminumFromYahooFinance(): Promise<AluminumResult> {
-  // ALI=F es el ticker de Yahoo para LME Aluminum Futures.
-  const url = "https://query1.finance.yahoo.com/v8/finance/chart/ALI=F?interval=1d&range=5d";
-  const res = await fetch(url, {
-    headers: {
-      // Yahoo a veces bloquea sin User-Agent; mandamos uno común.
-      "User-Agent": "Mozilla/5.0 (compatible; AluminIAMacroSync/1.0)",
-      "Accept": "application/json",
-    },
-  });
-  if (!res.ok) throw new Error(`yahoo ${res.status}`);
-  const json = await res.json() as {
-    chart?: {
-      result?: Array<{
-        meta?: { regularMarketPrice?: number; symbol?: string };
-        indicators?: { quote?: Array<{ close?: Array<number | null> }> };
-      }>;
-    };
-  };
-  const result = json.chart?.result?.[0];
-  if (!result) throw new Error("yahoo: no result");
-
-  // Preferimos meta.regularMarketPrice (último precio); si no existe, el
-  // último close no-null del array.
-  let price = result.meta?.regularMarketPrice;
-  if (typeof price !== "number" || !Number.isFinite(price)) {
-    const closes = result.indicators?.quote?.[0]?.close ?? [];
-    for (let i = closes.length - 1; i >= 0; i--) {
-      const c = closes[i];
-      if (typeof c === "number" && Number.isFinite(c)) { price = c; break; }
-    }
+async function aluminumSMMFromTradingEconomicsCNY(): Promise<AluminumResult> {
+  const url = "https://tradingeconomics.com/commodity/aluminum-cny";
+  const md = await firecrawlScrape(url);
+  const value = parseShanghaiAluminumFromMarkdown(md);
+  if (value === null) {
+    throw new Error(`TE aluminum-cny parse failed (${md.length} chars)`);
   }
-  if (typeof price !== "number" || !Number.isFinite(price)) {
-    throw new Error("yahoo: no price found");
-  }
-  // Yahoo suele dar precio en USD/ton para ALI=F directamente.
-  return {
-    value: Math.round(price * 100) / 100,
-    source: "yahoo_finance",
-    metadata: { method: "api", url, ticker: "ALI=F" },
-  };
+  return { value, source: "tradingeconomics", metadata: { method: "firecrawl", url } };
 }
 
-async function aluminumFromHardcode(): Promise<AluminumResult> {
-  // Último valor conocido aproximado del LME Aluminum cash. Actualizar
-  // a mano si TE + Yahoo se caen por más de un día.
-  // Referencia: aluminio LME ~USD 2,580/ton (rango típico 2024-2026).
+async function aluminumSMMFromHardcode(): Promise<AluminumResult> {
+  // Último valor conocido aproximado del SMM Aluminum spot. Actualizar a mano
+  // si los scrapes de TE caen.
+  // Referencia: SMM Shanghai aluminum ~CNY 19,500/ton (rango típico 2024-2026).
   return {
-    value: 2580,
+    value: 19500,
     source: "manual",
     metadata: {
       method: "hardcode",
-      note: "fallback estático — actualizar si TE + Yahoo fallan",
-      reference: "LME Aluminum cash settlement",
+      note: "fallback estático — actualizar si scrapes de Trading Economics fallan",
+      reference: "SMM Shanghai aluminum spot",
     },
   };
 }
