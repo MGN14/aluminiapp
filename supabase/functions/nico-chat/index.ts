@@ -1258,7 +1258,7 @@ ${inventoryCtx}
     const trmInfo = buildIndicatorLine("trm");
     const dtfInfo = buildIndicatorLine("dtf");
     const ipcInfo = buildIndicatorLine("ipc_total");
-    const aluInfo = buildIndicatorLine("aluminio_smm");
+    const aluInfo = buildIndicatorLine("aluminio_lme");
 
     let macroBlock = "";
     if (trmInfo || dtfInfo || ipcInfo || aluInfo) {
@@ -1270,12 +1270,12 @@ ${inventoryCtx}
       if (ipcInfo)
         lines.push(`IPC anual Colombia (${ipcInfo.hoy.period_date}): ${ipcInfo.valStr}${ipcInfo.deltaTxt} — inflación oficial`);
       if (aluInfo)
-        lines.push(`Aluminio SMM Shanghai (${aluInfo.hoy.period_date}): ${aluInfo.valStr}${aluInfo.deltaTxt} — referencia spot del mercado chino, materia prima de importación`);
+        lines.push(`Aluminio LME (${aluInfo.hoy.period_date}): ${aluInfo.valStr}${aluInfo.deltaTxt} — referencia mundial, base de costo para importación/exportación`);
 
       macroBlock = `\n\n═══════════════════════════════════════════
 CONTEXTO MACRO (datos públicos al día)
 ═══════════════════════════════════════════
-Estás conectado en vivo a Superfinanciera (TRM), BanRep (DTF), World Bank (IPC) y Shanghai Metals Market vía Trading Economics (aluminio SMM). Estos números son oficiales y vigentes hoy:
+Estás conectado en vivo a Superfinanciera (TRM), BanRep (DTF), World Bank (IPC) y London Metal Exchange vía Yahoo Finance / Trading Economics (aluminio LME). Estos números son oficiales y vigentes hoy:
 
 ${lines.join("\n")}
 
@@ -1283,7 +1283,7 @@ CÓMO USARLOS:
 - Si preguntan por dólar/TRM/importaciones/exportaciones → usá la TRM real (no inventes). Fuente: Superintendencia Financiera vía datos.gov.co.
 - Si preguntan si conviene endeudarse, sacar crédito, o por tasas bancarias → contextualizá con la DTF actual y comparala con lo que les están ofreciendo. Fuente: Banco de la República.
 - Si preguntan por aumento de precios, ajuste de salarios, inflación, indexación de contratos o ajuste de arriendo → usá el IPC anual. Fuente: World Bank Indicators API (datos oficiales DANE compilados por World Bank).
-- Si el negocio es metalmecánico, perfilería, autopartes, latas o cualquier rubro que importe aluminio de China → citá el precio SMM Shanghai (en yuanes/ton) para contextualizar costos de materia prima en el origen. Es la referencia que efectivamente cotizan los proveedores chinos. Fuente: SMM (Shanghai Metals Market) vía Trading Economics.
+- Si el negocio es metalmecánico, perfilería, autopartes, latas, construcción o cualquier rubro que importe/exporte aluminio → citá el precio LME (en USD/ton) para contextualizar costos de materia prima a nivel mundial, antes de fletes, aduana y márgenes locales. Es el referente que cotiza la industria global. Fuente: London Metal Exchange vía Yahoo Finance (futuro ALI=F) o Trading Economics como respaldo.
 - Cuando cites un dato macro, mencioná SIEMPRE el periodo (ej: "según DTF al ${dtfInfo?.hoy.period_date ?? "hoy"}") y la fuente. Da credibilidad y ahorra explicaciones.
 - Nunca digas "no tengo acceso a esos datos". Los tenés todos los días, frescos.`;
     }

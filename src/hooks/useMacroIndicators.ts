@@ -34,7 +34,7 @@ const LABELS: Record<string, string> = {
   dtf: 'Costo del crédito',
   ipc_total: 'Inflación',
   ibr: 'Tasa interbancaria',
-  aluminio_smm: 'Aluminio',
+  aluminio_lme: 'Aluminio',
   pib_sector: 'PIB sector',
   ipc_sector: 'Inflación sector',
 };
@@ -45,7 +45,7 @@ const SUBLABELS: Record<string, string> = {
   dtf: 'DTF · BanRep',
   ipc_total: 'IPC anual',
   ibr: 'IBR · BanRep',
-  aluminio_smm: 'SMM · Shanghai',
+  aluminio_lme: 'LME · USD/ton',
   pib_sector: 'DANE',
   ipc_sector: 'DANE',
 };
@@ -55,7 +55,7 @@ const SOURCE_FOR_TYPE: Record<string, MacroIndicator['source']> = {
   dtf: 'banrep',
   ibr: 'banrep',
   ipc_total: 'worldbank', // override below if metadata.source dice otra
-  aluminio_smm: 'tradingeconomics',
+  aluminio_lme: 'yahoo_finance', // override en runtime según metadata
 };
 
 export function useMacroIndicators() {

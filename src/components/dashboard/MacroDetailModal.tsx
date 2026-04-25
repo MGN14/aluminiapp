@@ -39,9 +39,9 @@ const EXPLANATION: Record<string, { what: string; why: string }> = {
     what: 'Es la tasa que se cobran los bancos entre sí. Reemplaza a la DTF en muchos créditos modernos.',
     why: 'Igual que la DTF, pero más usada en créditos corporativos grandes y en derivados.',
   },
-  aluminio_smm: {
-    what: 'Es el precio spot del aluminio en el Shanghai Metals Market (SMM), el referente que usa el sector metalmecánico colombiano que importa de China.',
-    why: 'Si tu negocio compra aluminio importado (perfilería, autopartes, latas), este precio en yuanes te dice si la materia prima está cara o barata hoy en el origen — antes de fletes y aduana.',
+  aluminio_lme: {
+    what: 'Es el precio del aluminio en la London Metal Exchange (LME), el referente mundial que cotizan productores, traders y la industria global. Se publica en dólares por tonelada.',
+    why: 'Si tu negocio importa o exporta aluminio (perfilería, autopartes, latas, construcción), este precio en USD te marca el costo base mundial antes de fletes, aduana y márgenes locales. Cuando sube el LME, suben los costos de tu materia prima.',
   },
 };
 
