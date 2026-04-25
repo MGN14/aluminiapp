@@ -45,17 +45,19 @@ export default function PricingCard({
   const annualMonthly = Math.round(annualTotal / 12);
   const annualSavings = plan.monthlyPrice * 12 - annualTotal;
 
+  // Decisión de UX: en plan anual mostramos el precio MENSUAL equivalente
+  // ($479,200) en grande, no el total anual ($5,750,400). El total anual se
+  // muestra en chiquito debajo. Razón: el salto visual de $599K → $5.7M
+  // asusta más de lo que vende, aunque el dato sea el mismo.
   const displayPrice = isFree
     ? '$0'
     : isAnnual
-      ? formatCOP(annualTotal)
+      ? formatCOP(annualMonthly)
       : formatCOP(plan.monthlyPrice);
 
   const displayPeriod = isFree
     ? 'Para siempre'
-    : isAnnual
-      ? 'COP / año'
-      : 'COP / mes';
+    : 'COP / mes';
 
   const highlighted = plan.highlighted;
 
@@ -181,7 +183,8 @@ export default function PricingCard({
       {!isFree && isAnnual && (
         <div style={{ marginTop: 10 }}>
           <p style={{ fontSize: 11, color: INK3, margin: 0 }}>
-            Equivale a {formatCOP(annualMonthly)} COP/mes facturado anualmente
+            Antes <s style={{ color: INK3 }}>{formatCOP(plan.monthlyPrice)}</s> /
+            mes · {formatCOP(annualTotal)} cobrados una vez al año.
           </p>
           <span
             style={{
