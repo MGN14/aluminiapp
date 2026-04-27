@@ -14,7 +14,7 @@
 // mantenemos intacta — varios módulos la usan (CxC report, FinancialHealth,
 // AdvancesReport, OperationalSummaryCards).
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -217,7 +217,7 @@ function DetailRow({ detail, index, responsibles, hints, namePlaceholder, onUpda
 
 export default function InitialFinancialStateCard() {
   const { user } = useAuth();
-  const { initialData, initialDetails, loading, save, saveStatus } = useInitialFinancialState();
+  const { initialData, initialDetails, loading, save, autoSave, saveStatus } = useInitialFinancialState();
 
   const [form, setForm] = useState<InitialStateFormData>({
     fecha_inicio: new Date().toISOString().slice(0, 10),
@@ -245,6 +245,22 @@ export default function InitialFinancialStateCard() {
   useEffect(() => {
     setDetails(initialDetails);
   }, [initialDetails]);
+
+  // Autosave defensivo: si el usuario edita y se olvida de hacer click en
+  // "Guardar", se guarda solo después de 1.2s sin cambios. Bug real
+  // reportado: usuario cargó saldos en la UI pero no clickeó guardar →
+  // los datos no persistieron y el reporte quedó descalibrado.
+  // hydratedRef garantiza que NO disparamos autosave durante la hidratación
+  // inicial (cuando initialData/initialDetails llegan desde la DB).
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (!hydratedRef.current) {
+      hydratedRef.current = true;
+      return;
+    }
+    autoSave(form, details);
+  }, [form, details, loading, autoSave]);
 
   useEffect(() => {
     if (!user) return;
