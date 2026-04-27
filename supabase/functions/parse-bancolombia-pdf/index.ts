@@ -236,7 +236,10 @@ REGLAS DE EXTRACCIÓN:
 3. Para el monto (amount): negativo para débitos, positivo para créditos
 4. Incluye sucursal y dcto si están presentes
 5. También extrae el resumen: saldo anterior, total abonos, total cargos, saldo actual
-6. Incluye raw_line con la línea original del PDF para cada transacción
+6. raw_line: OMITILO o usalo solo cuando la descripción no sea clara. Para
+   transacciones con descripción autoexplicativa, dejá raw_line como ""
+   (cadena vacía) para ahorrar tokens. Esto es CRÍTICO: extractos grandes
+   exceden el límite de tokens si raw_line se llena siempre.
 
 RESPONDE ÚNICAMENTE con un JSON válido con esta estructura exacta:
 {
@@ -313,9 +316,12 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         },
         body: JSON.stringify({
           model: "claude-haiku-4-5",
-          // 8000 tokens es suficiente para extractos típicos (50-100 transacciones).
-          // Antes 32k tardaba demasiado y el browser cortaba con "Failed to fetch".
-          max_tokens: 8000,
+          // 16000 tokens cubre extractos de hasta ~150 transacciones (medido:
+          // un extracto con 100 tx generó 75K caracteres = ~19K tokens, así
+          // que con prompt más conciso (raw_line opcional) bajamos a ~12-14K).
+          // Con 8000 se truncaba en extractos grandes y rompía el JSON.
+          // Con 32000 tardaba demasiado y el browser cortaba.
+          max_tokens: 16000,
           system: systemPrompt,
           messages: [
             {
@@ -534,9 +540,39 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       } catch {
         // Pase 2: extraer JSON balanceado (Claude a veces agrega "Aquí está el JSON:" antes)
         const extracted = extractBalancedJSON(cleanContent);
-        if (!extracted) throw new Error("no balanced JSON found in response");
-        parsed = JSON.parse(extracted);
-        console.log("parse-bancolombia: JSON recovered via balanced extraction");
+        if (extracted) {
+          parsed = JSON.parse(extracted);
+          console.log("parse-bancolombia: JSON recovered via balanced extraction");
+        } else {
+          // Pase 3: JSON truncado por max_tokens. Reparamos cortando en la
+          // última transacción completa y cerrando el array + object.
+          // Patrón típico de truncate: "...},{ \"date\": \"2026-...
+          // Buscamos el último "}," dentro de transactions[] y cerramos.
+          const txStart = cleanContent.indexOf('"transactions"');
+          const arrStart = txStart >= 0 ? cleanContent.indexOf("[", txStart) : -1;
+          if (arrStart > 0) {
+            // Última coma seguida de "}" antes del corte = fin de la última
+            // transacción completa
+            const lastClose = cleanContent.lastIndexOf("},");
+            if (lastClose > arrStart) {
+              // Cortamos hasta el "}", cerramos array y objeto raíz
+              const repaired = cleanContent.slice(0, lastClose + 1) + "]}";
+              try {
+                parsed = JSON.parse(repaired);
+                console.warn(
+                  `parse-bancolombia: JSON truncado por max_tokens — ` +
+                  `recuperadas ${parsed.transactions?.length ?? 0} transacciones de ${cleanContent.length} chars`,
+                );
+              } catch {
+                throw new Error("JSON truncado y reparación falló");
+              }
+            } else {
+              throw new Error("no balanced JSON found in response");
+            }
+          } else {
+            throw new Error("no balanced JSON found in response");
+          }
+        }
       }
     } catch (parseError) {
       // Log COMPLETO del content para debug — los logs de Supabase truncan a ~1KB
