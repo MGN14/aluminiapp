@@ -286,15 +286,26 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]); // 529 = Anthropic overloaded
     const userPromptText = "Extrae todas las transacciones de este extracto bancario de Bancolombia. IMPORTANTE: Identifica el periodo (mes y año) del extracto y usa ese año para todas las fechas de las transacciones. Responde ÚNICAMENTE con el JSON especificado en el system prompt, sin texto adicional.";
+    // Timeout por intento (ms). Más allá de esto, abortamos y vamos al siguiente.
+    // El browser corta a los ~60-120s por defecto, así que mantenemos cada intento
+    // bajo 45s para tener margen para el fallback.
+    const ATTEMPT_TIMEOUT_MS = 45_000;
+
+    function withTimeout(ms: number): { signal: AbortSignal; cancel: () => void } {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort("timeout"), ms);
+      return { signal: controller.signal, cancel: () => clearTimeout(timer) };
+    }
 
     // -------- Claude (Anthropic) --------
     // Prefill con "{" obliga a Claude a empezar la respuesta con la apertura de JSON,
     // evitando que devuelva markdown ```json...``` o texto explicativo previo
     // ("Aquí está el JSON solicitado:") que rompía el parser. La respuesta de la
     // API NO incluye el "{" del prefill — lo prependemos manualmente al recibir.
-    async function callClaude(): Promise<Response> {
+    async function callClaude(signal: AbortSignal): Promise<Response> {
       return await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
+        signal,
         headers: {
           "x-api-key": ANTHROPIC_API_KEY ?? "",
           "anthropic-version": "2023-06-01",
@@ -302,7 +313,9 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         },
         body: JSON.stringify({
           model: "claude-haiku-4-5",
-          max_tokens: 32000, // extractos largos pueden generar JSON >16K tokens
+          // 8000 tokens es suficiente para extractos típicos (50-100 transacciones).
+          // Antes 32k tardaba demasiado y el browser cortaba con "Failed to fetch".
+          max_tokens: 8000,
           system: systemPrompt,
           messages: [
             {
@@ -346,11 +359,12 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       });
     }
 
-    async function callGemini(model: string): Promise<Response> {
+    async function callGemini(model: string, signal: AbortSignal): Promise<Response> {
       return await fetch(
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         {
           method: "POST",
+          signal,
           headers: {
             Authorization: `Bearer ${GEMINI_API_KEY}`,
             "Content-Type": "application/json",
@@ -384,16 +398,24 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
 
     for (const { provider, delayMs, label } of effectiveAttempts) {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+      const t = withTimeout(ATTEMPT_TIMEOUT_MS);
       try {
         aiResponse = provider === "claude"
-          ? await callClaude()
-          : await callGemini(provider === "gemini-2.0" ? "gemini-2.0-flash" : "gemini-2.5-flash");
+          ? await callClaude(t.signal)
+          : await callGemini(
+              provider === "gemini-2.0" ? "gemini-2.0-flash" : "gemini-2.5-flash",
+              t.signal,
+            );
       } catch (e) {
-        // Network error / DNS / timeout — tratamos como retryable
-        console.warn(`parse-bancolombia ${label}: network error`, (e as Error).message);
+        // Network error / DNS / abort por timeout — tratamos como retryable
+        const msg = (e as Error).message ?? String(e);
+        const isAbort = msg.includes("aborted") || msg.includes("timeout");
+        console.warn(`parse-bancolombia ${label}: ${isAbort ? "TIMEOUT" : "network error"} — ${msg}`);
         lastStatus = 0;
-        lastErrorBody = (e as Error).message;
+        lastErrorBody = isAbort ? `timeout after ${ATTEMPT_TIMEOUT_MS}ms` : msg;
         continue;
+      } finally {
+        t.cancel();
       }
       if (aiResponse.ok) {
         providerUsed = label;
