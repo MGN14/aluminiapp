@@ -514,25 +514,28 @@ serve(async (req) => {
     const anticipos: { responsable: string; monto: number; fecha: string; descripcion: string }[] = [];
     let totalAnticiposTx = 0;
     const anticiposPorCliente: Record<string, number> = {};
-    
+    // NUEVO: agregación POR MES para que Nico AI pueda responder
+    // "¿cuánto anticipo recibí en marzo?" — antes solo había totales del año.
+    const anticiposPorMes: Record<string, { total: number; count: number; topCliente: string; topMonto: number }> = {};
+
     // Current year anticipos from transactions
     const yearTx = (transactions ?? []).filter((t: any) => {
       const d = new Date(t.date + "T00:00:00");
       return d.getFullYear() === thisYear;
     });
-    
+
     for (const t of yearTx) {
       const credit = t.credit ?? 0;
       if (credit <= 0 || t.invoice_id) continue;
       if (!t.responsible_id) continue;
-      
+
       const respName = respMap[t.responsible_id] ?? t.owner ?? "Sin responsable";
       // FIXED: Match AdvancesReport logic - filter by category "ventas" and exclude "otros"
       const catInfo = t.category_id ? catMap[t.category_id] : null;
       const catName = (catInfo?.name ?? t.category ?? "").toLowerCase();
       if (catName !== "ventas") continue;
       if (respName.toLowerCase() === "otros") continue;
-      
+
       anticipos.push({
         responsable: respName,
         monto: credit,
@@ -541,8 +544,19 @@ serve(async (req) => {
       });
       totalAnticiposTx += credit;
       anticiposPorCliente[respName] = (anticiposPorCliente[respName] ?? 0) + credit;
+
+      // Agrupar por mes (YYYY-MM)
+      const monthKey = t.date.slice(0, 7);
+      const mb = anticiposPorMes[monthKey] ?? { total: 0, count: 0, topCliente: "", topMonto: 0 };
+      mb.total += credit;
+      mb.count += 1;
+      if (credit > mb.topMonto) {
+        mb.topMonto = credit;
+        mb.topCliente = respName;
+      }
+      anticiposPorMes[monthKey] = mb;
     }
-    
+
     // FIXED: Include initial state anticipos (unlinked ones from prior periods)
     const unlinkedInitialAnticipos = anticiposDeClientes.filter((d: any) => !d.invoice_id);
     const totalAnticiposInitial = unlinkedInitialAnticipos.reduce((s: number, d: any) => s + Math.abs(d.amount ?? 0), 0);
@@ -550,10 +564,16 @@ serve(async (req) => {
       const respName = d.responsible_name || "Sin responsable";
       anticiposPorCliente[respName] = (anticiposPorCliente[respName] ?? 0) + Math.abs(d.amount ?? 0);
     }
-    
+
     const totalAnticipos = totalAnticiposTx + totalAnticiposInitial;
     const topAnticiposCliente = Object.entries(anticiposPorCliente)
       .sort((a, b) => b[1] - a[1]);
+
+    // Anticipos del último mes con detalle (para que Nico tenga referencias específicas)
+    const ultimoMesAnticiposKey = Object.keys(anticiposPorMes).sort().slice(-1)[0];
+    const anticiposUltimoMes = ultimoMesAnticiposKey
+      ? anticipos.filter(a => a.fecha.startsWith(ultimoMesAnticiposKey)).sort((a, b) => b.monto - a.monto).slice(0, 10)
+      : [];
 
     // --- Inconsistencias fiscales ---
     const inconsistencias: string[] = [];
@@ -917,8 +937,24 @@ ANTICIPOS SIN FACTURAR (categoría "Ventas", con responsable, sin factura):
 Total anticipos: ${fmt(totalAnticipos)} (${totalAnticiposTx > 0 ? `${fmt(totalAnticiposTx)} del año en curso` : ""}${totalAnticiposInitial > 0 ? `${totalAnticiposTx > 0 ? " + " : ""}${fmt(totalAnticiposInitial)} de periodos anteriores` : ""})
 ${anticipos.slice(0, 5).map((a, i) => `${i + 1}. ${a.responsable}: ${fmt(a.monto)} (${a.fecha}) — ${a.descripcion}`).join("\n") || "Sin anticipos del año en curso"}
 
+ANTICIPOS POR MES (${thisYear}) — útil para responder "¿cuánto anticipo recibí en [mes]?":
+${Object.keys(anticiposPorMes).sort().map(k => {
+  const m = anticiposPorMes[k];
+  return `${k}: ${fmt(m.total)} (${m.count} ${m.count === 1 ? 'anticipo' : 'anticipos'}, top: ${m.topCliente} ${fmt(m.topMonto)})`;
+}).join("\n") || "Sin anticipos en el año en curso"}
+
 ANTICIPOS ACUMULADOS POR CLIENTE:
 ${topAnticiposCliente.map(([name, amount], i) => `${i + 1}. ${name}: ${fmt(amount)}`).join("\n") || "Sin anticipos"}
+
+DETALLE DE ANTICIPOS DEL ÚLTIMO MES (${ultimoMesAnticiposKey || "—"}) — para preguntas específicas tipo "¿quién me anticipó X?":
+${anticiposUltimoMes.length > 0
+  ? anticiposUltimoMes.map((a, i) => `${i + 1}. ${a.fecha} — ${a.responsable}: ${fmt(a.monto)} (ref: ${a.descripcion || 'sin descripción'})`).join("\n")
+  : "Sin movimientos del último mes"}
+
+ANTICIPOS DE PERIODOS ANTERIORES (saldo inicial, sin factura vinculada):
+${unlinkedInitialAnticipos.length > 0
+  ? unlinkedInitialAnticipos.slice(0, 10).map((d: any, i: number) => `${i + 1}. ${d.responsible_name || 'Sin nombre'}: ${fmt(Math.abs(d.amount ?? 0))}`).join("\n")
+  : "Sin anticipos de periodos anteriores"}
 
 ═══════════════════════════════════════════
 MÓDULO 5 — ALERTAS E INCONSISTENCIAS DETECTADAS
@@ -1285,7 +1321,7 @@ CÓMO USARLOS:
 - Si preguntan por aumento de precios, ajuste de salarios, inflación, indexación de contratos o ajuste de arriendo → usá el IPC anual. Fuente: World Bank Indicators API (datos oficiales DANE compilados por World Bank).
 - Si el negocio es metalmecánico, perfilería, autopartes, latas, construcción o cualquier rubro que importe/exporte aluminio → citá el precio LME (en USD/ton) para contextualizar costos de materia prima a nivel mundial, antes de fletes, aduana y márgenes locales. Es el referente que cotiza la industria global. Fuente: London Metal Exchange vía Yahoo Finance (futuro ALI=F) o Trading Economics como respaldo.
 - Cuando cites un dato macro, mencioná SIEMPRE el periodo (ej: "según DTF al ${dtfInfo?.hoy.period_date ?? "hoy"}") y la fuente. Da credibilidad y ahorra explicaciones.
-- Nunca digas "no tengo acceso a esos datos". Los tenés todos los días, frescos.`;
+- Nunca digas "no tengo acceso a esos datos" ni "no puedo ver eso por mes". Tenés desglose mensual de anticipos, facturación, flujo, IVA. Si la pregunta es específica (un mes, un cliente, una factura), buscá en los bloques detallados (ANTICIPOS POR MES, HISTORIAL FACTURACIÓN, DETALLE DE ANTICIPOS DEL ÚLTIMO MES, CUENTAS POR COBRAR, etc). Solo si REALMENTE el dato no aparece en el contexto, decí "no veo ese dato específico todavía — sumá más extractos/facturas y lo tendré".`;
     }
 
     // =============================================
@@ -1344,6 +1380,8 @@ Tienes acceso a diez fuentes de datos distintas y debes diferenciarlas siempre:
 3. OBLIGACIONES FISCALES: IVA (diferencia entre IVA de ventas e IVA de compras), Retefuente, ReteICA, Autorretefuente. Estos se calculan desde las facturas DIAN, no desde los extractos bancarios.
 
 4. CONCILIACIÓN Y CARTERA: Cuentas por cobrar (con deducción de retefuente y pagos), cuentas por pagar, anticipos sin facturar (categoría "Ventas" con responsable asignado), y la reconciliación entre facturas y movimientos bancarios.
+   - ANTICIPOS DETALLADOS: tenés desglose POR MES del año en curso ("ANTICIPOS POR MES"), DETALLE línea por línea del último mes ("DETALLE DE ANTICIPOS DEL ÚLTIMO MES" — cliente, monto, fecha, descripción/referencia), y los ANTICIPOS DE PERIODOS ANTERIORES (saldos iniciales). Si te preguntan "¿cuánto anticipo recibí en marzo?" o "¿quién me anticipó X?" o "¿de qué cliente fue ese anticipo de Y?", buscá en esos bloques específicos. NUNCA digas "no tengo esos datos" — los tenés desglosados.
+   - CxC y CxP: los top 8 pendientes están detallados con cliente/proveedor + número de factura + saldo + fecha + vencimiento. Si te preguntan por una factura específica, buscala en esa lista.
 
 5. ALERTAS E INCONSISTENCIAS: Detección automática de riesgos tributarios, brechas entre facturación y banco, concentración de clientes, facturas vencidas, etc.
 
