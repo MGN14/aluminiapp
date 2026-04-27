@@ -1,521 +1,621 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+// Estado Financiero Inicial — el snapshot de tu negocio cuando arrancás
+// con AluminIA. 7 secciones colapsables, autosave por sección.
+//
+// Estructura post-rework (pedido por Nico, 2026-04):
+//   1. Saldos en cuentas       — efectivo + bancos (detalle por cuenta)
+//   2. Deudas                   — tarjetas + préstamos (detalle por entidad)
+//   3. Cuentas por cobrar       — facturas pendientes de cobro (por cliente)
+//   4. Cuentas por pagar        — facturas pendientes de pago (por proveedor)
+//   5. Anticipos de clientes    — te pagaron sin facturar (por cliente, ↔ factura opcional)
+//   6. Anticipos a proveedores  — pagaste sin factura recibida (por proveedor)
+//   7. Saldo IVA a favor        — un solo número (si es en contra → 0)
+//
+// Cuidado clave: la lógica de matching de anticipos↔factura (invoice_id) la
+// mantenemos intacta — varios módulos la usan (CxC report, FinancialHealth,
+// AdvancesReport, OperationalSummaryCards).
+
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { useToast } from '@/hooks/use-toast';
-import {
-  useInitialFinancialState,
-  getTotalActivos,
-  getTotalPasivos,
-  getPatrimonio,
-  type InitialStateFormData,
-  type InitialStateDetail,
-  type SaveStatus,
-} from '@/hooks/useInitialFinancialState';
+  Plus, Trash2, Loader2, Check, AlertCircle, ChevronDown, ChevronRight,
+  Wallet, CreditCard, ArrowDownToLine, ArrowUpFromLine, HandCoins, Coins, Receipt,
+  Info, Save,
+} from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import {
-  Loader2,
-  Landmark,
-  AlertTriangle,
-  CheckCircle2,
-  Pencil,
-  DollarSign,
-  CreditCard,
-  Receipt,
-  Plus,
-  Trash2,
-  Info,
-  Cloud,
-  CloudOff,
-} from 'lucide-react';
+  useInitialFinancialState,
+  type InitialStateDetail,
+  type InitialStateFormData,
+  sumDetailsByType,
+  getTotalActivos,
+  getTotalPasivos,
+  getPatrimonio,
+} from '@/hooks/useInitialFinancialState';
 
-const DEFAULT_FORM: InitialStateFormData = {
-  fecha_inicio: new Date().toISOString().slice(0, 10),
-  saldo_bancos: 0,
-  inventario: 0,
-  otros_activos: 0,
-  impuestos_por_pagar: 0,
-  prestamos: 0,
-  iva_a_favor: 0,
-};
+const ACCOUNT_TYPE_HINTS = [
+  'Efectivo en caja',
+  'Bancolombia (corriente)',
+  'Bancolombia (ahorros)',
+  'Davivienda',
+  'BBVA',
+  'Banco de Bogotá',
+  'Nequi / Daviplata',
+];
 
-type DetailFieldType = InitialStateDetail['field_type'];
+const DEBT_TYPE_HINTS = [
+  'Tarjeta Visa Bancolombia',
+  'Tarjeta MasterCard',
+  'Préstamo BBVA',
+  'Crédito de consumo',
+  'Sobregiro bancario',
+];
 
-const FIELD_TYPE_LABELS: Record<DetailFieldType, string> = {
-  cuentas_por_cobrar: 'Lo que me deben',
-  anticipos_a_proveedores: 'Anticipos a proveedores',
-  anticipos_de_clientes: 'Anticipos de clientes',
-  cuentas_por_pagar: 'Lo que debo',
-};
+function formatCOP(n: number): string {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency', currency: 'COP',
+    minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(Math.round(n || 0));
+}
 
-interface Responsible {
+function parseAmount(v: string): number {
+  const cleaned = v.replace(/[^\d,.-]/g, '');
+  if (cleaned.includes(',') && cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
+    return Number(cleaned.replace(/\./g, '').replace(',', '.')) || 0;
+  }
+  const parts = cleaned.split('.');
+  if (parts.length > 1 && parts[parts.length - 1].length === 3) {
+    return Number(parts.join('')) || 0;
+  }
+  return Number(cleaned) || 0;
+}
+
+interface ResponsibleOption {
   id: string;
   name: string;
 }
 
-function CurrencyInput({
-  id, label, value, onChange, disabled,
-}: { id: string; label: string; value: number; onChange: (v: number) => void; disabled: boolean }) {
-  return (
-    <div className="space-y-1">
-      <Label htmlFor={id} className="text-xs text-muted-foreground">{label}</Label>
-      <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-        <Input
-          id={id} type="number" min={0} step="0.01"
-          value={value || ''} onChange={(e) => onChange(Number(e.target.value) || 0)}
-          disabled={disabled} className="pl-7 text-right" placeholder="0"
-        />
-      </div>
-    </div>
-  );
+// ---------------- Section component ----------------
+
+interface SectionProps {
+  open: boolean;
+  onToggle: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  hint: string;
+  total: number;
+  totalLabel: string;
+  totalColor: 'success' | 'destructive' | 'primary' | 'neutral';
+  children: React.ReactNode;
+  itemCount?: number;
 }
 
-function formatCurrency(v: number) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
-}
-
-function SaveStatusBadge({ status }: { status: SaveStatus }) {
-  if (status === 'idle') return null;
-  return (
-    <div className="flex items-center gap-1.5 text-xs">
-      {status === 'saving' && (
-        <>
-          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-          <span className="text-muted-foreground">Guardando...</span>
-        </>
-      )}
-      {status === 'saved' && (
-        <>
-          <Cloud className="h-3 w-3 text-emerald-500" />
-          <span className="text-emerald-600">Guardado</span>
-        </>
-      )}
-      {status === 'error' && (
-        <>
-          <CloudOff className="h-3 w-3 text-destructive" />
-          <span className="text-destructive">Error al guardar</span>
-        </>
-      )}
-    </div>
-  );
-}
-
-function DetailSection({
-  fieldType, label, items, globalDetails, onAdd, onRemove, onUpdate, disabled, responsibles,
-}: {
-  fieldType: DetailFieldType;
-  label: string;
-  items: InitialStateDetail[];
-  globalDetails: InitialStateDetail[];
-  onAdd: () => void;
-  onRemove: (globalIndex: number) => void;
-  onUpdate: (globalIndex: number, field: 'responsible_name' | 'amount', value: string | number) => void;
-  disabled: boolean;
-  responsibles: Responsible[];
-}) {
-  const total = items.reduce((s, i) => s + i.amount, 0);
-
-  // Build a map from local index to global index
-  const globalIndices: number[] = [];
-  globalDetails.forEach((d, gi) => {
-    if (d.field_type === fieldType) globalIndices.push(gi);
-  });
+function Section({ open, onToggle, icon: Icon, title, hint, total, totalLabel, totalColor, children, itemCount }: SectionProps) {
+  const colorClass = {
+    success: 'text-success',
+    destructive: 'text-destructive',
+    primary: 'text-primary',
+    neutral: 'text-foreground',
+  }[totalColor];
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <span className="text-xs font-medium text-muted-foreground">{formatCurrency(total)}</span>
-      </div>
-      {items.map((item, localIdx) => {
-        const gi = globalIndices[localIdx];
-        return (
-          <div key={`${fieldType}-${localIdx}`} className="flex items-center gap-2">
-            <Input
-              value={item.responsible_name}
-              onChange={(e) => onUpdate(gi, 'responsible_name', e.target.value)}
-              disabled={disabled}
-              placeholder="Nombre del tercero"
-              className="flex-1 text-sm"
-              list={`resp-list-${fieldType}`}
-            />
-            <div className="relative w-36">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-              <Input
-                type="number" min={0} step="0.01"
-                value={item.amount || ''}
-                onChange={(e) => onUpdate(gi, 'amount', Number(e.target.value) || 0)}
-                disabled={disabled}
-                className="pl-6 text-right text-sm"
-                placeholder="0"
-              />
-            </div>
-            {!disabled && (
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => onRemove(gi)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+    <div className="border rounded-lg overflow-hidden bg-background">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-muted/50 transition-colors text-left"
+      >
+        {open ? <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+        <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium">{title}</span>
+            {typeof itemCount === 'number' && itemCount > 0 && (
+              <span className="text-[11px] text-muted-foreground">· {itemCount} {itemCount === 1 ? 'línea' : 'líneas'}</span>
             )}
           </div>
-        );
-      })}
-      <datalist id={`resp-list-${fieldType}`}>
-        {responsibles.map(r => <option key={r.id} value={r.name} />)}
-      </datalist>
-      {!disabled && (
-        <Button variant="ghost" size="sm" className="text-xs h-7" onClick={onAdd}>
-          <Plus className="h-3 w-3 mr-1" />
-          Agregar
-        </Button>
+          {!open && hint && (
+            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{hint}</p>
+          )}
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className={`text-sm font-semibold tabular-nums ${colorClass}`}>{formatCOP(total)}</div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{totalLabel}</div>
+        </div>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-2 border-t bg-muted/20">
+          {hint && (
+            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">{hint}</p>
+          )}
+          {children}
+        </div>
       )}
     </div>
   );
 }
 
+// ---------------- Detail row ----------------
+
+interface DetailRowProps {
+  detail: InitialStateDetail;
+  index: number;
+  responsibles: ResponsibleOption[];
+  hints: string[];
+  namePlaceholder: string;
+  onUpdate: (idx: number, updates: Partial<InitialStateDetail>) => void;
+  onRemove: (idx: number) => void;
+  showResponsibleSelect?: boolean;
+}
+
+function DetailRow({ detail, index, responsibles, hints, namePlaceholder, onUpdate, onRemove, showResponsibleSelect }: DetailRowProps) {
+  return (
+    <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-background rounded-md p-2 border">
+      <div className="flex-1 min-w-0">
+        {showResponsibleSelect && responsibles.length > 0 ? (
+          <Select
+            value={detail.responsible_id ?? '__custom__'}
+            onValueChange={(v) => {
+              if (v === '__custom__') {
+                onUpdate(index, { responsible_id: null });
+              } else {
+                const r = responsibles.find(x => x.id === v);
+                if (r) onUpdate(index, { responsible_id: r.id, responsible_name: r.name });
+              }
+            }}
+          >
+            <SelectTrigger className="h-9 text-sm">
+              <SelectValue placeholder="Seleccionar..." />
+            </SelectTrigger>
+            <SelectContent>
+              {responsibles.map(r => (
+                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+              ))}
+              <SelectItem value="__custom__">+ Escribir nombre nuevo</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <>
+            <Input
+              placeholder={namePlaceholder}
+              list={hints.length ? `hints-${detail.field_type}-${index}` : undefined}
+              value={detail.responsible_name}
+              onChange={(e) => onUpdate(index, { responsible_name: e.target.value, responsible_id: null })}
+              className="h-9 text-sm"
+            />
+            {hints.length > 0 && (
+              <datalist id={`hints-${detail.field_type}-${index}`}>
+                {hints.map(h => <option key={h} value={h} />)}
+              </datalist>
+            )}
+          </>
+        )}
+      </div>
+      <div className="w-full sm:w-48">
+        <Input
+          type="text"
+          inputMode="decimal"
+          placeholder="$0"
+          value={detail.amount > 0 ? new Intl.NumberFormat('es-CO').format(detail.amount) : ''}
+          onChange={(e) => onUpdate(index, { amount: parseAmount(e.target.value) })}
+          className="h-9 text-sm tabular-nums text-right"
+        />
+      </div>
+      <Button variant="ghost" size="icon" onClick={() => onRemove(index)} className="h-9 w-9 shrink-0">
+        <Trash2 className="h-4 w-4 text-muted-foreground" />
+      </Button>
+    </div>
+  );
+}
+
+// ---------------- Main component ----------------
+
 export default function InitialFinancialStateCard() {
-  const { initialData, initialDetails, loading, isConfigured, save, autoSave, saveStatus } = useInitialFinancialState();
   const { user } = useAuth();
-  const { toast } = useToast();
+  const { initialData, initialDetails, loading, save, saveStatus } = useInitialFinancialState();
 
-  const [form, setForm] = useState<InitialStateFormData>(DEFAULT_FORM);
+  const [form, setForm] = useState<InitialStateFormData>({
+    fecha_inicio: new Date().toISOString().slice(0, 10),
+    inventario: 0,
+    otros_activos: 0,
+    impuestos_por_pagar: 0,
+    iva_a_favor: 0,
+  });
   const [details, setDetails] = useState<InitialStateDetail[]>([]);
-  const [editing, setEditing] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [responsibles, setResponsibles] = useState<Responsible[]>([]);
-  const hasLoadedRef = useRef(false);
+  const [responsibles, setResponsibles] = useState<ResponsibleOption[]>([]);
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
 
-  const isReadOnly = isConfigured && !editing;
+  useEffect(() => {
+    if (initialData) {
+      setForm({
+        fecha_inicio: initialData.fecha_inicio?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+        inventario: initialData.inventario || 0,
+        otros_activos: initialData.otros_activos || 0,
+        impuestos_por_pagar: initialData.impuestos_por_pagar || 0,
+        iva_a_favor: initialData.iva_a_favor || 0,
+      });
+    }
+  }, [initialData]);
 
-  // Load responsibles once
+  useEffect(() => {
+    setDetails(initialDetails);
+  }, [initialDetails]);
+
   useEffect(() => {
     if (!user) return;
-    supabase.from('responsibles').select('id, name').eq('active', true).order('name')
-      .then(({ data }) => setResponsibles((data as Responsible[]) || []));
+    supabase
+      .from('responsibles')
+      .select('id, name')
+      .eq('user_id', user.id)
+      .order('name')
+      .then(({ data }) => {
+        if (data) setResponsibles(data as any);
+      });
   }, [user]);
 
-  // Initialize form from DB only on first load (not on every save)
-  useEffect(() => {
-    if (hasLoadedRef.current) return;
-    if (loading) return;
-
-    if (initialData) {
-      setForm({
-        fecha_inicio: initialData.fecha_inicio,
-        saldo_bancos: initialData.saldo_bancos,
-        inventario: initialData.inventario,
-        otros_activos: initialData.otros_activos,
-        impuestos_por_pagar: initialData.impuestos_por_pagar,
-        prestamos: initialData.prestamos,
-        iva_a_favor: initialData.iva_a_favor,
-      });
-    }
-    setDetails(initialDetails.map(d => ({ ...d })));
-    hasLoadedRef.current = true;
-  }, [loading, initialData, initialDetails]);
-
-  const triggerAutoSave = useCallback((newForm: InitialStateFormData, newDetails: InitialStateDetail[]) => {
-    if (isReadOnly) return;
-    if (!newForm.fecha_inicio) return;
-    autoSave(newForm, newDetails);
-  }, [autoSave, isReadOnly]);
-
-  const updateField = useCallback((field: keyof InitialStateFormData, value: number | string) => {
-    setForm(prev => {
-      const next = { ...prev, [field]: value };
-      // Use setTimeout to avoid setState-during-render
-      setTimeout(() => triggerAutoSave(next, details), 0);
-      return next;
-    });
-  }, [triggerAutoSave, details]);
-
-  const addDetail = useCallback((fieldType: DetailFieldType) => {
-    setDetails(prev => [...prev, { field_type: fieldType, responsible_id: null, responsible_name: '', amount: 0 }]);
+  const addDetail = useCallback((field_type: InitialStateDetail['field_type']) => {
+    setDetails(prev => [...prev, { field_type, responsible_id: null, responsible_name: '', amount: 0 }]);
   }, []);
 
-  const removeDetail = useCallback((globalIndex: number) => {
-    setDetails(prev => {
-      const next = prev.filter((_, i) => i !== globalIndex);
-      setTimeout(() => triggerAutoSave(form, next), 0);
-      return next;
+  const updateDetail = useCallback((globalIdx: number, updates: Partial<InitialStateDetail>) => {
+    setDetails(prev => prev.map((d, i) => (i === globalIdx ? { ...d, ...updates } : d)));
+  }, []);
+
+  const removeDetail = useCallback((globalIdx: number) => {
+    setDetails(prev => prev.filter((_, i) => i !== globalIdx));
+  }, []);
+
+  const getItemsWithIndex = useCallback((field_type: InitialStateDetail['field_type']) => {
+    const out: Array<{ detail: InitialStateDetail; index: number }> = [];
+    details.forEach((d, i) => {
+      if (d.field_type === field_type) out.push({ detail: d, index: i });
     });
-  }, [form, triggerAutoSave]);
+    return out;
+  }, [details]);
 
-  const updateDetail = useCallback((globalIndex: number, field: 'responsible_name' | 'amount', value: string | number) => {
-    setDetails(prev => {
-      const next = prev.map((d, i) => {
-        if (i !== globalIndex) return d;
-        const updated = { ...d, [field]: value };
-        if (field === 'responsible_name') {
-          const match = responsibles.find(r => r.name.toLowerCase() === (value as string).toLowerCase());
-          updated.responsible_id = match?.id || null;
-        }
-        return updated;
-      });
-      setTimeout(() => triggerAutoSave(form, next), 0);
-      return next;
+  const totalSaldos = sumDetailsByType(details, 'saldo_cuentas');
+  const totalDeudas = sumDetailsByType(details, 'deudas');
+  const totalCxC = sumDetailsByType(details, 'cuentas_por_cobrar');
+  const totalCxP = sumDetailsByType(details, 'cuentas_por_pagar');
+  const totalAntCli = sumDetailsByType(details, 'anticipos_de_clientes');
+  const totalAntProv = sumDetailsByType(details, 'anticipos_a_proveedores');
+
+  const totalActivos = getTotalActivos(form, details);
+  const totalPasivos = getTotalPasivos(form, details);
+  const patrimonio = getPatrimonio(form, details);
+
+  const toggleSection = (k: string) => {
+    setOpenSections(prev => {
+      const n = new Set(prev);
+      if (n.has(k)) n.delete(k); else n.add(k);
+      return n;
     });
-  }, [form, responsibles, triggerAutoSave]);
-
-  const getItemsForType = useCallback((type: DetailFieldType) => details.filter(d => d.field_type === type), [details]);
-
-  const totalActivos = useMemo(() => getTotalActivos(form, details), [form, details]);
-  const totalPasivos = useMemo(() => getTotalPasivos(form, details), [form, details]);
-  const patrimonio = useMemo(() => getPatrimonio(form, details), [form, details]);
-  const isBalanced = Math.abs(totalActivos - (totalPasivos + patrimonio)) < 0.01;
+  };
 
   const handleSave = async () => {
-    if (isReadOnly) return;
-    if (isConfigured && editing) {
-      setShowConfirm(true);
-      return;
-    }
-    await doSave();
+    await save(form, details);
   };
-
-  const doSave = async () => {
-    setSaving(true);
-    try {
-      await save(form, details);
-      setEditing(false);
-      toast({ title: 'Estado inicial guardado', description: 'Los saldos iniciales se han actualizado correctamente.' });
-    } catch (e: any) {
-      console.error(e);
-      toast({ title: 'Error', description: 'No se pudo guardar el estado inicial.', variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancel = useCallback(() => {
-    setEditing(false);
-    if (initialData) {
-      setForm({
-        fecha_inicio: initialData.fecha_inicio,
-        saldo_bancos: initialData.saldo_bancos,
-        inventario: initialData.inventario,
-        otros_activos: initialData.otros_activos,
-        impuestos_por_pagar: initialData.impuestos_por_pagar,
-        prestamos: initialData.prestamos,
-        iva_a_favor: initialData.iva_a_favor,
-      });
-    }
-    setDetails(initialDetails.map(d => ({ ...d })));
-  }, [initialData, initialDetails]);
 
   if (loading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <CardContent className="py-8 flex items-center justify-center text-muted-foreground gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span className="text-sm">Cargando estado financiero…</span>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Landmark className="h-5 w-5 text-muted-foreground" />
-                Estado inicial financiero
-              </CardTitle>
-              <CardDescription>
-                {isConfigured
-                  ? 'Saldos con los que comenzaste a usar AluminIA. Estos son el punto de partida de tus reportes.'
-                  : 'Configura el punto de partida financiero de tu negocio. Usa los valores declarados en tus estados financieros o balance del contador.'}
-              </CardDescription>
-            </div>
-            {!isReadOnly && <SaveStatusBadge status={saveStatus} />}
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-primary" />
+              Estado financiero inicial
+            </CardTitle>
+            <CardDescription className="mt-1 text-sm">
+              El snapshot de tu negocio el día que empezás con AluminIA. Estos
+              datos se usan como base para todos los reportes — flujo de caja,
+              CxC, CxP, salud financiera.
+            </CardDescription>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Fecha inicio */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {saveStatus === 'saving' && (
+              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" /> Guardando…
+              </span>
+            )}
+            {saveStatus === 'saved' && (
+              <span className="text-xs text-success inline-flex items-center gap-1">
+                <Check className="h-3 w-3" /> Guardado
+              </span>
+            )}
+            {saveStatus === 'error' && (
+              <span className="text-xs text-destructive inline-flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" /> Error al guardar
+              </span>
+            )}
+            <Button onClick={handleSave} size="sm" className="gap-2">
+              <Save className="h-4 w-4" />
+              Guardar
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <div>
+          <Label htmlFor="fecha-inicio" className="text-xs">Fecha de inicio del seguimiento</Label>
+          <Input
+            id="fecha-inicio"
+            type="date"
+            value={form.fecha_inicio}
+            onChange={(e) => setForm(f => ({ ...f, fecha_inicio: e.target.value }))}
+            className="mt-1 h-9 max-w-xs"
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Los movimientos antes de esta fecha se consideran "pasado" — todos los saldos abajo deben corresponder a este día.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 p-3 rounded-lg bg-muted/40 border">
+          <div className="text-center">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Activos</p>
+            <p className="text-base font-bold text-success tabular-nums mt-1">{formatCOP(totalActivos)}</p>
+          </div>
+          <div className="text-center border-x">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Pasivos</p>
+            <p className="text-base font-bold text-destructive tabular-nums mt-1">{formatCOP(totalPasivos)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Patrimonio</p>
+            <p className={`text-base font-bold tabular-nums mt-1 ${patrimonio >= 0 ? 'text-primary' : 'text-destructive'}`}>{formatCOP(patrimonio)}</p>
+          </div>
+        </div>
+
+        {/* 1. Saldos en cuentas */}
+        <Section
+          open={openSections.has('saldo')}
+          onToggle={() => toggleSection('saldo')}
+          icon={Wallet}
+          title="Saldos en cuentas"
+          hint="Cuánto tenés en cada banco y en efectivo a la fecha de inicio. Suma para tu Flujo de caja y Dashboard."
+          total={totalSaldos}
+          totalLabel="Total"
+          totalColor="success"
+          itemCount={getItemsWithIndex('saldo_cuentas').length}
+        >
           <div className="space-y-2">
-            <Label htmlFor="fecha_inicio" className="font-medium">Fecha de inicio en AluminIA</Label>
+            {getItemsWithIndex('saldo_cuentas').map(({ detail, index }) => (
+              <DetailRow
+                key={index}
+                detail={detail}
+                index={index}
+                responsibles={[]}
+                hints={ACCOUNT_TYPE_HINTS}
+                namePlaceholder="Bancolombia, Caja efectivo, etc."
+                onUpdate={updateDetail}
+                onRemove={removeDetail}
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => addDetail('saldo_cuentas')} className="gap-2">
+              <Plus className="h-4 w-4" /> Agregar cuenta
+            </Button>
+          </div>
+        </Section>
+
+        {/* 2. Deudas */}
+        <Section
+          open={openSections.has('deudas')}
+          onToggle={() => toggleSection('deudas')}
+          icon={CreditCard}
+          title="Deudas"
+          hint="Tarjetas de crédito, préstamos, sobregiros. Aparecen como pasivos al inicio en CxP."
+          total={totalDeudas}
+          totalLabel="Total"
+          totalColor="destructive"
+          itemCount={getItemsWithIndex('deudas').length}
+        >
+          <div className="space-y-2">
+            {getItemsWithIndex('deudas').map(({ detail, index }) => (
+              <DetailRow
+                key={index}
+                detail={detail}
+                index={index}
+                responsibles={[]}
+                hints={DEBT_TYPE_HINTS}
+                namePlaceholder="Tarjeta Visa, Préstamo BBVA..."
+                onUpdate={updateDetail}
+                onRemove={removeDetail}
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => addDetail('deudas')} className="gap-2">
+              <Plus className="h-4 w-4" /> Agregar deuda
+            </Button>
+          </div>
+        </Section>
+
+        {/* 3. CxC */}
+        <Section
+          open={openSections.has('cxc')}
+          onToggle={() => toggleSection('cxc')}
+          icon={ArrowDownToLine}
+          title="Cuentas por cobrar (lo que te deben)"
+          hint="Facturas emitidas a clientes que aún no te pagaron a la fecha de inicio. Aparece en el reporte 'Lo que me deben'."
+          total={totalCxC}
+          totalLabel="Total"
+          totalColor="primary"
+          itemCount={getItemsWithIndex('cuentas_por_cobrar').length}
+        >
+          <div className="space-y-2">
+            {getItemsWithIndex('cuentas_por_cobrar').map(({ detail, index }) => (
+              <DetailRow
+                key={index}
+                detail={detail}
+                index={index}
+                responsibles={responsibles}
+                hints={[]}
+                namePlaceholder="Cliente"
+                onUpdate={updateDetail}
+                onRemove={removeDetail}
+                showResponsibleSelect
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => addDetail('cuentas_por_cobrar')} className="gap-2">
+              <Plus className="h-4 w-4" /> Agregar cliente
+            </Button>
+          </div>
+        </Section>
+
+        {/* 4. CxP */}
+        <Section
+          open={openSections.has('cxp')}
+          onToggle={() => toggleSection('cxp')}
+          icon={ArrowUpFromLine}
+          title="Cuentas por pagar (lo que debés)"
+          hint="Facturas de proveedores que aún no pagaste. Aparece en el reporte 'Lo que debo'."
+          total={totalCxP}
+          totalLabel="Total"
+          totalColor="destructive"
+          itemCount={getItemsWithIndex('cuentas_por_pagar').length}
+        >
+          <div className="space-y-2">
+            {getItemsWithIndex('cuentas_por_pagar').map(({ detail, index }) => (
+              <DetailRow
+                key={index}
+                detail={detail}
+                index={index}
+                responsibles={responsibles}
+                hints={[]}
+                namePlaceholder="Proveedor"
+                onUpdate={updateDetail}
+                onRemove={removeDetail}
+                showResponsibleSelect
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => addDetail('cuentas_por_pagar')} className="gap-2">
+              <Plus className="h-4 w-4" /> Agregar proveedor
+            </Button>
+          </div>
+        </Section>
+
+        {/* 5. Anticipos de clientes */}
+        <Section
+          open={openSections.has('ant_cli')}
+          onToggle={() => toggleSection('ant_cli')}
+          icon={HandCoins}
+          title="Anticipos de clientes"
+          hint="Plata que ya cobraste pero todavía no facturaste. Cuando emitas la factura, podrás vincularla y se descontará automáticamente del CxC."
+          total={totalAntCli}
+          totalLabel="Total"
+          totalColor="destructive"
+          itemCount={getItemsWithIndex('anticipos_de_clientes').length}
+        >
+          <Alert className="mb-3 bg-primary/5 border-primary/30">
+            <Info className="h-4 w-4 text-primary" />
+            <AlertDescription className="text-xs">
+              <strong>Importante:</strong> Los anticipos vinculados a una factura se descuentan del saldo pendiente en el reporte CxC.
+              La vinculación se hace al confirmar la factura en el módulo de facturas.
+            </AlertDescription>
+          </Alert>
+          <div className="space-y-2">
+            {getItemsWithIndex('anticipos_de_clientes').map(({ detail, index }) => (
+              <DetailRow
+                key={index}
+                detail={detail}
+                index={index}
+                responsibles={responsibles}
+                hints={[]}
+                namePlaceholder="Cliente"
+                onUpdate={updateDetail}
+                onRemove={removeDetail}
+                showResponsibleSelect
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => addDetail('anticipos_de_clientes')} className="gap-2">
+              <Plus className="h-4 w-4" /> Agregar anticipo
+            </Button>
+          </div>
+        </Section>
+
+        {/* 6. Anticipos a proveedores */}
+        <Section
+          open={openSections.has('ant_prov')}
+          onToggle={() => toggleSection('ant_prov')}
+          icon={Coins}
+          title="Anticipos a proveedores"
+          hint="Plata que pagaste a proveedores antes de recibir la factura. Aparece como activo (te lo deben en producto/servicio)."
+          total={totalAntProv}
+          totalLabel="Total"
+          totalColor="success"
+          itemCount={getItemsWithIndex('anticipos_a_proveedores').length}
+        >
+          <div className="space-y-2">
+            {getItemsWithIndex('anticipos_a_proveedores').map(({ detail, index }) => (
+              <DetailRow
+                key={index}
+                detail={detail}
+                index={index}
+                responsibles={responsibles}
+                hints={[]}
+                namePlaceholder="Proveedor"
+                onUpdate={updateDetail}
+                onRemove={removeDetail}
+                showResponsibleSelect
+              />
+            ))}
+            <Button variant="outline" size="sm" onClick={() => addDetail('anticipos_a_proveedores')} className="gap-2">
+              <Plus className="h-4 w-4" /> Agregar anticipo
+            </Button>
+          </div>
+        </Section>
+
+        {/* 7. IVA a favor */}
+        <Section
+          open={openSections.has('iva')}
+          onToggle={() => toggleSection('iva')}
+          icon={Receipt}
+          title="Saldo IVA a favor"
+          hint="Saldo del IVA que la DIAN te debe (de declaraciones anteriores)."
+          total={form.iva_a_favor}
+          totalLabel="Total"
+          totalColor="success"
+        >
+          <Alert className="mb-3 bg-amber-50 border-amber-300 dark:bg-amber-950/20">
+            <Info className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-xs">
+              Si tu saldo de IVA es <strong>en contra</strong> (le debés a la DIAN), dejá este campo en <strong>0</strong>.
+              Esa deuda se registra como obligación pendiente en el módulo de Visita DIAN, no acá.
+            </AlertDescription>
+          </Alert>
+          <div className="max-w-xs">
+            <Label className="text-xs">IVA a favor (saldo a tu favor)</Label>
             <Input
-              id="fecha_inicio" type="date" value={form.fecha_inicio}
-              onChange={(e) => updateField('fecha_inicio', e.target.value)}
-              disabled={isReadOnly} className="w-48"
-            />
-            <p className="text-xs text-muted-foreground">
-              Fecha desde la cual AluminIA empezará a calcular tu información financiera.
-            </p>
-          </div>
-
-          <Separator />
-
-          {/* Activos */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-emerald-500" />
-              <h3 className="font-medium text-sm">Activos</h3>
-              <span className="ml-auto text-sm font-semibold text-emerald-600">{formatCurrency(totalActivos)}</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <CurrencyInput id="saldo_bancos" label="Saldo en bancos" value={form.saldo_bancos} onChange={(v) => updateField('saldo_bancos', v)} disabled={isReadOnly} />
-              <CurrencyInput id="inventario" label="Inventario" value={form.inventario} onChange={(v) => updateField('inventario', v)} disabled={isReadOnly} />
-              <CurrencyInput id="otros_activos" label="Otros activos" value={form.otros_activos} onChange={(v) => updateField('otros_activos', v)} disabled={isReadOnly} />
-            </div>
-            <Separator className="my-2" />
-            <DetailSection
-              fieldType="cuentas_por_cobrar" label="Lo que me deben (por tercero)"
-              items={getItemsForType('cuentas_por_cobrar')}
-              globalDetails={details}
-              onAdd={() => addDetail('cuentas_por_cobrar')}
-              onRemove={removeDetail}
-              onUpdate={updateDetail}
-              disabled={isReadOnly} responsibles={responsibles}
-            />
-            <DetailSection
-              fieldType="anticipos_a_proveedores" label="Anticipos a proveedores (por tercero)"
-              items={getItemsForType('anticipos_a_proveedores')}
-              globalDetails={details}
-              onAdd={() => addDetail('anticipos_a_proveedores')}
-              onRemove={removeDetail}
-              onUpdate={updateDetail}
-              disabled={isReadOnly} responsibles={responsibles}
+              type="text"
+              inputMode="decimal"
+              placeholder="$0"
+              value={form.iva_a_favor > 0 ? new Intl.NumberFormat('es-CO').format(form.iva_a_favor) : ''}
+              onChange={(e) => setForm(f => ({ ...f, iva_a_favor: parseAmount(e.target.value) }))}
+              className="mt-1 h-9 tabular-nums text-right"
             />
           </div>
+        </Section>
 
-          <Separator />
-
-          {/* Pasivos */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-red-500" />
-              <h3 className="font-medium text-sm">Deudas</h3>
-              <span className="ml-auto text-sm font-semibold text-red-600">{formatCurrency(totalPasivos)}</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <CurrencyInput id="impuestos_por_pagar" label="Impuestos por pagar" value={form.impuestos_por_pagar} onChange={(v) => updateField('impuestos_por_pagar', v)} disabled={isReadOnly} />
-              <CurrencyInput id="prestamos" label="Préstamos" value={form.prestamos} onChange={(v) => updateField('prestamos', v)} disabled={isReadOnly} />
-            </div>
-            <Separator className="my-2" />
-            <DetailSection
-              fieldType="cuentas_por_pagar" label="Lo que debo (por tercero)"
-              items={getItemsForType('cuentas_por_pagar')}
-              globalDetails={details}
-              onAdd={() => addDetail('cuentas_por_pagar')}
-              onRemove={removeDetail}
-              onUpdate={updateDetail}
-              disabled={isReadOnly} responsibles={responsibles}
-            />
-            <DetailSection
-              fieldType="anticipos_de_clientes" label="Anticipos de clientes (por tercero)"
-              items={getItemsForType('anticipos_de_clientes')}
-              globalDetails={details}
-              onAdd={() => addDetail('anticipos_de_clientes')}
-              onRemove={removeDetail}
-              onUpdate={updateDetail}
-              disabled={isReadOnly} responsibles={responsibles}
-            />
-          </div>
-
-          <Separator />
-
-          {/* Impuestos */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Receipt className="h-4 w-4 text-amber-500" />
-              <h3 className="font-medium text-sm">Impuestos</h3>
-            </div>
-            <CurrencyInput id="iva_a_favor" label="IVA a favor" value={form.iva_a_favor} onChange={(v) => updateField('iva_a_favor', v)} disabled={isReadOnly} />
-            <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 border border-border">
-              <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                Si pagas IVA (en contra), tu saldo es $0 al iniciar el año. Lo mismo aplica para Retefuente y ReteICA: al comenzar un nuevo año estos impuestos ya están pagos, por eso solo se registra el IVA a favor si existe.
-              </p>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Resumen */}
-          <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Total Activos</span>
-              <span className="font-semibold text-emerald-600">{formatCurrency(totalActivos)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span>Total Deudas</span>
-              <span className="font-semibold text-red-600">{formatCurrency(totalPasivos)}</span>
-            </div>
-            <Separator />
-            <div className="flex justify-between text-sm font-medium">
-              <span>Lo que es tuyo de verdad (Activos − Deudas)</span>
-              <span className={patrimonio >= 0 ? 'text-emerald-600' : 'text-red-600'}>{formatCurrency(patrimonio)}</span>
-            </div>
-            {isBalanced && (
-              <div className="flex items-center gap-2 text-xs text-emerald-600 mt-1">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Ecuación contable equilibrada
-              </div>
-            )}
-          </div>
-
-          {!isBalanced && totalActivos > 0 && totalPasivos > 0 && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                La ecuación contable no está equilibrada. Verifica que los montos sean correctos.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-3">
-            {isConfigured && !editing ? (
-              <Button variant="outline" onClick={() => setEditing(true)}>
-                <Pencil className="h-4 w-4 mr-2" />
-                Editar estado inicial
-              </Button>
-            ) : (
-              <>
-                {editing && (
-                  <Button variant="ghost" onClick={handleCancel}>
-                    Cancelar
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Modificar estado inicial?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Cambiar los saldos iniciales afectará todos los cálculos, reportes y el score financiero. ¿Estás seguro?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setShowConfirm(false); doSave(); }}>
-              Confirmar cambios
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <Button onClick={handleSave} size="sm" className="gap-2">
+            <Save className="h-4 w-4" />
+            Guardar estado financiero
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

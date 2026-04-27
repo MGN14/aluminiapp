@@ -23,22 +23,41 @@ export interface InitialFinancialState {
   updated_at: string;
 }
 
+// field_types soportados.
+//
+// Existentes (no romper — varios módulos los leen para reportes):
+//   - cuentas_por_cobrar / cuentas_por_pagar : carteras al inicio por tercero
+//   - anticipos_de_clientes / anticipos_a_proveedores : anticipos por tercero,
+//     opcionalmente vinculados a una factura (invoice_id)
+//
+// Nuevos (post-rework solicitado por Nico):
+//   - saldo_cuentas : detalle del saldo en bancos/caja por cuenta. La suma
+//     se persiste en initial_financial_state.saldo_bancos (mismo campo, nuevo
+//     detalle granular).
+//   - deudas : detalle de pasivos cortos (tarjetas de crédito, préstamos
+//     pequeños). La suma se persiste en initial_financial_state.prestamos.
 export interface InitialStateDetail {
   id?: string;
   user_id?: string;
-  field_type: 'cuentas_por_cobrar' | 'anticipos_a_proveedores' | 'anticipos_de_clientes' | 'cuentas_por_pagar';
+  field_type:
+    | 'cuentas_por_cobrar'
+    | 'anticipos_a_proveedores'
+    | 'anticipos_de_clientes'
+    | 'cuentas_por_pagar'
+    | 'saldo_cuentas'
+    | 'deudas';
   responsible_id: string | null;
   responsible_name: string;
   amount: number;
 }
 
+// formData ahora solo tiene los campos que NO se calculan desde details.
+// saldo_bancos y prestamos pasaron a calcularse desde sus detalles.
 export type InitialStateFormData = {
   fecha_inicio: string;
-  saldo_bancos: number;
   inventario: number;
   otros_activos: number;
   impuestos_por_pagar: number;
-  prestamos: number;
   iva_a_favor: number;
 };
 
@@ -49,10 +68,11 @@ export function sumDetailsByType(details: InitialStateDetail[], type: string): n
 }
 
 export function getTotalActivos(form: InitialStateFormData, details: InitialStateDetail[]): number {
-  return form.saldo_bancos
+  return sumDetailsByType(details, 'saldo_cuentas')
     + sumDetailsByType(details, 'cuentas_por_cobrar')
     + form.inventario
     + sumDetailsByType(details, 'anticipos_a_proveedores')
+    + (form.iva_a_favor || 0)
     + form.otros_activos;
 }
 
@@ -60,7 +80,7 @@ export function getTotalPasivos(form: InitialStateFormData, details: InitialStat
   return sumDetailsByType(details, 'cuentas_por_pagar')
     + sumDetailsByType(details, 'anticipos_de_clientes')
     + form.impuestos_por_pagar
-    + form.prestamos;
+    + sumDetailsByType(details, 'deudas');
 }
 
 export function getPatrimonio(form: InitialStateFormData, details: InitialStateDetail[]): number {
@@ -128,10 +148,16 @@ export function useInitialFinancialState() {
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
 
     try {
+      // Los agregados se calculan desde los details. saldo_bancos y prestamos
+      // pasaron de ser campos de form a calcularse desde sus respectivos
+      // details (saldo_cuentas, deudas) — la columna de DB se mantiene
+      // por compatibilidad con código que ya la lee.
       const payload = {
         ...formData,
         user_id: user.id,
         updated_at: new Date().toISOString(),
+        saldo_bancos: sumDetailsByType(newDetails, 'saldo_cuentas'),
+        prestamos: sumDetailsByType(newDetails, 'deudas'),
         cuentas_por_cobrar: sumDetailsByType(newDetails, 'cuentas_por_cobrar'),
         anticipos_a_proveedores: sumDetailsByType(newDetails, 'anticipos_a_proveedores'),
         cuentas_por_pagar: sumDetailsByType(newDetails, 'cuentas_por_pagar'),
