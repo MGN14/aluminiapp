@@ -10,7 +10,7 @@
 //      botón "Reintentar" en vez de pantalla en blanco.
 
 import { Component, ReactNode } from 'react';
-import { RefreshCw, AlertCircle } from 'lucide-react';
+import { RefreshCw, AlertCircle, Home } from 'lucide-react';
 
 interface Props {
   children: ReactNode;
@@ -86,6 +86,8 @@ export default class RouteErrorBoundary extends Component<Props, State> {
       );
     }
 
+    const errMessage = this.state.error?.message ?? '';
+
     return (
       <div className="flex h-screen w-full items-center justify-center px-6">
         <div className="max-w-md w-full text-center flex flex-col items-center gap-4">
@@ -99,17 +101,34 @@ export default class RouteErrorBoundary extends Component<Props, State> {
             <p className="text-sm text-slate-500 mt-1.5">
               {this.state.isChunkError
                 ? 'Esta pestaña tiene una versión vieja de la app. Recargá para traer la última.'
-                : 'Probá recargar la página. Si el problema persiste, avisanos.'}
+                : 'Probá recargar la página o volver al dashboard. Si el problema persiste, avisanos.'}
             </p>
+            {/* Mostramos el mensaje de error técnico (chico, gris) para que el
+                usuario pueda copiarlo y mandarlo si necesita soporte. */}
+            {!this.state.isChunkError && errMessage && (
+              <p className="text-[11px] text-slate-400 mt-2 font-mono break-words max-h-20 overflow-hidden">
+                {errMessage}
+              </p>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={this.handleRetry}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition-colors"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Recargar
-          </button>
+          <div className="flex flex-wrap gap-2 justify-center">
+            <button
+              type="button"
+              onClick={this.handleRetry}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Recargar
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.assign('/dashboard'); }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors"
+            >
+              <Home className="h-4 w-4" />
+              Ir al Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );
