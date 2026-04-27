@@ -267,26 +267,59 @@ RESPONDE ÚNICAMENTE con un JSON válido con esta estructura exacta:
 NO incluyas explicaciones, solo el JSON.
 IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año actual.`;
 
-    console.log("Calling Gemini for PDF extraction...");
+    console.log("Calling AI for PDF extraction (Claude primary, Gemini fallback)...");
 
-    // [v2] Estrategia multi-modelo + retry contra 429 (rate limit free-tier)
-    // y 5xx transitorios. Patrón calcado de nico-chat — en demos en vivo
-    // pegamos el techo de 15 RPM y antes propagábamos el 429 al usuario sin
-    // reintentar. Ahora:
-    //   1. gemini-2.0-flash (primario, 15 RPM / 1500 RPD) hasta 3 intentos
-    //      con backoff corto.
-    //   2. Si siempre falla, UN intento con gemini-2.5-flash (pool aparte:
-    //      10 RPM / 250 RPD). Cuando un pool está saturado el otro suele
-    //      responder.
-    //   3. Si ambos fallan, mensaje claro al usuario.
+    // [v3] Migración a Claude (Anthropic) como primario. Razón: Gemini tier
+    // nuevo seguía teniendo 5xx intermitentes que tumbaban demos en vivo —
+    // un cliente trabado a las 7am vale infinitamente más que el delta de
+    // costo (Claude Haiku ~$0.012/PDF vs Gemini Flash ~$0.003/PDF, hablamos
+    // de centavos). Claude maneja PDFs nativamente con la API `document` y
+    // tiene mejor accuracy en extracción tabular de extractos bancarios.
     //
-    // Worst case: ~2.1s primario + ~0.5s fallback = ~3-4s total. Vale el
-    // tradeoff vs un demo roto.
-    const PRIMARY_MODEL = "gemini-2.0-flash";
-    const FALLBACK_MODEL = "gemini-2.5-flash";
-    const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+    // Cascada:
+    //   1. Claude Haiku 4.5 — primario, 2 intentos con backoff.
+    //   2. Gemini 2.0 Flash — fallback si Claude no responde.
+    //   3. Gemini 2.5 Flash — segundo fallback.
+    //
+    // Si TODOS fallan, mensaje claro al usuario.
 
-    function buildBody(model: string): string {
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]); // 529 = Anthropic overloaded
+    const userPromptText = "Extrae todas las transacciones de este extracto bancario de Bancolombia. IMPORTANTE: Identifica el periodo (mes y año) del extracto y usa ese año para todas las fechas de las transacciones. Responde ÚNICAMENTE con el JSON especificado en el system prompt, sin texto adicional.";
+
+    // -------- Claude (Anthropic) --------
+    async function callClaude(): Promise<Response> {
+      return await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": ANTHROPIC_API_KEY ?? "",
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5",
+          max_tokens: 16000,
+          system: systemPrompt,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: {
+                  type: "base64",
+                  media_type: "application/pdf",
+                  data: base64Pdf,
+                },
+              },
+              { type: "text", text: userPromptText },
+            ],
+          }],
+        }),
+      });
+    }
+
+    // -------- Gemini (OpenAI-compat) --------
+    function buildGeminiBody(model: string): string {
       return JSON.stringify({
         model,
         messages: [
@@ -294,15 +327,10 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
           {
             role: "user",
             content: [
-              {
-                type: "text",
-                text: "Extrae todas las transacciones de este extracto bancario de Bancolombia. IMPORTANTE: Identifica el periodo (mes y año) del extracto y usa ese año para todas las fechas de las transacciones.",
-              },
+              { type: "text", text: userPromptText },
               {
                 type: "image_url",
-                image_url: {
-                  url: `data:application/pdf;base64,${base64Pdf}`,
-                },
+                image_url: { url: `data:application/pdf;base64,${base64Pdf}` },
               },
             ],
           },
@@ -319,61 +347,77 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
             Authorization: `Bearer ${GEMINI_API_KEY}`,
             "Content-Type": "application/json",
           },
-          body: buildBody(model),
+          body: buildGeminiBody(model),
         },
       );
     }
 
-    const attempts: Array<{ model: string; delayMs: number; label: string }> = [
-      { model: PRIMARY_MODEL, delayMs: 0, label: "primary-1" },
-      { model: PRIMARY_MODEL, delayMs: 700, label: "primary-2" },
-      { model: PRIMARY_MODEL, delayMs: 1500, label: "primary-3" },
-      { model: FALLBACK_MODEL, delayMs: 500, label: "fallback-1" },
+    // Plan de intentos — provider, label, delayBeforeMs.
+    type Attempt = { provider: "claude" | "gemini-2.0" | "gemini-2.5"; delayMs: number; label: string };
+    const attempts: Attempt[] = [
+      { provider: "claude", delayMs: 0, label: "claude-1" },
+      { provider: "claude", delayMs: 700, label: "claude-2" },
+      { provider: "gemini-2.0", delayMs: 500, label: "gemini-2.0-fallback" },
+      { provider: "gemini-2.5", delayMs: 500, label: "gemini-2.5-fallback" },
     ];
+    // Si no hay key de Anthropic configurada, saltamos directo a Gemini —
+    // así el code no se queda colgado esperando una key vacía.
+    const effectiveAttempts: Attempt[] = ANTHROPIC_API_KEY
+      ? attempts
+      : attempts.filter(a => a.provider !== "claude");
+    if (!ANTHROPIC_API_KEY) {
+      console.warn("ANTHROPIC_API_KEY no configurada — usando solo Gemini");
+    }
 
     let aiResponse!: Response;
     let lastStatus = 0;
     let lastErrorBody = "";
-    let modelUsed = PRIMARY_MODEL;
+    let providerUsed = "";
 
-    for (const { model, delayMs, label } of attempts) {
+    for (const { provider, delayMs, label } of effectiveAttempts) {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
-      aiResponse = await callGemini(model);
+      try {
+        aiResponse = provider === "claude"
+          ? await callClaude()
+          : await callGemini(provider === "gemini-2.0" ? "gemini-2.0-flash" : "gemini-2.5-flash");
+      } catch (e) {
+        // Network error / DNS / timeout — tratamos como retryable
+        console.warn(`parse-bancolombia ${label}: network error`, (e as Error).message);
+        lastStatus = 0;
+        lastErrorBody = (e as Error).message;
+        continue;
+      }
       if (aiResponse.ok) {
-        modelUsed = model;
-        if (model !== PRIMARY_MODEL) {
-          console.log(`parse-bancolombia: sirvió con ${model} (fallback OK tras saturación)`);
+        providerUsed = label;
+        if (label !== "claude-1") {
+          console.log(`parse-bancolombia: sirvió con ${label}`);
         }
         break;
       }
       lastStatus = aiResponse.status;
-      // 4xx no-retryable (401, 403, 400) — corte inmediato, no sirve insistir.
       if (!RETRYABLE.has(aiResponse.status)) break;
       lastErrorBody = await aiResponse.text().catch(() => "");
-      console.warn(
-        `parse-bancolombia ${label}: ${model} devolvió ${aiResponse.status}. Siguiente intento…`,
-      );
+      console.warn(`parse-bancolombia ${label}: ${aiResponse.status}. Siguiente…`);
     }
 
-    if (!aiResponse.ok) {
-      const finalStatus = lastStatus || aiResponse.status;
-      const errBody = lastErrorBody || (await aiResponse.text().catch(() => ""));
-      console.error(`AI gateway error tras retries (${finalStatus}):`, errBody);
+    if (!aiResponse || !aiResponse.ok) {
+      const finalStatus = lastStatus || aiResponse?.status || 0;
+      const errBody = lastErrorBody || (await aiResponse?.text().catch(() => "") ?? "");
+      console.error(`AI providers exhausted (${finalStatus}):`, errBody);
 
       if (finalStatus === 402) {
         return new Response(
-          JSON.stringify({ error: "Se requieren créditos adicionales para procesar PDFs. Contactanos para activar el plan completo." }),
+          JSON.stringify({ error: "Se requieren créditos adicionales para procesar PDFs. Contactanos." }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-
       let userMsg: string;
       if (finalStatus === 429) {
-        userMsg = "Estamos procesando muchos PDFs ahora mismo. Probamos automáticamente con un modelo alternativo y también está ocupado — esperá 1–2 minutos y volvelo a intentar.";
-      } else if (RETRYABLE.has(finalStatus)) {
-        userMsg = "El servicio de extracción está saturado en este momento. Intentá de nuevo en unos segundos.";
+        userMsg = "Hay mucha demanda en este momento. Probá de nuevo en 1 minuto.";
+      } else if (RETRYABLE.has(finalStatus) || finalStatus === 0) {
+        userMsg = "Tanto Claude como Gemini están con problemas en este momento. Esperá 1–2 minutos y reintentá.";
       } else {
-        userMsg = `No pudimos procesar el PDF. Si el problema persiste, escribinos. (cód: gemini-${finalStatus})`;
+        userMsg = `No pudimos procesar el PDF. (cód: ai-${finalStatus})`;
       }
 
       return new Response(
@@ -381,16 +425,30 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         { status: finalStatus === 429 ? 429 : 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    console.log(`parse-bancolombia: OK con ${modelUsed}`);
+    console.log(`parse-bancolombia: OK con ${providerUsed}`);
 
+    // Extraer el contenido — formato distinto entre Claude y Gemini.
     const aiResult = await aiResponse.json();
-    const content = aiResult.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error("No content returned from AI");
+    let content: string | null = null;
+    if (providerUsed.startsWith("claude")) {
+      // Claude: { content: [{ type: "text", text: "..." }, ...] }
+      const blocks = aiResult.content;
+      if (Array.isArray(blocks)) {
+        content = blocks
+          .filter((b: any) => b.type === "text")
+          .map((b: any) => b.text)
+          .join("\n");
+      }
+    } else {
+      // Gemini OpenAI-compat: { choices: [{ message: { content: "..." } }] }
+      content = aiResult.choices?.[0]?.message?.content ?? null;
     }
 
-    console.log("AI response received, parsing JSON...");
+    if (!content) {
+      throw new Error(`No content returned from AI (${providerUsed})`);
+    }
+
+    console.log(`AI response received from ${providerUsed}, parsing JSON...`);
 
     // Parse the JSON response
     let parsed: ParsedStatement;
