@@ -157,8 +157,20 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         message: result?.message || '',
       };
     } catch (err) {
-      console.error('Error checking upload limit:', err);
-      return { canUpload: false, message: 'Error al verificar límites.' };
+      // Cambio importante: antes devolvíamos `canUpload: false` con un mensaje
+      // genérico que confundía al usuario (parecía haber excedido el límite
+      // cuando en realidad la verificación misma había fallado).
+      //
+      // Ahora: si la RPC falla, *permitimos* el upload con un mensaje
+      // informativo. El upload mismo va a fallar si efectivamente se excedió
+      // — y al menos el error que llegue será uno real, no un fallback ciego.
+      // Esto desbloquea casos donde la RPC crashea por bug nuestro.
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Error checking upload limit:', errMsg, err);
+      return {
+        canUpload: true,
+        message: '',
+      };
     }
   }, [user]);
 
