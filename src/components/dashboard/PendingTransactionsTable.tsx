@@ -67,11 +67,31 @@ export function PendingTransactionsTable({
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
 
   // Filter pending: SIN responsible O pinned (que el user tocó en esta sesión).
+  // Sort: pinned arriba (donde el usuario está trabajando), después por fecha
+  // ascendente (más viejas primero, para conciliar el backlog en orden).
+  // Bug que esto resuelve: cuando el user asignaba beneficiario, la fila se
+  // movía hacia abajo en la lista y se perdía visualmente.
   const pendingTransactions = useMemo(() => {
     return transactions
       .filter(tx => !tx.responsible_id || pinnedIds.has(tx.id))
-      .sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
+      .sort((a, b) => {
+        const aPinned = pinnedIds.has(a.id);
+        const bPinned = pinnedIds.has(b.id);
+        if (aPinned && !bPinned) return -1;
+        if (!aPinned && bPinned) return 1;
+        return parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime();
+      });
   }, [transactions, pinnedIds]);
+
+  // Helper: una transacción se considera "conciliada" cuando tiene
+  // beneficiario, categoría y O bien una factura vinculada O el tag [N/A]
+  // explícito (significa "no aplica factura", típico de gastos bancarios).
+  function isConciliada(tx: Transaction): boolean {
+    if (!tx.responsible_id) return false;
+    if (!tx.category_id) return false;
+    if (tx.invoice_id) return true;
+    return (tx.notes ?? '').includes('[N/A]');
+  }
 
   // Handle category change (does NOT mark as reconciled)
   const handleCategoryChange = async (transactionId: string, categoryId: string | null) => {
@@ -132,10 +152,13 @@ export function PendingTransactionsTable({
       // categoría/factura sin que la fila desaparezca al asignar beneficiario.
       setPinnedIds(prev => new Set([...prev, transactionId]));
 
-      toast({
-        title: isBanco ? 'Asignado ✅' : 'Beneficiario asignado',
-        description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Beneficiario asignado. Asigna #Factura para completar.',
-      });
+      // Toast minimalista: el badge "Conciliada/Falta factura" en la columna
+      // Estado ya comunica visualmente qué falta. No hace falta repetirlo.
+      // Solo notificamos el caso especial de Banco (auto-N/A) que es el único
+      // donde NO queda nada por hacer.
+      if (isBanco) {
+        toast({ title: 'Asignado a Banco' });
+      }
       
       onTransactionUpdated();
     } catch (error) {
@@ -300,8 +323,20 @@ export function PendingTransactionsTable({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pendingTransactions.map(tx => (
-                  <TableRow key={tx.id}>
+                {pendingTransactions.map(tx => {
+                  const conciliada = isConciliada(tx);
+                  const tieneRespSinResto = !!tx.responsible_id && !conciliada;
+                  return (
+                  <TableRow
+                    key={tx.id}
+                    className={
+                      conciliada
+                        ? 'bg-success/5 border-success/20'
+                        : tieneRespSinResto
+                          ? 'bg-warning/5'
+                          : ''
+                    }
+                  >
                     <TableCell className="font-mono text-sm">
                       {parseLocalDate(tx.date).toLocaleDateString('es-CO', {
                         day: '2-digit',
@@ -355,12 +390,23 @@ export function PendingTransactionsTable({
                       />
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge variant="destructive">
-                        Pendiente
-                      </Badge>
+                      {conciliada ? (
+                        <Badge variant="outline" className="bg-success/10 text-success border-success/30">
+                          Conciliada
+                        </Badge>
+                      ) : tieneRespSinResto ? (
+                        <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
+                          Falta {!tx.category_id ? 'categoría' : 'factura'}
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive">
+                          Pendiente
+                        </Badge>
+                      )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
             <div className="text-center py-4 text-muted-foreground text-sm">
