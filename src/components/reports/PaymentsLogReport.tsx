@@ -136,17 +136,21 @@ export default function PaymentsLogReport() {
   })();
 
   // Lista de beneficiarios (responsibles) únicos del año — pero SOLO los
-  // que tienen al menos una transacción categorizada como "Venta" o "Compra".
+  // que tienen al menos una transacción de venta/compra (operación comercial).
   //
-  // Por qué este filtro: "Relación de pagos" es un reporte para mandar a
-  // clientes/proveedores como estado de cuenta. Listar DIAN, Banco, Nómina
-  // o gastos operativos en el dropdown no aporta — el usuario nunca le va
-  // a mandar un estado de cuenta a la DIAN.
+  // Identificación de categorías comerciales — DOS criterios combinados:
+  //   1. report_group SEMÁNTICO: 'ingresos' (ventas) o 'costos_operacionales'
+  //      (compras a proveedores). Esto es el discriminador correcto, no
+  //      depende del nombre de la categoría.
+  //   2. NOMBRE como fallback: ilike '%venta%', '%compra%', '%proveedor%',
+  //      '%cliente%'. Cubre cuando el report_group está en NULL o cuando el
+  //      usuario nombra "Proveedores" (que tiene report_group='costos_operacionales'
+  //      pero el nombre no contiene "compra").
   //
-  // Match flexible (ilike '%venta%' / '%compra%') para cubrir variaciones
-  // típicas: "Ventas", "Ventas en efectivo", "Compras", "Compra de mercancía".
+  // Lo que excluye: gastos_operativos (servicios, arriendo, nómina), impuestos
+  // (DIAN, retefuente), otros (intereses bancarios, etc).
   const { data: counterpartyOptions } = useQuery({
-    queryKey: ['payments-log-counterparties-v3', user?.id, year],
+    queryKey: ['payments-log-counterparties-v4', user?.id, year],
     queryFn: async (): Promise<CounterpartyOption[]> => {
       if (!user) return [];
 
@@ -158,27 +162,24 @@ export default function PaymentsLogReport() {
       const respMap = new Map<string, string>();
       (resps ?? []).forEach((r: any) => respMap.set(r.id, r.name));
 
-      // 2. IDs de categorías de venta o compra (tolerante a variaciones).
-      // Hacemos dos queries paralelas porque el OR sobre ilike requiere
-      // sintaxis especial y puede fallar silenciosamente.
-      const [{ data: catVentas }, { data: catCompras }] = await Promise.all([
-        supabase
-          .from('categories')
-          .select('id')
-          .eq('user_id', user.id)
-          .ilike('name', '%venta%'),
-        supabase
-          .from('categories')
-          .select('id')
-          .eq('user_id', user.id)
-          .ilike('name', '%compra%'),
-      ]);
-      const validCatIds = new Set<string>();
-      (catVentas ?? []).forEach((c: any) => validCatIds.add(c.id));
-      (catCompras ?? []).forEach((c: any) => validCatIds.add(c.id));
+      // 2. Identificar categorías comerciales (venta + compra) usando
+      //    report_group SEMÁNTICO + sinónimos en el nombre.
+      const { data: allCats } = await supabase
+        .from('categories')
+        .select('id, name, report_group')
+        .eq('user_id', user.id);
 
-      // Si no hay categorías de venta/compra todavía, devolvemos lista vacía
-      // (el dropdown muestra solo "Todos los clientes").
+      const validCatIds = new Set<string>();
+      (allCats ?? []).forEach((c: any) => {
+        const name = (c.name ?? '').toLowerCase();
+        const group = (c.report_group ?? '').toLowerCase();
+        const isIncome = group === 'ingresos' || /venta|cliente/.test(name);
+        const isCost = group === 'costos_operacionales'
+          || /compra|proveedor/.test(name);
+        if (isIncome || isCost) validCatIds.add(c.id);
+      });
+
+      // Si no hay categorías de venta/compra todavía, devolvemos lista vacía.
       if (validCatIds.size === 0) return [];
 
       // 3. Transacciones del año con responsible y category válida.
@@ -425,25 +426,31 @@ export default function PaymentsLogReport() {
     enabled: !!user && counterparty !== 'all',
   });
 
-  // Movimientos del periodo — solo de categorías "Venta" o "Compra".
-  // Excluye gastos operativos, impuestos, nómina, etc. — esos no entran en
-  // un reporte de "Relación de pagos" comercial.
+  // Movimientos del periodo — solo de categorías comerciales (ventas/compras).
+  // Excluye gastos operativos, impuestos, nómina, etc.
+  // Detección por report_group + sinónimos en el nombre (mismo criterio que
+  // en el dropdown de counterparties). Ej: "Proveedores" matchea via
+  // report_group='costos_operacionales' aunque el nombre no diga "compra".
   const { data, isLoading } = useQuery({
-    queryKey: ['payments-log-v2', user?.id, year, month, typeFilter, counterparty, isGerencial],
+    queryKey: ['payments-log-v3', user?.id, year, month, typeFilter, counterparty, isGerencial],
     queryFn: async (): Promise<PaymentRow[]> => {
       if (!user) return [];
 
-      // Cargar IDs de categorías que son "venta" o "compra" (con tolerancia).
-      const [{ data: catVentas }, { data: catCompras }] = await Promise.all([
-        supabase.from('categories').select('id').eq('user_id', user.id).ilike('name', '%venta%'),
-        supabase.from('categories').select('id').eq('user_id', user.id).ilike('name', '%compra%'),
-      ]);
-      const validCatIds = new Set<string>();
-      (catVentas ?? []).forEach((c: any) => validCatIds.add(c.id));
-      (catCompras ?? []).forEach((c: any) => validCatIds.add(c.id));
+      const { data: allCats } = await supabase
+        .from('categories')
+        .select('id, name, report_group')
+        .eq('user_id', user.id);
 
-      // Si el user no tiene categorías de venta/compra todavía, devolvemos
-      // vacío. (El dropdown de counterparties ya hace lo mismo.)
+      const validCatIds = new Set<string>();
+      (allCats ?? []).forEach((c: any) => {
+        const name = (c.name ?? '').toLowerCase();
+        const group = (c.report_group ?? '').toLowerCase();
+        const isIncome = group === 'ingresos' || /venta|cliente/.test(name);
+        const isCost = group === 'costos_operacionales' || /compra|proveedor/.test(name);
+        if (isIncome || isCost) validCatIds.add(c.id);
+      });
+
+      // Si el user no tiene categorías comerciales todavía, devolvemos vacío.
       if (validCatIds.size === 0) return [];
 
       // Banco: transactions con join a categories/responsibles/invoices,
@@ -497,7 +504,9 @@ export default function PaymentsLogReport() {
           cashRows = (cashRes.data as any[])
             .filter((r) => {
               const cat = (r.category ?? '').toLowerCase();
-              return cat.includes('venta') || cat.includes('compra');
+              // Mismo criterio amplio que para transactions:
+              // venta/cliente (ingresos) o compra/proveedor (costos).
+              return /venta|cliente|compra|proveedor/.test(cat);
             })
             .map((r) => ({
               id: `cash-${r.id}`,
