@@ -1,34 +1,35 @@
-// Checklist del trial — 6 pasos para configurar AluminIA al 100%.
+// Checklist del trial — 10 pasos para configurar AluminIA al 100%.
 //
-// Cambio importante respecto a la versión anterior: el estado de cada item
-// se calcula DINÁMICAMENTE desde las tablas (count queries livianas), no
-// desde un flag persistido. Esto resuelve el bug que reportó el cliente:
-// "subí el extracto pero el item sigue en pendiente". Ahora si tenés 1+
-// extracto procesado, el item se marca solo. Si los borrás todos, vuelve
-// a aparecer pendiente. Es la única manera de mantener consistencia sin
-// triggers en backend.
-//
-// El único item que sigue siendo flag local es "Revisar DIAN" — ese mide
-// una visita del usuario a /financial-health, no un dato persistente.
+// Cambios desde la v anterior:
+//   - 6 → 10 items (agregamos venta/compra separadas, ReteICA, categorización
+//     5+, colaborador).
+//   - Estado se calcula dinámicamente desde tablas (queries livianas con
+//     count head:true). Nada de flags persistidos que se desincronicen.
+//   - Items COMPLETADOS desaparecen de la lista. Solo se muestran pendientes.
+//     Cuando llega al 100%, el card entero se oculta (return null).
+//   - Banner de progreso muestra "Te faltan X pasos" en vez de "X/N".
 
 import { useEffect, useState } from 'react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import {
-  CheckCircle2, Circle, Upload, FileText, Link2, BarChart3,
-  Sparkles, ArrowRight, Plug, Wallet, Loader2,
+  Circle, Upload, FileText, FileInput, Link2, BarChart3,
+  Sparkles, Plug, Wallet, Loader2, Tags, Percent, Users,
 } from 'lucide-react';
 
 interface ChecklistState {
   statement_uploaded: boolean;
-  invoice_uploaded: boolean;
+  invoice_venta_uploaded: boolean;
+  invoice_compra_uploaded: boolean;
   invoice_matched: boolean;
   siigo_connected: boolean;
   initial_state_set: boolean;
+  reteica_configured: boolean;
+  transactions_categorized: boolean;
+  collaborator_added: boolean;
   dian_reviewed: boolean;
 }
 
@@ -47,11 +48,18 @@ const ITEMS: Array<{
     hint: 'Empezá por acá: subí un PDF y AluminIA extrae todas las transacciones.',
   },
   {
-    key: 'invoice_uploaded',
-    label: 'Subir una factura',
+    key: 'invoice_venta_uploaded',
+    label: 'Subir una factura de venta',
     icon: FileText,
     link: '/invoices/venta',
-    hint: 'Sube una factura de venta o compra para que se cruce con tus movimientos.',
+    hint: 'Carga una factura que emitiste a un cliente para cruzarla con cobros.',
+  },
+  {
+    key: 'invoice_compra_uploaded',
+    label: 'Subir una factura de compra',
+    icon: FileInput,
+    link: '/invoices/compra',
+    hint: 'Carga una factura de proveedor para que AluminIA registre tus gastos.',
   },
   {
     key: 'invoice_matched',
@@ -61,11 +69,18 @@ const ITEMS: Array<{
     hint: 'Vinculá un pago bancario con la factura correspondiente.',
   },
   {
+    key: 'transactions_categorized',
+    label: 'Categorizar 5 transacciones',
+    icon: Tags,
+    link: '/transactions',
+    hint: 'Asigná categoría y responsable para que los reportes sean exactos.',
+  },
+  {
     key: 'siigo_connected',
     label: 'Conectar Siigo',
     icon: Plug,
     link: '/settings',
-    hint: 'Sincronizá tus facturas DIAN automáticamente desde Siigo.',
+    hint: 'Sincronizá facturas DIAN automáticamente desde Siigo.',
   },
   {
     key: 'initial_state_set',
@@ -73,6 +88,20 @@ const ITEMS: Array<{
     icon: Wallet,
     link: '/onboarding',
     hint: 'Carga tu saldo inicial, CxC y CxP para que los reportes sean exactos.',
+  },
+  {
+    key: 'reteica_configured',
+    label: 'Configurar tarifa ReteICA',
+    icon: Percent,
+    link: '/settings',
+    hint: 'Define tu tarifa según el municipio para calcular bien las retenciones.',
+  },
+  {
+    key: 'collaborator_added',
+    label: 'Agregar un colaborador',
+    icon: Users,
+    link: '/colaboradores',
+    hint: 'Sumá a tu contador o equipo para que vean los datos sin compartir clave.',
   },
   {
     key: 'dian_reviewed',
@@ -112,8 +141,13 @@ export default function TrialChecklist() {
 
   const completedCount = Object.values(state).filter(Boolean).length;
   const total = ITEMS.length;
+  const pendingItems = ITEMS.filter((i) => !state[i.key]);
   const allComplete = completedCount === total;
   const progressPct = Math.round((completedCount / total) * 100);
+
+  // Cuando llega al 100%, todo el checklist desaparece. El usuario ya está
+  // configurado, no tiene sentido seguir mostrándolo.
+  if (allComplete) return null;
 
   return (
     <Card className="border-accent/30 bg-accent/5 animate-fade-in">
@@ -122,16 +156,13 @@ export default function TrialChecklist() {
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-accent" />
             <CardTitle className="text-base">
-              {allComplete
-                ? '¡Estás usando AluminIA al 100%!'
-                : 'Para aprovechar tu prueba al máximo:'}
+              Para aprovechar tu prueba al máximo:
             </CardTitle>
           </div>
           <div className="text-xs font-medium text-muted-foreground tabular-nums">
-            {completedCount}/{total} ({progressPct}%)
+            {completedCount}/{total} ({progressPct}%) · te faltan {pendingItems.length}
           </div>
         </div>
-        {/* Barra de progreso */}
         <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-2">
           <div
             className="h-full bg-success transition-all duration-500"
@@ -140,55 +171,26 @@ export default function TrialChecklist() {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {allComplete ? (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Activa tu plan Empresarial para continuar con todas las funciones.
-            </p>
-            <Link to="/pricing">
-              <Button className="gap-1">
-                Activar Plan Empresarial
-                <ArrowRight className="h-4 w-4" />
-              </Button>
+        <div className="grid sm:grid-cols-2 gap-2">
+          {pendingItems.map(({ key, label, icon: Icon, link, hint }) => (
+            <Link
+              key={key}
+              to={link}
+              className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-accent/50 hover:bg-accent/5 transition-colors"
+            >
+              <Circle className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                  <span className="text-sm font-medium text-foreground">{label}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                  {hint}
+                </p>
+              </div>
             </Link>
-          </div>
-        ) : (
-          <div className="grid sm:grid-cols-2 gap-2">
-            {ITEMS.map(({ key, label, icon: Icon, link, hint }) => {
-              const done = state[key];
-              return (
-                <Link
-                  key={key}
-                  to={link}
-                  className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
-                    done
-                      ? 'border-success/30 bg-success/5'
-                      : 'border-border hover:border-accent/50 hover:bg-accent/5'
-                  }`}
-                >
-                  {done ? (
-                    <CheckCircle2 className="h-5 w-5 text-success flex-shrink-0 mt-0.5" />
-                  ) : (
-                    <Circle className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <Icon className={`h-4 w-4 flex-shrink-0 ${done ? 'text-success' : 'text-muted-foreground'}`} />
-                      <span className={`text-sm font-medium ${done ? 'text-success line-through' : 'text-foreground'}`}>
-                        {label}
-                      </span>
-                    </div>
-                    {!done && (
-                      <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
-                        {hint}
-                      </p>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
@@ -197,17 +199,18 @@ export default function TrialChecklist() {
 // ---------- Cálculo dinámico ----------
 
 async function computeChecklist(userId: string): Promise<ChecklistState> {
-  // Todas las queries en paralelo. Cada una es un count liviano por user_id
-  // con limit 1 (excepto las que necesitan filtros). Ningún COUNT exacto —
-  // solo necesitamos saber si hay AL MENOS UNO.
   const [
     stmtRes,
-    invRes,
+    invVentaRes,
+    invCompraRes,
     matchedTxRes,
     siigoRes,
     initialRes,
+    profileRes,
+    categorizedTxRes,
+    collabRes,
   ] = await Promise.all([
-    // 1. Extracto procesado con transacciones
+    // 1. Extracto bancario procesado
     supabase
       .from('bank_statements')
       .select('id', { count: 'exact', head: true })
@@ -215,13 +218,21 @@ async function computeChecklist(userId: string): Promise<ChecklistState> {
       .eq('processed', true)
       .is('deleted_at', null)
       .limit(1),
-    // 2. Al menos una factura
+    // 2. Factura de venta
     supabase
       .from('invoices')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
+      .eq('type', 'venta')
       .limit(1),
-    // 3. Al menos una transacción vinculada a factura
+    // 3. Factura de compra
+    supabase
+      .from('invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('type', 'compra')
+      .limit(1),
+    // 4. Transacción vinculada a factura
     supabase
       .from('transactions')
       .select('id', { count: 'exact', head: true })
@@ -229,37 +240,61 @@ async function computeChecklist(userId: string): Promise<ChecklistState> {
       .is('deleted_at', null)
       .not('invoice_id', 'is', null)
       .limit(1),
-    // 4. Siigo conectado (existe credencial)
+    // 5. Siigo conectado
     supabase
       .from('user_siigo_credentials' as any)
       .select('user_id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .limit(1),
-    // 5. Estado financiero inicial configurado (al menos 1 detalle)
+    // 6. Estado inicial configurado
     supabase
       .from('initial_state_details' as any)
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .limit(1),
+    // 7. ReteICA configurado (rate > 0)
+    supabase
+      .from('profiles')
+      .select('reteica_rate')
+      .eq('user_id', userId)
+      .maybeSingle(),
+    // 8. Categorizar 5+ transacciones (count exact con head para no traer rows)
+    supabase
+      .from('transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .not('category_id', 'is', null),
+    // 9. Colaborador agregado
+    supabase
+      .from('collaborators')
+      .select('id', { count: 'exact', head: true })
+      .eq('owner_user_id', userId)
+      .limit(1),
   ]);
 
   const stmtCount = stmtRes.count ?? 0;
-  const invCount = invRes.count ?? 0;
+  const invVentaCount = invVentaRes.count ?? 0;
+  const invCompraCount = invCompraRes.count ?? 0;
   const matchedTxCount = matchedTxRes.count ?? 0;
   const siigoCount = siigoRes.count ?? 0;
   const initialCount = initialRes.count ?? 0;
+  const reteicaRate = Number((profileRes.data as any)?.reteica_rate ?? 0);
+  const categorizedCount = categorizedTxRes.count ?? 0;
+  const collabCount = collabRes.count ?? 0;
 
-  // dian_reviewed: flag local en localStorage. Marcarlo cuando el user
-  // visita /financial-health (lo hacemos en VisitaDIAN.tsx). No hay un
-  // dato canónico en DB para esto.
   const dianReviewed = localStorage.getItem(`aluminia_dian_reviewed_${userId}`) === '1';
 
   return {
     statement_uploaded: stmtCount > 0,
-    invoice_uploaded: invCount > 0,
+    invoice_venta_uploaded: invVentaCount > 0,
+    invoice_compra_uploaded: invCompraCount > 0,
     invoice_matched: matchedTxCount > 0,
     siigo_connected: siigoCount > 0,
     initial_state_set: initialCount > 0,
+    reteica_configured: reteicaRate > 0,
+    transactions_categorized: categorizedCount >= 5,
+    collaborator_added: collabCount > 0,
     dian_reviewed: dianReviewed,
   };
 }
