@@ -303,13 +303,29 @@ export default function PaymentsLogReport() {
     enabled: !!user && counterparty !== 'all',
   });
 
-  // Movimientos del periodo
+  // Movimientos del periodo — solo de categorías "Venta" o "Compra".
+  // Excluye gastos operativos, impuestos, nómina, etc. — esos no entran en
+  // un reporte de "Relación de pagos" comercial.
   const { data, isLoading } = useQuery({
-    queryKey: ['payments-log', user?.id, year, month, typeFilter, counterparty, isGerencial],
+    queryKey: ['payments-log-v2', user?.id, year, month, typeFilter, counterparty, isGerencial],
     queryFn: async (): Promise<PaymentRow[]> => {
       if (!user) return [];
 
-      // Banco: transactions con join a categories/responsibles/invoices
+      // Cargar IDs de categorías que son "venta" o "compra" (con tolerancia).
+      const [{ data: catVentas }, { data: catCompras }] = await Promise.all([
+        supabase.from('categories').select('id').eq('user_id', user.id).ilike('name', '%venta%'),
+        supabase.from('categories').select('id').eq('user_id', user.id).ilike('name', '%compra%'),
+      ]);
+      const validCatIds = new Set<string>();
+      (catVentas ?? []).forEach((c: any) => validCatIds.add(c.id));
+      (catCompras ?? []).forEach((c: any) => validCatIds.add(c.id));
+
+      // Si el user no tiene categorías de venta/compra todavía, devolvemos
+      // vacío. (El dropdown de counterparties ya hace lo mismo.)
+      if (validCatIds.size === 0) return [];
+
+      // Banco: transactions con join a categories/responsibles/invoices,
+      // FILTRADAS por categoría venta/compra.
       const txQuery = supabase
         .from('transactions')
         .select(`
@@ -321,6 +337,7 @@ export default function PaymentsLogReport() {
         .eq('user_id', user.id)
         .is('deleted_at', null)
         .in('type', ['ingreso', 'egreso'])
+        .in('category_id', Array.from(validCatIds))
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: false });
@@ -340,8 +357,9 @@ export default function PaymentsLogReport() {
         counterparty: r.responsibles?.name ?? null, // = beneficiario en conciliación
       }));
 
-      // Efectivo solo en Gerencial. cash_movements no tiene responsible,
-      // así que en filtro por beneficiario NO se incluyen.
+      // Efectivo solo en Gerencial — y solo si la categoría del cash_movement
+      // es "ventas" o "compra" (se filtra en JS porque cash_movements.category
+      // es texto libre, no FK). Excluye nómina, gastos operativos, etc.
       let cashRows: PaymentRow[] = [];
       if (isGerencial && counterparty === 'all') {
         const cashRes = await supabase
@@ -352,18 +370,23 @@ export default function PaymentsLogReport() {
           .lte('date', endDate)
           .order('date', { ascending: false });
         if (!cashRes.error && cashRes.data) {
-          cashRows = (cashRes.data as any[]).map((r) => ({
-            id: `cash-${r.id}`,
-            date: r.date,
-            description: r.notes ?? 'Movimiento en efectivo',
-            type: r.type as 'ingreso' | 'egreso',
-            amount: Math.abs(Number(r.amount ?? 0)),
-            source: 'efectivo',
-            category: r.category ?? null,
-            responsible: null,
-            invoice_ref: null,
-            counterparty: null,
-          }));
+          cashRows = (cashRes.data as any[])
+            .filter((r) => {
+              const cat = (r.category ?? '').toLowerCase();
+              return cat.includes('venta') || cat.includes('compra');
+            })
+            .map((r) => ({
+              id: `cash-${r.id}`,
+              date: r.date,
+              description: r.notes ?? 'Movimiento en efectivo',
+              type: r.type as 'ingreso' | 'egreso',
+              amount: Math.abs(Number(r.amount ?? 0)),
+              source: 'efectivo',
+              category: r.category ?? null,
+              responsible: null,
+              invoice_ref: null,
+              counterparty: null,
+            }));
         }
       }
 
@@ -388,6 +411,31 @@ export default function PaymentsLogReport() {
       { ingresos: 0, egresos: 0 },
     );
   }, [rows]);
+
+  // Totales facturados del periodo (ventas y compras) — para los KPIs de
+  // vista general. Permite comparar "lo que cobré/pagué en banco" vs "lo
+  // que está facturado en DIAN".
+  const { data: invoiceTotals } = useQuery({
+    queryKey: ['payments-log-invoice-totals', user?.id, year, month],
+    queryFn: async () => {
+      if (!user) return { ventas: 0, compras: 0, ventasCount: 0, comprasCount: 0 };
+      const { data: invs } = await supabase
+        .from('invoices')
+        .select('type, total_amount, status')
+        .eq('user_id', user.id)
+        .eq('status', 'confirmed')
+        .gte('issue_date', startDate)
+        .lte('issue_date', endDate);
+      let ventas = 0, compras = 0, ventasCount = 0, comprasCount = 0;
+      (invs ?? []).forEach((i: any) => {
+        const t = Number(i.total_amount ?? 0);
+        if (i.type === 'venta') { ventas += t; ventasCount++; }
+        else if (i.type === 'compra') { compras += t; comprasCount++; }
+      });
+      return { ventas, compras, ventasCount, comprasCount };
+    },
+    enabled: !!user,
+  });
 
   const periodoLabel = month === 0 ? `${year}` : `${MONTH_LABELS[month]} ${year}`;
   const fileSlug = counterparty !== 'all'
@@ -744,50 +792,127 @@ export default function PaymentsLogReport() {
           )}
         </>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Ingresos del periodo</CardTitle>
-              <div className="p-2 rounded-lg bg-success/10">
-                <TrendingUp className="h-4 w-4 text-success" />
+        // Vista general (sin cliente seleccionado).
+        // Muestra DOS bloques de cards: ingresos (banco vs facturado venta)
+        // y egresos (banco vs facturado compra). Permite comparar de un vistazo
+        // si lo cobrado en banco coincide con lo facturado.
+        <>
+          {/* INGRESOS */}
+          {(typeFilter === 'todos' || typeFilter === 'ingreso') && (
+            <div>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
+                <TrendingUp className="h-3.5 w-3.5 text-success" />
+                Ingresos
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total cobrado (banco)</CardTitle>
+                    <div className="p-2 rounded-lg bg-success/10">
+                      <TrendingUp className="h-4 w-4 text-success" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-success">{formatCurrency(totals.ingresos)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {rows.filter((r) => r.type === 'ingreso').length} ingresos en {periodoLabel}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-primary/20 bg-primary/[0.02]">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total facturado (venta)</CardTitle>
+                    <div className="p-2 rounded-lg bg-primary/10">
+                      <Receipt className="h-4 w-4 text-primary" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{formatCurrency(invoiceTotals?.ventas ?? 0)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {invoiceTotals?.ventasCount ?? 0} factura{(invoiceTotals?.ventasCount ?? 0) !== 1 ? 's' : ''} confirmada{(invoiceTotals?.ventasCount ?? 0) !== 1 ? 's' : ''}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Brecha ingresos</CardTitle>
+                    <div className="p-2 rounded-lg bg-amber-500/10">
+                      <ArrowUpDown className="h-4 w-4 text-amber-600" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-2xl font-bold tabular-nums ${
+                      (invoiceTotals?.ventas ?? 0) - totals.ingresos > 0 ? 'text-amber-600' : 'text-success'
+                    }`}>
+                      {formatCurrency(Math.max(0, (invoiceTotals?.ventas ?? 0) - totals.ingresos))}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Facturado − cobrado (pendiente o no conciliado)
+                    </p>
+                  </CardContent>
+                </Card>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-success">{formatCurrency(totals.ingresos)}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {rows.filter((r) => r.type === 'ingreso').length} movimientos
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Egresos del periodo</CardTitle>
-              <div className="p-2 rounded-lg bg-destructive/10">
-                <TrendingDown className="h-4 w-4 text-destructive" />
+            </div>
+          )}
+
+          {/* EGRESOS */}
+          {(typeFilter === 'todos' || typeFilter === 'egreso') && (
+            <div>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
+                <TrendingDown className="h-3.5 w-3.5 text-destructive" />
+                Egresos
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total pagado (banco)</CardTitle>
+                    <div className="p-2 rounded-lg bg-destructive/10">
+                      <TrendingDown className="h-4 w-4 text-destructive" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-destructive">{formatCurrency(totals.egresos)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {rows.filter((r) => r.type === 'egreso').length} egresos en {periodoLabel}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-primary/20 bg-primary/[0.02]">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total facturado (compra)</CardTitle>
+                    <div className="p-2 rounded-lg bg-primary/10">
+                      <Receipt className="h-4 w-4 text-primary" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{formatCurrency(invoiceTotals?.compras ?? 0)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {invoiceTotals?.comprasCount ?? 0} factura{(invoiceTotals?.comprasCount ?? 0) !== 1 ? 's' : ''} confirmada{(invoiceTotals?.comprasCount ?? 0) !== 1 ? 's' : ''}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Brecha egresos</CardTitle>
+                    <div className="p-2 rounded-lg bg-amber-500/10">
+                      <ArrowUpDown className="h-4 w-4 text-amber-600" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-2xl font-bold tabular-nums ${
+                      (invoiceTotals?.compras ?? 0) - totals.egresos > 0 ? 'text-amber-600' : 'text-success'
+                    }`}>
+                      {formatCurrency(Math.max(0, (invoiceTotals?.compras ?? 0) - totals.egresos))}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Facturado − pagado (pendiente o no conciliado)
+                    </p>
+                  </CardContent>
+                </Card>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-destructive">{formatCurrency(totals.egresos)}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {rows.filter((r) => r.type === 'egreso').length} movimientos
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Neto del periodo</CardTitle>
-              <div className="p-2 rounded-lg bg-primary/10">
-                <ArrowUpDown className="h-4 w-4 text-primary" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${(totals.ingresos - totals.egresos) >= 0 ? 'text-success' : 'text-destructive'}`}>
-                {(totals.ingresos - totals.egresos) >= 0 ? '+' : ''}{formatCurrency(totals.ingresos - totals.egresos)}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Ingresos − egresos</p>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Tabla */}
