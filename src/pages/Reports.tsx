@@ -4,11 +4,12 @@ import AdvancesReport from '@/components/reports/AdvancesReport';
 import AccountsReceivableReport from '@/components/reports/AccountsReceivableReport';
 import AccountsPayableReport from '@/components/reports/AccountsPayableReport';
 import CashFlowReport from '@/components/reports/CashFlowReport';
+import PaymentsLogReport from '@/components/reports/PaymentsLogReport';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Loader2, Crown, TrendingUp, ArrowDownUp, HandCoins, ReceiptText, Wallet } from 'lucide-react';
+import { Lock, Loader2, Crown, TrendingUp, ArrowDownUp, HandCoins, ReceiptText, Wallet, ListChecks } from 'lucide-react';
 
-type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp' | 'caja';
+type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp' | 'caja' | 'pagos';
 
 const BRAND = 'oklch(0.43 0.14 155)';
 const INK = '#1d1d1f';
@@ -62,6 +63,14 @@ const TABS: Record<ReportTab, {
     color: 'oklch(0.55 0.16 150)',
     bg: 'linear-gradient(135deg, oklch(0.55 0.16 150 / 0.18), oklch(0.65 0.13 160 / 0.06))',
     border: '1px solid oklch(0.55 0.16 150 / 0.22)',
+  },
+  pagos: {
+    title: 'Relación de pagos',
+    hint: 'Historial completo de movimientos: ingresos y egresos exportables.',
+    icon: ListChecks,
+    color: 'oklch(0.50 0.14 290)',
+    bg: 'linear-gradient(135deg, oklch(0.55 0.16 290 / 0.18), oklch(0.65 0.12 280 / 0.06))',
+    border: '1px solid oklch(0.55 0.16 290 / 0.22)',
   },
 };
 
@@ -199,6 +208,7 @@ export default function Reports({ tab = 'pyg' }: Props) {
         {tab === 'cxc' && <AccountsReceivableReport />}
         {tab === 'cxp' && <AccountsPayableReport />}
         {tab === 'caja' && <CashFlowReport />}
+        {tab === 'pagos' && <PaymentsLogReport />}
       </div>
     </AppLayout>
   );

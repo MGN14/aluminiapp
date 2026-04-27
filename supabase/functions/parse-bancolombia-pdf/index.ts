@@ -259,55 +259,121 @@ RESPONDE ÚNICAMENTE con un JSON válido con esta estructura exacta:
 NO incluyas explicaciones, solo el JSON.
 IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año actual.`;
 
-    console.log("Calling Lovable AI for PDF extraction...");
-    
-    const aiResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        // gemini-2.0-flash: 1500 RPD / 15 RPM free tier (6x más que 2.5-flash).
-        model: "gemini-2.0-flash",
+    console.log("Calling Gemini for PDF extraction...");
+
+    // [v2] Estrategia multi-modelo + retry contra 429 (rate limit free-tier)
+    // y 5xx transitorios. Patrón calcado de nico-chat — en demos en vivo
+    // pegamos el techo de 15 RPM y antes propagábamos el 429 al usuario sin
+    // reintentar. Ahora:
+    //   1. gemini-2.0-flash (primario, 15 RPM / 1500 RPD) hasta 3 intentos
+    //      con backoff corto.
+    //   2. Si siempre falla, UN intento con gemini-2.5-flash (pool aparte:
+    //      10 RPM / 250 RPD). Cuando un pool está saturado el otro suele
+    //      responder.
+    //   3. Si ambos fallan, mensaje claro al usuario.
+    //
+    // Worst case: ~2.1s primario + ~0.5s fallback = ~3-4s total. Vale el
+    // tradeoff vs un demo roto.
+    const PRIMARY_MODEL = "gemini-2.0-flash";
+    const FALLBACK_MODEL = "gemini-2.5-flash";
+    const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+
+    function buildBody(model: string): string {
+      return JSON.stringify({
+        model,
         messages: [
           { role: "system", content: systemPrompt },
-          { 
-            role: "user", 
+          {
+            role: "user",
             content: [
               {
                 type: "text",
-                text: "Extrae todas las transacciones de este extracto bancario de Bancolombia. IMPORTANTE: Identifica el periodo (mes y año) del extracto y usa ese año para todas las fechas de las transacciones."
+                text: "Extrae todas las transacciones de este extracto bancario de Bancolombia. IMPORTANTE: Identifica el periodo (mes y año) del extracto y usa ese año para todas las fechas de las transacciones.",
               },
               {
                 type: "image_url",
                 image_url: {
-                  url: `data:application/pdf;base64,${base64Pdf}`
-                }
-              }
-            ]
+                  url: `data:application/pdf;base64,${base64Pdf}`,
+                },
+              },
+            ],
           },
         ],
-      }),
-    });
+      });
+    }
+
+    async function callGemini(model: string): Promise<Response> {
+      return await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${GEMINI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: buildBody(model),
+        },
+      );
+    }
+
+    const attempts: Array<{ model: string; delayMs: number; label: string }> = [
+      { model: PRIMARY_MODEL, delayMs: 0, label: "primary-1" },
+      { model: PRIMARY_MODEL, delayMs: 700, label: "primary-2" },
+      { model: PRIMARY_MODEL, delayMs: 1500, label: "primary-3" },
+      { model: FALLBACK_MODEL, delayMs: 500, label: "fallback-1" },
+    ];
+
+    let aiResponse!: Response;
+    let lastStatus = 0;
+    let lastErrorBody = "";
+    let modelUsed = PRIMARY_MODEL;
+
+    for (const { model, delayMs, label } of attempts) {
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+      aiResponse = await callGemini(model);
+      if (aiResponse.ok) {
+        modelUsed = model;
+        if (model !== PRIMARY_MODEL) {
+          console.log(`parse-bancolombia: sirvió con ${model} (fallback OK tras saturación)`);
+        }
+        break;
+      }
+      lastStatus = aiResponse.status;
+      // 4xx no-retryable (401, 403, 400) — corte inmediato, no sirve insistir.
+      if (!RETRYABLE.has(aiResponse.status)) break;
+      lastErrorBody = await aiResponse.text().catch(() => "");
+      console.warn(
+        `parse-bancolombia ${label}: ${model} devolvió ${aiResponse.status}. Siguiente intento…`,
+      );
+    }
 
     if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded, please try again later." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      const finalStatus = lastStatus || aiResponse.status;
+      const errBody = lastErrorBody || (await aiResponse.text().catch(() => ""));
+      console.error(`AI gateway error tras retries (${finalStatus}):`, errBody);
+
+      if (finalStatus === 402) {
+        return new Response(
+          JSON.stringify({ error: "Se requieren créditos adicionales para procesar PDFs. Contactanos para activar el plan completo." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
-      if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required, please add credits." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+
+      let userMsg: string;
+      if (finalStatus === 429) {
+        userMsg = "Estamos procesando muchos PDFs ahora mismo. Probamos automáticamente con un modelo alternativo y también está ocupado — esperá 1–2 minutos y volvelo a intentar.";
+      } else if (RETRYABLE.has(finalStatus)) {
+        userMsg = "El servicio de extracción está saturado en este momento. Intentá de nuevo en unos segundos.";
+      } else {
+        userMsg = `No pudimos procesar el PDF. Si el problema persiste, escribinos. (cód: gemini-${finalStatus})`;
       }
-      const errorText = await aiResponse.text();
-      console.error("AI gateway error:", aiResponse.status, errorText);
-      throw new Error("Error processing PDF. Please try again.");
+
+      return new Response(
+        JSON.stringify({ error: userMsg }),
+        { status: finalStatus === 429 ? 429 : 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
+    console.log(`parse-bancolombia: OK con ${modelUsed}`);
 
     const aiResult = await aiResponse.json();
     const content = aiResult.choices?.[0]?.message?.content;

@@ -221,6 +221,7 @@ export default function Signup() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -243,6 +244,10 @@ export default function Signup() {
     const evaluation = evaluatePassword(password);
     if (!evaluation.valid) {
       setError('Tu contraseña no cumple con todos los requisitos. Revisa la lista.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden. Revisá el campo de confirmación.');
       return;
     }
     if (!captchaToken) {
@@ -673,6 +678,42 @@ export default function Signup() {
               <div style={{ marginTop: 8 }}>
                 <PasswordRequirements password={password} showWhenEmpty />
               </div>
+            </div>
+
+            {/* Confirm password */}
+            <div
+              style={{
+                animation: 'fieldIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.20s both',
+                opacity: 0,
+              }}
+            >
+              <label
+                htmlFor="confirm-password"
+                style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#1d1d1f', marginBottom: 6 }}
+              >
+                Confirmar contraseña
+              </label>
+              <input
+                id="confirm-password"
+                type="password"
+                placeholder="Repetí la contraseña"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                style={inputBaseStyle}
+                onFocus={(e) => applyInputFocus(e.currentTarget)}
+                onBlur={(e) => applyInputBlur(e.currentTarget)}
+              />
+              {confirmPassword.length > 0 && password !== confirmPassword && (
+                <p style={{ marginTop: 6, fontSize: 12, color: '#dc2626' }}>
+                  Las contraseñas no coinciden.
+                </p>
+              )}
+              {confirmPassword.length > 0 && password === confirmPassword && password.length > 0 && (
+                <p style={{ marginTop: 6, fontSize: 12, color: '#16a34a' }}>
+                  Coinciden ✓
+                </p>
+              )}
             </div>
 
             <div

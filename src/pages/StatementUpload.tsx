@@ -89,12 +89,9 @@ export default function StatementUpload() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
 
-        if (response.status === 429) {
-          throw new Error('Límite de solicitudes excedido. Intenta de nuevo en unos minutos.');
-        }
-        if (response.status === 402) {
-          throw new Error('Se requiere agregar créditos para continuar procesando.');
-        }
+        // El edge function ya devuelve mensajes en español, accionables y
+        // específicos. Lo único que interceptamos en el cliente es el caso
+        // del límite de plan (403 + limit_exceeded) que requiere navegación.
         if (response.status === 403 && errorData.limit_exceeded) {
           toast({
             title: 'Límite alcanzado',
@@ -105,7 +102,9 @@ export default function StatementUpload() {
           return;
         }
 
-        throw new Error(errorData.error || 'Error al procesar el PDF');
+        // Para 429/402/503/etc usamos el mensaje del edge function
+        // (más informativo que un genérico).
+        throw new Error(errorData.error || 'No pudimos procesar el PDF. Probá de nuevo en unos segundos.');
       }
 
       const result = await response.json();

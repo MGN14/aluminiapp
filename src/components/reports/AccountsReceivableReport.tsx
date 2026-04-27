@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useModuleContext } from '@/hooks/useModuleContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -9,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MONTH_NAMES } from '@/types/transaction';
 import { parseLocalDate } from '@/lib/dateUtils';
-import { Receipt, AlertCircle, Info, Lightbulb, CheckCircle2, ChevronDown, ChevronRight, Banknote, ShieldCheck, History, Link2 } from 'lucide-react';
+import { Receipt, AlertCircle, Info, Lightbulb, CheckCircle2, ChevronDown, ChevronRight, Banknote, ShieldCheck, History, Link2, Wallet } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -75,6 +76,7 @@ interface VincularSaldoInicialTarget {
 
 export default function AccountsReceivableReport() {
   const { user } = useAuth();
+  const { isGerencial } = useModuleContext();
   const [year, setYear] = useState(currentYear);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [vincularInvoice, setVincularInvoice] = useState<InvoiceWithPayments | null>(null);
@@ -349,6 +351,36 @@ export default function AccountsReceivableReport() {
     return (data?.receivables || []).reduce((s, r) => s + r.pending, 0) + initialCxC;
   }, [data, initialCxC]);
 
+  // Solo en Gerencial: cobros en efectivo del año (ingresos manuales en
+  // cash_movements). No se vinculan a una factura específica todavía — los
+  // mostramos como una "bolsa" complementaria que ajusta la cartera real
+  // estimada. Si el cliente cobró en efectivo, parte de su CxC oficial
+  // está en realidad cobrada.
+  const { data: cashIncomeYear } = useQuery({
+    queryKey: ['ar-cash-income', user?.id, year, isGerencial],
+    queryFn: async () => {
+      if (!user || !isGerencial) return 0;
+      const { data, error } = await supabase
+        .from('cash_movements')
+        .select('amount')
+        .eq('user_id', user.id)
+        .eq('type', 'ingreso')
+        .gte('date', `${year}-01-01`)
+        .lte('date', `${year}-12-31`);
+      if (error) return 0;
+      return (data ?? []).reduce((s, r: any) => s + Number(r.amount ?? 0), 0);
+    },
+    enabled: !!user && isGerencial,
+  });
+
+  const cobrosEfectivo = cashIncomeYear ?? 0;
+  // Cartera real estimada: cartera oficial menos cobros en efectivo, sin
+  // bajar de cero. Es una heurística — se vuelve exacta cuando el cliente
+  // vincula manualmente cada cobro a su factura desde Movimientos.
+  const carteraReal = isGerencial
+    ? Math.max(0, totalPending - cobrosEfectivo)
+    : totalPending;
+
   const paidInvoices = useMemo(() => {
     return (data?.allReceivables || []).filter(r => r.pending <= 0);
   }, [data]);
@@ -439,21 +471,74 @@ export default function AccountsReceivableReport() {
           </CardHeader>
         </Card>
 
-        {/* KPI */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total de lo que me deben</CardTitle>
-            <div className="p-2 rounded-lg bg-destructive/10">
-              <Receipt className="h-4 w-4 text-destructive" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive">{formatCurrency(totalPending)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {data?.receivables.length ?? 0} factura{(data?.receivables.length ?? 0) !== 1 ? 's' : ''} pendientes • {year}
-            </p>
-          </CardContent>
-        </Card>
+        {/* KPIs — en Gerencial mostramos cartera oficial + cobros en efectivo
+            + cartera real estimada. En DIAN solo la oficial. */}
+        <div className={isGerencial ? "grid grid-cols-1 md:grid-cols-3 gap-3" : ""}>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                {isGerencial ? 'Cartera oficial (DIAN)' : 'Total de lo que me deben'}
+              </CardTitle>
+              <div className="p-2 rounded-lg bg-destructive/10">
+                <Receipt className="h-4 w-4 text-destructive" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-destructive">{formatCurrency(totalPending)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {data?.receivables.length ?? 0} factura{(data?.receivables.length ?? 0) !== 1 ? 's' : ''} pendientes • {year}
+              </p>
+            </CardContent>
+          </Card>
+
+          {isGerencial && (
+            <>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Cobrado en efectivo</CardTitle>
+                  <div className="p-2 rounded-lg bg-warning/10">
+                    <Wallet className="h-4 w-4 text-warning" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-warning">{formatCurrency(cobrosEfectivo)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Movimientos en efectivo tipo ingreso • {year}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-success/30 bg-success/[0.02]">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Cartera real estimada</CardTitle>
+                  <div className="p-2 rounded-lg bg-success/10">
+                    <CheckCircle2 className="h-4 w-4 text-success" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-success">{formatCurrency(carteraReal)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Cartera oficial − cobros en efectivo
+                  </p>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
+
+        {isGerencial && cobrosEfectivo > 0 && (
+          <Card className="border-warning/30 bg-warning/[0.04]">
+            <CardContent className="py-3 px-4 flex items-start gap-2 text-xs text-muted-foreground">
+              <Info className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+              <p>
+                <span className="font-medium text-foreground">Cartera real es estimada.</span>{' '}
+                Restamos los cobros en efectivo del total que muestra la DIAN, asumiendo que parte ya está cobrada.
+                Para mayor precisión, vinculá cada movimiento en efectivo a su factura desde el módulo{' '}
+                <span className="font-medium">Movimientos en efectivo</span>.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Suggestions */}
         {(data?.suggestions?.length ?? 0) > 0 && (
