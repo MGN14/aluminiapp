@@ -77,6 +77,21 @@ function slugify(s: string): string {
     .slice(0, 40);
 }
 
+// Normalización fuerte para comparar nombres entre tablas (responsibles vs
+// initial_state_details vs invoices). Quita tildes, sufijos legales (S.A.S,
+// LTDA, S.A.), puntuación, lowercase y trim. Tolera variaciones humanas.
+function normalizeName(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+s\.?a\.?s\.?\s*$/i, '')
+    .replace(/\s+ltda\.?\s*$/i, '')
+    .replace(/\s+s\.?a\.?\s*$/i, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 interface PaymentRow {
   id: string;
   // Para transactions de banco, este campo contiene el id "bank-<uuid>".
@@ -302,14 +317,21 @@ export default function PaymentsLogReport() {
       // Buscamos initial_state_details del responsible:
       //   - Por responsible_id (vínculo exacto) si existe
       //   - O por responsible_name (texto), tolerante a variaciones
+      // Match laxo de filas a un cliente:
+      //   1. responsible_id exacto (si la línea está vinculada por FK)
+      //   2. responsible_name normalizado (sin tildes ni sufijos legales)
+      //      con match exacto, contains o includes-al-revés
+      // Esto cubre: "Aluminios Jh" ↔ "ALUMINIOS JH", "Aluminios Jh SAS",
+      // "Aluminios JH Ltda", "Aluminios Jh.", etc.
+      const targetNorm = normalizeName(counterparty);
       const matchByRespIdOrName = (rows: any[]): any[] => {
-        const target = counterparty.toLowerCase().trim();
         return rows.filter((r) => {
           if (respId && r.responsible_id === respId) return true;
-          const n = (r.responsible_name ?? '').toLowerCase().trim();
+          const raw = (r.responsible_name ?? '').trim();
+          if (!raw) return false;
+          const n = normalizeName(raw);
           if (!n) return false;
-          // Match flexible: nombres iguales o uno contenido en el otro
-          return n === target || n.includes(target) || target.includes(n);
+          return n === targetNorm || n.includes(targetNorm) || targetNorm.includes(n);
         });
       };
 
