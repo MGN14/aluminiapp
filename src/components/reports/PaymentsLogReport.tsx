@@ -218,7 +218,7 @@ export default function PaymentsLogReport() {
   // ser el mismo nombre — pero a veces difieren (ej: la factura dice "PROVIDENCE
   // GROUP S.A.S" y el banco "PROVIDENCE GROUP"). Hacemos match flexible.
   const { data: counterpartySummary } = useQuery({
-    queryKey: ['payments-log-counterparty-summary-v4', user?.id, counterparty, year],
+    queryKey: ['payments-log-counterparty-summary-v5', user?.id, counterparty, year],
     queryFn: async () => {
       if (!user || counterparty === 'all') return null;
 
@@ -365,19 +365,36 @@ export default function PaymentsLogReport() {
       const anticiposProvUnlinked = anticiposProvUnlinkedRows.reduce(
         (s, r) => s + Math.abs(Number(r.amount ?? 0)), 0);
 
-      // Saldo real:
+      // Saldo real — modelo nuevo:
       //   Total a cobrar venta = facturadoVenta + cxcInicial
-      //   Total recibido       = cobrado (pagos vinculados) + anticiposUnlinked
-      //   Pendiente real venta = max(0, total a cobrar − total recibido)
+      //   Total recibido       = TODOS los pagos del banco (movIngresos) +
+      //                          anticipos previos del saldo inicial
+      //   Saldo neto venta     = total a cobrar − total recibido
+      //
+      // Cambio importante (bug reportado por Nico): antes contábamos solo
+      // los pagos vinculados a una factura específica (`cobrado`). Si los
+      // pagos del banco no estaban vinculados, no se descontaban del saldo
+      // y mostrábamos "te debe X" cuando en realidad ya estaba todo cobrado
+      // o incluso recibido por encima.
+      //
+      // Permitimos saldo negativo: significa que recibiste más plata de lo
+      // que facturaste — les tenés que emitir facturas (anticipos vivos).
       const totalACobrar = facturadoVenta + cxcInicial;
-      const totalRecibidoVenta = cobrado + anticiposClienteUnlinked;
-      const pendienteVenta = Math.max(0, totalACobrar - totalRecibidoVenta);
-      // Exceso = nos pagaron más de lo facturado/CxC = anticipo del periodo
-      const excesoCobradoVenta = Math.max(0, totalRecibidoVenta - totalACobrar);
+      const totalRecibidoVenta = movIngresos + anticiposClienteUnlinked;
+      const saldoNetoVenta = totalACobrar - totalRecibidoVenta;
+      // Para retrocompatibilidad mantenemos "pendienteVenta" pero ahora
+      // representa el saldo neto (puede ser negativo).
+      const pendienteVenta = saldoNetoVenta;
+      const excesoCobradoVenta = saldoNetoVenta < 0 ? Math.abs(saldoNetoVenta) : 0;
 
       const totalAPagar = facturadoCompra + cxpInicial;
-      const totalEntregado = anticiposProvUnlinked; // los pagos de banco no se cuentan acá
-      const pendienteCompra = Math.max(0, totalAPagar - totalEntregado);
+      // En el lado compra: el "total entregado" son los egresos al proveedor
+      // por banco + los anticipos a proveedores del saldo inicial.
+      const totalEntregadoCompra = movEgresos + anticiposProvUnlinked;
+      const saldoNetoCompra = totalAPagar - totalEntregadoCompra;
+      const pendienteCompra = saldoNetoCompra;
+      // Si pagaste más de lo facturado, son anticipos a ellos (les pagaste de más)
+      const excesoEntregadoCompra = saldoNetoCompra < 0 ? Math.abs(saldoNetoCompra) : 0;
 
       // Pendiente "general" = el que aplique según haya facturas venta o compra
       const pendiente = facturadoVenta > 0 ? pendienteVenta : pendienteCompra;
@@ -391,6 +408,7 @@ export default function PaymentsLogReport() {
         pendienteVenta,
         pendienteCompra,
         excesoCobradoVenta,
+        excesoEntregadoCompra,
         cxcInicial,
         cxpInicial,
         anticiposClienteUnlinked,
@@ -880,101 +898,107 @@ export default function PaymentsLogReport() {
             </div>
           )}
 
-          {/* Saldo pendiente — composición completa.
-              Caso venta: facturado + CxC inicial − pagos banco − anticipos previos
-              Caso compra: facturado + CxP inicial − anticipos a proveedores entregados */}
-          {counterpartySummary!.hasInvoices && (
-            <Card className={
-              typeFilter === 'egreso'
-                ? "border-destructive/20 bg-destructive/[0.02]"
-                : "border-destructive/20 bg-destructive/[0.02]"
-            }>
-              <CardContent className="py-4 px-5 space-y-3">
-                <div className="flex items-start justify-between gap-4 flex-wrap">
+          {/* Saldo neto del cliente.
+              Puede ser positivo (te deben pagar), 0 (al día) o negativo
+              (te recibieron más de lo facturado → tenés que emitirles facturas).
+              Cambia título, color y mensaje según el signo. */}
+          {counterpartySummary!.hasInvoices && (() => {
+            const isVenta = typeFilter !== 'egreso';
+            const saldo = isVenta ? counterpartySummary!.pendienteVenta : counterpartySummary!.pendienteCompra;
+            // Saldo > 0 → te deben pagar (lado venta) o tenés que pagar (lado compra)
+            // Saldo < 0 → exceso recibido/entregado, hay que emitir/recibir factura
+            // Saldo = 0 → cuentas al día
+            let titulo: string;
+            let mensaje: string;
+            let color: 'destructive' | 'warning' | 'success';
+            if (Math.abs(saldo) < 1) {
+              titulo = 'Cuentas al día';
+              mensaje = 'No hay saldos pendientes en ninguna dirección.';
+              color = 'success';
+            } else if (saldo > 0) {
+              titulo = isVenta ? 'Te deben (saldo por cobrar)' : 'Le debés (saldo por pagar)';
+              mensaje = isVenta
+                ? `${counterparty} todavía no terminó de pagarte el total facturado.`
+                : `Todavía no terminaste de pagarle a ${counterparty} el total facturado.`;
+              color = 'destructive';
+            } else {
+              titulo = isVenta
+                ? 'Pendiente de facturarles'
+                : 'Anticipos pagados pendientes de factura';
+              mensaje = isVenta
+                ? `${counterparty} te pagó más de lo que facturaste — tenés que emitirles facturas por la diferencia.`
+                : `Le pagaste a ${counterparty} más de lo facturado — falta que ellos te emitan facturas.`;
+              color = 'warning';
+            }
+
+            const colorClasses = {
+              destructive: { card: 'border-destructive/20 bg-destructive/[0.02]', value: 'text-destructive' },
+              warning: { card: 'border-amber-500/30 bg-amber-500/[0.04]', value: 'text-amber-600' },
+              success: { card: 'border-success/20 bg-success/[0.04]', value: 'text-success' },
+            }[color];
+
+            const recibido = isVenta ? counterpartySummary!.movIngresos : counterpartySummary!.movEgresos;
+            const facturadoLado = isVenta ? counterpartySummary!.facturadoVenta : counterpartySummary!.facturadoCompra;
+            const inicialLado = isVenta ? counterpartySummary!.cxcInicial : counterpartySummary!.cxpInicial;
+            const anticiposLado = isVenta ? counterpartySummary!.anticiposClienteUnlinked : counterpartySummary!.anticiposProvUnlinked;
+            const recibidoLabel = isVenta ? 'Pagos identificados (banco)' : 'Pagos hechos (banco)';
+            const anticiposLabel = isVenta ? 'Anticipos previos (de saldo inicial)' : 'Anticipos pagados (de saldo inicial)';
+
+            return (
+              <Card className={colorClasses.card}>
+                <CardContent className="py-4 px-5 space-y-3">
                   <div>
                     <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                      Saldo pendiente {typeFilter === 'egreso' ? 'a pagar' : 'por cobrar'}
+                      {titulo}
                     </p>
-                    <p className="text-3xl font-bold text-destructive tabular-nums mt-1">
-                      {formatCurrency(typeFilter === 'egreso' ? counterpartySummary!.pendienteCompra : counterpartySummary!.pendienteVenta)}
+                    <p className={`text-3xl font-bold tabular-nums mt-1 ${colorClasses.value}`}>
+                      {formatCurrency(Math.abs(saldo))}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1.5 max-w-2xl">
+                      {mensaje}
                     </p>
                   </div>
-                  {/* Si lo que cobramos en banco supera lo facturado (raro pero pasa
-                      cuando el cliente pagó adelantado), mostramos el exceso como
-                      anticipo nuevo del periodo. Solo aplica al lado venta. */}
-                  {typeFilter !== 'egreso' && counterpartySummary!.excesoCobradoVenta > 0 && (
-                    <div className="text-right">
-                      <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                        Exceso cobrado (anticipo)
-                      </p>
-                      <p className="text-xl font-bold text-success tabular-nums mt-1">
-                        {formatCurrency(counterpartySummary!.excesoCobradoVenta)}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground mt-1 max-w-[200px]">
-                        Te pagaron de más, queda como anticipo para próximas facturas.
-                      </p>
-                    </div>
-                  )}
-                </div>
 
-                {/* Desglose del cálculo */}
-                <div className="text-xs text-muted-foreground bg-background rounded-md p-3 border">
-                  <p className="font-semibold text-foreground mb-1.5 text-[11px] uppercase tracking-wider">Cómo se calcula</p>
-                  {typeFilter !== 'egreso' ? (
+                  {/* Desglose del cálculo — incluye AHORA todos los pagos del banco */}
+                  <div className="text-xs text-muted-foreground bg-background rounded-md p-3 border">
+                    <p className="font-semibold text-foreground mb-1.5 text-[11px] uppercase tracking-wider">Cómo se calcula</p>
                     <ul className="space-y-1 tabular-nums">
                       <li className="flex justify-between">
                         <span>Facturado en {periodoLabel}</span>
-                        <span className="font-medium">{formatCurrency(counterpartySummary!.facturadoVenta)}</span>
+                        <span className="font-medium">{formatCurrency(facturadoLado)}</span>
                       </li>
-                      {counterpartySummary!.cxcInicial > 0 && (
+                      {inicialLado > 0 && (
                         <li className="flex justify-between">
-                          <span>+ Saldo inicial pendiente</span>
-                          <span className="font-medium">{formatCurrency(counterpartySummary!.cxcInicial)}</span>
+                          <span>+ {isVenta ? 'Saldo inicial por cobrar' : 'Saldo inicial por pagar'}</span>
+                          <span className="font-medium">{formatCurrency(inicialLado)}</span>
                         </li>
                       )}
-                      <li className="flex justify-between text-success">
-                        <span>− Pagos identificados (banco)</span>
-                        <span className="font-medium">{formatCurrency(counterpartySummary!.cobrado)}</span>
-                      </li>
-                      {counterpartySummary!.anticiposClienteUnlinked > 0 && (
+                      {recibido > 0 && (
                         <li className="flex justify-between text-success">
-                          <span>− Anticipos previos (de saldo inicial)</span>
-                          <span className="font-medium">{formatCurrency(counterpartySummary!.anticiposClienteUnlinked)}</span>
+                          <span>− {recibidoLabel}</span>
+                          <span className="font-medium">{formatCurrency(recibido)}</span>
                         </li>
                       )}
-                      <li className="flex justify-between border-t pt-1.5 mt-1 font-semibold text-foreground">
-                        <span>= Saldo pendiente</span>
-                        <span>{formatCurrency(counterpartySummary!.pendienteVenta)}</span>
+                      {anticiposLado > 0 && (
+                        <li className="flex justify-between text-success">
+                          <span>− {anticiposLabel}</span>
+                          <span className="font-medium">{formatCurrency(anticiposLado)}</span>
+                        </li>
+                      )}
+                      <li className={`flex justify-between border-t pt-1.5 mt-1 font-semibold ${colorClasses.value}`}>
+                        <span>
+                          = {saldo > 0 ? 'Saldo pendiente' : saldo < 0 ? 'Saldo a favor del cliente' : 'Saldo cero'}
+                        </span>
+                        <span>
+                          {saldo < 0 ? '−' : ''}{formatCurrency(Math.abs(saldo))}
+                        </span>
                       </li>
                     </ul>
-                  ) : (
-                    <ul className="space-y-1 tabular-nums">
-                      <li className="flex justify-between">
-                        <span>Facturado en {periodoLabel}</span>
-                        <span className="font-medium">{formatCurrency(counterpartySummary!.facturadoCompra)}</span>
-                      </li>
-                      {counterpartySummary!.cxpInicial > 0 && (
-                        <li className="flex justify-between">
-                          <span>+ Saldo inicial a pagar</span>
-                          <span className="font-medium">{formatCurrency(counterpartySummary!.cxpInicial)}</span>
-                        </li>
-                      )}
-                      {counterpartySummary!.anticiposProvUnlinked > 0 && (
-                        <li className="flex justify-between text-success">
-                          <span>− Anticipos pagados (de saldo inicial)</span>
-                          <span className="font-medium">{formatCurrency(counterpartySummary!.anticiposProvUnlinked)}</span>
-                        </li>
-                      )}
-                      <li className="flex justify-between border-t pt-1.5 mt-1 font-semibold text-foreground">
-                        <span>= Saldo pendiente</span>
-                        <span>{formatCurrency(counterpartySummary!.pendienteCompra)}</span>
-                      </li>
-                    </ul>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
         </>
       ) : (
         // Vista general (sin cliente seleccionado).
@@ -1234,10 +1258,13 @@ interface CounterpartySummary {
   facturadoVenta: number;
   facturadoCompra: number;
   cobrado: number;
+  // pendiente* puede ser negativo: significa que se recibió más de lo
+  // facturado (anticipos vivos pendientes de ser facturados).
   pendiente: number;
   pendienteVenta: number;
   pendienteCompra: number;
   excesoCobradoVenta: number;
+  excesoEntregadoCompra: number;
   cxcInicial: number;
   cxpInicial: number;
   anticiposClienteUnlinked: number;
