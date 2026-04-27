@@ -32,6 +32,7 @@ function mapExtracted(draft: Invoice, ed: any): ExtractedInvoiceData {
     issue_date: draft.issue_date || ed.issue_date || '',
     due_date: draft.due_date || ed.due_date || null,
     counterparty_name: draft.counterparty_name || ed.counterparty_name || '',
+    responsible_id: draft.responsible_id ?? null,
     counterparty_nit: draft.counterparty_nit || ed.counterparty_nit || '',
     seller_name: draft.seller_name || ed.seller_name || '',
     seller_nit: draft.seller_nit || ed.seller_nit || '',
@@ -55,7 +56,8 @@ function emptyExtracted(): ExtractedInvoiceData {
     seller_name: '', seller_nit: '', buyer_name: '', buyer_nit: '',
     city: '', subtotal_base: 0, iva_rate: 0.19, iva_amount: 0,
     total_amount: 0, cufe: '', payment_method: '', items: [],
-  };
+    responsible_id: null,
+  } as any;
 }
 
 export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resumeDraft }: Props) {
@@ -369,6 +371,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
             due_date: data.due_date,
             counterparty_name: data.counterparty_name,
             counterparty_nit: data.counterparty_nit,
+            responsible_id: (data as any).responsible_id ?? null,
             seller_name: data.seller_name,
             seller_nit: data.seller_nit,
             buyer_name: data.buyer_name,
@@ -429,6 +432,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
             due_date: data.due_date,
             counterparty_name: data.counterparty_name,
             counterparty_nit: data.counterparty_nit,
+            responsible_id: (data as any).responsible_id ?? null,
             seller_name: data.seller_name,
             seller_nit: data.seller_nit,
             buyer_name: data.buyer_name,

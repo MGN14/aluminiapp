@@ -194,7 +194,7 @@ export default function PaymentsLogReport() {
   // ser el mismo nombre — pero a veces difieren (ej: la factura dice "PROVIDENCE
   // GROUP S.A.S" y el banco "PROVIDENCE GROUP"). Hacemos match flexible.
   const { data: counterpartySummary } = useQuery({
-    queryKey: ['payments-log-counterparty-summary-v2', user?.id, counterparty, year],
+    queryKey: ['payments-log-counterparty-summary-v3', user?.id, counterparty, year],
     queryFn: async () => {
       if (!user || counterparty === 'all') return null;
 
@@ -208,13 +208,14 @@ export default function PaymentsLogReport() {
       let movIngresos = 0;
       let movEgresos = 0;
       let movCount = 0;
-      if (resp?.id) {
+      const respId: string | null = resp?.id ?? null;
+      if (respId) {
         const { data: txs } = await supabase
           .from('transactions')
           .select('amount, type')
           .eq('user_id', user.id)
           .is('deleted_at', null)
-          .eq('responsible_id', resp.id)
+          .eq('responsible_id', respId)
           .gte('date', `${year}-01-01`)
           .lte('date', `${year}-12-31`);
         (txs ?? []).forEach((t: any) => {
@@ -225,16 +226,39 @@ export default function PaymentsLogReport() {
         });
       }
 
-      // 2. Buscar facturas con counterparty_name parecido al nombre del
-      // responsable (case-insensitive, allow partial match). Separamos
-      // venta y compra para mostrar el correcto según contexto.
-      const { data: invs } = await supabase
+      // 2. Buscar facturas vinculadas a este responsible.
+      //   - Primero: invoices con responsible_id = respId (vínculo EXACTO,
+      //     hecho desde el formulario de edición de factura).
+      //   - Después: fallback a ilike por counterparty_name para facturas
+      //     viejas que aún no fueron vinculadas. Hacemos UNION en JS,
+      //     deduplicando por id.
+      let invs: any[] = [];
+      if (respId) {
+        const { data: linkedInvs } = await supabase
+          .from('invoices')
+          .select('id, type, total_amount, counterparty_name, responsible_id')
+          .eq('user_id', user.id)
+          .eq('responsible_id', respId)
+          .gte('issue_date', `${year}-01-01`)
+          .lte('issue_date', `${year}-12-31`);
+        invs = linkedInvs ?? [];
+      }
+      // Fallback ilike (solo facturas SIN responsible_id, para no duplicar)
+      const { data: fallbackInvs } = await supabase
         .from('invoices')
-        .select('id, type, total_amount, counterparty_name')
+        .select('id, type, total_amount, counterparty_name, responsible_id')
         .eq('user_id', user.id)
+        .is('responsible_id', null)
         .ilike('counterparty_name', `%${counterparty.split(' ').slice(0, 2).join(' ')}%`)
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
+      const seenIds = new Set(invs.map((i: any) => i.id));
+      (fallbackInvs ?? []).forEach((i: any) => {
+        if (!seenIds.has(i.id)) {
+          invs.push(i);
+          seenIds.add(i.id);
+        }
+      });
 
       const invsVenta = (invs ?? []).filter((i: any) => i.type === 'venta');
       const invsCompra = (invs ?? []).filter((i: any) => i.type === 'compra');

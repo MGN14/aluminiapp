@@ -9,6 +9,12 @@ export interface Invoice {
   due_date: string | null;
   counterparty_name: string | null;
   counterparty_nit: string | null;
+  /**
+   * FK al responsible (cliente/proveedor) asociado a esta factura.
+   * Permite cruzar facturas con movimientos bancarios sin depender del
+   * matching por nombre. Si es NULL, se hace fallback ilike sobre counterparty_name.
+   */
+  responsible_id?: string | null;
   seller_name: string | null;
   seller_nit: string | null;
   buyer_name: string | null;

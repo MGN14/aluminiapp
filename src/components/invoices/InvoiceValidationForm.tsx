@@ -28,6 +28,28 @@ interface FormData extends ExtractedInvoiceData {
   status: string;
   display_name: string;
   dias_credito: number;
+  // FK al responsible (cliente/proveedor) — permite cruzar la factura con
+  // movimientos bancarios sin depender del nombre.
+  responsible_id: string | null;
+}
+
+interface ResponsibleOption {
+  id: string;
+  name: string;
+}
+
+// Normaliza un texto para matching: quita tildes, lowercase, sufijos
+// comunes ("S.A.S", "SAS", "LTDA", "S.A."), espacios extra.
+function normalizeForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+s\.?a\.?s\.?\s*$/i, '')
+    .replace(/\s+ltda\.?\s*$/i, '')
+    .replace(/\s+s\.?a\.?\s*$/i, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 interface Props {
@@ -59,7 +81,74 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
     status: 'draft',
     display_name: suggestedName || (originalFilename?.replace('.pdf', '') || ''),
     dias_credito: 0,
+    responsible_id: (data as any).responsible_id ?? null,
   });
+
+  // Lista de responsibles del usuario para el dropdown
+  const [responsibles, setResponsibles] = useState<ResponsibleOption[]>([]);
+  const [creatingResponsible, setCreatingResponsible] = useState(false);
+  // Auto-suggest: si ya existe un responsible que matchea el counterparty_name,
+  // lo seleccionamos al cargar (solo si no hay responsible_id ya guardado).
+  const autoSuggestRef = useRef(false);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('responsibles')
+      .select('id, name')
+      .eq('user_id', user.id)
+      .eq('active', true)
+      .order('name')
+      .then(({ data: rows }) => {
+        if (rows) setResponsibles(rows as any);
+      });
+  }, [user]);
+
+  // Auto-sugerir responsible cuando counterparty_name matchea con uno
+  // existente (case + tildes + sufijos tolerantes). Solo dispara una vez,
+  // y solo si la factura aún NO tiene responsible_id asignado.
+  useEffect(() => {
+    if (autoSuggestRef.current) return;
+    if (!form.counterparty_name || responsibles.length === 0) return;
+    if (form.responsible_id) {
+      autoSuggestRef.current = true;
+      return;
+    }
+    const target = normalizeForMatch(form.counterparty_name);
+    if (!target) return;
+    // Match: el nombre del responsible normalizado contiene el counterparty
+    // o viceversa (cubre "Aluminios Ferromendez" ↔ "Aluminios Ferromendez SAS")
+    const found = responsibles.find(r => {
+      const n = normalizeForMatch(r.name);
+      return n === target || n.includes(target) || target.includes(n);
+    });
+    if (found) {
+      setForm(prev => ({ ...prev, responsible_id: found.id }));
+      autoSuggestRef.current = true;
+    }
+  }, [form.counterparty_name, responsibles, form.responsible_id]);
+
+  // Crear un responsible nuevo on-the-fly con el nombre del counterparty
+  const handleCreateResponsibleFromCounterparty = useCallback(async () => {
+    if (!user || !form.counterparty_name.trim()) return;
+    setCreatingResponsible(true);
+    try {
+      const { data: created, error } = await supabase
+        .from('responsibles')
+        .insert({ user_id: user.id, name: form.counterparty_name.trim(), active: true })
+        .select('id, name')
+        .single();
+      if (error) throw error;
+      if (created) {
+        setResponsibles(prev => [...prev, created as any].sort((a, b) => a.name.localeCompare(b.name, 'es')));
+        setForm(prev => ({ ...prev, responsible_id: (created as any).id }));
+      }
+    } catch (err) {
+      console.error('Error creating responsible:', err);
+    } finally {
+      setCreatingResponsible(false);
+    }
+  }, [user, form.counterparty_name]);
 
   // Fetch tax_settings once and auto-populate rates + recalculate amounts
   useEffect(() => {
@@ -209,6 +298,57 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
         <div>
           <Label>NIT</Label>
           <Input value={form.counterparty_nit} onChange={e => update('counterparty_nit', e.target.value)} />
+        </div>
+        {/* Vinculación con beneficiario del banco — atado a tabla responsibles.
+            Permite cruzar la factura con movimientos bancarios por FK exacta
+            en vez de matching por nombre. */}
+        <div className="sm:col-span-2">
+          <Label className="flex items-center gap-2">
+            Vincular con beneficiario del banco
+            <span className="text-[11px] font-normal text-muted-foreground">
+              (opcional pero muy recomendado para reportes precisos)
+            </span>
+          </Label>
+          <div className="flex gap-2 mt-1">
+            <Select
+              value={form.responsible_id ?? '__none__'}
+              onValueChange={(v) => update('responsible_id', v === '__none__' ? null : v)}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder="Sin vincular" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Sin vincular</SelectItem>
+                {responsibles.map(r => (
+                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {form.counterparty_name.trim() && !responsibles.some(r => normalizeForMatch(r.name) === normalizeForMatch(form.counterparty_name)) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCreateResponsibleFromCounterparty}
+                disabled={creatingResponsible}
+                className="whitespace-nowrap"
+              >
+                {creatingResponsible ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '+'}
+                Crear "{form.counterparty_name.length > 20 ? form.counterparty_name.slice(0, 20) + '…' : form.counterparty_name}"
+              </Button>
+            )}
+          </div>
+          {form.responsible_id && (
+            <p className="text-[11px] text-success mt-1 flex items-center gap-1">
+              <CheckCircle className="h-3 w-3" />
+              Vinculado · los pagos del banco a este beneficiario se asocian automáticamente.
+            </p>
+          )}
+          {!form.responsible_id && form.counterparty_name && (
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Si no vinculás, el reporte intenta el cruce por nombre (puede fallar con abreviaciones o variaciones).
+            </p>
+          )}
         </div>
       </div>
 
