@@ -43,8 +43,10 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   Download, Share2, Filter, TrendingUp, TrendingDown, ArrowUpDown,
-  Banknote, Wallet, Mail, MessageCircle, Loader2, User, Receipt,
+  Banknote, Wallet, Mail, MessageCircle, Loader2, User, Receipt, Link2,
 } from 'lucide-react';
+import VincularFacturaTxModal from './VincularFacturaTxModal';
+import { useQueryClient } from '@tanstack/react-query';
 
 const currentYear = new Date().getFullYear();
 const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - i);
@@ -77,6 +79,9 @@ function slugify(s: string): string {
 
 interface PaymentRow {
   id: string;
+  // Para transactions de banco, este campo contiene el id "bank-<uuid>".
+  // Para vincular a factura necesitamos el uuid limpio:
+  rawTxId: string | null;
   date: string;
   description: string;
   type: 'ingreso' | 'egreso';
@@ -84,6 +89,7 @@ interface PaymentRow {
   source: 'banco' | 'efectivo';
   category: string | null;
   responsible: string | null;
+  responsible_id: string | null;
   invoice_ref: string | null;
   counterparty: string | null;
 }
@@ -103,6 +109,9 @@ export default function PaymentsLogReport() {
   const [typeFilter, setTypeFilter] = useState<FilterType>('todos');
   const [counterparty, setCounterparty] = useState<string>('all'); // 'all' | <name>
   const [emailModalOpen, setEmailModalOpen] = useState(false);
+  // Vincular factura a movimiento desde acá: track de qué fila estamos vinculando
+  const [linkingTx, setLinkingTx] = useState<PaymentRow | null>(null);
+  const queryClient = useQueryClient();
 
   const startDate = month === 0 ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
   const endDate = (() => {
@@ -404,7 +413,7 @@ export default function PaymentsLogReport() {
         .select(`
           id, date, description, type, amount, category_id, responsible_id, invoice_id,
           categories ( name ),
-          responsibles ( name ),
+          responsibles ( id, name ),
           invoices ( invoice_number, counterparty_name )
         `)
         .eq('user_id', user.id)
@@ -419,6 +428,7 @@ export default function PaymentsLogReport() {
 
       const bankRows: PaymentRow[] = (txResult.data ?? []).map((r: any) => ({
         id: `bank-${r.id}`,
+        rawTxId: r.id,
         date: r.date,
         description: r.description ?? 'Sin descripción',
         type: r.type as 'ingreso' | 'egreso',
@@ -426,6 +436,7 @@ export default function PaymentsLogReport() {
         source: 'banco',
         category: r.categories?.name ?? null,
         responsible: r.responsibles?.name ?? null,
+        responsible_id: r.responsible_id ?? null,
         invoice_ref: r.invoices?.invoice_number ?? null,
         counterparty: r.responsibles?.name ?? null, // = beneficiario en conciliación
       }));
@@ -450,6 +461,7 @@ export default function PaymentsLogReport() {
             })
             .map((r) => ({
               id: `cash-${r.id}`,
+              rawTxId: null,
               date: r.date,
               description: r.notes ?? 'Movimiento en efectivo',
               type: r.type as 'ingreso' | 'egreso',
@@ -457,6 +469,7 @@ export default function PaymentsLogReport() {
               source: 'efectivo',
               category: r.category ?? null,
               responsible: null,
+              responsible_id: null,
               invoice_ref: null,
               counterparty: null,
             }));
@@ -1120,7 +1133,23 @@ export default function PaymentsLogReport() {
                         </TableCell>
                       )}
                       <TableCell className="text-xs text-muted-foreground">
-                        {r.invoice_ref ? `#${r.invoice_ref}` : '—'}
+                        {r.invoice_ref ? (
+                          <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                            <Link2 className="h-3 w-3" />#{r.invoice_ref}
+                          </span>
+                        ) : r.source === 'banco' && r.rawTxId ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[11px] text-primary hover:text-primary hover:bg-primary/10 gap-1"
+                            onClick={() => setLinkingTx(r)}
+                          >
+                            <Link2 className="h-3 w-3" />
+                            Vincular
+                          </Button>
+                        ) : (
+                          '—'
+                        )}
                       </TableCell>
                       <TableCell
                         className={`text-right font-medium tabular-nums ${
@@ -1137,6 +1166,27 @@ export default function PaymentsLogReport() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Modal vincular tx ↔ factura */}
+      <VincularFacturaTxModal
+        open={linkingTx !== null}
+        onOpenChange={(o) => !o && setLinkingTx(null)}
+        tx={linkingTx ? {
+          id: linkingTx.rawTxId!,
+          date: linkingTx.date,
+          description: linkingTx.description,
+          amount: linkingTx.amount,
+          type: linkingTx.type,
+          counterparty: linkingTx.counterparty,
+          responsibleId: linkingTx.responsible_id,
+        } : null}
+        onSuccess={() => {
+          // Invalidar queries del reporte para refrescar la fila y el saldo
+          queryClient.invalidateQueries({ queryKey: ['payments-log-v2'] });
+          queryClient.invalidateQueries({ queryKey: ['payments-log-counterparty-summary-v4'] });
+          queryClient.invalidateQueries({ queryKey: ['payments-log-invoice-totals'] });
+        }}
+      />
 
       {/* Modal email */}
       <EmailModal
