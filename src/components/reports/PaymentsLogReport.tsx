@@ -23,7 +23,7 @@
 //     para que él elija el contacto. El Excel se descarga en paralelo
 //     y el usuario lo arrastra al chat manualmente.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import writeXlsxFile from 'write-excel-file';
 import { supabase } from '@/integrations/supabase/client';
