@@ -43,7 +43,26 @@ const CashMovements = lazy(() => import("./pages/CashMovements"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+// Defaults amigables para sesiones largas:
+//   - refetchOnWindowFocus: false → cuando el usuario vuelve a la pestaña
+//     después de un rato, NO refrescamos las queries. Antes esto causaba
+//     que se reseteara la UI (filtros que se "perdían" visualmente, parpadeos).
+//     Los filtros locales (useState) se mantienen intactos.
+//   - staleTime: 60s → la data se considera fresca por 1 minuto. Evita
+//     refetches innecesarios al navegar entre páginas.
+//   - gcTime: 5min → mantenemos el cache 5 min después de unmount, así si
+//     volvés a la página, los datos aparecen instantáneos.
+//   - retry: 1 → un solo reintento ante fallo de red, en vez de 3 (default).
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      retry: 1,
+    },
+  },
+});
 
 const RouteFallback = () => (
   <div className="flex h-screen w-full items-center justify-center">
