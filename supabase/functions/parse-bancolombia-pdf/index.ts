@@ -105,6 +105,13 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // statement_id se declara aquí afuera del try para que el catch global pueda
+  // marcar processing_error cuando algo falla a mitad de proceso. Antes el catch
+  // hacía `req.json()` de nuevo (bug: el body ya está consumido), así que el
+  // statement quedaba en limbo: ni processed=true ni processing_error → invisible
+  // para el usuario y la lista de conciliación se veía vacía.
+  let capturedStatementId: string | null = null;
+
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -139,7 +146,8 @@ serve(async (req) => {
     }
 
     const { file_path, statement_id } = await req.json();
-    
+    capturedStatementId = statement_id ?? null;
+
     if (!file_path || !statement_id) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -415,6 +423,25 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
     console.log(`Extracted period: ${statementMonth}/${statementYear}`);
     console.log(`Extracted ${parsed.transactions.length} transactions`);
 
+    // Defensa: si Gemini devolvió 0 transacciones (PDF escaneado borroso, página
+    // protegida, formato no estándar) marcamos el statement con un error
+    // explícito en vez de dejarlo "procesado pero vacío" — eso confundía al
+    // usuario porque la lista de conciliación quedaba sin transacciones.
+    if (parsed.transactions.length === 0) {
+      const errMsg =
+        "El PDF se procesó pero no encontramos transacciones. " +
+        "Puede ser un extracto sin movimientos, una página escaneada borrosa, " +
+        "o un formato que el modelo no reconoció. Probá subirlo de nuevo o contactanos con el archivo.";
+      await supabase
+        .from("bank_statements")
+        .update({ processing_error: errMsg })
+        .eq("id", statement_id);
+      return new Response(
+        JSON.stringify({ error: errMsg, transactions_count: 0 }),
+        { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // Use the user_id from the statement we already fetched at the beginning
 
     // Update statement with period info
@@ -566,13 +593,39 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       };
     });
 
-    const { error: insertError } = await supabase
+    const { data: insertedRows, error: insertError } = await supabase
       .from("transactions")
-      .insert(transactionsToInsert);
+      .insert(transactionsToInsert)
+      .select("id");
 
     if (insertError) {
       console.error("Insert error:", insertError);
+      // Marcamos el statement con error explícito antes de lanzar — el catch
+      // global no debe ser el único que toca processing_error porque acá
+      // tenemos el contexto del error exacto.
+      await supabase
+        .from("bank_statements")
+        .update({ processing_error: `Falló insertar transacciones: ${insertError.message}` })
+        .eq("id", statement_id);
       throw new Error(`Failed to insert transactions: ${insertError.message}`);
+    }
+
+    const actuallyInserted = insertedRows?.length ?? 0;
+    console.log(`Inserted ${actuallyInserted}/${transactionsToInsert.length} transactions`);
+
+    // Defensa: si el insert pasó pero por RLS u otra razón devuelve 0 filas
+    // creadas, también marcamos error. No queremos statements "vacíos" sin
+    // explicación.
+    if (actuallyInserted === 0) {
+      const errMsg = "El PDF se procesó pero no se insertaron transacciones. Revisá los permisos de tu cuenta o contactanos.";
+      await supabase
+        .from("bank_statements")
+        .update({ processing_error: errMsg })
+        .eq("id", statement_id);
+      return new Response(
+        JSON.stringify({ error: errMsg, transactions_count: 0 }),
+        { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // Update statement as processed
@@ -608,24 +661,29 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
     );
   } catch (error) {
     console.error("Parse error:", error);
-    
-    // Update statement with error
-    const { statement_id } = await req.json().catch(() => ({}));
-    if (statement_id) {
+
+    // Bug histórico: acá llamábamos `req.json()` de nuevo, pero el body ya se
+    // había consumido al inicio → statement_id quedaba undefined → el statement
+    // quedaba en limbo (ni processed=true ni processing_error). Ahora usamos
+    // capturedStatementId que se setea apenas leemos el body.
+    const errMsg = error instanceof Error ? error.message : "Unknown error";
+    if (capturedStatementId) {
       const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
       const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
       if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
         await supabase
           .from("bank_statements")
-          .update({ processing_error: error instanceof Error ? error.message : "Unknown error" })
-          .eq("id", statement_id);
+          .update({ processing_error: errMsg })
+          .eq("id", capturedStatementId);
       }
     }
 
     return new Response(
-      JSON.stringify({ error: "Error processing PDF. Please try again." }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        error: `Hubo un error procesando el extracto. Revisá la última fila en la lista — debería tener el detalle. (${errMsg.slice(0, 80)})`,
+      }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

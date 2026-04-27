@@ -415,6 +415,22 @@ export default function StatementUpload() {
                             ? ` · ${statement.transaction_count} transacciones`
                             : ''}
                         </p>
+                        {/* Mensaje del error específico — antes solo se veía un badge "Error"
+                            sin contexto, así el usuario sabía que algo falló pero no qué.
+                            Ahora mostramos el detalle textual debajo del nombre. */}
+                        {statement.processing_error && (
+                          <p
+                            style={{
+                              fontFamily: 'inherit',
+                              fontSize: 12,
+                              color: 'rgb(185, 28, 28)',
+                              margin: '4px 0 0',
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {statement.processing_error}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
