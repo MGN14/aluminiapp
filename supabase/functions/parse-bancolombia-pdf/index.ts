@@ -289,10 +289,16 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]); // 529 = Anthropic overloaded
     const userPromptText = "Extrae todas las transacciones de este extracto bancario de Bancolombia. IMPORTANTE: Identifica el periodo (mes y año) del extracto y usa ese año para todas las fechas de las transacciones. Responde ÚNICAMENTE con el JSON especificado en el system prompt, sin texto adicional.";
-    // Timeout por intento (ms). Más allá de esto, abortamos y vamos al siguiente.
-    // El browser corta a los ~60-120s por defecto, así que mantenemos cada intento
-    // bajo 45s para tener margen para el fallback.
-    const ATTEMPT_TIMEOUT_MS = 45_000;
+    // Timeouts asimétricos:
+    //   - Claude con PDFs grandes y max_tokens=16k tarda 30-90s. Le damos 100s
+    //     porque es nuestro mejor parser y vale la pena esperar.
+    //   - Gemini suele responder en <30s o falla rápido. Le damos 40s.
+    // Suma máxima si todo falla: 100 + 40 + 40 = 180s. El browser corta a ~150s
+    // pero como solo encadenamos si los anteriores fallan rápido (en realidad
+    // Claude tarda mucho solo cuando responde OK), en la práctica raramente
+    // pasamos los 60s totales.
+    const CLAUDE_TIMEOUT_MS = 100_000;
+    const GEMINI_TIMEOUT_MS = 40_000;
 
     function withTimeout(ms: number): { signal: AbortSignal; cancel: () => void } {
       const controller = new AbortController();
@@ -381,10 +387,13 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
     }
 
     // Plan de intentos — provider, label, delayBeforeMs.
+    // UN SOLO intento de Claude (con 100s de timeout — generoso porque es el mejor
+    // parser y vale la pena esperar) seguido de fallbacks rápidos de Gemini.
+    // Antes teníamos 2 intentos de Claude pero eso encadenaba 2×45s = 90s + fallback,
+    // chocando con el wall-clock de Supabase Edge Functions y el timeout del browser.
     type Attempt = { provider: "claude" | "gemini-2.0" | "gemini-2.5"; delayMs: number; label: string };
     const attempts: Attempt[] = [
       { provider: "claude", delayMs: 0, label: "claude-1" },
-      { provider: "claude", delayMs: 700, label: "claude-2" },
       { provider: "gemini-2.0", delayMs: 500, label: "gemini-2.0-fallback" },
       { provider: "gemini-2.5", delayMs: 500, label: "gemini-2.5-fallback" },
     ];
@@ -404,7 +413,8 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
 
     for (const { provider, delayMs, label } of effectiveAttempts) {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
-      const t = withTimeout(ATTEMPT_TIMEOUT_MS);
+      const timeoutMs = provider === "claude" ? CLAUDE_TIMEOUT_MS : GEMINI_TIMEOUT_MS;
+      const t = withTimeout(timeoutMs);
       try {
         aiResponse = provider === "claude"
           ? await callClaude(t.signal)
@@ -418,7 +428,7 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         const isAbort = msg.includes("aborted") || msg.includes("timeout");
         console.warn(`parse-bancolombia ${label}: ${isAbort ? "TIMEOUT" : "network error"} — ${msg}`);
         lastStatus = 0;
-        lastErrorBody = isAbort ? `timeout after ${ATTEMPT_TIMEOUT_MS}ms` : msg;
+        lastErrorBody = isAbort ? `timeout after ${timeoutMs}ms` : msg;
         continue;
       } finally {
         t.cancel();
