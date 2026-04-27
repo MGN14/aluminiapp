@@ -111,16 +111,21 @@ export default function PaymentsLogReport() {
     return `${year}-${String(month).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
   })();
 
-  // Lista de beneficiarios (responsibles) únicos del año.
-  // Los sacamos desde `responsibles` que tienen al menos una transacción
-  // asociada — son los que aparecen como "beneficiario" en conciliación
-  // bancaria. Antes los sacábamos desde invoices.counterparty_name pero
-  // eso dejaba afuera a clientes que solo tienen movimientos bancarios
-  // (sin factura emitida) y mostraba pagos cruzados mal.
+  // Lista de beneficiarios (responsibles) únicos del año — pero SOLO los
+  // que tienen al menos una transacción categorizada como "Venta" o "Compra".
+  //
+  // Por qué este filtro: "Relación de pagos" es un reporte para mandar a
+  // clientes/proveedores como estado de cuenta. Listar DIAN, Banco, Nómina
+  // o gastos operativos en el dropdown no aporta — el usuario nunca le va
+  // a mandar un estado de cuenta a la DIAN.
+  //
+  // Match flexible (ilike '%venta%' / '%compra%') para cubrir variaciones
+  // típicas: "Ventas", "Ventas en efectivo", "Compras", "Compra de mercancía".
   const { data: counterpartyOptions } = useQuery({
-    queryKey: ['payments-log-counterparties-v2', user?.id, year],
+    queryKey: ['payments-log-counterparties-v3', user?.id, year],
     queryFn: async (): Promise<CounterpartyOption[]> => {
       if (!user) return [];
+
       // 1. Traer todos los responsibles del usuario
       const { data: resps } = await supabase
         .from('responsibles')
@@ -128,19 +133,46 @@ export default function PaymentsLogReport() {
         .eq('user_id', user.id);
       const respMap = new Map<string, string>();
       (resps ?? []).forEach((r: any) => respMap.set(r.id, r.name));
-      // 2. Quedarnos solo con los que tienen transacciones en el año
+
+      // 2. IDs de categorías de venta o compra (tolerante a variaciones).
+      // Hacemos dos queries paralelas porque el OR sobre ilike requiere
+      // sintaxis especial y puede fallar silenciosamente.
+      const [{ data: catVentas }, { data: catCompras }] = await Promise.all([
+        supabase
+          .from('categories')
+          .select('id')
+          .eq('user_id', user.id)
+          .ilike('name', '%venta%'),
+        supabase
+          .from('categories')
+          .select('id')
+          .eq('user_id', user.id)
+          .ilike('name', '%compra%'),
+      ]);
+      const validCatIds = new Set<string>();
+      (catVentas ?? []).forEach((c: any) => validCatIds.add(c.id));
+      (catCompras ?? []).forEach((c: any) => validCatIds.add(c.id));
+
+      // Si no hay categorías de venta/compra todavía, devolvemos lista vacía
+      // (el dropdown muestra solo "Todos los clientes").
+      if (validCatIds.size === 0) return [];
+
+      // 3. Transacciones del año con responsible y category válida.
       const { data: txs } = await supabase
         .from('transactions')
-        .select('responsible_id')
+        .select('responsible_id, category_id')
         .eq('user_id', user.id)
         .is('deleted_at', null)
         .not('responsible_id', 'is', null)
+        .in('category_id', Array.from(validCatIds))
         .gte('date', `${year}-01-01`)
         .lte('date', `${year}-12-31`);
+
       const usedIds = new Set<string>();
       (txs ?? []).forEach((t: any) => {
         if (t.responsible_id) usedIds.add(t.responsible_id);
       });
+
       const names = new Set<string>();
       usedIds.forEach((id) => {
         const name = respMap.get(id);
