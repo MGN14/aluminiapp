@@ -57,19 +57,21 @@ export function PendingTransactionsTable({
   const { user } = useAuth();
   const { toast } = useToast();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  // Track removed transaction IDs for optimistic removal
-  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+  // IDs "pinned" — transacciones que el usuario tocó en esta sesión.
+  // Se mantienen VISIBLES en la lista aunque ya no califiquen como
+  // pendientes (porque acabás de asignarles beneficiario), para que el
+  // usuario pueda terminar de configurar categoría/factura sin que la
+  // fila desaparezca de golpe. El set se limpia al unmount (cuando
+  // navegás fuera del Dashboard) y vuelve a cero. Bug reportado por Nico:
+  // "asigno beneficiario y se va de la lista, pero falta factura/categoría".
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
 
-  // Filter pending transactions: missing responsible only
-  // Also exclude optimistically removed transactions
+  // Filter pending: SIN responsible O pinned (que el user tocó en esta sesión).
   const pendingTransactions = useMemo(() => {
     return transactions
-      .filter(tx => {
-        if (removedIds.has(tx.id)) return false;
-        return !tx.responsible_id;
-      })
+      .filter(tx => !tx.responsible_id || pinnedIds.has(tx.id))
       .sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
-  }, [transactions, removedIds]);
+  }, [transactions, pinnedIds]);
 
   // Handle category change (does NOT mark as reconciled)
   const handleCategoryChange = async (transactionId: string, categoryId: string | null) => {
@@ -124,10 +126,12 @@ export function PendingTransactionsTable({
         .eq('id', transactionId);
 
       if (error) throw error;
-      
-      // Optimistically remove since responsible is now assigned
-      setRemovedIds(prev => new Set([...prev, transactionId]));
-      
+
+      // Pin la transacción: se mantiene visible en la lista de pendientes
+      // hasta que el usuario navegue fuera. Permite terminar de configurar
+      // categoría/factura sin que la fila desaparezca al asignar beneficiario.
+      setPinnedIds(prev => new Set([...prev, transactionId]));
+
       toast({
         title: isBanco ? 'Asignado ✅' : 'Beneficiario asignado',
         description: isBanco ? 'Transacción asignada a Banco con N/A' : 'Beneficiario asignado. Asigna #Factura para completar.',
