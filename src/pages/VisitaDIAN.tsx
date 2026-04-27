@@ -57,6 +57,15 @@ export default function VisitaDIAN() {
   const { openNico, setPageContext } = useNico();
   const { isGerencial } = useModuleContext();
 
+  // Marca que el usuario revisó las cuentas con la DIAN. Lo lee el
+  // TrialChecklist para tildar el item correspondiente.
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const uid = data.user?.id;
+      if (uid) localStorage.setItem(`aluminia_dian_reviewed_${uid}`, '1');
+    });
+  }, []);
+
   const currentYear = new Date().getFullYear();
   const { scores } = useFinancialHealthScore(currentYear);
   // El simulador "¿Vale la pena evadir?" (GAP 3) solo tiene sentido en modo
