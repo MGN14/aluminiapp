@@ -99,7 +99,7 @@ export default function AccountsReceivableReport() {
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
 
-      const [invoicesRes, initialDetailsRes] = await Promise.all([
+      const [invoicesRes, initialDetailsRes, anticiposClienteRes] = await Promise.all([
         supabase
           .from('invoices')
           .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito')
@@ -113,13 +113,27 @@ export default function AccountsReceivableReport() {
           .select('*')
           .eq('user_id', user.id)
           .eq('field_type', 'cuentas_por_cobrar'),
+        // FIX BUG (reportado por Nico): los anticipos de clientes que NO
+        // están vinculados a una factura específica deben restarse del
+        // saldo total por cobrar. Antes solo se descontaban los que tenían
+        // invoice_id, así un cliente con anticipo de $113M que después
+        // facturó $167M aparecía debiendo $167M en lugar de $54M.
+        supabase
+          .from('initial_state_details' as any)
+          .select('amount, responsible_name, responsible_id')
+          .eq('user_id', user.id)
+          .eq('field_type', 'anticipos_de_clientes')
+          .is('invoice_id', null),
       ]);
 
       const { data: invoices, error: invErr } = invoicesRes;
       const initialCxCDetails = (initialDetailsRes.data as any[]) || [];
+      const unlinkedAnticipos = (anticiposClienteRes.data as any[]) || [];
 
       if (invErr) throw invErr;
-      if (!invoices?.length && initialCxCDetails.length === 0) return { receivables: [], suggestions: [], initialCxC: 0, initialCxCRows: [] as InitialCxCRow[] };
+      if (!invoices?.length && initialCxCDetails.length === 0 && unlinkedAnticipos.length === 0) {
+        return { receivables: [], suggestions: [], initialCxC: 0, initialCxCRows: [] as InitialCxCRow[], totalAnticiposNoVinculados: 0, anticiposNoVinculadosRows: [] };
+      }
 
       // Matches against initial balances (partial payments)
       const initialIds = initialCxCDetails.map((d: any) => d.id);
@@ -340,16 +354,35 @@ export default function AccountsReceivableReport() {
         }
       }
 
-      return { receivables: unpaid, suggestions, allReceivables: receivables, initialCxC, initialCxCRows };
+      // Suma de anticipos NO vinculados a facturas específicas. Estos se
+      // restan del saldo total por cobrar globalmente porque representan
+      // plata ya recibida pero no aplicada a una factura puntual.
+      const totalAnticiposNoVinculados = unlinkedAnticipos.reduce(
+        (s: number, a: any) => s + Math.abs(Number(a.amount ?? 0)), 0);
+
+      return {
+        receivables: unpaid,
+        suggestions,
+        allReceivables: receivables,
+        initialCxC,
+        initialCxCRows,
+        totalAnticiposNoVinculados,
+        anticiposNoVinculadosRows: unlinkedAnticipos,
+      };
     },
     enabled: !!user,
   });
 
   const initialCxC = data?.initialCxC ?? 0;
+  const totalAnticiposNoVinculados = data?.totalAnticiposNoVinculados ?? 0;
 
+  // Saldo total por cobrar = facturas pendientes + saldo inicial CxC
+  // − anticipos de clientes NO vinculados a una factura específica.
+  // (Los anticipos vinculados ya se restan dentro de cada factura individual.)
   const totalPending = useMemo(() => {
-    return (data?.receivables || []).reduce((s, r) => s + r.pending, 0) + initialCxC;
-  }, [data, initialCxC]);
+    const facturasYInicial = (data?.receivables || []).reduce((s, r) => s + r.pending, 0) + initialCxC;
+    return Math.max(0, facturasYInicial - totalAnticiposNoVinculados);
+  }, [data, initialCxC, totalAnticiposNoVinculados]);
 
   // Solo en Gerencial: cobros en efectivo del año (ingresos manuales en
   // cash_movements). No se vinculan a una factura específica todavía — los
@@ -488,6 +521,14 @@ export default function AccountsReceivableReport() {
               <p className="text-xs text-muted-foreground mt-1">
                 {data?.receivables.length ?? 0} factura{(data?.receivables.length ?? 0) !== 1 ? 's' : ''} pendientes • {year}
               </p>
+              {totalAnticiposNoVinculados > 0 && (
+                <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+                  <span className="text-success font-medium">
+                    −{formatCurrency(totalAnticiposNoVinculados)}
+                  </span>{' '}
+                  ya restado de anticipos de clientes (saldo inicial sin factura vinculada).
+                </p>
+              )}
             </CardContent>
           </Card>
 
