@@ -288,6 +288,10 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
     const userPromptText = "Extrae todas las transacciones de este extracto bancario de Bancolombia. IMPORTANTE: Identifica el periodo (mes y año) del extracto y usa ese año para todas las fechas de las transacciones. Responde ÚNICAMENTE con el JSON especificado en el system prompt, sin texto adicional.";
 
     // -------- Claude (Anthropic) --------
+    // Prefill con "{" obliga a Claude a empezar la respuesta con la apertura de JSON,
+    // evitando que devuelva markdown ```json...``` o texto explicativo previo
+    // ("Aquí está el JSON solicitado:") que rompía el parser. La respuesta de la
+    // API NO incluye el "{" del prefill — lo prependemos manualmente al recibir.
     async function callClaude(): Promise<Response> {
       return await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -298,22 +302,26 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
         },
         body: JSON.stringify({
           model: "claude-haiku-4-5",
-          max_tokens: 16000,
+          max_tokens: 32000, // extractos largos pueden generar JSON >16K tokens
           system: systemPrompt,
-          messages: [{
-            role: "user",
-            content: [
-              {
-                type: "document",
-                source: {
-                  type: "base64",
-                  media_type: "application/pdf",
-                  data: base64Pdf,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "document",
+                  source: {
+                    type: "base64",
+                    media_type: "application/pdf",
+                    data: base64Pdf,
+                  },
                 },
-              },
-              { type: "text", text: userPromptText },
-            ],
-          }],
+                { type: "text", text: userPromptText },
+              ],
+            },
+            // Prefill: la respuesta arrancará en "{...", garantizando JSON puro.
+            { role: "assistant", content: "{" },
+          ],
         }),
       });
     }
@@ -439,6 +447,11 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
           .map((b: any) => b.text)
           .join("\n");
       }
+      // Prefill: la API no incluye el "{" del prefill en la respuesta.
+      // Lo prependemos para que el parser lo encuentre completo.
+      if (content && !content.trim().startsWith("{")) {
+        content = "{" + content;
+      }
     } else {
       // Gemini OpenAI-compat: { choices: [{ message: { content: "..." } }] }
       content = aiResult.choices?.[0]?.message?.content ?? null;
@@ -450,11 +463,40 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
 
     console.log(`AI response received from ${providerUsed}, parsing JSON...`);
 
-    // Parse the JSON response
+    // Parse the JSON response — extracción robusta porque Claude a veces envuelve
+    // el JSON en markdown, agrega texto explicativo antes/después, o agrega
+    // comentarios. Hacemos varios pases:
+    //   1. Limpiar fences markdown ```json ... ```
+    //   2. Si aún no parsea, encontrar el primer "{" y su llave de cierre
+    //      balanceada (handling de strings con braces internas)
+    //   3. Si nada funciona, log del content completo y error con preview
     let parsed: ParsedStatement;
+
+    // Helper: encuentra el primer JSON object balanceado en un string
+    function extractBalancedJSON(s: string): string | null {
+      const start = s.indexOf("{");
+      if (start === -1) return null;
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      for (let i = start; i < s.length; i++) {
+        const ch = s[i];
+        if (escape) { escape = false; continue; }
+        if (ch === "\\") { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === "{") depth++;
+        else if (ch === "}") {
+          depth--;
+          if (depth === 0) return s.slice(start, i + 1);
+        }
+      }
+      return null;
+    }
+
     try {
-      // Clean the response - remove markdown code blocks if present
       let cleanContent = content.trim();
+      // Pase 1: quitar fences markdown
       if (cleanContent.startsWith("```json")) {
         cleanContent = cleanContent.slice(7);
       } else if (cleanContent.startsWith("```")) {
@@ -463,11 +505,33 @@ IMPORTANTE: Usa el año del periodo del extracto para las fechas, NO el año act
       if (cleanContent.endsWith("```")) {
         cleanContent = cleanContent.slice(0, -3);
       }
-      
-      parsed = JSON.parse(cleanContent.trim());
+      cleanContent = cleanContent.trim();
+
+      try {
+        parsed = JSON.parse(cleanContent);
+      } catch {
+        // Pase 2: extraer JSON balanceado (Claude a veces agrega "Aquí está el JSON:" antes)
+        const extracted = extractBalancedJSON(cleanContent);
+        if (!extracted) throw new Error("no balanced JSON found in response");
+        parsed = JSON.parse(extracted);
+        console.log("parse-bancolombia: JSON recovered via balanced extraction");
+      }
     } catch (parseError) {
-      console.error("Failed to parse AI response:", content);
-      throw new Error("Failed to parse AI response as JSON");
+      // Log COMPLETO del content para debug — los logs de Supabase truncan a ~1KB
+      // por lo que partimos en chunks.
+      const preview = content.slice(0, 500);
+      const tail = content.length > 500 ? content.slice(-300) : "";
+      console.error(
+        `Failed to parse AI response from ${providerUsed} (length ${content.length}):`,
+        `\n--- HEAD ---\n${preview}`,
+        tail ? `\n--- TAIL ---\n${tail}` : "",
+        `\n--- ERR ---\n${(parseError as Error).message}`,
+      );
+      // Mensaje útil al usuario incluyendo el provider para debug
+      throw new Error(
+        `La IA (${providerUsed}) devolvió una respuesta que no pudimos parsear como JSON. ` +
+        `Probá subir el PDF de nuevo. Si persiste, contactanos con el archivo.`,
+      );
     }
 
     if (!parsed.transactions || !Array.isArray(parsed.transactions)) {
