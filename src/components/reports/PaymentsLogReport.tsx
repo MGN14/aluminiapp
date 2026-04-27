@@ -111,21 +111,40 @@ export default function PaymentsLogReport() {
     return `${year}-${String(month).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
   })();
 
-  // Lista de counterparties únicos para el dropdown
+  // Lista de beneficiarios (responsibles) únicos del año.
+  // Los sacamos desde `responsibles` que tienen al menos una transacción
+  // asociada — son los que aparecen como "beneficiario" en conciliación
+  // bancaria. Antes los sacábamos desde invoices.counterparty_name pero
+  // eso dejaba afuera a clientes que solo tienen movimientos bancarios
+  // (sin factura emitida) y mostraba pagos cruzados mal.
   const { data: counterpartyOptions } = useQuery({
-    queryKey: ['payments-log-counterparties', user?.id, year],
+    queryKey: ['payments-log-counterparties-v2', user?.id, year],
     queryFn: async (): Promise<CounterpartyOption[]> => {
       if (!user) return [];
-      const { data } = await supabase
-        .from('invoices')
-        .select('counterparty_name')
+      // 1. Traer todos los responsibles del usuario
+      const { data: resps } = await supabase
+        .from('responsibles')
+        .select('id, name')
+        .eq('user_id', user.id);
+      const respMap = new Map<string, string>();
+      (resps ?? []).forEach((r: any) => respMap.set(r.id, r.name));
+      // 2. Quedarnos solo con los que tienen transacciones en el año
+      const { data: txs } = await supabase
+        .from('transactions')
+        .select('responsible_id')
         .eq('user_id', user.id)
-        .gte('issue_date', `${year}-01-01`)
-        .lte('issue_date', `${year}-12-31`);
+        .is('deleted_at', null)
+        .not('responsible_id', 'is', null)
+        .gte('date', `${year}-01-01`)
+        .lte('date', `${year}-12-31`);
+      const usedIds = new Set<string>();
+      (txs ?? []).forEach((t: any) => {
+        if (t.responsible_id) usedIds.add(t.responsible_id);
+      });
       const names = new Set<string>();
-      (data ?? []).forEach((r: any) => {
-        const n = (r.counterparty_name || '').trim();
-        if (n) names.add(n);
+      usedIds.forEach((id) => {
+        const name = respMap.get(id);
+        if (name) names.add(name);
       });
       return Array.from(names)
         .sort((a, b) => a.localeCompare(b, 'es'))
@@ -134,22 +153,60 @@ export default function PaymentsLogReport() {
     enabled: !!user,
   });
 
-  // Saldo del cliente seleccionado: sum facturas - sum pagos vinculados
+  // Resumen del beneficiario seleccionado:
+  // - Total cobrado (ingresos bancarios donde responsible = X)
+  // - Total pagado (egresos bancarios donde responsible = X)
+  // - Si hay facturas con counterparty_name que matchea el nombre del
+  //   responsable (case-insensitive), también calcular facturado/pendiente.
+  // El "beneficiario" del banco y el "counterparty_name" de la factura suelen
+  // ser el mismo nombre — pero a veces difieren (ej: la factura dice "PROVIDENCE
+  // GROUP S.A.S" y el banco "PROVIDENCE GROUP"). Hacemos match flexible.
   const { data: counterpartySummary } = useQuery({
-    queryKey: ['payments-log-counterparty-summary', user?.id, counterparty, year],
+    queryKey: ['payments-log-counterparty-summary-v2', user?.id, counterparty, year],
     queryFn: async () => {
       if (!user || counterparty === 'all') return null;
-      // Facturas del cliente en el año (venta = cobramos a, compra = pagamos)
+
+      // 1. Sumar movimientos bancarios del responsible
+      const { data: resp } = await supabase
+        .from('responsibles')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('name', counterparty)
+        .maybeSingle();
+      let movIngresos = 0;
+      let movEgresos = 0;
+      let movCount = 0;
+      if (resp?.id) {
+        const { data: txs } = await supabase
+          .from('transactions')
+          .select('amount, type')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .eq('responsible_id', resp.id)
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`);
+        (txs ?? []).forEach((t: any) => {
+          const amt = Math.abs(Number(t.amount ?? 0));
+          if (t.type === 'ingreso') movIngresos += amt;
+          else if (t.type === 'egreso') movEgresos += amt;
+          movCount++;
+        });
+      }
+
+      // 2. Buscar facturas con counterparty_name parecido al nombre del
+      // responsable (case-insensitive, allow partial match para tolerar
+      // diferencias menores como "S.A.S" vs sin sufijo).
       const { data: invs } = await supabase
         .from('invoices')
-        .select('id, type, total_amount')
+        .select('id, type, total_amount, counterparty_name')
         .eq('user_id', user.id)
-        .eq('counterparty_name', counterparty)
+        .ilike('counterparty_name', `%${counterparty.split(' ').slice(0, 2).join(' ')}%`)
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
       const facturado = (invs ?? []).reduce((s: number, i: any) => s + Number(i.total_amount ?? 0), 0);
       const invIds = (invs ?? []).map((i: any) => i.id);
-      // Pagos vinculados: transactions con invoice_id en invs + matches
+
+      // 3. Pagos vinculados a esas facturas (transactions + matches)
       let cobrado = 0;
       if (invIds.length > 0) {
         const { data: txs } = await supabase
@@ -166,11 +223,16 @@ export default function PaymentsLogReport() {
           .in('invoice_id', invIds);
         cobrado += (matches ?? []).reduce((s: number, m: any) => s + Math.abs(Number(m.matched_amount ?? 0)), 0);
       }
+
       return {
         facturado,
         cobrado,
         pendiente: Math.max(0, facturado - cobrado),
         invoiceCount: (invs ?? []).length,
+        movIngresos,
+        movEgresos,
+        movCount,
+        hasInvoices: invIds.length > 0,
       };
     },
     enabled: !!user && counterparty !== 'all',
@@ -210,11 +272,11 @@ export default function PaymentsLogReport() {
         category: r.categories?.name ?? null,
         responsible: r.responsibles?.name ?? null,
         invoice_ref: r.invoices?.invoice_number ?? null,
-        counterparty: r.invoices?.counterparty_name ?? null,
+        counterparty: r.responsibles?.name ?? null, // = beneficiario en conciliación
       }));
 
-      // Efectivo solo en Gerencial. cash_movements no tiene counterparty,
-      // así que en filtro por cliente NO se incluyen.
+      // Efectivo solo en Gerencial. cash_movements no tiene responsible,
+      // así que en filtro por beneficiario NO se incluyen.
       let cashRows: PaymentRow[] = [];
       if (isGerencial && counterparty === 'all') {
         const cashRes = await supabase
@@ -242,7 +304,8 @@ export default function PaymentsLogReport() {
 
       let all = [...bankRows, ...cashRows];
       if (typeFilter !== 'todos') all = all.filter((r) => r.type === typeFilter);
-      if (counterparty !== 'all') all = all.filter((r) => r.counterparty === counterparty);
+      // Filtro por beneficiario = transactions cuyo responsible.name matchea
+      if (counterparty !== 'all') all = all.filter((r) => r.responsible === counterparty);
       return all.sort((a, b) => b.date.localeCompare(a.date));
     },
     enabled: !!user,
@@ -324,16 +387,27 @@ export default function PaymentsLogReport() {
       // Mensaje pre-armado
       let msg = '';
       if (counterparty !== 'all' && counterpartySummary) {
-        msg = [
+        const lines = [
           `*Estado de cuenta — ${periodoLabel}*`,
           ``,
           `📋 Cliente: ${counterparty}`,
-          `💰 Total facturado: ${formatCurrency(counterpartySummary.facturado)}`,
-          `✅ Total cobrado: ${formatCurrency(counterpartySummary.cobrado)}`,
-          `⏳ Saldo pendiente: *${formatCurrency(counterpartySummary.pendiente)}*`,
+        ];
+        if (counterpartySummary.hasInvoices) {
+          lines.push(
+            `💰 Total facturado: ${formatCurrency(counterpartySummary.facturado)}`,
+            `✅ Cobrado sobre facturas: ${formatCurrency(counterpartySummary.cobrado)}`,
+            `⏳ Saldo pendiente: *${formatCurrency(counterpartySummary.pendiente)}*`,
+          );
+        }
+        lines.push(
           ``,
-          `Te paso el detalle en el Excel adjunto.`,
-        ].join('\n');
+          `📊 Movimientos bancarios del periodo:`,
+          `  ↗️ Te pagaron: ${formatCurrency(counterpartySummary.movIngresos)}`,
+          `  ↘️ Le pagaste: ${formatCurrency(counterpartySummary.movEgresos)}`,
+          ``,
+          `Te paso el detalle completo en el Excel adjunto.`,
+        );
+        msg = lines.join('\n');
       } else {
         msg = [
           `*Relación de pagos — ${periodoLabel}*`,
@@ -441,50 +515,104 @@ export default function PaymentsLogReport() {
 
       {/* KPIs — vista por cliente vs vista general */}
       {showCounterpartyKpis ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Card className="border-primary/20 bg-primary/[0.02]">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total facturado a {counterparty}</CardTitle>
-              <div className="p-2 rounded-lg bg-primary/10">
-                <Receipt className="h-4 w-4 text-primary" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(counterpartySummary!.facturado)}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {counterpartySummary!.invoiceCount} factura{counterpartySummary!.invoiceCount !== 1 ? 's' : ''} • {periodoLabel}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Cobrado</CardTitle>
-              <div className="p-2 rounded-lg bg-success/10">
-                <TrendingUp className="h-4 w-4 text-success" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-success">{formatCurrency(counterpartySummary!.cobrado)}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Pagos identificados sobre sus facturas
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-destructive/20 bg-destructive/[0.02]">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Saldo pendiente</CardTitle>
-              <div className="p-2 rounded-lg bg-destructive/10">
-                <ArrowUpDown className="h-4 w-4 text-destructive" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-destructive">{formatCurrency(counterpartySummary!.pendiente)}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Facturado − cobrado
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+        <>
+          {/* Cards de movimientos bancarios — siempre disponibles para cualquier
+              beneficiario, salgan en facturas o no */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Te pagaron (banco)</CardTitle>
+                <div className="p-2 rounded-lg bg-success/10">
+                  <TrendingUp className="h-4 w-4 text-success" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-success">{formatCurrency(counterpartySummary!.movIngresos)}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Ingresos bancarios de {counterparty}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Le pagaste (banco)</CardTitle>
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <TrendingDown className="h-4 w-4 text-destructive" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive">{formatCurrency(counterpartySummary!.movEgresos)}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Egresos bancarios a {counterparty}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Movimientos del periodo</CardTitle>
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <ArrowUpDown className="h-4 w-4 text-primary" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{counterpartySummary!.movCount}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Total de transacciones bancarias
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Cards de facturación SOLO si hay facturas matcheadas — sino el
+              cliente solo está en banco (típico de proveedores informales o
+              clientes sin factura formal). */}
+          {counterpartySummary!.hasInvoices && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Card className="border-primary/20 bg-primary/[0.02]">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Facturado</CardTitle>
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Receipt className="h-4 w-4 text-primary" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(counterpartySummary!.facturado)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {counterpartySummary!.invoiceCount} factura{counterpartySummary!.invoiceCount !== 1 ? 's' : ''} • {periodoLabel}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Cobrado sobre facturas</CardTitle>
+                  <div className="p-2 rounded-lg bg-success/10">
+                    <TrendingUp className="h-4 w-4 text-success" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-success">{formatCurrency(counterpartySummary!.cobrado)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Pagos vinculados a sus facturas
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="border-destructive/20 bg-destructive/[0.02]">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Saldo pendiente</CardTitle>
+                  <div className="p-2 rounded-lg bg-destructive/10">
+                    <ArrowUpDown className="h-4 w-4 text-destructive" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-destructive">{formatCurrency(counterpartySummary!.pendiente)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Facturado − cobrado
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Card>
@@ -629,7 +757,10 @@ interface EmailModalProps {
   onOpenChange: (o: boolean) => void;
   rows: PaymentRow[];
   counterparty: string | null;
-  counterpartySummary: { facturado: number; cobrado: number; pendiente: number; invoiceCount: number } | null;
+  counterpartySummary: {
+    facturado: number; cobrado: number; pendiente: number; invoiceCount: number;
+    movIngresos: number; movEgresos: number; movCount: number; hasInvoices: boolean;
+  } | null;
   periodoLabel: string;
   fileSlug: string;
   buildWorkbook: () => any[];
