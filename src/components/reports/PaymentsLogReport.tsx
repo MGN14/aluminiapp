@@ -124,6 +124,7 @@ export default function PaymentsLogReport() {
   const [typeFilter, setTypeFilter] = useState<FilterType>('todos');
   const [counterparty, setCounterparty] = useState<string>('all'); // 'all' | <name>
   const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
   // Vincular factura a movimiento desde acá: track de qué fila estamos vinculando
   const [linkingTx, setLinkingTx] = useState<PaymentRow | null>(null);
   const queryClient = useQueryClient();
@@ -624,62 +625,6 @@ export default function PaymentsLogReport() {
     }
   };
 
-  // WhatsApp share — abre wa.me sin número (el usuario elige contacto).
-  // En paralelo descargamos el Excel local para que lo adjunte manualmente.
-  const handleWhatsAppShare = async () => {
-    if (rows.length === 0) {
-      toast.error('No hay pagos para compartir.');
-      return;
-    }
-    try {
-      // Mensaje pre-armado
-      let msg = '';
-      if (counterparty !== 'all' && counterpartySummary) {
-        const lines = [
-          `*Estado de cuenta — ${periodoLabel}*`,
-          ``,
-          `📋 Cliente: ${counterparty}`,
-        ];
-        if (counterpartySummary.hasInvoices) {
-          lines.push(
-            `💰 Total facturado: ${formatCurrency(counterpartySummary.facturado)}`,
-            `✅ Cobrado sobre facturas: ${formatCurrency(counterpartySummary.cobrado)}`,
-            `⏳ Saldo pendiente: *${formatCurrency(counterpartySummary.pendiente)}*`,
-          );
-        }
-        lines.push(
-          ``,
-          `📊 Movimientos bancarios del periodo:`,
-          `  ↗️ Te pagaron: ${formatCurrency(counterpartySummary.movIngresos)}`,
-          `  ↘️ Le pagaste: ${formatCurrency(counterpartySummary.movEgresos)}`,
-          ``,
-          `Te paso el detalle completo en el Excel adjunto.`,
-        );
-        msg = lines.join('\n');
-      } else {
-        msg = [
-          `*Relación de pagos — ${periodoLabel}*`,
-          ``,
-          `↗️ Ingresos: ${formatCurrency(totals.ingresos)}`,
-          `↘️ Egresos: ${formatCurrency(totals.egresos)}`,
-          `📊 Neto: ${formatCurrency(totals.ingresos - totals.egresos)}`,
-          ``,
-          `Detalle en el Excel adjunto.`,
-        ].join('\n');
-      }
-      // Descargar Excel en paralelo
-      const data = buildWorkbook();
-      await writeXlsxFile(data as any, { fileName: fileSlug, columns: xlsxColumns } as any);
-      // Abrir WhatsApp sin número — el usuario elige contacto
-      const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-      window.open(url, '_blank');
-      toast.info('WhatsApp abierto. El Excel se descargó — arrastralo al chat.');
-    } catch (e) {
-      console.error(e);
-      toast.error('No pudimos abrir WhatsApp. Intentá descargar el Excel y enviarlo manual.');
-    }
-  };
-
   const showCounterpartyKpis = counterparty !== 'all' && counterpartySummary;
 
   return (
@@ -740,7 +685,7 @@ export default function PaymentsLogReport() {
               </Button>
               <Button
                 variant="outline" size="sm"
-                onClick={handleWhatsAppShare}
+                onClick={() => setWhatsappModalOpen(true)}
                 disabled={isLoading || rows.length === 0}
                 className="gap-2 border-green-600/30 text-green-700 hover:bg-green-50 hover:text-green-700"
               >
@@ -1243,6 +1188,17 @@ export default function PaymentsLogReport() {
         }}
       />
 
+      {/* Modal WhatsApp */}
+      <WhatsAppShareModal
+        open={whatsappModalOpen}
+        onOpenChange={setWhatsappModalOpen}
+        counterparty={counterparty === 'all' ? null : counterparty}
+        periodoLabel={periodoLabel}
+        fileSlug={fileSlug}
+        buildWorkbook={buildWorkbook}
+        xlsxColumns={xlsxColumns}
+      />
+
       {/* Modal email */}
       <EmailModal
         open={emailModalOpen}
@@ -1440,6 +1396,160 @@ function EmailModal({
           </Button>
           <Button onClick={handleSend} disabled={sending || !isValidEmail(toEmail)} className="gap-2">
             {sending ? <><Loader2 className="h-4 w-4 animate-spin" /> Enviando…</> : <><Mail className="h-4 w-4" /> Enviar</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------- WhatsAppShareModal ----------
+
+interface WhatsAppShareModalProps {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  counterparty: string | null;
+  periodoLabel: string;
+  fileSlug: string;
+  buildWorkbook: () => any[];
+  xlsxColumns: any;
+}
+
+function WhatsAppShareModal({
+  open, onOpenChange, counterparty, periodoLabel, fileSlug, buildWorkbook, xlsxColumns,
+}: WhatsAppShareModalProps) {
+  const { user } = useAuth();
+  const [phone, setPhone] = useState('');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+
+  // Pre-llenar el mensaje cuando abre el modal
+  useEffect(() => {
+    if (!open) return;
+    const greeting = counterparty ? `Hola ${counterparty},` : 'Hola,';
+    const body = counterparty
+      ? `Aquí está nuestro estado de cuenta a ${periodoLabel}.`
+      : `Te paso la relación de pagos a ${periodoLabel}.`;
+    setMessage(`${greeting}\n\n${body}`);
+    setPhone('');
+  }, [open, counterparty, periodoLabel]);
+
+  // Normaliza teléfono: solo dígitos. Si no incluye código de país asumimos 57 (Colombia).
+  const normalizePhone = (raw: string): string => {
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '';
+    // Si empieza con 57 (12+ dígitos típico Colombia), respetar
+    if (digits.startsWith('57') && digits.length >= 11) return digits;
+    // Si arranca con 3 (celular Colombia 10 dígitos), prepender 57
+    if (digits.length === 10 && digits.startsWith('3')) return `57${digits}`;
+    return digits;
+  };
+
+  const handleSend = async () => {
+    if (!user) return;
+    setSending(true);
+    try {
+      // 1. Generar Excel como blob
+      const blob = await (writeXlsxFile as unknown as (d: unknown, o: unknown) => Promise<Blob>)(
+        buildWorkbook(),
+        { columns: xlsxColumns },
+      );
+
+      // 2. Subir a Supabase Storage en bucket invoices, prefix payment-shares
+      const uuid = crypto.randomUUID();
+      const path = `payment-shares/${user.id}/${uuid}.xlsx`;
+      const { error: upErr } = await supabase.storage
+        .from('invoices')
+        .upload(path, blob, {
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          upsert: false,
+        });
+      if (upErr) throw upErr;
+
+      // 3. Crear signed URL con 30 días de expiración (2592000 segundos)
+      const { data: signed, error: signErr } = await supabase.storage
+        .from('invoices')
+        .createSignedUrl(path, 60 * 60 * 24 * 30);
+      if (signErr || !signed?.signedUrl) {
+        throw signErr ?? new Error('No se pudo generar el link de descarga');
+      }
+      const downloadUrl = signed.signedUrl;
+
+      // 4. Armar el texto final con el link
+      const fullMessage = `${message.trim()}\n\nDescargá el detalle (Excel): ${downloadUrl}`;
+
+      // 5. Abrir WhatsApp. Si dió teléfono, va directo al chat con esa persona;
+      // si no, abre el selector de contactos del usuario.
+      const normalizedPhone = normalizePhone(phone);
+      const waUrl = normalizedPhone
+        ? `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(fullMessage)}`
+        : `https://wa.me/?text=${encodeURIComponent(fullMessage)}`;
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+
+      toast.success('WhatsApp abierto con el link al Excel.');
+      onOpenChange(false);
+    } catch (err: any) {
+      console.error('WhatsApp share error:', err);
+      toast.error(err?.message ?? 'No pudimos preparar el envío. Probá de nuevo.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Enviar por WhatsApp</DialogTitle>
+          <DialogDescription>
+            {counterparty
+              ? `Estado de cuenta de ${counterparty} — ${periodoLabel}.`
+              : `Relación de pagos — ${periodoLabel}.`}
+            {' '}
+            Vamos a abrir WhatsApp con el mensaje y un link al Excel.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
+          <div>
+            <Label htmlFor="wa-phone" className="text-xs">
+              Número de WhatsApp <span className="text-muted-foreground">(opcional)</span>
+            </Label>
+            <Input
+              id="wa-phone"
+              type="tel"
+              placeholder="3001234567 o +573001234567"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="mt-1"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Si dejás vacío, WhatsApp te deja elegir el contacto. Si ponés
+              el número, abre directo en su chat.
+            </p>
+          </div>
+          <div>
+            <Label htmlFor="wa-msg" className="text-xs">Mensaje</Label>
+            <Textarea
+              id="wa-msg"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={4}
+              className="mt-1 text-sm"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Al enviar, agregamos al final un link para descargar el Excel
+              (válido 30 días).
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>
+            Cancelar
+          </Button>
+          <Button onClick={handleSend} disabled={sending || !message.trim()} className="gap-2 bg-green-600 hover:bg-green-700">
+            {sending ? <><Loader2 className="h-4 w-4 animate-spin" /> Preparando…</> : <><MessageCircle className="h-4 w-4" /> Abrir WhatsApp</>}
           </Button>
         </DialogFooter>
       </DialogContent>
