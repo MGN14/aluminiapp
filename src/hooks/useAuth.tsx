@@ -162,6 +162,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSessionExpiredReason(null);
           setLoading(false);
           prevUserId.current = newSession?.user?.id ?? null;
+
+          // Telemetría: detectar signup nuevo vs login existente.
+          // Aplica para cualquier proveedor (email/password, Google OAuth, etc.).
+          // Heurística: si user.created_at está dentro de los últimos 5 min,
+          // es signup nuevo; si no, es login. localStorage flag evita duplicar
+          // el evento de signup si SIGNED_IN se re-dispara (refresh, USER_UPDATED).
+          if (event === 'SIGNED_IN' && newSession?.user) {
+            const u = newSession.user;
+            const flagKey = `aluminia_signup_logged_${u.id}`;
+            let alreadyLogged = false;
+            try {
+              alreadyLogged = typeof window !== 'undefined' && localStorage.getItem(flagKey) === '1';
+            } catch { /* localStorage may be unavailable */ }
+
+            if (!alreadyLogged) {
+              const createdAt = u.created_at ? new Date(u.created_at).getTime() : 0;
+              const isFreshSignup = createdAt > 0 && (Date.now() - createdAt) < 5 * 60 * 1000;
+              const provider = (u.app_metadata as { provider?: string } | undefined)?.provider ?? 'email';
+              const fullName = (u.user_metadata as { full_name?: string; name?: string } | undefined)?.full_name
+                ?? (u.user_metadata as { full_name?: string; name?: string } | undefined)?.name
+                ?? null;
+
+              if (isFreshSignup) {
+                logEvent('signup', {
+                  user_id: u.id,
+                  user_email: u.email ?? null,
+                  user_name: fullName,
+                  props: { provider, source: 'web' },
+                });
+                try { localStorage.setItem(flagKey, '1'); } catch { /* ignore */ }
+              } else {
+                logEvent('login', {
+                  user_id: u.id,
+                  user_email: u.email ?? null,
+                  props: { provider },
+                });
+              }
+            }
+          }
           break;
         }
 
@@ -298,7 +337,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = useCallback(async (email: string, password: string, fullName: string, captchaToken?: string) => {
     authLog('signUp_attempt', { email });
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -307,18 +346,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         captchaToken,
       },
     });
-    if (error) {
-      authLog('signUp_error', error.message);
-    } else {
-      // Telemetría interna: aviso inmediato al founder por email.
-      // Fire-and-forget — si falla no rompemos el signup.
-      logEvent('signup', {
-        user_id: data?.user?.id ?? null,
-        user_email: email,
-        user_name: fullName,
-        props: { source: 'web' },
-      });
-    }
+    if (error) authLog('signUp_error', error.message);
+    // El evento de telemetría 'signup' se emite desde handleAuthChange cuando
+    // llega el SIGNED_IN — cubre tanto email/password como Google OAuth con un
+    // solo punto de captura. Evita doble emisión.
     return { error };
   }, []);
 
