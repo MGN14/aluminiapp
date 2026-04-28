@@ -17,6 +17,7 @@ import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChar
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
 import { BilledByMonthChart } from '@/components/dashboard/BilledByMonthChart';
 import { BilledByClientMonthChart } from '@/components/dashboard/BilledByClientMonthChart';
+import { CashFlowChart } from '@/components/dashboard/CashFlowChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import InsightsMiniCards from '@/components/dashboard/InsightsMiniCards';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
@@ -402,28 +403,35 @@ function DashboardContent() {
   }, [transactions, periodTransactions, periodSelection.type]);
 
   const billedByMonthData = useMemo(() => {
-    const months = Array.from({ length: 12 }, (_, i) => ({ month: MONTH_NAMES[i].slice(0, 3), monthKey: `${periodSelection.year}-${String(i + 1).padStart(2, '0')}`, total: 0 }));
-    salesInvoices.forEach(inv => { const mi = parseLocalDate(inv.issue_date).getMonth(); if (mi >= 0 && mi < 12) months[mi].total += inv.total_amount || 0; });
+    const months = Array.from({ length: 12 }, (_, i) => ({
+      month: MONTH_NAMES[i].slice(0, 3),
+      monthKey: `${periodSelection.year}-${String(i + 1).padStart(2, '0')}`,
+      total: 0,
+      count: 0,
+    }));
+    salesInvoices.forEach(inv => {
+      const mi = parseLocalDate(inv.issue_date).getMonth();
+      if (mi >= 0 && mi < 12) {
+        months[mi].total += inv.total_amount || 0;
+        months[mi].count += 1;
+      }
+    });
     return months;
   }, [salesInvoices, periodSelection.year]);
 
-  const billedByClientMonth = useMemo(() => {
-    const totalsByClient = new Map<string, number>();
-    salesInvoices.forEach(inv => { const c = inv.counterparty_name?.trim() || 'Sin nombre'; totalsByClient.set(c, (totalsByClient.get(c) || 0) + (inv.total_amount || 0)); });
-    const topClients = Array.from(totalsByClient.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n]) => n);
-    const data = Array.from({ length: 12 }, (_, i) => {
-      const row: Record<string, string | number> = { month: MONTH_NAMES[i].slice(0, 3), monthKey: `${periodSelection.year}-${String(i + 1).padStart(2, '0')}` };
-      topClients.forEach(c => { row[c] = 0; }); row.Otros = 0; return row;
-    });
-    let hasOthers = false;
-    salesInvoices.forEach(inv => { const mi = parseLocalDate(inv.issue_date).getMonth(); if (mi < 0 || mi > 11) return; const c = inv.counterparty_name?.trim() || 'Sin nombre'; const isTop = topClients.includes(c); const key = isTop ? c : 'Otros'; if (!isTop) hasOthers = true; data[mi][key] = (Number(data[mi][key]) || 0) + (inv.total_amount || 0); });
-    return { data, clientKeys: hasOthers ? [...topClients, 'Otros'] : topClients };
-  }, [salesInvoices, periodSelection.year]);
-
   const expensesByCategoryData = useMemo(() => {
-    const cat: Record<string, number> = {};
-    periodTransactions.forEach(tx => { if ((tx.amount ?? 0) < 0) { const c = tx.category_name || tx.category || 'Sin categoría'; cat[c] = (cat[c] || 0) + Math.abs(tx.amount ?? 0); } });
-    return Object.entries(cat).map(([category, value]) => ({ category, categoryKey: category, value })).sort((a, b) => b.value - a.value);
+    const cat: Record<string, { value: number; count: number }> = {};
+    periodTransactions.forEach(tx => {
+      if ((tx.amount ?? 0) < 0) {
+        const c = tx.category_name || tx.category || 'Sin categoría';
+        if (!cat[c]) cat[c] = { value: 0, count: 0 };
+        cat[c].value += Math.abs(tx.amount ?? 0);
+        cat[c].count += 1;
+      }
+    });
+    return Object.entries(cat)
+      .map(([category, { value, count }]) => ({ category, categoryKey: category, value, count }))
+      .sort((a, b) => b.value - a.value);
   }, [periodTransactions]);
 
   // ── Build ordered module map ──
@@ -730,11 +738,30 @@ function DashboardContent() {
         </div>
       </DashboardBlock>
     ),
+    chartsCashflow: (idx: number) => (
+      <DashboardBlock id="chartsCashflow" customization={customization} index={idx}>
+        <CashFlowChart
+          transactions={transactions.map(tx => ({
+            date: tx.date,
+            balance: tx.balance,
+            amount: tx.amount,
+          }))}
+          periodStart={periodRange.start}
+          periodEnd={periodRange.end}
+          periodLabel={periodRange.label}
+        />
+      </DashboardBlock>
+    ),
     chartsFlow: (idx: number) => (
       <DashboardBlock id="chartsFlow" customization={customization} index={idx}>
         <div className="grid gap-6 lg:grid-cols-2">
           <IncomeVsExpenseChart data={incomeVsExpenseData} periodLabel={periodRange.label} />
-          <ExpensesByCategoryChart data={expensesByCategoryData} periodLabel={periodRange.label} />
+          <ExpensesByCategoryChart
+            data={expensesByCategoryData}
+            periodLabel={periodRange.label}
+            periodStart={periodRange.start}
+            periodEnd={periodRange.end}
+          />
         </div>
       </DashboardBlock>
     ),
@@ -742,7 +769,7 @@ function DashboardContent() {
       <DashboardBlock id="chartsBilling" customization={customization} index={idx}>
         <div className="grid gap-6 lg:grid-cols-2">
           <BilledByMonthChart data={billedByMonthData} year={periodSelection.year} />
-          <BilledByClientMonthChart data={billedByClientMonth.data} clientKeys={billedByClientMonth.clientKeys} year={periodSelection.year} />
+          <BilledByClientMonthChart salesInvoices={salesInvoices} year={periodSelection.year} />
         </div>
       </DashboardBlock>
     ),

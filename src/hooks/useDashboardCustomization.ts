@@ -5,6 +5,7 @@ export type DashboardModule =
   | 'mainMetrics'
   | 'invoiceTax'
   | 'operational'
+  | 'chartsCashflow'
   | 'chartsFlow'
   | 'chartsBilling'
   | 'pendingTable';
@@ -22,9 +23,10 @@ const DEFAULT_MODULES: ModuleConfig[] = [
   { id: 'mainMetrics', label: 'Métricas principales', visible: true, order: 1, pinned: false },
   { id: 'invoiceTax', label: 'Facturación e impuestos', visible: true, order: 2, pinned: false },
   { id: 'operational', label: 'Top Clientes y Referencias', visible: true, order: 3, pinned: false },
-  { id: 'chartsFlow', label: 'Gráficos de flujo', visible: true, order: 4, pinned: false },
-  { id: 'chartsBilling', label: 'Gráficos de facturación', visible: true, order: 5, pinned: false },
-  { id: 'pendingTable', label: 'Transacciones pendientes', visible: true, order: 6, pinned: false },
+  { id: 'chartsCashflow', label: 'Saldo en el tiempo', visible: true, order: 4, pinned: false },
+  { id: 'chartsFlow', label: 'Gráficos de flujo', visible: true, order: 5, pinned: false },
+  { id: 'chartsBilling', label: 'Gráficos de facturación', visible: true, order: 6, pinned: false },
+  { id: 'pendingTable', label: 'Transacciones pendientes', visible: true, order: 7, pinned: false },
 ];
 
 const STORAGE_KEY = 'dashboard-customization';
