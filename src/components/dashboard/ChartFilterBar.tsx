@@ -146,41 +146,17 @@ function renderControl(c: FilterControlSpec, dense = false) {
 }
 
 export function ChartFilterBar({ chartId, controls }: ChartFilterBarProps) {
-  const inlineCapable =
-    controls.length <= 3 &&
-    controls.every(c => c.kind !== 'select' || c.options.length <= 4);
   const popoverCount = controls.length;
 
   return (
     <div className="flex items-center gap-2 shrink-0" data-chart-filterbar={chartId}>
-      {inlineCapable && (
-        <div className="hidden xl:flex items-center gap-2 flex-nowrap">
-          {controls.map(c => (
-            <div key={c.id} className="flex items-center gap-1.5 flex-nowrap">
-              {c.kind === 'switch' && renderControl(c)}
-              {c.kind !== 'switch' && (
-                <>
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground/80 whitespace-nowrap">
-                    {c.label}
-                  </span>
-                  {renderControl(c)}
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
       <Popover>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
             size="sm"
             aria-label={`Filtros de ${chartId}`}
-            className={cn(
-              'h-8 gap-1.5 rounded-md text-xs font-medium whitespace-nowrap',
-              inlineCapable && 'xl:hidden',
-            )}
+            className="h-8 gap-1.5 rounded-md text-xs font-medium whitespace-nowrap"
           >
             <Filter className="h-3.5 w-3.5" aria-hidden />
             Filtros
