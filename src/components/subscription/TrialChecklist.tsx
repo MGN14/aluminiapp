@@ -285,12 +285,18 @@ async function computeChecklist(userId: string): Promise<ChecklistState> {
 
   const dianReviewed = localStorage.getItem(`aluminia_dian_reviewed_${userId}`) === '1';
 
+  // Si Siigo está conectado, las facturas se sincronizan automáticamente —
+  // pedirle al usuario "subir factura de venta/compra" deja de tener sentido.
+  // Damos por completados ambos checks aunque la sincronización todavía no
+  // haya corrido (la conexión es la acción del usuario, el resto es automático).
+  const siigoConnected = siigoCount > 0;
+
   return {
     statement_uploaded: stmtCount > 0,
-    invoice_venta_uploaded: invVentaCount > 0,
-    invoice_compra_uploaded: invCompraCount > 0,
+    invoice_venta_uploaded: invVentaCount > 0 || siigoConnected,
+    invoice_compra_uploaded: invCompraCount > 0 || siigoConnected,
     invoice_matched: matchedTxCount > 0,
-    siigo_connected: siigoCount > 0,
+    siigo_connected: siigoConnected,
     initial_state_set: initialCount > 0,
     reteica_configured: reteicaRate > 0,
     transactions_categorized: categorizedCount >= 5,
