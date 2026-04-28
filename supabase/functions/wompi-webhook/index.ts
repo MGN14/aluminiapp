@@ -116,6 +116,34 @@ serve(async (req) => {
 
     if (verifiedStatus !== "APPROVED") {
       logStep("Transaction not approved", { verifiedStatus });
+      // Telemetría: aviso inmediato al founder de pago fallido.
+      // Intentamos extraer userId del reference para el email; si no se puede,
+      // mandamos sin user_id (se ve igual en el inbox).
+      try {
+        const failedRef: string = verifyData?.data?.reference || transaction?.reference || "";
+        const failedRefMatch = failedRef.match(
+          /^aluminia-(basico|empresarial)-([a-f0-9-]{36})-(\d+)-([a-f0-9]{16})$/,
+        );
+        const failedUserId = failedRefMatch?.[2] ?? null;
+        const failedEmail = verifyData?.data?.customer_email ?? transaction?.customer_email ?? null;
+        await fetch(`${supabaseUrl}/functions/v1/notify-founder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceRoleKey}` },
+          body: JSON.stringify({
+            event_type: "payment_failed",
+            user_id: failedUserId,
+            user_email: failedEmail,
+            props: {
+              wompi_status: verifiedStatus,
+              transaction_id: transactionId,
+              amount_cop: (verifiedAmount ?? 0) / 100,
+              reference: failedRef.slice(0, 80),
+            },
+          }),
+        }).catch((e) => logStep("notify-founder failed (payment_failed)", { error: String(e) }));
+      } catch (e) {
+        logStep("notify-founder threw (payment_failed)", { error: String(e) });
+      }
       return new Response("OK", { status: 200 });
     }
 
@@ -197,6 +225,28 @@ serve(async (req) => {
     }
 
     logStep("Plan activated successfully", { userId, expiresAt: expiresAt.toISOString() });
+
+    // Telemetría: aviso inmediato al founder de pago exitoso.
+    try {
+      const customerEmail = verifyData?.data?.customer_email ?? transaction?.customer_email ?? null;
+      await fetch(`${supabaseUrl}/functions/v1/notify-founder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({
+          event_type: "payment_success",
+          user_id: userId,
+          user_email: customerEmail,
+          props: {
+            plan: refPlan,
+            transaction_id: transactionId,
+            amount_cop: verifiedAmount / 100,
+            expires_at: expiresAt.toISOString(),
+          },
+        }),
+      }).catch((e) => logStep("notify-founder failed (payment_success)", { error: String(e) }));
+    } catch (e) {
+      logStep("notify-founder threw (payment_success)", { error: String(e) });
+    }
 
     return new Response("OK", { status: 200 });
   } catch (error) {

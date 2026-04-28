@@ -7,6 +7,7 @@ import {
   isSessionInactive,
   clearLastActiveAt,
 } from '@/lib/inactivityTracker';
+import { logEvent } from '@/lib/analytics';
 
 // CRITICAL: All auth debug logging is strictly dev-only. NEVER log in production.
 const isDev = import.meta.env.MODE === 'development';
@@ -297,7 +298,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = useCallback(async (email: string, password: string, fullName: string, captchaToken?: string) => {
     authLog('signUp_attempt', { email });
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -306,7 +307,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         captchaToken,
       },
     });
-    if (error) authLog('signUp_error', error.message);
+    if (error) {
+      authLog('signUp_error', error.message);
+    } else {
+      // Telemetría interna: aviso inmediato al founder por email.
+      // Fire-and-forget — si falla no rompemos el signup.
+      logEvent('signup', {
+        user_id: data?.user?.id ?? null,
+        user_email: email,
+        user_name: fullName,
+        props: { source: 'web' },
+      });
+    }
     return { error };
   }, []);
 
