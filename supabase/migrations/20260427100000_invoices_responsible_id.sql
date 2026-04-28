@@ -21,6 +21,4 @@ CREATE INDEX IF NOT EXISTS idx_invoices_responsible_id
   WHERE responsible_id IS NOT NULL;
 
 COMMENT ON COLUMN public.invoices.responsible_id IS
-  'FK al responsible (cliente/proveedor) asociado a esta factura. ' ||
-  'Permite cruzar facturas con movimientos bancarios sin depender del ' ||
-  'matching por nombre. Si es NULL, se hace fallback ilike sobre counterparty_name.';
+  'FK al responsible (cliente/proveedor) asociado a esta factura. Permite cruzar facturas con movimientos bancarios sin depender del matching por nombre. Si es NULL, se hace fallback ilike sobre counterparty_name.';
