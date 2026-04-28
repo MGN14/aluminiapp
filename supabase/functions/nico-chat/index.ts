@@ -72,6 +72,12 @@ serve(async (req) => {
     }
 
     // --- Load agent memory summary and recent messages ---
+    // Filtramos historial a las últimas 12 horas. Antes traíamos los últimos 15
+    // mensajes sin importar cuándo se enviaron, lo que provocaba que una pregunta
+    // de ayer (ej: IVA, facturación) contaminara el contexto de una pregunta nueva
+    // de hoy (ej: macro/aluminio). Gemini se quedaba pegado al hilo viejo.
+    const HISTORY_WINDOW_HOURS = 12;
+    const historySinceIso = new Date(Date.now() - HISTORY_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
     const [{ data: memoryRow }, { data: recentMsgs }] = await Promise.all([
       supabase
         .from("nico_agent_memory" as never)
@@ -84,6 +90,7 @@ serve(async (req) => {
         .select("role, content, created_at")
         .eq("user_id", user.id)
         .eq("agent_key", agent_key)
+        .gte("created_at", historySinceIso)
         .order("created_at", { ascending: false })
         .limit(15),
     ]);
@@ -207,11 +214,17 @@ serve(async (req) => {
     ]);
 
     // Indicadores macro (TRM + futuros). Tabla compartida read-only.
+    // Subimos limit para tener histórico amplio (180 días por indicador) y poder
+    // calcular tendencias, no sólo el último valor. Antes con limit=50 sólo había
+    // 2-3 puntos por indicador y Nico no podía analizar comportamiento histórico.
+    const macroSinceIso = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000)
+      .toISOString().split("T")[0];
     const { data: macroRowsRaw } = await supabase
       .from("macro_indicators" as never)
       .select("indicator_type, sector_code, sector_name, period_date, value, unit")
+      .gte("period_date", macroSinceIso)
       .order("period_date", { ascending: false })
-      .limit(50);
+      .limit(2000);
     const macroRows = (macroRowsRaw ?? []) as Array<{
       indicator_type: string;
       sector_code: string | null;
@@ -1296,6 +1309,99 @@ ${inventoryCtx}
     const ipcInfo = buildIndicatorLine("ipc_total");
     const aluInfo = buildIndicatorLine("aluminio_lme");
 
+    // Resumen histórico por indicador: cambio 7d/30d/90d, max/min/promedio 90d,
+    // tendencia (alcista/bajista/lateral). Le da a Nico contexto suficiente para
+    // recomendar "compra hoy" o "espera" sobre TRM/aluminio LME.
+    const buildHistorySummary = (type: string, label: string, unit: "ton" | "cop" | "pct") => {
+      const series = macroRows
+        .filter(r => r.indicator_type === type)
+        .sort((a, b) => b.period_date.localeCompare(a.period_date));
+      if (series.length < 2) return null;
+      const last = series[0];
+      const lastDate = new Date(last.period_date + "T00:00:00").getTime();
+      const findClosest = (daysBack: number) => {
+        const targetTs = lastDate - daysBack * 24 * 60 * 60 * 1000;
+        let best: typeof series[0] | null = null;
+        let bestDiff = Infinity;
+        for (const r of series) {
+          const ts = new Date(r.period_date + "T00:00:00").getTime();
+          const diff = Math.abs(ts - targetTs);
+          if (diff < bestDiff) { bestDiff = diff; best = r; }
+        }
+        return best;
+      };
+      const fmtVal = (v: number) =>
+        unit === "ton"
+          ? `US$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(v))}/ton`
+          : unit === "pct"
+            ? `${fmtNum(v)}%`
+            : `$${fmtNum(v)}`;
+      const pctChange = (curr: number, prev: number) =>
+        prev === 0 ? 0 : ((curr - prev) / prev) * 100;
+      const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+
+      const ago7 = findClosest(7);
+      const ago30 = findClosest(30);
+      const ago90 = findClosest(90);
+      const ch7 = ago7 && ago7 !== last ? pctChange(last.value, ago7.value) : null;
+      const ch30 = ago30 && ago30 !== last ? pctChange(last.value, ago30.value) : null;
+      const ch90 = ago90 && ago90 !== last ? pctChange(last.value, ago90.value) : null;
+
+      // Stats últimos 90 días
+      const cutoff90 = lastDate - 90 * 24 * 60 * 60 * 1000;
+      const last90 = series.filter(r => new Date(r.period_date + "T00:00:00").getTime() >= cutoff90);
+      const vals90 = last90.map(r => r.value);
+      const max90 = vals90.length ? Math.max(...vals90) : last.value;
+      const min90 = vals90.length ? Math.min(...vals90) : last.value;
+      const avg90 = vals90.length ? vals90.reduce((s, v) => s + v, 0) / vals90.length : last.value;
+
+      // Tendencia: comparar promedio últimos 30d vs 30d anteriores
+      const cutoff30 = lastDate - 30 * 24 * 60 * 60 * 1000;
+      const cutoff60 = lastDate - 60 * 24 * 60 * 60 * 1000;
+      const last30Vals = series
+        .filter(r => {
+          const ts = new Date(r.period_date + "T00:00:00").getTime();
+          return ts >= cutoff30;
+        })
+        .map(r => r.value);
+      const prev30Vals = series
+        .filter(r => {
+          const ts = new Date(r.period_date + "T00:00:00").getTime();
+          return ts >= cutoff60 && ts < cutoff30;
+        })
+        .map(r => r.value);
+      const avgLast30 = last30Vals.length ? last30Vals.reduce((s, v) => s + v, 0) / last30Vals.length : null;
+      const avgPrev30 = prev30Vals.length ? prev30Vals.reduce((s, v) => s + v, 0) / prev30Vals.length : null;
+      let tendencia = "lateral";
+      if (avgLast30 !== null && avgPrev30 !== null) {
+        const trendPct = pctChange(avgLast30, avgPrev30);
+        if (trendPct > 1.5) tendencia = "alcista";
+        else if (trendPct < -1.5) tendencia = "bajista";
+      }
+
+      // Posición vs rango 90d
+      const range90 = max90 - min90;
+      const posInRange = range90 > 0 ? ((last.value - min90) / range90) * 100 : 50;
+      let posLabel = "en zona media";
+      if (posInRange > 80) posLabel = "cerca del máximo de 90 días (caro)";
+      else if (posInRange < 20) posLabel = "cerca del mínimo de 90 días (barato)";
+
+      const parts: string[] = [];
+      parts.push(`${label} hoy ${fmtVal(last.value)} (${last.period_date})`);
+      if (ch7 !== null) parts.push(`vs hace 7d: ${fmtPct(ch7)}`);
+      if (ch30 !== null) parts.push(`vs hace 30d: ${fmtPct(ch30)}`);
+      if (ch90 !== null) parts.push(`vs hace 90d: ${fmtPct(ch90)}`);
+      parts.push(`máx 90d ${fmtVal(max90)}, mín 90d ${fmtVal(min90)}, prom 90d ${fmtVal(avg90)}`);
+      parts.push(`tendencia 30d: ${tendencia}`);
+      parts.push(`posición actual: ${posLabel}`);
+      return parts.join(" · ");
+    };
+
+    const trmHistory = buildHistorySummary("trm", "TRM", "cop");
+    const aluHistory = buildHistorySummary("aluminio_lme", "Aluminio LME", "ton");
+    const dtfHistory = buildHistorySummary("dtf", "DTF", "pct");
+    const ipcHistory = buildHistorySummary("ipc_total", "IPC anual", "pct");
+
     let macroBlock = "";
     if (trmInfo || dtfInfo || ipcInfo || aluInfo) {
       const lines: string[] = [];
@@ -1314,6 +1420,14 @@ CONTEXTO MACRO (datos públicos al día)
 Estás conectado en vivo a Superfinanciera (TRM), BanRep (DTF), World Bank (IPC) y London Metal Exchange vía Yahoo Finance / Trading Economics (aluminio LME). Estos números son oficiales y vigentes hoy:
 
 ${lines.join("\n")}
+
+ANÁLISIS HISTÓRICO (últimos 90 días, calculado en backend con datos diarios reales):
+${[trmHistory, aluHistory, dtfHistory, ipcHistory].filter(Boolean).join("\n")}
+
+CÓMO USAR EL ANÁLISIS HISTÓRICO:
+- Si te preguntan "¿conviene comprar/importar/fijar precio HOY?" sobre TRM o aluminio LME, basate en estos números: si está cerca del mínimo de 90d y la tendencia 30d es bajista o lateral, sugerí esperar; si está cerca del máximo y la tendencia es alcista, sugerí comprar/fijar ya. NO inventes datos: si la posición está "en zona media" decí eso, no exageres.
+- Para decisiones de pedido (importación de aluminio, compras grandes en USD), siempre cruzá: precio LME actual vs su rango 90d + TRM actual vs su rango 90d + tendencia de ambos. Una decisión informada combina los dos.
+- IMPORTANTE: solo tenés precio LME (London Metal Exchange) — referencia mundial. NO tenés SMM (Shanghai Metals Market). Si te preguntan por SMM, decí honestamente: "no tengo el SMM en vivo, sólo LME. El LME es el referente global y suele moverse en línea con SMM con un spread relativamente estable, así que sirve como proxy aceptable, pero no son el mismo número."
 
 CÓMO USARLOS:
 - Si preguntan por dólar/TRM/importaciones/exportaciones → usá la TRM real (no inventes). Fuente: Superintendencia Financiera vía datos.gov.co.
@@ -1504,6 +1618,7 @@ Lo que NUNCA hacés:
 - Nunca terminás con "¿En qué más te puedo ayudar?" ni frases de cierre genéricas.
 - Nunca alarmás sin darle una salida. Si hay un problema, decís cuál y qué hacer.
 - Nunca des rodeos ni preámbulos antes de responder. Si la pregunta es puntual ("¿cuánto facturé en marzo?", "¿quién me debe más?"), arrancás con el dato exacto. El contexto, la interpretación y la recomendación van DESPUÉS, y sólo si suman. No expliques cómo vas a responder antes de responder.
+- Nunca arrastrés el contexto de una pregunta previa cuando el usuario cambia de tema. La PREGUNTA MÁS RECIENTE manda. Si los mensajes anteriores eran sobre IVA/facturación/cartera y la pregunta nueva es sobre TRM, aluminio, decisión de pedido, importaciones u otro tema, respondé la nueva pregunta sin volver al hilo previo. Si el usuario cierra un tema, no lo reabras.
 
 Lo que SIEMPRE hacés:
 - Arrancás con el dato o insight más importante, con cifra concreta.
