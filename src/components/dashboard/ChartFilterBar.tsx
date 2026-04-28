@@ -97,14 +97,14 @@ function renderControl(c: FilterControlSpec, dense = false) {
         value={c.value}
         onValueChange={v => v && c.onChange(v as never)}
         aria-label={c.label}
-        className={cn('justify-start gap-0 rounded-md border bg-background p-0.5', dense && 'w-full')}
+        className={cn('flex-nowrap justify-start gap-0 rounded-md border bg-background p-0.5', dense && 'w-full')}
       >
         {c.options.map(opt => (
           <ToggleGroupItem
             key={opt.value}
             value={opt.value}
             aria-label={opt.ariaLabel ?? opt.label}
-            className="h-7 rounded-[4px] px-2.5 text-xs data-[state=on]:bg-muted data-[state=on]:text-foreground"
+            className="h-7 rounded-[4px] px-2.5 text-xs whitespace-nowrap data-[state=on]:bg-muted data-[state=on]:text-foreground"
           >
             {opt.label}
           </ToggleGroupItem>
@@ -152,15 +152,15 @@ export function ChartFilterBar({ chartId, controls }: ChartFilterBarProps) {
   const popoverCount = controls.length;
 
   return (
-    <div className="flex items-center gap-2" data-chart-filterbar={chartId}>
+    <div className="flex items-center gap-2 shrink-0" data-chart-filterbar={chartId}>
       {inlineCapable && (
-        <div className="hidden md:flex items-center gap-2">
+        <div className="hidden xl:flex items-center gap-2 flex-nowrap">
           {controls.map(c => (
-            <div key={c.id} className="flex items-center gap-1.5">
+            <div key={c.id} className="flex items-center gap-1.5 flex-nowrap">
               {c.kind === 'switch' && renderControl(c)}
               {c.kind !== 'switch' && (
                 <>
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground/80">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground/80 whitespace-nowrap">
                     {c.label}
                   </span>
                   {renderControl(c)}
@@ -178,8 +178,8 @@ export function ChartFilterBar({ chartId, controls }: ChartFilterBarProps) {
             size="sm"
             aria-label={`Filtros de ${chartId}`}
             className={cn(
-              'h-8 gap-1.5 rounded-md text-xs font-medium',
-              inlineCapable && 'md:hidden',
+              'h-8 gap-1.5 rounded-md text-xs font-medium whitespace-nowrap',
+              inlineCapable && 'xl:hidden',
             )}
           >
             <Filter className="h-3.5 w-3.5" aria-hidden />

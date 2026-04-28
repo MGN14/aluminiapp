@@ -110,7 +110,7 @@ export function BilledByClientMonthChart({ salesInvoices, year }: BilledByClient
   return (
     <Card className="border-0 shadow-sm">
       <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
-        <div className="min-w-0">
+        <div className="flex-1 min-w-0">
           <CardTitle className="text-lg">Facturado por cliente por mes</CardTitle>
           <p className="text-sm text-muted-foreground truncate">Top {topN} clientes • Año {year}</p>
         </div>
