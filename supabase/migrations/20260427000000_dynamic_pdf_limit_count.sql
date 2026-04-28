@@ -20,6 +20,11 @@
 --     en vez de explotar — preferimos permitir un upload de más y arreglar
 --     después que bloquear al usuario por un bug nuestro.
 
+-- DROP previo: Postgres no deja CREATE OR REPLACE si el return type cambió
+-- (SQLSTATE 42P13). Esta migration no había corrido en prod, y la versión
+-- vieja en DB devolvía un tipo distinto al actual. Forzamos drop antes.
+DROP FUNCTION IF EXISTS public.check_pdf_upload_limit(uuid);
+
 CREATE OR REPLACE FUNCTION public.check_pdf_upload_limit(p_user_id uuid)
 RETURNS json
 LANGUAGE plpgsql
@@ -151,6 +156,9 @@ $function$;
 -- Lo dejamos como no-op para mantener compatibilidad con código existente
 -- que lo invoca en parse-bancolombia-pdf y PDFUploader. Cuando esos call
 -- sites se limpien, podemos eliminar la función.
+-- DROP previo por la misma razón que arriba (cambio de return type).
+DROP FUNCTION IF EXISTS public.increment_pdf_upload(uuid);
+
 CREATE OR REPLACE FUNCTION public.increment_pdf_upload(p_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
