@@ -1821,6 +1821,23 @@ ${financialContext}${memoryBlock}${macroBlock}`;
             { user_id: user.id, day: todayBogota, message_count: nextCount } as never,
             { onConflict: "user_id,day" } as never,
           );
+
+        // Telemetría interna: registrar nico_query con agent_key + tamaño.
+        // Va a app_events para el reporte semanal del founder. Sólo se cuentan
+        // queries respondidas exitosamente (este path es post-respuesta).
+        await supabase
+          .from("app_events" as never)
+          .insert({
+            user_id: user.id,
+            event_type: "nico_query",
+            props: {
+              agent_key,
+              user_msg_len: userMessageContent.length,
+              assistant_msg_len: assistantText.length,
+              model_used: modelUsed,
+              page_context: pageContextNote2 || null,
+            },
+          } as never);
       } catch (err) {
         console.error("persistence error:", err);
       }

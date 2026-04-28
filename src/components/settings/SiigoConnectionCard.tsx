@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Plug, RefreshCw, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { logEvent } from '@/lib/analytics';
 
 type SiigoCreds = {
   siigo_username: string;
@@ -73,8 +74,18 @@ export default function SiigoConnectionCard() {
 
       setAccessKey('');
       qc.invalidateQueries({ queryKey: ['siigo-creds', user?.id] });
+      logEvent('siigo_connected', {
+        user_id: user?.id ?? null,
+        user_email: user?.email ?? null,
+        props: { source: 'settings', partner_id: partnerId || 'aluminiapp' },
+      });
       toast({ title: 'Conectado a Siigo', description: 'Ya puedes sincronizar facturas.' });
     } catch (e: any) {
+      logEvent('flow_error', {
+        user_id: user?.id ?? null,
+        user_email: user?.email ?? null,
+        props: { flow: 'siigo-connect', error: String(e?.message ?? e).slice(0, 200) },
+      });
       toast({
         title: 'No se pudo conectar',
         description: e.message ?? 'Verifica usuario y access key.',

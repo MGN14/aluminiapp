@@ -9,6 +9,7 @@ import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import InvoiceValidationForm from './InvoiceValidationForm';
+import { logEvent } from '@/lib/analytics';
 
 interface Props {
   open: boolean;
@@ -477,12 +478,30 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
         }
       }
 
+      // Telemetría: factura guardada (sólo cuando se confirma, no borradores)
+      if (data.status === 'confirmed') {
+        logEvent('invoice_uploaded', {
+          user_id: user.id,
+          user_email: user.email ?? null,
+          props: {
+            type: data.type,
+            total_amount: data.total_amount,
+            source: 'manual_pdf',
+          },
+        });
+      }
+
       toast({ title: data.status === 'confirmed' ? 'Factura confirmada exitosamente' : 'Borrador guardado' });
       onInvoiceSaved();
       reset();
       onClose();
     } catch (err: any) {
       console.error('Save invoice error:', err);
+      logEvent('flow_error', {
+        user_id: user.id,
+        user_email: user.email ?? null,
+        props: { flow: 'invoice-save', error: String(err?.message ?? err).slice(0, 200) },
+      });
       toast({
         title: 'No se pudo guardar la factura',
         description: 'Revisa tu conexión e intenta nuevamente.',

@@ -20,6 +20,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
 import { supabase } from '@/integrations/supabase/client';
+import { logEvent } from '@/lib/analytics';
 
 const LEFT_CONTENT: Array<{ headline: React.ReactNode; subtitle?: React.ReactNode }> = [
   {
@@ -253,10 +254,20 @@ export default function Onboarding() {
         });
         if (error) throw error;
         if (!data?.ok) throw new Error(data?.error || 'Conexión rechazada por Siigo');
+        logEvent('siigo_connected', {
+          user_id: user?.id ?? null,
+          user_email: user?.email ?? null,
+          props: { source: 'onboarding', partner_id: state.siigoPartnerId || 'aluminiapp' },
+        });
         toast.success('Siigo conectado correctamente');
       } catch (err: any) {
         console.warn('[onboarding] siigo-connect failed:', err?.message);
         Sentry.captureException(err, { tags: { feature: 'onboarding', step: 'siigo_connect' } });
+        logEvent('flow_error', {
+          user_id: user?.id ?? null,
+          user_email: user?.email ?? null,
+          props: { flow: 'siigo-connect', error: String(err?.message ?? err).slice(0, 200), source: 'onboarding' },
+        });
         toast.warning(
           'No se pudo conectar Siigo ahora, pero tu perfil quedó guardado. Reintenta desde Ajustes.',
         );
@@ -268,6 +279,18 @@ export default function Onboarding() {
     } catch (err) {
       Sentry.captureException(err, { tags: { feature: 'onboarding', step: 'mark_complete_call' } });
     }
+
+    logEvent('onboarding_completed', {
+      user_id: user?.id ?? null,
+      user_email: user?.email ?? null,
+      user_name: state.nombreUsuario ?? null,
+      props: {
+        company_name: state.nombreComercial ?? null,
+        regimen: state.regimen ?? null,
+        actividad_principal: state.actividadPrincipal ?? null,
+        siigo_choice: state.siigoChoice ?? null,
+      },
+    });
 
     toast.success('Perfil fiscal guardado');
     setSaving(false);

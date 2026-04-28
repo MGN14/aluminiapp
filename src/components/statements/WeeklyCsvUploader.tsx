@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { logEvent } from "@/lib/analytics";
 import {
   Select,
   SelectContent,
@@ -273,6 +274,15 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
       }
 
       setPhase("done");
+      logEvent('extracto_uploaded', {
+        user_id: user?.id ?? null,
+        user_email: user?.email ?? null,
+        props: {
+          statement_id: stmt.id,
+          transactions_count: result.transactions_count ?? 0,
+          source: 'csv_weekly',
+        },
+      });
       toast({
         title: "¡Movimientos cargados!",
         description:
@@ -287,6 +297,14 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
     } catch (err) {
       console.error("Upload error:", err);
       const msg = err instanceof Error ? err.message : "Error desconocido";
+      logEvent('flow_error', {
+        user_id: user?.id ?? null,
+        user_email: user?.email ?? null,
+        props: {
+          flow: 'parse-bancolombia-csv',
+          error: msg.slice(0, 200),
+        },
+      });
       setErrorMsg(msg);
       setPhase("preview");
       toast({

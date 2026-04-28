@@ -14,6 +14,7 @@ import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useReconciliationRules } from '@/hooks/useReconciliationRules';
+import { logEvent } from '@/lib/analytics';
 
 interface Statement {
   id: string;
@@ -110,6 +111,17 @@ export default function StatementUpload() {
       const result = await response.json();
       await fetchStatements();
 
+      // Telemetría: extracto procesado OK
+      logEvent('extracto_uploaded', {
+        user_id: user?.id ?? null,
+        user_email: user?.email ?? null,
+        props: {
+          statement_id: statementId,
+          transactions_count: result.transactions_count ?? 0,
+          source: 'pdf',
+        },
+      });
+
       // Auto-apply Nico reconciliation rules to the freshly parsed transactions
       const activeRules = rules.filter(r => r.active && r.category_id);
       if (activeRules.length > 0) {
@@ -146,6 +158,17 @@ export default function StatementUpload() {
     } catch (error: any) {
       console.error('Processing error:', error);
       await fetchStatements();
+
+      // Telemetría: error en flujo crítico de extractos
+      logEvent('flow_error', {
+        user_id: user?.id ?? null,
+        user_email: user?.email ?? null,
+        props: {
+          flow: 'parse-bancolombia-pdf',
+          error: String(error?.message ?? error).slice(0, 200),
+          statement_id: statementId,
+        },
+      });
 
       toast({
         title: 'Error al procesar',
