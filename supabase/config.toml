@@ -55,3 +55,15 @@ verify_jwt = false
 
 [functions.sync-macro-indicators]
 verify_jwt = false
+
+[functions.notify-founder]
+verify_jwt = false
+
+[functions.weekly-founder-report]
+verify_jwt = false
+
+[functions.admin-stats]
+verify_jwt = false
+
+[functions.charge-recurring-subscriptions]
+verify_jwt = false
