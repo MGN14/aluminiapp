@@ -148,7 +148,11 @@ serve(async (req) => {
       body: JSON.stringify({
         name: planConfig.name,
         description: planConfig.description,
-        single_use: true,
+        // single_use:false permite que Wompi tokenice la tarjeta del cliente
+        // y nos devuelva un payment_source_id en el webhook. Lo guardamos en
+        // user_payment_methods para hacer cobros recurrentes mes a mes con
+        // POST /transactions sin pedirle datos al cliente otra vez.
+        single_use: false,
         collect_shipping: false,
         currency: "COP",
         amount_in_cents: planConfig.amount_in_cents,

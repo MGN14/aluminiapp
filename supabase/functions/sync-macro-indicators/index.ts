@@ -126,6 +126,33 @@ serve(async (req) => {
     }
   }
 
+  // Si algún indicador falló, alertar al founder. Antes el cron fallaba en
+  // silencio: TRM se guardaba bien pero aluminio LME se quedaba sin actualizar
+  // por un cambio en Yahoo Finance / Trading Economics y nadie se enteraba
+  // hasta que un cliente hacía una consulta y los datos estaban viejos.
+  if (errors.length > 0) {
+    try {
+      await fetch(`${SUPABASE_URL}/functions/v1/notify-founder`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        },
+        body: JSON.stringify({
+          event_type: "macro_sync_failed",
+          props: {
+            indicators_failed: errors.length,
+            indicators_ok: Object.keys(results).length,
+            errors,
+            results: Object.keys(results),
+          },
+        }),
+      }).catch((e) => console.warn("notify-founder failed (macro_sync):", e));
+    } catch (e) {
+      console.warn("notify-founder threw (macro_sync):", e);
+    }
+  }
+
   return json({ ok: errors.length === 0, results, errors });
 });
 

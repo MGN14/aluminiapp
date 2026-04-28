@@ -25,6 +25,7 @@ const IMMEDIATE_EVENTS = new Set([
   "payment_failed",
   "subscription_canceled",
   "subscription_expired",
+  "macro_sync_failed",
 ]);
 
 interface EventPayload {
@@ -72,6 +73,10 @@ function buildEmailHtml(event_type: string, payload: EventPayload): { subject: s
     },
     subscription_expired: {
       subject: `⏰ Plan vencido sin renovar: ${payload.user_email ?? "—"}`,
+      banner: "background:#664d03;color:#fff",
+    },
+    macro_sync_failed: {
+      subject: `🟠 Sync de indicadores macro falló parcialmente`,
       banner: "background:#664d03;color:#fff",
     },
   };

@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import PlanBadge from '@/components/subscription/PlanBadge';
+import PaymentMethodCard from '@/components/subscription/PaymentMethodCard';
 import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import SiigoConnectionCard from '@/components/settings/SiigoConnectionCard';
@@ -193,6 +194,11 @@ export default function Settings() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Payment method (recurring) — solo si tiene plan pago */}
+        {!isFounder && (plan === 'empresarial' || plan === 'pro' || plan === 'basico') && (
+          <PaymentMethodCard />
+        )}
 
         {/* Section 2: Company + Fiscal Profile summary */}
         <Card>

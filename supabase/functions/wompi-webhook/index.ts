@@ -226,6 +226,66 @@ serve(async (req) => {
 
     logStep("Plan activated successfully", { userId, expiresAt: expiresAt.toISOString() });
 
+    // Step 5: Guardar payment_source_id (token de tarjeta) para cobros recurrentes.
+    // Wompi devuelve el payment_source en el body del transaction si fue tokenizado
+    // (single_use:false en el payment_link). Si el cliente pagó con PSE u otro método
+    // sin tokenizar, payment_source viene null y simplemente no guardamos nada — el
+    // próximo mes habrá que mandarle el link de nuevo.
+    try {
+      const paymentSource = (verifyData?.data?.payment_source ?? transaction?.payment_source) as
+        | {
+            id?: number | string;
+            type?: string;
+            token?: string;
+            customer_email?: string;
+            public_data?: {
+              card_brand?: string;
+              card_last_four?: string;
+              exp_month?: number | string;
+              exp_year?: number | string;
+            };
+          }
+        | null
+        | undefined;
+
+      const paymentSourceId = paymentSource?.id ? String(paymentSource.id) : null;
+
+      if (paymentSourceId) {
+        const customerEmail = paymentSource.customer_email
+          ?? verifyData?.data?.customer_email
+          ?? transaction?.customer_email
+          ?? null;
+        const publicData = paymentSource.public_data ?? {};
+        const expMonth = publicData.exp_month ? Number(publicData.exp_month) : null;
+        const expYear = publicData.exp_year ? Number(publicData.exp_year) : null;
+
+        const { error: pmErr } = await supabase
+          .from("user_payment_methods")
+          .upsert({
+            user_id: userId,
+            wompi_payment_source_id: paymentSourceId,
+            wompi_customer_email: customerEmail,
+            card_last_four: publicData.card_last_four ?? null,
+            card_brand: publicData.card_brand ?? null,
+            card_exp_month: expMonth,
+            card_exp_year: expYear,
+            status: 'active',
+            last_used_at: now.toISOString(),
+            last_error: null,
+          }, { onConflict: 'user_id' });
+
+        if (pmErr) {
+          logStep("Could not save payment method", { error: pmErr.message });
+        } else {
+          logStep("Payment method saved for recurring", { userId, paymentSourceId });
+        }
+      } else {
+        logStep("No payment_source — no recurring possible (PSE or other method)");
+      }
+    } catch (e) {
+      logStep("payment_source capture threw", { error: String(e) });
+    }
+
     // Telemetría: aviso inmediato al founder de pago exitoso.
     try {
       const customerEmail = verifyData?.data?.customer_email ?? transaction?.customer_email ?? null;
