@@ -41,6 +41,7 @@ const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
+const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Defaults amigables para sesiones largas:
@@ -104,6 +105,10 @@ const App = () => (
               <Route
                 path="/dashboard"
                 element={<ProtectedRoute><Dashboard /></ProtectedRoute>}
+              />
+              <Route
+                path="/admin"
+                element={<ProtectedRoute><Admin /></ProtectedRoute>}
               />
               <Route
                 path="/upload"
