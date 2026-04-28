@@ -44,6 +44,7 @@ export default function NicoDrawer() {
 
       {/* Drawer */}
       <div
+        className="nico-drawer-shell"
         style={{
           position: 'fixed',
           top: 0,
@@ -51,7 +52,7 @@ export default function NicoDrawer() {
           zIndex: 50,
           display: 'flex',
           flexDirection: 'column',
-          height: '100vh',
+          height: '100dvh',
           width: 420,
           maxWidth: '100vw',
           background: '#fff',
@@ -59,6 +60,7 @@ export default function NicoDrawer() {
           animation: 'slideInRight 0.38s cubic-bezier(0.16,1,0.3,1)',
           fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif",
           WebkitFontSmoothing: 'antialiased',
+          paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
         {/* Header */}

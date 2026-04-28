@@ -294,7 +294,7 @@ export default function NicoAgentChat({
             onChange={(e) => setInput(e.target.value)}
             placeholder="Pregúntame..."
             disabled={isLoading}
-            className="flex-1 bg-muted rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
+            className="flex-1 bg-muted rounded-xl px-4 py-2.5 text-base md:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
           />
           <Button type="submit" size="sm" disabled={!input.trim() || isLoading} className="rounded-xl h-10 w-10 p-0">
             <Send className="w-4 h-4" />

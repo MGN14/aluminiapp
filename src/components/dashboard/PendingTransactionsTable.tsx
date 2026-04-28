@@ -309,7 +309,91 @@ export function PendingTransactionsTable({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Mobile: cards apilables (< md) */}
+          <div className="md:hidden space-y-3">
+            {pendingTransactions.map(tx => {
+              const conciliada = isConciliada(tx);
+              const tieneRespSinResto = !!tx.responsible_id && !conciliada;
+              const cardBg = conciliada
+                ? 'bg-success/5 border-success/30'
+                : tieneRespSinResto
+                  ? 'bg-warning/5 border-warning/30'
+                  : 'bg-card border-border';
+              return (
+                <div
+                  key={tx.id}
+                  className={`rounded-xl border p-3 ${cardBg} transition-colors`}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {parseLocalDate(tx.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                        </span>
+                        {conciliada ? (
+                          <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-[10px] px-2 py-0 h-5">Conciliada</Badge>
+                        ) : tieneRespSinResto ? (
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-[10px] px-2 py-0 h-5">
+                            Falta {!tx.category_id ? 'categoría' : 'factura'}
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-[10px] px-2 py-0 h-5">Pendiente</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-foreground line-clamp-2" title={tx.description}>
+                        {tx.description}
+                      </p>
+                    </div>
+                    <div className={`text-sm font-semibold whitespace-nowrap ${(tx.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
+                      {formatCurrency(tx.amount ?? 0)}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 mt-2">
+                    <SearchableSelect
+                      options={responsibleOptions}
+                      value={tx.responsible_id}
+                      onChange={(value) => handleResponsibleChange(tx.id, value)}
+                      placeholder="👤 Asignar beneficiario"
+                      emptyLabel="Sin asignar"
+                      addLabel="+ Agregar beneficiario"
+                      onAdd={handleAddResponsible}
+                      triggerClassName="w-full h-10 text-sm"
+                      disabled={updatingId === tx.id}
+                      allowEmpty={false}
+                    />
+                    <SearchableSelect
+                      options={categoryOptions}
+                      value={tx.category_id}
+                      onChange={(value) => handleCategoryChange(tx.id, value)}
+                      placeholder="🏷️ Categoría"
+                      emptyLabel="Sin categoría"
+                      addLabel="+ Agregar categoría"
+                      onAdd={handleAddCategory}
+                      triggerClassName="w-full h-10 text-sm"
+                      disabled={updatingId === tx.id}
+                    />
+                    <InvoiceSelector
+                      invoiceId={tx.invoice_id}
+                      tags={parseTagsFromNotes(tx.notes)}
+                      transactionType={tx.type || 'egreso'}
+                      transactionAmount={tx.amount}
+                      transactionId={tx.id}
+                      onChange={(invId, tags) => handleInvoiceChange(tx.id, invId, tags, tx.notes)}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            <div className="text-center pt-2 text-muted-foreground text-xs">
+              {periodLabel} •{' '}
+              <Link to="/transactions" className="text-primary hover:underline">Ir a conciliar →</Link>
+            </div>
+          </div>
+
+          {/* Desktop: tabla original (≥ md) */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -416,6 +500,7 @@ export function PendingTransactionsTable({
               </Link>
             </div>
           </div>
+          </>
         )}
       </CardContent>
     </Card>

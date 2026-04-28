@@ -439,13 +439,13 @@ function DashboardContent() {
       const metricCardStyle = (i: number): React.CSSProperties => ({
         background: '#fff',
         borderRadius: 18,
-        padding: '22px 24px',
         border: '1.5px solid rgba(0,0,0,0.07)',
         boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
         transition: 'box-shadow 0.2s, transform 0.2s',
         animation: `fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) ${i * 0.05}s both`,
         opacity: 0,
       });
+      const metricCardClass = 'p-4 md:px-6 md:py-[22px]';
       const metricHover = (e: React.MouseEvent<HTMLDivElement>) => {
         e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)';
         e.currentTarget.style.transform = 'translateY(-1px)';
@@ -462,12 +462,12 @@ function DashboardContent() {
         color: '#a1a1a6',
       };
       const metricValueStyle = (color: string): React.CSSProperties => ({
-        fontSize: 28,
         fontWeight: 700,
         letterSpacing: '-1px',
         color,
         marginTop: 10,
       });
+      const metricValueClass = 'text-[22px] md:text-[28px]';
       const iconWrapStyle = (tint: string): React.CSSProperties => ({
         width: 36,
         height: 36,
@@ -482,35 +482,35 @@ function DashboardContent() {
       return (
         <DashboardBlock id="mainMetrics" customization={customization} index={idx}>
           <div className="grid gap-5 md:grid-cols-3">
-            <div style={metricCardStyle(0)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+            <div className={metricCardClass} style={metricCardStyle(0)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
               <div className="flex items-center justify-between">
                 <p style={metricLabelStyle}>Ingresos</p>
                 <div style={iconWrapStyle('oklch(0.43 0.14 155 / 0.10)')}>
                   <TrendingUp style={{ width: 16, height: 16, color: BRAND }} />
                 </div>
               </div>
-              <p style={metricValueStyle(BRAND)}>{formatCurrency(metrics.totalIngresos)}</p>
+              <p className={metricValueClass} style={metricValueStyle(BRAND)}>{formatCurrency(metrics.totalIngresos)}</p>
               <div className="flex items-center gap-1.5" style={{ marginTop: 10 }}>
                 <ArrowUpRight style={{ width: 12, height: 12, color: BRAND }} />
                 <span style={{ fontSize: 12, color: '#6e6e73' }}>{periodRange.label}</span>
               </div>
             </div>
 
-            <div style={metricCardStyle(1)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+            <div className={metricCardClass} style={metricCardStyle(1)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
               <div className="flex items-center justify-between">
                 <p style={metricLabelStyle}>Egresos</p>
                 <div style={iconWrapStyle('oklch(0.52 0.18 25 / 0.08)')}>
                   <TrendingDown style={{ width: 16, height: 16, color: DANGER }} />
                 </div>
               </div>
-              <p style={metricValueStyle(DANGER)}>{formatCurrency(metrics.totalEgresos)}</p>
+              <p className={metricValueClass} style={metricValueStyle(DANGER)}>{formatCurrency(metrics.totalEgresos)}</p>
               <div className="flex items-center gap-1.5" style={{ marginTop: 10 }}>
                 <ArrowDownRight style={{ width: 12, height: 12, color: DANGER }} />
                 <span style={{ fontSize: 12, color: '#6e6e73' }}>{periodRange.label}</span>
               </div>
             </div>
 
-            <div style={metricCardStyle(2)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+            <div className={metricCardClass} style={metricCardStyle(2)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
               <div className="flex items-center justify-between">
                 <p style={metricLabelStyle}>Resultado Neto</p>
                 <div
@@ -525,7 +525,7 @@ function DashboardContent() {
                   )}
                 </div>
               </div>
-              <p style={metricValueStyle(isPositive ? BRAND : DANGER)}>{formatCurrency(neto)}</p>
+              <p className={metricValueClass} style={metricValueStyle(isPositive ? BRAND : DANGER)}>{formatCurrency(neto)}</p>
               <span style={{ fontSize: 12, color: '#6e6e73', marginTop: 10, display: 'block' }}>
                 {periodRange.label}
               </span>
@@ -783,21 +783,19 @@ function DashboardContent() {
   const orderedModules = customization.modules.sort((a, b) => a.order - b.order);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <div className="max-w-7xl mx-auto space-y-6 md:space-y-8">
         {/* ─── Macro Ticker (TRM, IPC, etc.) ─── */}
         <MacroTicker />
 
         {/* ─── Header ─── */}
         <div
-          className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between"
+          className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-5"
           style={{ animation: 'fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both' }}
         >
-          <div className="flex items-center gap-3.5">
+          <div className="flex items-center gap-3 md:gap-3.5">
             <div
+              className="w-9 h-9 md:w-11 md:h-11 rounded-[12px] md:rounded-[14px]"
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
                 overflow: 'hidden',
                 boxShadow: '0 0 0 2px oklch(0.43 0.14 155 / 0.22)',
                 flexShrink: 0,
@@ -811,19 +809,19 @@ function DashboardContent() {
             </div>
             <div>
               <h1
+                className="text-[20px] md:text-[26px] font-bold"
                 style={{
-                  fontSize: 26,
-                  fontWeight: 700,
-                  letterSpacing: '-0.8px',
+                  letterSpacing: '-0.6px',
                   color: '#1d1d1f',
+                  lineHeight: 1.15,
                 }}
               >
                 Tu negocio hoy
               </h1>
-              <p style={{ fontSize: 13, color: '#6e6e73', marginTop: 2 }}>{periodRange.label}</p>
+              <p className="text-xs md:text-[13px]" style={{ color: '#6e6e73', marginTop: 2 }}>{periodRange.label}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <DashboardCustomizeModal customization={customization} />
             <UnifiedPeriodFilter selection={periodSelection} onSelectionChange={setPeriodSelection} />
           </div>

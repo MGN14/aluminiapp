@@ -3,6 +3,7 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import AppSidebar from './AppSidebar';
 import AppHeader from './AppHeader';
 import NicoDrawer from '@/components/nico/NicoDrawer';
+import NicoFAB from '@/components/nico/NicoFAB';
 import { NicoProvider, useNico } from '@/hooks/useNicoContext';
 import TrialBanner from '@/components/subscription/TrialBanner';
 
@@ -43,17 +44,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <TrialBanner />
               <AppHeader />
               <main
-                className="flex-1"
-                style={{
-                  padding: '28px',
-                  maxWidth: '100%',
-                }}
+                className="flex-1 p-4 md:p-7 pb-24 md:pb-7"
+                style={{ maxWidth: '100%' }}
               >
                 {children}
               </main>
             </div>
           </div>
           <NicoDrawer />
+          <NicoFAB />
           <KeyboardShortcut />
         </SidebarProvider>
       </NicoProvider>

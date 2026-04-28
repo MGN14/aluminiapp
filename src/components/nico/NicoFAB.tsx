@@ -32,7 +32,13 @@ export default function NicoFAB() {
   if (isOpen) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
+    <div
+      className="md:hidden fixed z-40 flex flex-col items-end gap-2"
+      style={{
+        right: 'max(16px, env(safe-area-inset-right))',
+        bottom: 'max(16px, env(safe-area-inset-bottom))',
+      }}
+    >
       {/* CTA tooltip */}
       {showTooltip && (
         <div className="animate-fade-in flex items-center gap-2 px-4 py-2.5 rounded-2xl rounded-br-sm bg-card border border-border shadow-lg hover:shadow-xl transition-all cursor-pointer group">
