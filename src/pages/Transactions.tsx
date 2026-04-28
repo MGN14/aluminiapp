@@ -138,16 +138,9 @@ export default function Transactions() {
     }
 
     setAvailableYears(years);
-
-    setSelectedYear((prev) => {
-      if (prev !== String(currentYear)) return prev;
-      const hasCurrent = nextStatements.some((s) => getEffectiveYear(s) === currentYear);
-      if (hasCurrent) return prev;
-      const mostRecent = nextStatements
-        .map((s) => getEffectiveYear(s))
-        .find((y): y is number => typeof y === 'number');
-      return mostRecent ? String(mostRecent) : prev;
-    });
+    // No fallback: el año por defecto siempre es el actual aunque el extracto
+    // subido cubra otro período (ej. un PDF que arranca en Dic del año pasado).
+    // El usuario puede cambiarlo desde el selector si quiere ver años previos.
   };
 
   const fetchCategories = async () => {

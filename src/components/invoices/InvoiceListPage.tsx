@@ -92,6 +92,7 @@ interface Props {
 }
 
 export default function InvoiceListPage({ type }: Props) {
+  const currentYear = new Date().getFullYear();
   const { plan, loading: subLoading, isTrialing } = useSubscription();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -99,6 +100,7 @@ export default function InvoiceListPage({ type }: Props) {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedYear, setSelectedYear] = useState<string>(String(currentYear));
   const [uploadOpen, setUploadOpen] = useState(false);
   const [resumeDraft, setResumeDraft] = useState<Invoice | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -117,20 +119,50 @@ export default function InvoiceListPage({ type }: Props) {
   const title = type === 'venta' ? 'Facturas de Venta' : 'Facturas de Compra';
   const counterpartyLabel = type === 'venta' ? 'Cliente' : 'Proveedor';
 
+  // Si el usuario sube un archivo que abarca varios años, sólo mostramos el año
+  // seleccionado (default = año actual). El selector permite ver previos.
+  const yearScoped = useMemo(() => {
+    if (selectedYear === 'all') return invoices;
+    const year = Number(selectedYear);
+    return invoices.filter(i => {
+      const dateStr = i.issue_date || i.created_at;
+      if (!dateStr) return false;
+      try {
+        return parseLocalDate(dateStr).getFullYear() === year;
+      } catch {
+        return false;
+      }
+    });
+  }, [invoices, selectedYear]);
+
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    invoices.forEach(i => {
+      const dateStr = i.issue_date || i.created_at;
+      if (!dateStr) return;
+      try {
+        const y = parseLocalDate(dateStr).getFullYear();
+        if (!isNaN(y)) years.add(y);
+      } catch { /* ignore */ }
+    });
+    years.add(currentYear);
+    return Array.from(years).sort((a, b) => b - a);
+  }, [invoices, currentYear]);
+
   const summary = useMemo(() => {
-    const confirmed = invoices.filter(i => i.status === 'confirmed');
+    const confirmed = yearScoped.filter(i => i.status === 'confirmed');
     return {
       count: confirmed.length,
       total: confirmed.reduce((s, i) => s + i.total_amount, 0),
       iva: confirmed.reduce((s, i) => s + i.iva_amount, 0),
     };
-  }, [invoices]);
+  }, [yearScoped]);
 
   // Ranking de facturación agrupada por contraparte (cliente para 'venta',
   // proveedor para 'compra'), ordenado de mayor a menor.
   // Normaliza por name.toLowerCase() para unificar duplicados por casing/espacios.
   const counterpartyRanking = useMemo(() => {
-    const confirmed = invoices.filter(i => i.status === 'confirmed');
+    const confirmed = yearScoped.filter(i => i.status === 'confirmed');
     const map = new Map<string, { name: string; total: number; count: number }>();
     for (const i of confirmed) {
       const rawName = (i.counterparty_name
@@ -147,7 +179,7 @@ export default function InvoiceListPage({ type }: Props) {
       }
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [invoices, type]);
+  }, [yearScoped, type]);
 
   const summaryLabel1 = type === 'venta' ? 'Total facturado' : 'Total comprado';
   const summaryLabel2 = type === 'venta' ? 'IVA generado' : 'IVA descontable';
@@ -179,7 +211,7 @@ export default function InvoiceListPage({ type }: Props) {
   }, [isEmpresarial, fetchInvoices]);
 
   const filtered = useMemo(() => {
-    let result = invoices;
+    let result = yearScoped;
     if (statusFilter !== 'all') result = result.filter(i => i.status === statusFilter);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -192,7 +224,7 @@ export default function InvoiceListPage({ type }: Props) {
       );
     }
     return result;
-  }, [invoices, statusFilter, searchQuery]);
+  }, [yearScoped, statusFilter, searchQuery]);
 
   const handleViewPDF = useCallback(async (storagePath: string | null) => {
     if (!storagePath) {
@@ -391,7 +423,7 @@ export default function InvoiceListPage({ type }: Props) {
     }
   }, [invoices, toast]);
 
-  const errorCount = useMemo(() => invoices.filter(i => i.status === 'error').length, [invoices]);
+  const errorCount = useMemo(() => yearScoped.filter(i => i.status === 'error').length, [yearScoped]);
 
   const handleUploadClose = useCallback(() => {
     setUploadOpen(false);
@@ -732,6 +764,18 @@ export default function InvoiceListPage({ type }: Props) {
             />
           </div>
           <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Año:</span>
+            <Select value={selectedYear} onValueChange={setSelectedYear}>
+              <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {availableYears.map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Estado:</span>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
@@ -842,9 +886,12 @@ export default function InvoiceListPage({ type }: Props) {
                               <Button variant="ghost" size="icon" className="h-8 w-8" title="Editar" onClick={() => handleResumeDraft(inv)}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8" title="Ver PDF" onClick={() => handleViewPDF(inv.storage_path || inv.pdf_path)}>
-                                <Eye className="h-4 w-4" />
-                              </Button>
+                              {/* Las facturas importadas de Siigo no tienen PDF asociado, ocultamos el botón. */}
+                              {inv.source !== 'siigo' && (inv.storage_path || inv.pdf_path) && (
+                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Ver PDF" onClick={() => handleViewPDF(inv.storage_path || inv.pdf_path)}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              )}
                               {inv.status === 'confirmed' && (inv.storage_path || inv.pdf_path) && (
                                 <div className="flex items-center gap-1">
                                   {reextractedLabel && (

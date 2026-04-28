@@ -349,8 +349,11 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
                 </p>
                 <p style={{ fontSize: 13, color: "hsl(var(--muted-foreground))" }}>
                   Arrastrá el <strong>ZIP</strong> o <strong>CSV</strong> de
-                  Bancolombia, o hacé click para seleccionar
+                  Bancolombia
                 </p>
+                <Button variant="outline" size="sm" style={{ marginTop: 12 }} type="button">
+                  Seleccionar archivo
+                </Button>
               </>
             )}
           </div>
