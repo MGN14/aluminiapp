@@ -65,10 +65,24 @@ function getVariableExplanation(key: string, details: ScoreDetails): { formula: 
       };
     }
     case 'clasificacion': {
+      // Pulmón financiero: cuántos meses de operación cubre la plata disponible
       const d = details.clasificacion;
+      if (d.runwayMeses === null) {
+        return {
+          formula: 'Generando plata',
+          explanation: `Saldo: ${fmt(d.saldoActual)}. Tus ingresos cubren los gastos — runway saludable.`,
+        };
+      }
+      const meses = d.runwayMeses;
+      const rangoTexto = meses >= 12
+        ? '12+ meses (zona segura)'
+        : meses >= 6 ? '6-12 meses (saludable)'
+        : meses >= 3 ? '3-6 meses (atención)'
+        : meses >= 1 ? '1-3 meses (urgente)'
+        : 'Menos de 1 mes (crítico)';
       return {
-        formula: `${pct(d.pct)} completas`,
-        explanation: `${d.completas} de ${d.total} transacciones clasificadas correctamente.`,
+        formula: `${meses.toFixed(1)} meses de pulmón`,
+        explanation: `Saldo disponible: ${fmt(d.saldoActual)}. Gasto neto mensual: ${fmt(d.gastoNetoMensual)}. ${rangoTexto}.`,
       };
     }
     default:
@@ -81,7 +95,7 @@ function getVariableAlert(key: string, score: number): string | null {
   if (key === 'facturacion' && score < 18) return 'Ingresos sin factura detectados';
   if (key === 'impuestos' && score < 16) return 'Descuadre alto entre Siigo y físico';
   if (key === 'cartera' && score < 18) return 'Facturación sin cobrar o anticipos pendientes';
-  if (key === 'clasificacion' && score < 18) return 'Transacciones sin clasificar';
+  if (key === 'clasificacion' && score < 18) return 'Pulmón financiero ajustado';
   return null;
 }
 

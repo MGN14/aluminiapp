@@ -734,7 +734,7 @@ serve(async (req) => {
     const scoreTotalCalc = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion) * 10) / 10;
 
     const healthScoreCtx = `Score total: ${scoreTotalCalc}/100 (${monthNames[thisMonth - 1]} ${thisYear})
-Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturacion}/20, Control de Inventario: ${scoreImpuestos}/20 (descuadre Siigo vs físico en costo — ratio ${(ratioDescuadreInv * 100).toFixed(1)}%), Cartera y anticipos: ${scoreCartera}/20, Clasificación: ${scoreClasificacion}/20`;
+Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturacion}/20, Control de Inventario: ${scoreImpuestos}/20 (descuadre Siigo vs físico en costo — ratio ${(ratioDescuadreInv * 100).toFixed(1)}%), Cartera y anticipos: ${scoreCartera}/20, Pulmón financiero: ${scoreClasificacion}/20`;
 
     // =============================================
     // MODULE 8: INVENTARIO OPERATIVO
@@ -1225,7 +1225,7 @@ ${inventoryCtx}
       },
       visita_dian: {
         role: `Eres Nico Visita DIAN, el auditor interno de ${empresa}. Piensas como un funcionario DIAN revisando la empresa. Tu trabajo es detectar inconsistencias ANTES de que la DIAN lo haga y prevenir sanciones.`,
-        focus: "Score de salud fiscal (5 factores × 20 pts: conciliación, facturación soportada, Control de Inventario — descuadre Siigo vs físico en costo —, cartera/anticipos, clasificación). Inconsistencias entre facturación y banco. Descuadre de inventario como señal fiscal (posibles ventas sin factura). Riesgos de sanción. Qué pediría la DIAN en una visita real. Cómo subir el score.",
+        focus: "Score de salud fiscal (5 factores × 20 pts: conciliación, facturación soportada, Control de Inventario — descuadre Siigo vs físico en costo —, cartera/anticipos, Pulmón financiero — meses de operación con la plata disponible). Inconsistencias entre facturación y banco. Descuadre de inventario como señal fiscal (posibles ventas sin factura). Riesgos de sanción. Qué pediría la DIAN en una visita real. Cómo subir el score.",
         modules: "MÓDULO 5 (Alertas), MÓDULO 7 (Salud/Score), MÓDULO 3 (Obligaciones Fiscales), MÓDULO 8 (Inventario — alimenta el factor Control de Inventario del score).",
       },
       tesoreria: {
@@ -1387,7 +1387,7 @@ Tienes acceso a diez fuentes de datos distintas y debes diferenciarlas siempre:
 
 6. ESTADO INICIAL FINANCIERO: Saldos de apertura del negocio que se suman a los acumulados.
 
-7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 5 factores sobre 100 puntos: conciliación bancaria, facturación soportada, CONTROL DE INVENTARIO (descuadre Siigo vs físico en costo — reemplazó al factor de impuestos; ratio = Σ|diff|·costo / Σ(Siigo·costo); menor ratio = mejor score), cartera/anticipos, clasificación financiera. Cada factor vale 20 puntos. El campo interno se llama "impuestos" en la estructura por compatibilidad con la base de datos, pero representa Control de Inventario.
+7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 5 factores sobre 100 puntos: (1) conciliación bancaria; (2) facturación soportada; (3) CONTROL DE INVENTARIO — descuadre Siigo vs físico en costo, campo interno "impuestos" por compat DB; (4) cartera/anticipos; (5) PULMÓN FINANCIERO — Cash Runway: cuántos meses de operación cubre la plata disponible al ritmo actual de gastos (saldoBancos + ingresos − egresos) / gastoNetoMensualPromedio3meses. 12+ meses = 20pts; 0 = 0pts; lineal entre medio. Si el negocio genera plata (gasto neto ≤ 0), score 20 automático. Campo interno "clasificacion" por compat DB. Cada factor vale 20 puntos.
 
 8. INVENTARIO OPERATIVO: Cruce entre inventario contable (Siigo) e inventario físico (bodega). Permite detectar diferencias operativas como ventas sin factura, robos, pérdidas, errores de conteo, o compras no registradas. IMPORTANTE: el valor total del inventario (Siigo × costo) y la diferencia en costo (Σ|Siigo − físico| × costo) alimentan directamente el factor "Control de Inventario" del Score de Visita DIAN (ver módulo 7). Si el usuario pregunta por qué bajó/subió el score, el descuadre de inventario es una de las palancas.
 

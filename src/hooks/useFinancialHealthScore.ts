@@ -116,7 +116,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .eq('user_id', user.id),
         supabase
           .from('initial_financial_state' as any)
-          .select('cuentas_por_cobrar, anticipos_de_clientes')
+          .select('cuentas_por_cobrar, anticipos_de_clientes, saldo_bancos')
           .eq('user_id', user.id)
           .maybeSingle(),
         supabase
@@ -278,6 +278,23 @@ export function useFinancialHealthScore(year: number, _month?: number) {
 
         const totalCurrentPeriodAnticipos = currentPeriodAnticipos + unlinkedInitialAmount;
 
+        // Gasto neto mensual = promedio (egresos − ingresos) últimos 3 meses
+        // cerrados antes del mes actual. Si es positivo, está quemando plata
+        // (necesario para el cálculo de runway en Pulmón financiero).
+        const monthsLookback = 3;
+        const ventanaInicio = new Date(year, month - 1 - monthsLookback, 1);
+        const ventanaFin = new Date(year, month - 1, 1); // exclusive
+        const ventanaInicioStr = `${ventanaInicio.getFullYear()}-${String(ventanaInicio.getMonth() + 1).padStart(2, '0')}-01`;
+        const ventanaFinStr = `${ventanaFin.getFullYear()}-${String(ventanaFin.getMonth() + 1).padStart(2, '0')}-01`;
+        const txVentana = transactions.filter(t => t.date >= ventanaInicioStr && t.date < ventanaFinStr);
+        const ingresosVentana = txVentana
+          .filter(t => (t.amount ?? 0) > 0)
+          .reduce((s, t) => s + (t.amount ?? 0), 0);
+        const egresosVentana = txVentana
+          .filter(t => (t.amount ?? 0) < 0)
+          .reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+        const gastoNetoMensual = (egresosVentana - ingresosVentana) / monthsLookback;
+
         const { scores: monthScores, details: monthDetails } = calculateFinancialHealthMetrics(
           transactionsToDate,
           invoicesToDate,
@@ -286,7 +303,8 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           initialState,
           unlinkedAnticiposClientes,
           totalCurrentPeriodAnticipos,
-          inventoryProducts
+          inventoryProducts,
+          gastoNetoMensual,
         );
 
         monthlyResults.push({ month, scores: monthScores, details: monthDetails });

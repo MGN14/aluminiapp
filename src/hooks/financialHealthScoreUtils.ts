@@ -29,7 +29,16 @@ export interface ScoreDetails {
     facturacionTotal: number;
     ingresosTotal: number;
   };
-  clasificacion: { pct: number; completas: number; total: number };
+  // `clasificacion` es el key legacy (mantenido por compatibilidad con DB).
+  // Hoy representa "Pulmón financiero" — cuántos meses puede operar el negocio
+  // con la plata disponible al ritmo actual de gastos. Reemplazó al viejo
+  // factor de "Clasificación Financiera" que era redundante con Conciliación.
+  clasificacion: {
+    pct: number;
+    saldoActual: number;
+    gastoNetoMensual: number;
+    runwayMeses: number | null; // null = no aplica (no estás quemando plata)
+  };
 }
 
 export interface HealthInventoryProduct {
@@ -84,10 +93,10 @@ export const SCORE_VARIABLES: readonly ScoreVariableMeta[] = [
   },
   {
     key: 'clasificacion',
-    label: 'Clasificación Financiera',
-    shortLabel: 'Clasificación',
-    color: 'hsl(220, 9%, 46%)',
-    hint: 'Qué % de tus transacciones tienen categoría, responsable y factura asignadas correctamente.',
+    label: 'Pulmón financiero',
+    shortLabel: 'Pulmón',
+    color: 'hsl(173, 58%, 39%)',
+    hint: 'Cuántos meses puede operar tu negocio con la plata disponible al ritmo actual de gastos.',
   },
 ] as const;
 
@@ -175,7 +184,7 @@ export function getRecommendations(scores: ScoreBreakdown): string[] {
   if (scores.facturacion < 18) recs.push('Hay ingresos sin factura asociada ni marcados como anticipo. Esto puede generar inconsistencias frente a la DIAN.');
   if (scores.impuestos < 16) recs.push('Hay descuadre entre inventario Siigo y conteo físico. Revisa faltantes para descartar ventas sin factura, pérdidas o errores de registro.');
   if (scores.cartera < 18) recs.push('Una parte importante de tu facturación no ha sido cobrada o tienes anticipos sin factura asociada.');
-  if (scores.clasificacion < 18) recs.push('Varias transacciones no tienen categoría, responsable o factura asignada. Completa la información para mejorar tu orden.');
+  if (scores.clasificacion < 18) recs.push('Tu pulmón financiero está justo: la plata disponible alcanza para pocos meses al ritmo de gastos actual. Revisá si hay egresos recortables o aceleración de cobros.');
   return recs;
 }
 
@@ -184,10 +193,18 @@ export function calculateFinancialHealthMetrics(
   confirmedInvoices: HealthInvoice[],
   salesInvoices: HealthInvoice[],
   matchedByInvoice: Map<string, number>,
-  initialState?: { cuentas_por_cobrar?: number; anticipos_de_clientes?: number } | null,
+  initialState?: {
+    cuentas_por_cobrar?: number;
+    anticipos_de_clientes?: number;
+    saldo_bancos?: number;
+  } | null,
   unlinkedAnticiposClientes?: number,
   currentPeriodAnticipos?: number,
-  inventoryProducts?: HealthInventoryProduct[] | null
+  inventoryProducts?: HealthInventoryProduct[] | null,
+  // Para Pulmón financiero (Cash Runway): el burn neto mensual promedio
+  // calculado afuera (por el caller que conoce los últimos 3 meses cerrados).
+  // Si > 0: estás quemando plata (egresos > ingresos). Si ≤ 0: generando.
+  gastoNetoMensual?: number,
 ): { scores: ScoreBreakdown; details: ScoreDetails } {
   const initialAnticiposClientes = initialState?.anticipos_de_clientes ?? 0;
   const totalTx = transactions.length;
@@ -261,21 +278,49 @@ export function calculateFinancialHealthMetrics(
   const riesgoTotal = hasAnyCarteraData ? (pctCartera + pctAnticipos) / 2 : 0;
   const scoreCartera = hasAnyCarteraData ? carteraLinearScore(riesgoTotal) : 0;
 
-  // ========== 5. CLASIFICACIÓN FINANCIERA ==========
-  // A transaction is "complete" if it has category + responsible + invoice support.
-  // For expenses/transfers with a responsible assigned, having an invoice is not mandatory
-  // (the responsible assignment already means it was reviewed and reconciled).
-  const completas = transactions.filter((tx) => {
-    const hasCategory = Boolean(tx.category_id);
-    const hasResponsible = Boolean(tx.responsible_id) || isNA(tx.notes);
-    const hasInvoice = Boolean(tx.invoice_id) || isNA(tx.notes) || isAnticipo(tx.notes);
-    // If it has a responsible, the invoice requirement is relaxed (reconciled)
-    const invoiceOk = hasInvoice || hasResponsible;
-    return hasCategory && hasResponsible && invoiceOk;
-  }).length;
+  // ========== 5. PULMÓN FINANCIERO (legacy key: clasificacion) ==========
+  // Cuántos meses puede operar el negocio con la plata disponible al ritmo
+  // actual de gastos. Métrica clásica de CFO (Cash Runway).
+  //
+  //   saldoActual = saldo_bancos inicial + Σ(ingresos hasta hoy) − Σ(egresos hasta hoy)
+  //   gastoNetoMensual = promedio (egresos − ingresos) últimos 3 meses cerrados
+  //   runway = saldoActual / gastoNetoMensual   (en meses)
+  //
+  // Score:
+  //   - Si gastoNetoMensual ≤ 0 → estás generando plata, no quemando: 20pts
+  //   - 12+ meses de runway → 20pts (zona verde, holgura)
+  //   - 0 meses → 0pts
+  //   - Lineal entre 0 y 12 meses
+  const saldoInicial = initialState?.saldo_bancos ?? 0;
+  const sumaIngresos = transactions
+    .filter(t => (t.amount ?? 0) > 0)
+    .reduce((s, t) => s + (t.amount ?? 0), 0);
+  const sumaEgresos = transactions
+    .filter(t => (t.amount ?? 0) < 0)
+    .reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+  const saldoActual = saldoInicial + sumaIngresos - sumaEgresos;
 
-  const pctClasificado = safePct(completas, totalTx);
-  const scoreClasificacion = totalTx > 0 ? linearScore(pctClasificado) : 0;
+  const gastoNeto = gastoNetoMensual ?? 0;
+  let scoreClasificacion = 0;
+  let runwayMeses: number | null = null;
+  let pctClasificado = 0;
+
+  if (gastoNeto <= 0) {
+    // Generando plata, runway "infinito" → score máximo
+    scoreClasificacion = 20;
+    runwayMeses = null;
+    pctClasificado = 1;
+  } else if (saldoActual <= 0) {
+    // En rojo, sin plata
+    scoreClasificacion = 0;
+    runwayMeses = 0;
+    pctClasificado = 0;
+  } else {
+    runwayMeses = saldoActual / gastoNeto;
+    // Lineal: 12+ meses = 20, 0 meses = 0
+    pctClasificado = clampPct(runwayMeses / 12);
+    scoreClasificacion = linearScore(pctClasificado);
+  }
 
   const total = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion) * 10) / 10;
 
@@ -313,7 +358,12 @@ export function calculateFinancialHealthMetrics(
       facturacionTotal: baseCartera,
       ingresosTotal: baseAnticipos,
     },
-    clasificacion: { pct: pctClasificado, completas, total: totalTx },
+    clasificacion: {
+      pct: pctClasificado,
+      saldoActual,
+      gastoNetoMensual: gastoNeto,
+      runwayMeses,
+    },
   };
 
   return { scores, details };
