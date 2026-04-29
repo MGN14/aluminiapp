@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useOperativeReceivables } from '@/hooks/useOperativeReceivables';
 import RegistrarDeudaModal from '@/components/cartera-operativa/RegistrarDeudaModal';
+import BankPaymentsSection from '@/components/cartera-operativa/BankPaymentsSection';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -181,6 +182,9 @@ export default function CarteraOperativa() {
             )}
           </CardContent>
         </Card>
+
+        {/* Pagos bancarios sin asignar + asignados */}
+        <BankPaymentsSection />
 
         {/* Referencia a cartera fiscal DIAN */}
         <button
