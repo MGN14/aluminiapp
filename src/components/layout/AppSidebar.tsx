@@ -84,6 +84,7 @@ const reportItems: NavItem[] = [
   { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
   { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet },
   { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks },
+  { title: 'Informe para Banco', url: '/informe-banco', icon: Building2, highlight: true },
 ];
 
 const reportItemsGerencial: NavItem[] = [
@@ -92,8 +93,6 @@ const reportItemsGerencial: NavItem[] = [
 
 const exportItems: NavItem[] = [
   { title: 'Exportar movimientos', url: '/export', icon: Download },
-  { title: 'Informe para banco', url: '/export?tipo=banco', icon: Building2 },
-  { title: 'Informe para DIAN', url: '/export?tipo=dian', icon: Landmark },
   { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 

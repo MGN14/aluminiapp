@@ -42,6 +42,7 @@ const Remisiones = lazy(() => import("./pages/Remisiones"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
 const CarteraOperativa = lazy(() => import("./pages/CarteraOperativa"));
 const CajaMenor = lazy(() => import("./pages/CajaMenor"));
+const InformeBanco = lazy(() => import("./pages/InformeBanco"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -176,6 +177,10 @@ const App = () => (
               <Route
                 path="/caja-menor"
                 element={<ProtectedRoute><CajaMenor /></ProtectedRoute>}
+              />
+              <Route
+                path="/informe-banco"
+                element={<ProtectedRoute><InformeBanco /></ProtectedRoute>}
               />
               {/* Legacy redirect */}
               <Route
