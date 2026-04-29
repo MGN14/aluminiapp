@@ -1,8 +1,19 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon } from 'lucide-react';
 
 interface Props {
   remisionId: string;
@@ -12,13 +23,12 @@ interface Props {
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0,
+    style: 'currency', currency: 'COP', minimumFractionDigits: 0,
   }).format(value);
 }
 
 function formatDate(dateStr: string) {
+  if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-');
   return `${d}/${m}/${y}`;
 }
@@ -30,12 +40,26 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secon
 };
 
 export default function RemisionDetailModal({ remisionId, open, onOpenChange }: Props) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Form state (solo se llena al entrar a edicion)
+  const [date, setDate] = useState('');
+  const [responsibleId, setResponsibleId] = useState('');
+  const [notes, setNotes] = useState('');
+  const [status, setStatus] = useState('');
+
   const { data: remision, isLoading } = useQuery({
     queryKey: ['remision-detail', remisionId],
     queryFn: async () => {
       const { data, error } = await (supabase
         .from('remisiones') as any)
-        .select(`id, date, number, beneficiary, notes, status, remision_items(id, reference, product_name, units, unit_cost, total_cost)`)
+        .select(`id, date, number, beneficiary, responsible_id, notes, status, total_manual, module_origin, remision_type,
+          remision_items(id, reference, product_name, units, unit_cost, total_cost),
+          remision_invoices(invoice_id, invoices(id, invoice_number, total_amount, issue_date, counterparty_name))`)
         .eq('id', remisionId)
         .single();
       if (error) throw error;
@@ -44,43 +68,150 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange }: 
     enabled: !!remisionId,
   });
 
+  const { data: responsibles = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ['responsibles-remision-detail', user?.id],
+    enabled: !!user?.id && editing,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('responsibles')
+        .select('id, name, responsible_type')
+        .eq('user_id', user!.id)
+        .eq('active', true)
+        .order('name');
+      if (error) throw error;
+      return ((data ?? []) as unknown as Array<{ id: string; name: string; responsible_type: string }>)
+        .filter((r) => r.responsible_type === 'banking' || r.responsible_type === 'both' || !r.responsible_type)
+        .map((r) => ({ id: r.id, name: r.name }));
+    },
+  });
+
+  // Sync form state cuando entra a edicion
+  useEffect(() => {
+    if (editing && remision) {
+      setDate(remision.date ?? '');
+      setResponsibleId(remision.responsible_id ?? '');
+      setNotes(remision.notes ?? '');
+      setStatus(remision.status ?? 'pendiente');
+    }
+  }, [editing, remision]);
+
+  const handleSave = async () => {
+    if (!remision) return;
+    setSaving(true);
+    try {
+      const respName = responsibles.find((r) => r.id === responsibleId)?.name;
+      const { error } = await (supabase.from('remisiones') as any).update({
+        date,
+        responsible_id: responsibleId || null,
+        beneficiary: respName ?? remision.beneficiary,
+        notes: notes.trim() || null,
+        status,
+      }).eq('id', remision.id);
+      if (error) throw error;
+      await queryClient.invalidateQueries({ queryKey: ['remision-detail', remisionId] });
+      await queryClient.invalidateQueries({ queryKey: ['remisiones'] });
+      toast({ title: 'Remisión actualizada' });
+      setEditing(false);
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const items = (remision as any)?.remision_items || [];
   const totalUnidades = items.reduce((s: number, i: any) => s + Number(i.units), 0);
-  const totalValor = items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
-  const status = remision ? STATUS_LABELS[remision.status] || STATUS_LABELS.pendiente : null;
+  const totalValor = remision?.total_manual
+    ? Number(remision.total_manual)
+    : items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
+  const statusInfo = remision ? STATUS_LABELS[remision.status] || STATUS_LABELS.pendiente : null;
+  const linkedInvoices = ((remision as any)?.remision_invoices || []).map((ri: any) => ri.invoices).filter(Boolean);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
-            {isLoading ? 'Cargando...' : `Remisión ${(remision as any)?.number}`}
-          </DialogTitle>
+          <div className="flex items-center justify-between gap-3">
+            <DialogTitle>
+              {isLoading ? 'Cargando...' : `Remisión ${(remision as any)?.number}`}
+            </DialogTitle>
+            {remision && !editing && (
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
+                <Pencil className="h-3.5 w-3.5" />
+                Editar
+              </Button>
+            )}
+          </div>
         </DialogHeader>
 
         {remision && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-muted-foreground">Fecha:</span>{' '}
-                <strong>{formatDate((remision as any).date)}</strong>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Estado:</span>{' '}
-                {status && <Badge variant={status.variant}>{status.label}</Badge>}
-              </div>
-              <div className="col-span-2">
-                <span className="text-muted-foreground">Beneficiario:</span>{' '}
-                <strong>{(remision as any).beneficiary}</strong>
-              </div>
-              {(remision as any).notes && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground">Notas:</span>{' '}
-                  {(remision as any).notes}
+            {/* Metadata: editable o read-only */}
+            {editing ? (
+              <div className="grid grid-cols-2 gap-3 text-sm border rounded-lg p-3 bg-muted/20">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Fecha</Label>
+                  <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
                 </div>
-              )}
-            </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Estado</Label>
+                  <Select value={status} onValueChange={setStatus}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pendiente">Pendiente</SelectItem>
+                      <SelectItem value="despachado">Despachado</SelectItem>
+                      <SelectItem value="cancelado">Cancelado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label className="text-xs">Beneficiario / Cliente</Label>
+                  <Select value={responsibleId} onValueChange={setResponsibleId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={remision.beneficiary || 'Seleccionar cliente'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {responsibles.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Crear nuevos clientes desde Conciliación bancaria.
+                  </p>
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label className="text-xs">Notas</Label>
+                  <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Fecha:</span>{' '}
+                  <strong>{formatDate(remision.date)}</strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Estado:</span>{' '}
+                  {statusInfo && <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>}
+                </div>
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Beneficiario:</span>{' '}
+                  <strong>{remision.beneficiary || '—'}</strong>
+                  {remision.responsible_id && (
+                    <span className="ml-2 text-[10px] text-muted-foreground">(vinculado a cliente)</span>
+                  )}
+                </div>
+                {remision.notes && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">Notas:</span>{' '}
+                    {remision.notes}
+                  </div>
+                )}
+              </div>
+            )}
 
+            {/* Items */}
             <div className="rounded-lg border overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -110,7 +241,59 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange }: 
               <span className="text-muted-foreground">Total unidades: <strong>{totalUnidades.toLocaleString('es-CO')}</strong></span>
               {totalValor > 0 && <span className="text-muted-foreground">Valor total: <strong>{formatCurrency(totalValor)}</strong></span>}
             </div>
+
+            {/* Facturas vinculadas (solo DIAN, ventas) */}
+            {remision.module_origin === 'dian' && remision.remision_type !== 'compra' && (
+              <div className="space-y-2 pt-2 border-t">
+                <div className="flex items-center gap-1.5 text-sm font-semibold">
+                  <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                  Facturas vinculadas
+                  <Badge variant="outline" className="text-[10px]">{linkedInvoices.length}</Badge>
+                </div>
+                {linkedInvoices.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Sin facturas vinculadas. Cerrá este modal y usá el botón de enlace en la fila para vincular.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {linkedInvoices.map((inv: any) => (
+                      <div key={inv.id} className="flex items-center justify-between text-xs p-2 rounded-lg border bg-muted/20">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="h-3.5 w-3.5 text-green-600" />
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="font-medium">{inv.invoice_number}</span>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="text-muted-foreground">{inv.counterparty_name}</span>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="text-muted-foreground">{formatDate(inv.issue_date)}</span>
+                        </div>
+                        <span className="font-semibold tabular-nums">{formatCurrency(Number(inv.total_amount) || 0)}</span>
+                      </div>
+                    ))}
+                    <p className="text-[10px] text-muted-foreground pt-1">
+                      Total facturado: <strong>{formatCurrency(linkedInvoices.reduce((s: number, i: any) => s + Number(i.total_amount || 0), 0))}</strong>
+                      {totalValor > 0 && (
+                        <span> · Cobertura: <strong>{Math.round((linkedInvoices.reduce((s: number, i: any) => s + Number(i.total_amount || 0), 0) / totalValor) * 100)}%</strong></span>
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+        )}
+
+        {editing && (
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditing(false)} disabled={saving} className="gap-1.5">
+              <X className="h-3.5 w-3.5" />
+              Cancelar
+            </Button>
+            <Button onClick={handleSave} disabled={saving} className="gap-1.5">
+              <Save className="h-3.5 w-3.5" />
+              {saving ? 'Guardando...' : 'Guardar cambios'}
+            </Button>
+          </DialogFooter>
         )}
       </DialogContent>
     </Dialog>
