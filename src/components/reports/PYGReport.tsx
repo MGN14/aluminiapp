@@ -69,7 +69,7 @@ function useYearData(userId: string | undefined, year: number) {
     queryFn: async () => {
       if (!userId) return null;
 
-      const [txRes, catRes, respRes] = await Promise.all([
+      const [txRes, catRes, respRes, pcRes] = await Promise.all([
         supabase
           .from('transactions')
           .select('date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
@@ -85,6 +85,12 @@ function useYearData(userId: string | undefined, year: number) {
           .from('responsibles')
           .select('id, name')
           .eq('user_id', userId),
+        supabase
+          .from('petty_cash_movements')
+          .select('date, amount, category_id, responsible_id')
+          .eq('user_id', userId)
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`),
       ]);
 
       if (txRes.error) throw txRes.error;
@@ -94,9 +100,101 @@ function useYearData(userId: string | undefined, year: number) {
       const responsibles: ResponsibleInfo[] = (respRes.data || []) as ResponsibleInfo[];
       const respMap = new Map(responsibles.map(r => [r.id, r]));
 
-      return { transactions: txRes.data as TransactionRow[], categories, catMap, responsibles, respMap };
+      // Inyectamos petty_cash_movements como transacciones virtuales tipo egreso
+      // para que la logica de PYG las procese como gastos junto al resto.
+      const pettyAsTx: TransactionRow[] = ((pcRes.data ?? []) as Array<{
+        date: string;
+        amount: number | null;
+        category_id: string | null;
+        responsible_id: string | null;
+      }>).map((m) => ({
+        date: m.date,
+        amount: -Math.abs(Number(m.amount) || 0),
+        type: 'egreso',
+        category_id: m.category_id,
+        responsible_id: m.responsible_id,
+        has_iva: false,
+        iva_amount: 0,
+        has_retefuente: false,
+        retefuente_amount: 0,
+        has_reteica: false,
+        reteica_amount: 0,
+      }));
+
+      const allTransactions = [...(txRes.data as TransactionRow[]), ...pettyAsTx];
+
+      return { transactions: allTransactions, categories, catMap, responsibles, respMap };
     },
     enabled: !!userId,
+  });
+}
+
+interface FiscalExposure {
+  totalNoDeducible: number;
+  impactoRentaEstimado: number;
+  countNoDeducible: number;
+  topNoDeducibleCats: Array<{ name: string; total: number }>;
+}
+
+function useFiscalExposure(userId: string | undefined, year: number) {
+  return useQuery<FiscalExposure>({
+    queryKey: ['pyg-fiscal-exposure', userId, year],
+    enabled: !!userId,
+    queryFn: async () => {
+      const empty: FiscalExposure = {
+        totalNoDeducible: 0,
+        impactoRentaEstimado: 0,
+        countNoDeducible: 0,
+        topNoDeducibleCats: [],
+      };
+      if (!userId) return empty;
+
+      const [pcRes, catRes] = await Promise.all([
+        supabase
+          .from('petty_cash_movements')
+          .select('amount, category_id')
+          .eq('user_id', userId)
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`),
+        supabase
+          .from('categories')
+          .select('id, name, is_tax_deductible')
+          .eq('user_id', userId),
+      ]);
+
+      const catMap = new Map<string, { name: string; deductible: boolean }>();
+      for (const c of (catRes.data ?? []) as Array<{ id: string; name: string; is_tax_deductible: boolean }>) {
+        catMap.set(c.id, { name: c.name, deductible: !!c.is_tax_deductible });
+      }
+
+      const totals = new Map<string, { name: string; total: number }>();
+      let totalNoDeducible = 0;
+      let countNoDeducible = 0;
+
+      for (const m of (pcRes.data ?? []) as Array<{ amount: number | null; category_id: string | null }>) {
+        const cat = m.category_id ? catMap.get(m.category_id) : null;
+        const isDeducible = cat?.deductible ?? false;
+        if (isDeducible) continue;
+        const amt = Number(m.amount) || 0;
+        totalNoDeducible += amt;
+        countNoDeducible += 1;
+        const key = m.category_id ?? '__sin__';
+        const name = cat?.name ?? 'Sin categoría';
+        const cur = totals.get(key) ?? { name, total: 0 };
+        cur.total += amt;
+        totals.set(key, cur);
+      }
+
+      const topNoDeducibleCats = Array.from(totals.values())
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 5);
+
+      // Estimación de impacto si se rechazan en revisión: tarifa renta 33%
+      // (sociedades) — referencial, ignora descuentos y reglas especiales.
+      const impactoRentaEstimado = totalNoDeducible * 0.33;
+
+      return { totalNoDeducible, impactoRentaEstimado, countNoDeducible, topNoDeducibleCats };
+    },
   });
 }
 
@@ -192,6 +290,7 @@ export default function PYGReport() {
     compare ? user?.id : undefined,
     year - 1
   );
+  const { data: fiscalExposure } = useFiscalExposure(user?.id, year);
 
   const { data: cashMovements } = useQuery({
     queryKey: ['cash-movements-pyg', user?.id, year, isGerencial],
@@ -504,6 +603,7 @@ export default function PYGReport() {
   const isLoading = loadingCurrent || (compare && loadingPrevious);
 
   return (
+    <div className="space-y-6">
     <Card>
       <CardHeader className="pb-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -717,8 +817,63 @@ export default function PYGReport() {
           <p className="text-xs text-muted-foreground italic">
             * Clic en una categoría para desglosar por beneficiario. Transacciones sin responsable aparecen como "Sin beneficiario".
           </p>
+          <p className="text-xs text-muted-foreground italic">
+            * Incluye gastos de Caja Menor (efectivo y cuentas de cobro) ingresados en el año.
+          </p>
         </div>
       </CardContent>
     </Card>
+
+    {fiscalExposure && fiscalExposure.totalNoDeducible > 0 && (
+      <Card className="border-amber-200 bg-amber-50/40 dark:bg-amber-950/10">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2 text-amber-900 dark:text-amber-100">
+            Exposición fiscal estimada — gastos no deducibles
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg bg-white/60 dark:bg-black/20 p-3 border border-amber-100 dark:border-amber-900">
+              <p className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300">Total NO deducible {year}</p>
+              <p className="text-xl font-bold text-amber-900 dark:text-amber-100 mt-1">
+                {formatCurrency(fiscalExposure.totalNoDeducible)}
+              </p>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
+                {fiscalExposure.countNoDeducible} movimientos en Caja Menor
+              </p>
+            </div>
+            <div className="rounded-lg bg-white/60 dark:bg-black/20 p-3 border border-amber-100 dark:border-amber-900">
+              <p className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300">Impacto estimado en renta (33%)</p>
+              <p className="text-xl font-bold text-amber-900 dark:text-amber-100 mt-1">
+                {formatCurrency(fiscalExposure.impactoRentaEstimado)}
+              </p>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
+                Si la DIAN rechaza estos gastos en revisión
+              </p>
+            </div>
+          </div>
+
+          {fiscalExposure.topNoDeducibleCats.length > 0 && (
+            <div className="rounded-lg bg-white/60 dark:bg-black/20 p-3 border border-amber-100 dark:border-amber-900">
+              <p className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300 mb-2">Top categorías no deducibles</p>
+              <div className="space-y-1">
+                {fiscalExposure.topNoDeducibleCats.map((c) => (
+                  <div key={c.name} className="flex items-center justify-between text-sm text-amber-900 dark:text-amber-100">
+                    <span>{c.name}</span>
+                    <span className="tabular-nums font-medium">{formatCurrency(c.total)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[11px] text-amber-700 dark:text-amber-300 italic leading-relaxed">
+            Estimación referencial al 33% (tarifa renta sociedades). Cada caso fiscal es distinto — consultá con tu contador.
+            Editá la deducibilidad de cada categoría desde Ajustes → Categorías cuando esté disponible, o en SQL.
+          </p>
+        </CardContent>
+      </Card>
+    )}
+    </div>
   );
 }
