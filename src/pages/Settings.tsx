@@ -5,6 +5,7 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
+import LetterheadSection from '@/components/settings/LetterheadSection';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -240,6 +241,11 @@ export default function Settings() {
                 </>
               )}
             </Button>
+
+            <Separator />
+
+            {/* Letterhead */}
+            <LetterheadSection />
 
             <Separator />
 

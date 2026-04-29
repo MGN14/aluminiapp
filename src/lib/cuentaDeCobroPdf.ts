@@ -5,6 +5,12 @@ export type CuentaDeCobroVariant = 'cuenta_de_cobro' | 'comprobante_pago';
 
 export interface CuentaDeCobroData {
   variant: CuentaDeCobroVariant;
+  // Letterhead opcional (background full-page). Si esta presente,
+  // el header de empresa NO se imprime (lo provee la hoja membretada).
+  letterheadDataUri?: string;
+  letterheadFormat?: 'PNG' | 'JPEG';
+  letterheadTopMarginMm?: number;
+  letterheadBottomMarginMm?: number;
   // Contratante (empresa del usuario)
   empresaNombre: string;
   empresaNit: string;
@@ -66,42 +72,69 @@ export function generateCuentaDeCobroPdf(data: CuentaDeCobroData): jsPDF {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const marginX = 24;
-  let y = 24;
-
   const isCdc = data.variant === 'cuenta_de_cobro';
+  const hasLetterhead = !!data.letterheadDataUri;
 
-  // ============= ENCABEZADO EMPRESA =============
-  setText(doc, COLORS.ink);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text(data.empresaNombre.toUpperCase(), marginX, y);
-  y += 4.5;
+  // ============= LETTERHEAD BACKGROUND (si aplica) =============
+  if (hasLetterhead) {
+    try {
+      doc.addImage(
+        data.letterheadDataUri!,
+        data.letterheadFormat ?? 'PNG',
+        0,
+        0,
+        pageW,
+        pageH,
+        undefined,
+        'FAST'
+      );
+    } catch (e) {
+      console.error('Error adding letterhead background:', e);
+    }
+  }
 
-  setText(doc, COLORS.muted);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  const headerInfo = [
-    `NIT ${data.empresaNit}`,
-    data.empresaDireccion,
-    data.empresaCiudad,
-  ].filter(Boolean).join('  ·  ');
-  doc.text(headerInfo, marginX, y);
+  const topMargin = hasLetterhead ? data.letterheadTopMarginMm ?? 35 : 24;
+  let y = topMargin;
 
-  // Numero consecutivo y fecha (derecha)
+  // ============= ENCABEZADO EMPRESA (solo si no hay letterhead) =============
+  if (!hasLetterhead) {
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(data.empresaNombre.toUpperCase(), marginX, y);
+    y += 4.5;
+
+    setText(doc, COLORS.muted);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    const headerInfo = [
+      `NIT ${data.empresaNit}`,
+      data.empresaDireccion,
+      data.empresaCiudad,
+    ].filter(Boolean).join('  ·  ');
+    doc.text(headerInfo, marginX, y);
+  }
+
+  // Numero consecutivo y fecha (derecha) — siempre, en la zona del topMargin
   setText(doc, COLORS.ink);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  doc.text(`No. ${data.numeroConsecutivo}`, pageW - marginX, 24, { align: 'right' });
+  doc.text(`No. ${data.numeroConsecutivo}`, pageW - marginX, topMargin, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   setText(doc, COLORS.muted);
   doc.setFontSize(8.5);
-  doc.text(`${data.ciudadEmision}, ${data.fecha}`, pageW - marginX, 28.5, { align: 'right' });
+  doc.text(`${data.ciudadEmision}, ${data.fecha}`, pageW - marginX, topMargin + 4.5, { align: 'right' });
 
-  // Linea horizontal divisora
-  y += 8;
-  setStroke(doc, COLORS.rule);
-  doc.setLineWidth(0.3);
-  doc.line(marginX, y, pageW - marginX, y);
+  if (!hasLetterhead) {
+    // Linea horizontal divisora bajo el header empresa
+    y += 8;
+    setStroke(doc, COLORS.rule);
+    doc.setLineWidth(0.3);
+    doc.line(marginX, y, pageW - marginX, y);
+  } else {
+    // Con letterhead, simplemente dejamos espacio antes del titulo
+    y += 8;
+  }
 
   // ============= TITULO =============
   y += 14;
@@ -245,8 +278,9 @@ export function generateCuentaDeCobroPdf(data: CuentaDeCobroData): jsPDF {
   }
 
   // ============= FIRMA =============
-  // Anclamos firma cerca del pie, dejando espacio comodo
-  const firmaY = Math.max(y + 18, pageH - 50);
+  // Anclamos firma cerca del pie, respetando margen inferior si hay letterhead
+  const bottomMargin = hasLetterhead ? data.letterheadBottomMarginMm ?? 25 : 25;
+  const firmaY = Math.max(y + 18, pageH - bottomMargin - 25);
   setText(doc, COLORS.ink);
   doc.setFont('times', 'normal');
   doc.setFontSize(10.5);

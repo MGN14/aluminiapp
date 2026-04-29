@@ -34,7 +34,12 @@ interface CompanyData {
   company_nit: string | null;
   company_address: string | null;
   company_city: string | null;
+  letterhead_path: string | null;
+  letterhead_top_margin_mm: number;
+  letterhead_bottom_margin_mm: number;
 }
+
+const LETTERHEAD_BUCKET = 'letterheads';
 
 interface ResponsibleData {
   id: string;
@@ -59,6 +64,9 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
     company_nit: '',
     company_address: '',
     company_city: '',
+    letterhead_path: null,
+    letterhead_top_margin_mm: 35,
+    letterhead_bottom_margin_mm: 25,
   });
   const [prestador, setPrestador] = useState({
     nombre: '',
@@ -78,11 +86,15 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('company_name, company_nit, company_address, company_city')
+        .select('company_name, company_nit, company_address, company_city, letterhead_path, letterhead_top_margin_mm, letterhead_bottom_margin_mm')
         .eq('user_id', user!.id)
         .maybeSingle();
       if (error) throw error;
-      return (data ?? { company_name: '', company_nit: '', company_address: '', company_city: '' }) as CompanyData;
+      const fallback: CompanyData = {
+        company_name: '', company_nit: '', company_address: '', company_city: '',
+        letterhead_path: null, letterhead_top_margin_mm: 35, letterhead_bottom_margin_mm: 25,
+      };
+      return (data ?? fallback) as unknown as CompanyData;
     },
   });
 
@@ -195,10 +207,37 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
         .eq('id', movement.id);
       if (movErr) throw movErr;
 
-      // 4) Generar PDF
+      // 4) Cargar letterhead como dataURI si existe
+      let letterheadDataUri: string | undefined;
+      let letterheadFormat: 'PNG' | 'JPEG' | undefined;
+      if (empresa.letterhead_path) {
+        try {
+          const { data: blob, error: dlErr } = await supabase.storage
+            .from(LETTERHEAD_BUCKET)
+            .download(empresa.letterhead_path);
+          if (dlErr) throw dlErr;
+          letterheadDataUri = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+          });
+          const ext = empresa.letterhead_path.split('.').pop()?.toLowerCase();
+          letterheadFormat = ext === 'jpg' || ext === 'jpeg' ? 'JPEG' : 'PNG';
+        } catch (e) {
+          console.error('Error cargando hoja membretada:', e);
+          toast({ title: 'No se pudo cargar la hoja membretada', description: 'Se generará el PDF con el diseño base.', variant: 'destructive' });
+        }
+      }
+
+      // 5) Generar PDF
       const fechaFormatted = format(parseISO(movement.date), "d 'de' MMMM 'de' yyyy", { locale: es });
       const data: CuentaDeCobroData = {
         variant: movement.kind === 'cuenta_de_cobro' ? 'cuenta_de_cobro' : 'comprobante_pago',
+        letterheadDataUri,
+        letterheadFormat,
+        letterheadTopMarginMm: empresa.letterhead_top_margin_mm,
+        letterheadBottomMarginMm: empresa.letterhead_bottom_margin_mm,
         empresaNombre: empresa.company_name!,
         empresaNit: empresa.company_nit!,
         empresaDireccion: empresa.company_address ?? undefined,
