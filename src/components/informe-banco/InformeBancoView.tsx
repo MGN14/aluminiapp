@@ -3,6 +3,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Building2, FileDown, Loader2, AlertCircle, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 import { useInformeBancoData, type SemaforoColor } from '@/hooks/useInformeBancoData';
+import { generateInformeBancoPdf } from '@/lib/informeBancoPdf';
+import { useToast } from '@/hooks/use-toast';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -22,6 +24,19 @@ function semaforoLabel(color: SemaforoColor) {
 
 export default function InformeBancoView() {
   const { data, isLoading, error } = useInformeBancoData();
+  const { toast } = useToast();
+
+  const handleDownloadPdf = () => {
+    if (!data) return;
+    try {
+      const pdf = generateInformeBancoPdf(data);
+      const slug = data.empresa.nombre.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      pdf.save(`informe-banco-${slug}-${data.thisYear}.pdf`);
+      toast({ title: 'PDF generado' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -178,11 +193,11 @@ export default function InformeBancoView() {
         </CardContent>
       </Card>
 
-      {/* Botón descarga PDF (placeholder hasta commit N) */}
+      {/* Botón descarga PDF */}
       <div className="flex justify-end">
-        <Button disabled className="gap-2">
+        <Button onClick={handleDownloadPdf} className="gap-2">
           <FileDown className="h-4 w-4" />
-          Descargar PDF (próximamente)
+          Descargar PDF para Banco
         </Button>
       </div>
     </div>
