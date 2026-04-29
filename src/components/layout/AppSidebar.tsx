@@ -62,6 +62,7 @@ const documentItems: NavItem[] = [
   { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true },
   { title: 'Facturas de Venta', url: '/invoices/venta', icon: FileText },
   { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown },
+  { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true },
 ];
 
 const documentItemsGerencial: NavItem[] = [

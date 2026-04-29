@@ -41,6 +41,7 @@ const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
 const CarteraOperativa = lazy(() => import("./pages/CarteraOperativa"));
+const CajaMenor = lazy(() => import("./pages/CajaMenor"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -171,6 +172,10 @@ const App = () => (
               <Route
                 path="/reportes/cartera-operativa"
                 element={<ProtectedRoute><CarteraOperativa /></ProtectedRoute>}
+              />
+              <Route
+                path="/caja-menor"
+                element={<ProtectedRoute><CajaMenor /></ProtectedRoute>}
               />
               {/* Legacy redirect */}
               <Route
