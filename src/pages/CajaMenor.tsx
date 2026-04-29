@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -8,13 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle } from 'lucide-react';
+import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useModuleContext } from '@/hooks/useModuleContext';
-import { usePettyCashMovements } from '@/hooks/usePettyCashMovements';
+import { usePettyCashMovements, type PettyCashRow } from '@/hooks/usePettyCashMovements';
 import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
+import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -30,6 +32,7 @@ export default function CajaMenor() {
   const { data, isLoading, error } = usePettyCashMovements();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [pdfMovement, setPdfMovement] = useState<PettyCashRow | null>(null);
 
   if (isGerencial) {
     return <Navigate to="/dashboard" replace />;
@@ -207,14 +210,27 @@ export default function CajaMenor() {
                           {formatCurrency(r.amount)}
                         </TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() => handleDelete(r.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            {r.kind === 'cuenta_de_cobro' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 gap-1.5 text-primary hover:text-primary"
+                                onClick={() => setPdfMovement(r)}
+                              >
+                                <FileDown className="h-3.5 w-3.5" />
+                                PDF
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => handleDelete(r.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -224,6 +240,12 @@ export default function CajaMenor() {
             )}
           </CardContent>
         </Card>
+
+        <GenerarCuentaDeCobroModal
+          movement={pdfMovement}
+          open={pdfMovement !== null}
+          onOpenChange={(o) => !o && setPdfMovement(null)}
+        />
       </div>
     </AppLayout>
   );
