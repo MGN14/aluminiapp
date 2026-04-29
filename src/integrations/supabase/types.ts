@@ -12,8 +12,105 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
+      _backup_fiscal_config_actividad: {
+        Row: {
+          actividad_old: string | null
+          backed_up_at: string | null
+          id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          actividad_old?: string | null
+          backed_up_at?: string | null
+          id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          actividad_old?: string | null
+          backed_up_at?: string | null
+          id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      app_events: {
+        Row: {
+          event_type: string
+          id: string
+          occurred_at: string
+          props: Json
+          user_id: string | null
+        }
+        Insert: {
+          event_type: string
+          id?: string
+          occurred_at?: string
+          props?: Json
+          user_id?: string | null
+        }
+        Update: {
+          event_type?: string
+          id?: string
+          occurred_at?: string
+          props?: Json
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      auth_failed_attempts: {
+        Row: {
+          attempted_at: string
+          email: string
+          id: number
+          ip: string
+          reason: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          attempted_at?: string
+          email: string
+          id?: number
+          ip: string
+          reason?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          attempted_at?: string
+          email?: string
+          id?: number
+          ip?: string
+          reason?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       bank_statements: {
         Row: {
           account_number: string | null
@@ -125,6 +222,51 @@ export type Database = {
         }
         Relationships: []
       }
+      business_obligations: {
+        Row: {
+          activa: boolean | null
+          completadas: string[] | null
+          created_at: string | null
+          dia_mes: number
+          id: string
+          meses: string[] | null
+          monto_estimado: number | null
+          nombre: string
+          notas: string | null
+          tipo: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          activa?: boolean | null
+          completadas?: string[] | null
+          created_at?: string | null
+          dia_mes: number
+          id?: string
+          meses?: string[] | null
+          monto_estimado?: number | null
+          nombre: string
+          notas?: string | null
+          tipo: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          activa?: boolean | null
+          completadas?: string[] | null
+          created_at?: string | null
+          dia_mes?: number
+          id?: string
+          meses?: string[] | null
+          monto_estimado?: number | null
+          nombre?: string
+          notas?: string | null
+          tipo?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       business_patterns: {
         Row: {
           amount_max: number
@@ -185,6 +327,7 @@ export type Database = {
           description: string
           id: string
           notes: string | null
+          responsible_id: string | null
           type: string
           user_id: string
         }
@@ -196,6 +339,7 @@ export type Database = {
           description: string
           id?: string
           notes?: string | null
+          responsible_id?: string | null
           type: string
           user_id: string
         }
@@ -207,10 +351,19 @@ export type Database = {
           description?: string
           id?: string
           notes?: string | null
+          responsible_id?: string | null
           type?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "cash_movements_responsible_id_fkey"
+            columns: ["responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       categories: {
         Row: {
@@ -772,10 +925,13 @@ export type Database = {
           created_at: string
           id: string
           last_count_date: string | null
+          last_siigo_sync_at: string | null
           min_stock: number
-          name: string
+          name: string | null
           reference: string
           sale_price: number
+          siigo_id: string | null
+          source: string
           stock_physical: number | null
           stock_system: number
           unit: string
@@ -788,10 +944,13 @@ export type Database = {
           created_at?: string
           id?: string
           last_count_date?: string | null
+          last_siigo_sync_at?: string | null
           min_stock?: number
-          name: string
+          name?: string | null
           reference: string
           sale_price?: number
+          siigo_id?: string | null
+          source?: string
           stock_physical?: number | null
           stock_system?: number
           unit?: string
@@ -804,10 +963,13 @@ export type Database = {
           created_at?: string
           id?: string
           last_count_date?: string | null
+          last_siigo_sync_at?: string | null
           min_stock?: number
-          name?: string
+          name?: string | null
           reference?: string
           sale_price?: number
+          siigo_id?: string | null
+          source?: string
           stock_physical?: number | null
           stock_system?: number
           unit?: string
@@ -942,12 +1104,15 @@ export type Database = {
           pdf_path: string | null
           prefix: string | null
           processing_error: string | null
+          responsible_id: string | null
           retefuente_cliente_amount: number | null
           retefuente_cliente_rate: number | null
           reteica_amount: number | null
           reteica_rate: number | null
           seller_name: string | null
           seller_nit: string | null
+          siigo_id: string | null
+          source: string
           status: string
           storage_path: string | null
           subtotal_base: number
@@ -983,12 +1148,15 @@ export type Database = {
           pdf_path?: string | null
           prefix?: string | null
           processing_error?: string | null
+          responsible_id?: string | null
           retefuente_cliente_amount?: number | null
           retefuente_cliente_rate?: number | null
           reteica_amount?: number | null
           reteica_rate?: number | null
           seller_name?: string | null
           seller_nit?: string | null
+          siigo_id?: string | null
+          source?: string
           status?: string
           storage_path?: string | null
           subtotal_base?: number
@@ -1024,12 +1192,15 @@ export type Database = {
           pdf_path?: string | null
           prefix?: string | null
           processing_error?: string | null
+          responsible_id?: string | null
           retefuente_cliente_amount?: number | null
           retefuente_cliente_rate?: number | null
           reteica_amount?: number | null
           reteica_rate?: number | null
           seller_name?: string | null
           seller_nit?: string | null
+          siigo_id?: string | null
+          source?: string
           status?: string
           storage_path?: string | null
           subtotal_base?: number
@@ -1037,6 +1208,53 @@ export type Database = {
           type?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_responsible_id_fkey"
+            columns: ["responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      macro_indicators: {
+        Row: {
+          fetched_at: string
+          id: string
+          indicator_type: string
+          metadata: Json | null
+          period_date: string
+          sector_code: string
+          sector_name: string | null
+          source: string | null
+          unit: string | null
+          value: number
+        }
+        Insert: {
+          fetched_at?: string
+          id?: string
+          indicator_type: string
+          metadata?: Json | null
+          period_date: string
+          sector_code?: string
+          sector_name?: string | null
+          source?: string | null
+          unit?: string | null
+          value: number
+        }
+        Update: {
+          fetched_at?: string
+          id?: string
+          indicator_type?: string
+          metadata?: Json | null
+          period_date?: string
+          sector_code?: string
+          sector_name?: string | null
+          source?: string | null
+          unit?: string | null
+          value?: number
         }
         Relationships: []
       }
@@ -1103,74 +1321,54 @@ export type Database = {
         }
         Relationships: []
       }
-      nico_usage_daily: {
+      operative_receivables: {
         Row: {
-          day: string
-          message_count: number
-          user_id: string
-        }
-        Insert: {
-          day?: string
-          message_count?: number
-          user_id: string
-        }
-        Update: {
-          day?: string
-          message_count?: number
-          user_id?: string
-        }
-        Relationships: []
-      }
-      product_master: {
-        Row: {
-          active: boolean
-          created_at: string | null
-          description: string
+          amount: number
+          created_at: string
+          date: string
+          description: string | null
           id: string
-          ref_local: string | null
-          ref_proveedor_a: string | null
-          ref_proveedor_b: string | null
-          ref_proveedor_c: string | null
-          ref_siigo: string
-          unit: string
-          updated_at: string | null
+          responsible_id: string
+          updated_at: string
           user_id: string
         }
         Insert: {
-          active?: boolean
-          created_at?: string | null
-          description: string
+          amount: number
+          created_at?: string
+          date: string
+          description?: string | null
           id?: string
-          ref_local?: string | null
-          ref_proveedor_a?: string | null
-          ref_proveedor_b?: string | null
-          ref_proveedor_c?: string | null
-          ref_siigo: string
-          unit?: string
-          updated_at?: string | null
+          responsible_id: string
+          updated_at?: string
           user_id: string
         }
         Update: {
-          active?: boolean
-          created_at?: string | null
-          description?: string
+          amount?: number
+          created_at?: string
+          date?: string
+          description?: string | null
           id?: string
-          ref_local?: string | null
-          ref_proveedor_a?: string | null
-          ref_proveedor_b?: string | null
-          ref_proveedor_c?: string | null
-          ref_siigo?: string
-          unit?: string
-          updated_at?: string | null
+          responsible_id?: string
+          updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "operative_receivables_responsible_id_fkey"
+            columns: ["responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
+          accounting_email: string | null
           company_initial: string | null
           company_name: string | null
           created_at: string
+          force_password_change: boolean
           full_name: string | null
           id: string
           onboarding_completed: boolean | null
@@ -1180,9 +1378,11 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          accounting_email?: string | null
           company_initial?: string | null
           company_name?: string | null
           created_at?: string
+          force_password_change?: boolean
           full_name?: string | null
           id?: string
           onboarding_completed?: boolean | null
@@ -1192,9 +1392,11 @@ export type Database = {
           user_id: string
         }
         Update: {
+          accounting_email?: string | null
           company_initial?: string | null
           company_name?: string | null
           created_at?: string
+          force_password_change?: boolean
           full_name?: string | null
           id?: string
           onboarding_completed?: boolean | null
@@ -1207,72 +1409,72 @@ export type Database = {
       }
       reconciliation_rules: {
         Row: {
-          active: boolean
+          active: boolean | null
           amount_max: number | null
           amount_min: number | null
-          auto_conciliate: boolean
+          auto_conciliate: boolean | null
           category_id: string | null
           category_name: string | null
-          created_at: string
+          created_at: string | null
           day_max: number | null
           day_min: number | null
           description: string | null
           id: string
           keyword: string | null
           last_matched_at: string | null
-          match_count: number
+          match_count: number | null
           name: string
           pattern_ref: string | null
           responsible_id: string | null
           responsible_name: string | null
-          tx_type: string
-          updated_at: string
+          tx_type: string | null
+          updated_at: string | null
           user_id: string
         }
         Insert: {
-          active?: boolean
+          active?: boolean | null
           amount_max?: number | null
           amount_min?: number | null
-          auto_conciliate?: boolean
+          auto_conciliate?: boolean | null
           category_id?: string | null
           category_name?: string | null
-          created_at?: string
+          created_at?: string | null
           day_max?: number | null
           day_min?: number | null
           description?: string | null
           id?: string
           keyword?: string | null
           last_matched_at?: string | null
-          match_count?: number
+          match_count?: number | null
           name: string
           pattern_ref?: string | null
           responsible_id?: string | null
           responsible_name?: string | null
-          tx_type?: string
-          updated_at?: string
+          tx_type?: string | null
+          updated_at?: string | null
           user_id: string
         }
         Update: {
-          active?: boolean
+          active?: boolean | null
           amount_max?: number | null
           amount_min?: number | null
-          auto_conciliate?: boolean
+          auto_conciliate?: boolean | null
           category_id?: string | null
           category_name?: string | null
-          created_at?: string
+          created_at?: string | null
           day_max?: number | null
           day_min?: number | null
           description?: string | null
           id?: string
           keyword?: string | null
           last_matched_at?: string | null
-          match_count?: number
+          match_count?: number | null
           name?: string
           pattern_ref?: string | null
           responsible_id?: string | null
           responsible_name?: string | null
-          tx_type?: string
-          updated_at?: string
+          tx_type?: string | null
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: [
@@ -1441,6 +1643,62 @@ export type Database = {
         }
         Relationships: []
       }
+      subscription_charges: {
+        Row: {
+          amount_in_cents: number
+          attempt_number: number
+          attempted_at: string
+          completed_at: string | null
+          created_at: string
+          id: string
+          payment_method_id: string | null
+          plan: string
+          status: string
+          user_id: string
+          wompi_status: string | null
+          wompi_status_message: string | null
+          wompi_transaction_id: string | null
+        }
+        Insert: {
+          amount_in_cents: number
+          attempt_number?: number
+          attempted_at?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          payment_method_id?: string | null
+          plan: string
+          status: string
+          user_id: string
+          wompi_status?: string | null
+          wompi_status_message?: string | null
+          wompi_transaction_id?: string | null
+        }
+        Update: {
+          amount_in_cents?: number
+          attempt_number?: number
+          attempted_at?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          payment_method_id?: string | null
+          plan?: string
+          status?: string
+          user_id?: string
+          wompi_status?: string | null
+          wompi_status_message?: string | null
+          wompi_transaction_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_charges_payment_method_id_fkey"
+            columns: ["payment_method_id"]
+            isOneToOne: false
+            referencedRelation: "user_payment_methods"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tax_settings: {
         Row: {
           autoretefuente_rate: number
@@ -1501,6 +1759,7 @@ export type Database = {
           iva_type: string | null
           notes: string | null
           operational_type: string | null
+          operative_receivable_assigned: boolean
           owner: string | null
           raw_line: string | null
           responsible_id: string | null
@@ -1536,6 +1795,7 @@ export type Database = {
           iva_type?: string | null
           notes?: string | null
           operational_type?: string | null
+          operative_receivable_assigned?: boolean
           owner?: string | null
           raw_line?: string | null
           responsible_id?: string | null
@@ -1571,6 +1831,7 @@ export type Database = {
           iva_type?: string | null
           notes?: string | null
           operational_type?: string | null
+          operative_receivable_assigned?: boolean
           owner?: string | null
           raw_line?: string | null
           responsible_id?: string | null
@@ -1614,6 +1875,54 @@ export type Database = {
           },
         ]
       }
+      user_payment_methods: {
+        Row: {
+          card_brand: string | null
+          card_exp_month: number | null
+          card_exp_year: number | null
+          card_last_four: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          last_used_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          wompi_customer_email: string | null
+          wompi_payment_source_id: string
+        }
+        Insert: {
+          card_brand?: string | null
+          card_exp_month?: number | null
+          card_exp_year?: number | null
+          card_last_four?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_used_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+          wompi_customer_email?: string | null
+          wompi_payment_source_id: string
+        }
+        Update: {
+          card_brand?: string | null
+          card_exp_month?: number | null
+          card_exp_year?: number | null
+          card_last_four?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_used_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          wompi_customer_email?: string | null
+          wompi_payment_source_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -1631,6 +1940,51 @@ export type Database = {
           created_at?: string | null
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_siigo_credentials: {
+        Row: {
+          connection_status: string
+          created_at: string
+          id: string
+          last_error: string | null
+          last_invoice_pulled_at: string | null
+          last_products_pulled_at: string | null
+          last_sync_at: string | null
+          partner_id: string
+          siigo_access_key_encrypted: string
+          siigo_username: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          connection_status?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_invoice_pulled_at?: string | null
+          last_products_pulled_at?: string | null
+          last_sync_at?: string | null
+          partner_id?: string
+          siigo_access_key_encrypted: string
+          siigo_username: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          connection_status?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_invoice_pulled_at?: string | null
+          last_products_pulled_at?: string | null
+          last_sync_at?: string | null
+          partner_id?: string
+          siigo_access_key_encrypted?: string
+          siigo_username?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -1708,8 +2062,9 @@ export type Database = {
         }
         Returns: boolean
       }
-      increment_pdf_upload: { Args: { p_user_id: string }; Returns: boolean }
+      increment_pdf_upload: { Args: { p_user_id: string }; Returns: undefined }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      prune_old_auth_failed_attempts: { Args: never; Returns: undefined }
       reset_monthly_pdf_counts: { Args: never; Returns: undefined }
     }
     Enums: {
@@ -1850,6 +2205,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["admin", "user"],
