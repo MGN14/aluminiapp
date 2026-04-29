@@ -20,6 +20,12 @@ export interface InformeBancoData {
     direccion: string | null;
     telefono: string | null;
     antiguedadMeses: number;
+    descripcion: string | null;
+    bodega: string | null;
+    empleados: number | null;
+    diasOperacion: string | null;
+    logistica: string | null;
+    proveedoresPrincipales: string | null;
   };
   // Resumen del año actual
   thisYear: number;
@@ -104,7 +110,7 @@ export function useInformeBancoData() {
       const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('company_name, company_nit, company_city, company_address, company_phone')
+          .select('company_name, company_nit, company_city, company_address, company_phone, business_description, business_warehouse_location, business_employees_count, business_operation_days, business_logistics, business_main_suppliers')
           .eq('user_id', user!.id)
           .maybeSingle(),
         supabase
@@ -387,6 +393,12 @@ export function useInformeBancoData() {
           direccion: (profile as { company_address?: string | null }).company_address ?? null,
           telefono: (profile as { company_phone?: string | null }).company_phone ?? null,
           antiguedadMeses,
+          descripcion: (profile as { business_description?: string | null }).business_description ?? null,
+          bodega: (profile as { business_warehouse_location?: string | null }).business_warehouse_location ?? null,
+          empleados: (profile as { business_employees_count?: number | null }).business_employees_count ?? null,
+          diasOperacion: (profile as { business_operation_days?: string | null }).business_operation_days ?? null,
+          logistica: (profile as { business_logistics?: string | null }).business_logistics ?? null,
+          proveedoresPrincipales: (profile as { business_main_suppliers?: string | null }).business_main_suppliers ?? null,
         },
         thisYear,
         ingresosBancoAno,

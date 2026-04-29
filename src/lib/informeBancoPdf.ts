@@ -86,12 +86,85 @@ export function generateInformeBancoPdf(data: InformeBancoData): jsPDF {
     y += 5;
   }
 
+  // Acerca del negocio (cualitativo, si tiene datos)
+  const hasAbout = !!(data.empresa.descripcion || data.empresa.bodega || data.empresa.empleados || data.empresa.diasOperacion || data.empresa.logistica || data.empresa.proveedoresPrincipales);
+  if (hasAbout) {
+    y += 5;
+    setStroke(doc, COLORS.rule);
+    doc.setLineWidth(0.3);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 8;
+    setText(doc, COLORS.ink);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(12);
+    doc.text('Acerca del negocio', marginX, y);
+    y += 6;
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    if (data.empresa.descripcion) {
+      const lines = doc.splitTextToSize(data.empresa.descripcion, pageW - 2 * marginX);
+      doc.text(lines, marginX, y);
+      y += lines.length * 4.5 + 2;
+    }
+    const kvPairs: Array<[string, string | null]> = [
+      ['Bodega', data.empresa.bodega],
+      ['Empleados directos', data.empresa.empleados !== null ? String(data.empresa.empleados) : null],
+      ['Días de operación', data.empresa.diasOperacion],
+    ];
+    for (const [k, v] of kvPairs) {
+      if (!v) continue;
+      setText(doc, COLORS.muted);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text(k.toUpperCase() + ':', marginX, y);
+      const labelW = doc.getTextWidth(k.toUpperCase() + ': ') + 1;
+      setText(doc, COLORS.ink);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      const lines = doc.splitTextToSize(v, pageW - 2 * marginX - labelW);
+      doc.text(lines, marginX + labelW, y);
+      y += Math.max(4, lines.length * 4) + 1;
+    }
+    if (data.empresa.logistica) {
+      setText(doc, COLORS.muted);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('LOGÍSTICA:', marginX, y);
+      y += 4;
+      setText(doc, COLORS.ink);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      const lines = doc.splitTextToSize(data.empresa.logistica, pageW - 2 * marginX);
+      doc.text(lines, marginX, y);
+      y += lines.length * 4 + 2;
+    }
+    if (data.empresa.proveedoresPrincipales) {
+      setText(doc, COLORS.muted);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('PROVEEDORES PRINCIPALES:', marginX, y);
+      y += 4;
+      setText(doc, COLORS.ink);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      const lines = doc.splitTextToSize(data.empresa.proveedoresPrincipales, pageW - 2 * marginX);
+      doc.text(lines, marginX, y);
+      y += lines.length * 4 + 2;
+    }
+  }
+
   // Periodo
   y += 5;
   setStroke(doc, COLORS.rule);
   doc.setLineWidth(0.3);
   doc.line(marginX, y, pageW - marginX, y);
   y += 8;
+
+  if (y > pageH - 60) {
+    doc.addPage();
+    y = 22;
+  }
 
   setText(doc, COLORS.ink);
   doc.setFont('times', 'bold');

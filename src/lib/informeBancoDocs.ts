@@ -146,6 +146,12 @@ export const DOCUMENTOS_BANCO: DocBancario[] = [
     descripcion: 'Últimos 3 meses, idealmente firmadas por el cliente.',
     category: 'operativos',
   },
+  {
+    id: 'registro-fotografico',
+    nombre: 'Registro fotográfico del negocio',
+    descripcion: 'Fotos de instalaciones, bodega, fachada, equipos, cámaras de seguridad. Genera confianza al ejecutivo del banco.',
+    category: 'operativos',
+  },
 ];
 
 export function groupDocsByCategory(): Record<DocCategory, DocBancario[]> {

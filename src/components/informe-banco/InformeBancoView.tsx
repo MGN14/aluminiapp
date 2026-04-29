@@ -107,6 +107,78 @@ export default function InformeBancoView() {
         </CardContent>
       </Card>
 
+      {/* Acerca del negocio (cualitativo) */}
+      {(data.empresa.descripcion || data.empresa.bodega || data.empresa.empleados || data.empresa.diasOperacion || data.empresa.logistica || data.empresa.proveedoresPrincipales) && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Acerca del negocio</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {data.empresa.descripcion && (
+              <div>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Descripción</span>
+                <p className="mt-0.5">{data.empresa.descripcion}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {data.empresa.bodega && (
+                <div>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Bodega</span>
+                  <p>{data.empresa.bodega}</p>
+                </div>
+              )}
+              {data.empresa.empleados !== null && (
+                <div>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Empleados</span>
+                  <p>{data.empresa.empleados}</p>
+                </div>
+              )}
+              {data.empresa.diasOperacion && (
+                <div className="md:col-span-2">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Días de operación</span>
+                  <p>{data.empresa.diasOperacion}</p>
+                </div>
+              )}
+            </div>
+            {data.empresa.logistica && (
+              <div>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Logística</span>
+                <p className="mt-0.5">{data.empresa.logistica}</p>
+              </div>
+            )}
+            {data.empresa.proveedoresPrincipales && (
+              <div>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Proveedores principales</span>
+                <p className="mt-0.5">{data.empresa.proveedoresPrincipales}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Top ciudades (si hay data) */}
+      {data.topCiudades.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Top ciudades de clientes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.topCiudades.map((c) => (
+              <div key={c.city} className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium">{c.city}</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full bg-primary" style={{ width: `${c.pct}%` }} />
+                  </div>
+                  <span className="text-xs text-muted-foreground w-12 text-right">{c.pct.toFixed(0)}%</span>
+                  <span className="text-sm font-semibold tabular-nums w-32 text-right">{formatCurrency(c.total)}</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {/* KPIs financieros del año */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card className="border-0 shadow-sm">
