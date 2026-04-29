@@ -43,7 +43,7 @@ export default function AsignarPagoBancarioModal({ payment, open, onOpenChange }
 
   useEffect(() => {
     if (payment) {
-      setResponsibleId(payment.responsible_id ?? '');
+      setResponsibleId(payment.operative_responsible_id ?? '');
     } else {
       setResponsibleId('');
     }
@@ -74,9 +74,9 @@ export default function AsignarPagoBancarioModal({ payment, open, onOpenChange }
       const { error } = await supabase
         .from('transactions')
         .update({
-          responsible_id: responsibleId,
+          operative_responsible_id: responsibleId,
           operative_receivable_assigned: true,
-        })
+        } as never)
         .eq('id', payment.id);
       if (error) throw error;
 

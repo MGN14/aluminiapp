@@ -50,10 +50,10 @@ export function useOperativeReceivables() {
           .not('responsible_id', 'is', null),
         supabase
           .from('transactions')
-          .select('responsible_id, credit')
+          .select('operative_responsible_id, credit')
           .eq('user_id', user.id)
           .eq('operative_receivable_assigned', true)
-          .not('responsible_id', 'is', null)
+          .not('operative_responsible_id', 'is', null)
           .is('deleted_at', null),
         supabase
           .from('responsibles')
@@ -95,9 +95,9 @@ export function useOperativeReceivables() {
         if (!c.responsible_id) continue;
         getRow(c.responsible_id).pagado_efectivo += Number(c.amount) || 0;
       }
-      for (const b of bankRes.data ?? []) {
-        if (!b.responsible_id) continue;
-        getRow(b.responsible_id).pagado_banco += Number(b.credit) || 0;
+      for (const b of (bankRes.data ?? []) as unknown as Array<{ operative_responsible_id: string | null; credit: number | null }>) {
+        if (!b.operative_responsible_id) continue;
+        getRow(b.operative_responsible_id).pagado_banco += Number(b.credit) || 0;
       }
 
       const rows = Array.from(acc.values()).map((r) => ({

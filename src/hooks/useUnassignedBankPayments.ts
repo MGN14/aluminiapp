@@ -7,8 +7,9 @@ export interface BankPayment {
   date: string;
   description: string;
   credit: number;
-  responsible_id: string | null;
-  responsible_name: string | null;
+  /** Beneficiario para Cartera Operativa (independiente del de DIAN). */
+  operative_responsible_id: string | null;
+  operative_responsible_name: string | null;
 }
 
 const DEFAULT_LOOKBACK_DAYS = 90;
@@ -26,9 +27,12 @@ async function fetchPayments(opts: {
 }): Promise<BankPayment[]> {
   const { userId, assigned, lookbackDays = DEFAULT_LOOKBACK_DAYS } = opts;
 
+  // "Sin asignar" = misma fuente que Pendientes del Dashboard:
+  // transacciones con responsible_id NULL (no conciliadas a DIAN), credit > 0 (ingresos).
+  // "Asignados" = operative_receivable_assigned = true, sin importar responsible_id.
   let query = supabase
     .from('transactions')
-    .select('id, date, description, credit, responsible_id')
+    .select('id, date, description, credit, operative_responsible_id')
     .eq('user_id', userId)
     .is('deleted_at', null)
     .gt('credit', 0)
@@ -38,25 +42,27 @@ async function fetchPayments(opts: {
   if (assigned) {
     query = query.eq('operative_receivable_assigned', true);
   } else {
-    query = query.eq('operative_receivable_assigned', false).is('invoice_id', null);
+    query = query
+      .is('responsible_id', null)
+      .eq('operative_receivable_assigned', false);
   }
 
   const { data, error } = await query;
   if (error) throw error;
 
-  const rows = (data ?? []) as Array<{
+  const rows = (data ?? []) as unknown as Array<{
     id: string;
     date: string;
     description: string | null;
     credit: number | null;
-    responsible_id: string | null;
+    operative_responsible_id: string | null;
   }>;
 
   const responsibleIds = Array.from(
-    new Set(rows.map((r) => r.responsible_id).filter((id): id is string => !!id))
+    new Set(rows.map((r) => r.operative_responsible_id).filter((id): id is string => !!id))
   );
 
-  let nameById = new Map<string, string>();
+  const nameById = new Map<string, string>();
   if (responsibleIds.length > 0) {
     const { data: respData } = await supabase
       .from('responsibles')
@@ -70,8 +76,10 @@ async function fetchPayments(opts: {
     date: r.date,
     description: r.description ?? '',
     credit: Number(r.credit) || 0,
-    responsible_id: r.responsible_id,
-    responsible_name: r.responsible_id ? nameById.get(r.responsible_id) ?? null : null,
+    operative_responsible_id: r.operative_responsible_id,
+    operative_responsible_name: r.operative_responsible_id
+      ? nameById.get(r.operative_responsible_id) ?? null
+      : null,
   }));
 }
 

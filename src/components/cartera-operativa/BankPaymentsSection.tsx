@@ -45,7 +45,10 @@ export default function BankPaymentsSection() {
     try {
       const { error } = await supabase
         .from('transactions')
-        .update({ operative_receivable_assigned: false })
+        .update({
+          operative_receivable_assigned: false,
+          operative_responsible_id: null,
+        } as never)
         .eq('id', id);
       if (error) throw error;
 
@@ -113,9 +116,9 @@ export default function BankPaymentsSection() {
                       </TableCell>
                       <TableCell className="max-w-[280px] truncate text-sm" title={p.description}>
                         {p.description || '—'}
-                        {p.responsible_name && (
+                        {p.operative_responsible_name && (
                           <span className="block text-[11px] text-muted-foreground">
-                            Beneficiario sugerido: {p.responsible_name}
+                            Beneficiario sugerido: {p.operative_responsible_name}
                           </span>
                         )}
                       </TableCell>
@@ -175,7 +178,7 @@ export default function BankPaymentsSection() {
                         {format(parseLocalDate(p.date), 'dd MMM', { locale: es })}
                       </TableCell>
                       <TableCell className="text-sm font-medium">
-                        {p.responsible_name ?? '—'}
+                        {p.operative_responsible_name ?? '—'}
                       </TableCell>
                       <TableCell className="max-w-[240px] truncate text-sm text-muted-foreground" title={p.description}>
                         {p.description || '—'}
