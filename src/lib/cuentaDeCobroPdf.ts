@@ -4,8 +4,6 @@ import { numberToSpanishWords } from './numberToSpanishWords';
 export type CuentaDeCobroVariant = 'cuenta_de_cobro' | 'comprobante_pago';
 
 export interface CuentaDeCobroData {
-  // Variante: cuenta de cobro (formal, con manifestacion DIAN) o comprobante
-  // de pago (gasto en efectivo respaldado).
   variant: CuentaDeCobroVariant;
   // Contratante (empresa del usuario)
   empresaNombre: string;
@@ -35,148 +33,241 @@ const TIPO_DOC_LABEL: Record<string, string> = {
   NIT: 'NIT',
 };
 
+const COLORS = {
+  ink: [33, 37, 41] as [number, number, number],
+  muted: [110, 110, 115] as [number, number, number],
+  rule: [225, 225, 230] as [number, number, number],
+  panel: [248, 249, 251] as [number, number, number],
+  panelBorder: [220, 222, 228] as [number, number, number],
+  brand: [60, 100, 80] as [number, number, number],
+};
+
 function fmtMoney(n: number): string {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
+function setFill(doc: jsPDF, c: [number, number, number]) {
+  doc.setFillColor(c[0], c[1], c[2]);
+}
+function setStroke(doc: jsPDF, c: [number, number, number]) {
+  doc.setDrawColor(c[0], c[1], c[2]);
+}
+function setText(doc: jsPDF, c: [number, number, number]) {
+  doc.setTextColor(c[0], c[1], c[2]);
 }
 
 export function generateCuentaDeCobroPdf(data: CuentaDeCobroData): jsPDF {
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });
   const pageW = doc.internal.pageSize.getWidth();
-  const margin = 22;
-  let y = margin;
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 24;
+  let y = 24;
 
-  // Encabezado: empresa
+  const isCdc = data.variant === 'cuenta_de_cobro';
+
+  // ============= ENCABEZADO EMPRESA =============
+  setText(doc, COLORS.ink);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text(data.empresaNombre.toUpperCase(), margin, y);
-  y += 5;
+  doc.setFontSize(11);
+  doc.text(data.empresaNombre.toUpperCase(), marginX, y);
+  y += 4.5;
+
+  setText(doc, COLORS.muted);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.text(`NIT: ${data.empresaNit}`, margin, y);
-  y += 4;
-  if (data.empresaDireccion) {
-    doc.text(data.empresaDireccion, margin, y);
-    y += 4;
-  }
-  if (data.empresaCiudad) {
-    doc.text(data.empresaCiudad, margin, y);
-    y += 4;
-  }
+  doc.setFontSize(8.5);
+  const headerInfo = [
+    `NIT ${data.empresaNit}`,
+    data.empresaDireccion,
+    data.empresaCiudad,
+  ].filter(Boolean).join('  ·  ');
+  doc.text(headerInfo, marginX, y);
 
   // Numero consecutivo y fecha (derecha)
-  doc.setFont('helvetica', 'normal');
+  setText(doc, COLORS.ink);
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  const headerRightY = margin;
-  doc.text(`No. ${data.numeroConsecutivo}`, pageW - margin, headerRightY, { align: 'right' });
-  doc.text(`${data.ciudadEmision}, ${data.fecha}`, pageW - margin, headerRightY + 5, { align: 'right' });
+  doc.text(`No. ${data.numeroConsecutivo}`, pageW - marginX, 24, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  setText(doc, COLORS.muted);
+  doc.setFontSize(8.5);
+  doc.text(`${data.ciudadEmision}, ${data.fecha}`, pageW - marginX, 28.5, { align: 'right' });
 
-  const isCuentaDeCobro = data.variant === 'cuenta_de_cobro';
-
-  // Titulo
+  // Linea horizontal divisora
   y += 8;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text(isCuentaDeCobro ? 'CUENTA DE COBRO' : 'COMPROBANTE DE PAGO', pageW / 2, y, { align: 'center' });
-  y += 10;
+  setStroke(doc, COLORS.rule);
+  doc.setLineWidth(0.3);
+  doc.line(marginX, y, pageW - marginX, y);
 
-  // Encabezado del cuerpo: el prestador certifica que la empresa le adeuda
-  // (cuenta de cobro) o que recibio el pago (comprobante de pago)
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  const lineSpacing = 5;
+  // ============= TITULO =============
+  y += 14;
+  setText(doc, COLORS.ink);
+  doc.setFont('times', 'bold');
+  doc.setFontSize(20);
+  doc.text(isCdc ? 'CUENTA DE COBRO' : 'COMPROBANTE DE PAGO', pageW / 2, y, { align: 'center' });
 
-  doc.text(`${data.empresaNombre.toUpperCase()} con NIT ${data.empresaNit}`, margin, y);
-  y += lineSpacing;
-  doc.text(isCuentaDeCobro ? 'DEBE A:' : 'PAGÓ A:', margin, y);
-  y += lineSpacing + 2;
+  // Linea decorativa corta bajo titulo
+  y += 3;
+  const titleRuleW = 28;
+  setStroke(doc, COLORS.brand);
+  doc.setLineWidth(0.6);
+  doc.line(pageW / 2 - titleRuleW / 2, y, pageW / 2 + titleRuleW / 2, y);
 
-  doc.setFont('helvetica', 'bold');
-  doc.text(data.prestadorNombre.toUpperCase(), margin, y);
-  y += lineSpacing;
-  doc.setFont('helvetica', 'normal');
-  doc.text(
-    `${TIPO_DOC_LABEL[data.prestadorTipoDocumento] ?? data.prestadorTipoDocumento} No. ${data.prestadorDocumento}`,
-    margin,
-    y
-  );
-  y += lineSpacing;
-  if (data.prestadorCiudad) {
-    doc.text(`${data.prestadorCiudad}${data.prestadorTelefono ? ` · Tel. ${data.prestadorTelefono}` : ''}`, margin, y);
-    y += lineSpacing;
-  }
+  // ============= INTRODUCCION =============
+  y += 14;
+  setText(doc, COLORS.ink);
+  doc.setFont('times', 'normal');
+  doc.setFontSize(10.5);
+  const introBase = isCdc
+    ? `${data.empresaNombre.toUpperCase()}, identificada con NIT ${data.empresaNit}, debe a:`
+    : `${data.empresaNombre.toUpperCase()}, identificada con NIT ${data.empresaNit}, ha pagado a:`;
+  const introLines = doc.splitTextToSize(introBase, pageW - 2 * marginX);
+  doc.text(introLines, marginX, y);
+  y += introLines.length * 5;
+
+  // ============= PANEL DEL PRESTADOR =============
   y += 4;
+  const panelX = marginX;
+  const panelW = pageW - 2 * marginX;
+  const panelPad = 6;
+  const panelLineH = 6;
+  const panelRows: Array<[string, string]> = [
+    ['NOMBRE', data.prestadorNombre.toUpperCase()],
+    [TIPO_DOC_LABEL[data.prestadorTipoDocumento] ?? data.prestadorTipoDocumento, `No. ${data.prestadorDocumento}`],
+  ];
+  if (data.prestadorCiudad) panelRows.push(['CIUDAD', data.prestadorCiudad]);
+  if (data.prestadorTelefono) panelRows.push(['TELÉFONO', data.prestadorTelefono]);
+  const panelH = panelPad * 2 + panelRows.length * panelLineH;
 
-  // Monto destacado
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text(`${isCuentaDeCobro ? 'LA SUMA DE' : 'POR LA SUMA RECIBIDA DE'}: ${fmtMoney(data.monto)}`, margin, y);
-  y += lineSpacing + 1;
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(9);
-  const valorEnLetras = numberToSpanishWords(data.monto).toUpperCase() + ' M/CTE';
-  const letrasLines = doc.splitTextToSize(`(${valorEnLetras})`, pageW - 2 * margin);
-  doc.text(letrasLines, margin, y);
-  y += letrasLines.length * 4 + 4;
+  setFill(doc, COLORS.panel);
+  setStroke(doc, COLORS.panelBorder);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(panelX, y, panelW, panelH, 1.5, 1.5, 'FD');
 
-  // Concepto
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('POR CONCEPTO DE:', margin, y);
-  y += lineSpacing;
-  doc.setFont('helvetica', 'normal');
-  const conceptoLines = doc.splitTextToSize(data.concepto, pageW - 2 * margin);
-  doc.text(conceptoLines, margin, y);
-  y += conceptoLines.length * 5 + 4;
-
-  // Retencion (si aplica)
-  if (data.retencion && data.retencion > 0) {
-    const neto = data.monto - data.retencion;
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Retención en la fuente: ${fmtMoney(data.retencion)}`, margin, y);
-    y += lineSpacing;
+  let py = y + panelPad + 4;
+  for (const [label, value] of panelRows) {
+    setText(doc, COLORS.muted);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Valor neto a pagar: ${fmtMoney(neto)}`, margin, y);
-    y += lineSpacing + 3;
+    doc.setFontSize(7.5);
+    doc.text(label, panelX + panelPad, py);
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text(value, panelX + panelPad + 38, py);
+    py += panelLineH;
+  }
+  y += panelH;
+
+  // ============= MONTO DESTACADO =============
+  y += 8;
+  const montoPanelH = 22;
+  setFill(doc, [252, 253, 254]);
+  setStroke(doc, COLORS.panelBorder);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(marginX, y, pageW - 2 * marginX, montoPanelH, 1.5, 1.5, 'FD');
+
+  setText(doc, COLORS.muted);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.text(isCdc ? 'LA SUMA DE' : 'POR LA SUMA RECIBIDA DE', pageW / 2, y + 6, { align: 'center' });
+
+  setText(doc, COLORS.ink);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.text(fmtMoney(data.monto), pageW / 2, y + 14, { align: 'center' });
+
+  setText(doc, COLORS.muted);
+  doc.setFont('times', 'italic');
+  doc.setFontSize(9);
+  const valorEnLetras = `(${numberToSpanishWords(data.monto).toUpperCase()} M/CTE)`;
+  const letrasLines = doc.splitTextToSize(valorEnLetras, pageW - 2 * marginX - 8);
+  doc.text(letrasLines, pageW / 2, y + 19, { align: 'center' });
+  y += montoPanelH;
+
+  // ============= CONCEPTO =============
+  y += 9;
+  setText(doc, COLORS.muted);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.text('POR CONCEPTO DE', marginX, y);
+  y += 4.5;
+  setText(doc, COLORS.ink);
+  doc.setFont('times', 'normal');
+  doc.setFontSize(11);
+  const conceptoLines = doc.splitTextToSize(data.concepto, pageW - 2 * marginX);
+  doc.text(conceptoLines, marginX, y);
+  y += conceptoLines.length * 5.2;
+
+  // ============= RETENCION (opcional) =============
+  if (data.retencion && data.retencion > 0) {
+    y += 5;
+    const neto = data.monto - data.retencion;
+    setText(doc, COLORS.muted);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`Retención en la fuente: ${fmtMoney(data.retencion)}`, marginX, y);
+    y += 5;
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text(`Valor neto a pagar: ${fmtMoney(neto)}`, marginX, y);
+    y += 4;
   }
 
-  // Manifestacion legal (solo en cuenta de cobro formal)
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  const manifText = isCuentaDeCobro
+  // ============= MANIFESTACIONES =============
+  y += 8;
+  setStroke(doc, COLORS.rule);
+  doc.setLineWidth(0.2);
+  doc.line(marginX, y, pageW - marginX, y);
+  y += 6;
+
+  setText(doc, COLORS.ink);
+  doc.setFont('times', 'normal');
+  doc.setFontSize(9.5);
+  const manifText = isCdc
     ? 'El suscrito declara bajo la gravedad de juramento que no se encuentra obligado a expedir factura electrónica de venta, conforme a las normas tributarias vigentes y los requisitos establecidos por la DIAN.'
     : 'El suscrito declara haber recibido del contratante la suma indicada, en la fecha y por el concepto descritos. Firma como constancia del pago efectuado.';
-  const manifLines = doc.splitTextToSize(manifText, pageW - 2 * margin);
-  doc.text(manifLines, margin, y);
-  y += manifLines.length * 4 + 3;
+  const manifLines = doc.splitTextToSize(manifText, pageW - 2 * marginX);
+  doc.text(manifLines, marginX, y);
+  y += manifLines.length * 4.5;
 
-  // Prestaciones sociales (opcional)
   if (data.incluyePrestacionesSociales) {
-    const prestLines = doc.splitTextToSize(
-      'Asimismo, declara que se encuentra al día en el pago de aportes al Sistema de Seguridad Social en Salud y Pensión, en cumplimiento de lo establecido por el Artículo 50 de la Ley 789 de 2002 y el Decreto 1670 de 2007.',
-      pageW - 2 * margin
-    );
-    doc.text(prestLines, margin, y);
-    y += prestLines.length * 4 + 3;
+    y += 4;
+    const prestText =
+      'Asimismo, declara que se encuentra al día en el pago de aportes al Sistema de Seguridad Social en Salud y Pensión, en cumplimiento de lo establecido por el Artículo 50 de la Ley 789 de 2002 y el Decreto 1670 de 2007.';
+    const prestLines = doc.splitTextToSize(prestText, pageW - 2 * marginX);
+    doc.text(prestLines, marginX, y);
+    y += prestLines.length * 4.5;
   }
 
-  // Firma
-  y = Math.max(y, doc.internal.pageSize.getHeight() - 50);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text('Atentamente,', margin, y);
-  y += 18;
-  // Linea de firma
-  doc.line(margin, y, margin + 70, y);
-  y += 5;
+  // ============= FIRMA =============
+  // Anclamos firma cerca del pie, dejando espacio comodo
+  const firmaY = Math.max(y + 18, pageH - 50);
+  setText(doc, COLORS.ink);
+  doc.setFont('times', 'normal');
+  doc.setFontSize(10.5);
+  doc.text('Atentamente,', marginX, firmaY - 18);
+
+  // Linea para firma
+  setStroke(doc, COLORS.ink);
+  doc.setLineWidth(0.4);
+  doc.line(marginX, firmaY, marginX + 75, firmaY);
+
+  setText(doc, COLORS.ink);
   doc.setFont('helvetica', 'bold');
-  doc.text(data.prestadorNombre.toUpperCase(), margin, y);
-  y += 5;
+  doc.setFontSize(10);
+  doc.text(data.prestadorNombre.toUpperCase(), marginX, firmaY + 5);
+  setText(doc, COLORS.muted);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.text(
     `${TIPO_DOC_LABEL[data.prestadorTipoDocumento] ?? data.prestadorTipoDocumento} No. ${data.prestadorDocumento}`,
-    margin,
-    y
+    marginX,
+    firmaY + 9.5
   );
 
   return doc;
