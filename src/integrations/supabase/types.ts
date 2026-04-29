@@ -1447,6 +1447,9 @@ export type Database = {
           force_password_change: boolean
           full_name: string | null
           id: string
+          letterhead_bottom_margin_mm: number
+          letterhead_path: string | null
+          letterhead_top_margin_mm: number
           onboarding_completed: boolean | null
           reteica_city: string | null
           reteica_rate: number | null
@@ -1465,6 +1468,9 @@ export type Database = {
           force_password_change?: boolean
           full_name?: string | null
           id?: string
+          letterhead_bottom_margin_mm?: number
+          letterhead_path?: string | null
+          letterhead_top_margin_mm?: number
           onboarding_completed?: boolean | null
           reteica_city?: string | null
           reteica_rate?: number | null
@@ -1483,6 +1489,9 @@ export type Database = {
           force_password_change?: boolean
           full_name?: string | null
           id?: string
+          letterhead_bottom_margin_mm?: number
+          letterhead_path?: string | null
+          letterhead_top_margin_mm?: number
           onboarding_completed?: boolean | null
           reteica_city?: string | null
           reteica_rate?: number | null
