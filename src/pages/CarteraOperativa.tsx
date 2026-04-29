@@ -6,6 +6,7 @@ import { Wallet, Info, Coins, TrendingUp, Users, AlertCircle, Landmark, ArrowRig
 import { cn } from '@/lib/utils';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useOperativeReceivables } from '@/hooks/useOperativeReceivables';
+import RegistrarDeudaModal from '@/components/cartera-operativa/RegistrarDeudaModal';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -33,16 +34,19 @@ export default function CarteraOperativa() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <Wallet className="h-5 w-5 text-primary" />
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Wallet className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Cartera Operativa</h1>
+              <p className="text-muted-foreground text-sm mt-1">
+                Lo que realmente te deben tus clientes y cómo te están pagando.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Cartera Operativa</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              Lo que realmente te deben tus clientes y cómo te están pagando.
-            </p>
-          </div>
+          <RegistrarDeudaModal />
         </div>
 
         <Card className="border-amber-200 bg-amber-50/40 dark:bg-amber-950/10">

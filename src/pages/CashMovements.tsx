@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
 
 const CATEGORIES = [
@@ -36,8 +38,16 @@ interface CashMovement {
   description: string;
   category: string | null;
   notes: string | null;
+  responsible_id: string | null;
   created_at: string;
 }
+
+interface ResponsibleOption {
+  id: string;
+  name: string;
+}
+
+const NO_RESPONSIBLE = '__none__';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
@@ -45,6 +55,8 @@ function formatCurrency(value: number) {
 
 export default function CashMovements() {
   const { isGerencial } = useModuleContext();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [movements, setMovements] = useState<CashMovement[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -57,6 +69,22 @@ export default function CashMovements() {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [notes, setNotes] = useState('');
+  const [responsibleId, setResponsibleId] = useState<string>(NO_RESPONSIBLE);
+
+  const { data: responsibles = [] } = useQuery<ResponsibleOption[]>({
+    queryKey: ['responsibles-cash-movements', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('responsibles')
+        .select('id, name')
+        .eq('user_id', user!.id)
+        .eq('active', true)
+        .order('name');
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const fetchMovements = useCallback(async () => {
     try {
@@ -101,6 +129,7 @@ export default function CashMovements() {
         description: description.trim(),
         category: category || null,
         notes: notes.trim() || null,
+        responsible_id: responsibleId !== NO_RESPONSIBLE ? responsibleId : null,
       });
       if (error) throw error;
 
@@ -109,7 +138,9 @@ export default function CashMovements() {
       setDescription('');
       setCategory('');
       setNotes('');
+      setResponsibleId(NO_RESPONSIBLE);
       fetchMovements();
+      queryClient.invalidateQueries({ queryKey: ['operative-receivables'] });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
@@ -123,10 +154,17 @@ export default function CashMovements() {
       if (error) throw error;
       setMovements(prev => prev.filter(m => m.id !== id));
       toast({ title: 'Movimiento eliminado' });
+      queryClient.invalidateQueries({ queryKey: ['operative-receivables'] });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     }
   };
+
+  const responsibleNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of responsibles) map.set(r.id, r.name);
+    return map;
+  }, [responsibles]);
 
   const totals = useMemo(() => {
     const ingresos = movements.filter(m => m.type === 'ingreso').reduce((s, m) => s + m.amount, 0);
@@ -241,6 +279,25 @@ export default function CashMovements() {
                 </Select>
               </div>
 
+              {/* Cliente (solo aplica a ingresos para descontar de cartera operativa) */}
+              {type === 'ingreso' && (
+                <div className="space-y-1.5">
+                  <Label>Cliente (opcional)</Label>
+                  <Select value={responsibleId} onValueChange={setResponsibleId}>
+                    <SelectTrigger><SelectValue placeholder="Sin cliente" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_RESPONSIBLE}>Sin cliente</SelectItem>
+                      {responsibles.map(r => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Si elegís cliente, este ingreso descuenta automáticamente su deuda en Cartera Operativa.
+                  </p>
+                </div>
+              )}
+
               {/* Notas */}
               <div className="space-y-1.5">
                 <Label>Notas (opcional)</Label>
@@ -276,6 +333,7 @@ export default function CashMovements() {
                       <TableHead>Tipo</TableHead>
                       <TableHead>Monto</TableHead>
                       <TableHead>Descripción</TableHead>
+                      <TableHead>Cliente</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Notas</TableHead>
                       <TableHead className="w-10"></TableHead>
@@ -294,6 +352,9 @@ export default function CashMovements() {
                           {formatCurrency(m.amount)}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate">{m.description}</TableCell>
+                        <TableCell className="text-muted-foreground text-sm max-w-[140px] truncate">
+                          {m.responsible_id ? (responsibleNameById.get(m.responsible_id) ?? '—') : '—'}
+                        </TableCell>
                         <TableCell className="text-muted-foreground text-sm">{m.category || '—'}</TableCell>
                         <TableCell className="text-muted-foreground text-sm max-w-[150px] truncate">{m.notes || '—'}</TableCell>
                         <TableCell>
