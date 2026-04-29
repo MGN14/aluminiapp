@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
@@ -10,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Upload, FileSpreadsheet, X, AlertCircle, ArrowUpCircle, ArrowDownCircle, PackagePlus, AlertTriangle } from 'lucide-react';
+import { Upload, FileSpreadsheet, X, AlertCircle, ArrowUpCircle, ArrowDownCircle, PackagePlus, AlertTriangle, UserPlus } from 'lucide-react';
 import {
   fetchProductsByRefs,
   createMissingProducts,
@@ -35,15 +36,21 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+const NEW_RESPONSIBLE_VALUE = '__new__';
+
 export default function NewRemisionModal({ open, onOpenChange, onComplete }: Props) {
   const { user } = useAuth();
   const { isGerencial } = useModuleContext();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const [step, setStep] = useState<'form' | 'excel' | 'preview'>('form');
   const [remisionType, setRemisionType] = useState<RemisionType>('venta');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [responsibleId, setResponsibleId] = useState<string>('');
   const [beneficiary, setBeneficiary] = useState('');
+  const [creatingResp, setCreatingResp] = useState(false);
+  const [newRespName, setNewRespName] = useState('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState('pendiente');
   const [fileName, setFileName] = useState('');
@@ -66,11 +73,71 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
   // Confirmation modal for auto-creating products on 'compra'
   const [confirmCreateOpen, setConfirmCreateOpen] = useState(false);
 
+  // Responsibles del usuario (para dropdown). Filtramos por banking + both
+  // (clientes/proveedores formales). Petty_cash es solo para Caja Menor.
+  const { data: responsibles = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ['responsibles-remisiones', user?.id],
+    enabled: !!user?.id && open,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('responsibles')
+        .select('id, name, responsible_type')
+        .eq('user_id', user!.id)
+        .eq('active', true)
+        .order('name');
+      if (error) throw error;
+      return ((data ?? []) as unknown as Array<{ id: string; name: string; responsible_type: string }>)
+        .filter((r) => r.responsible_type === 'banking' || r.responsible_type === 'both' || !r.responsible_type)
+        .map((r) => ({ id: r.id, name: r.name }));
+    },
+  });
+
+  const handleResponsibleChange = (value: string) => {
+    if (value === NEW_RESPONSIBLE_VALUE) {
+      setCreatingResp(true);
+      setResponsibleId('');
+      setBeneficiary('');
+    } else {
+      setResponsibleId(value);
+      setCreatingResp(false);
+      const resp = responsibles.find((r) => r.id === value);
+      setBeneficiary(resp?.name ?? '');
+    }
+  };
+
+  const handleCreateResponsible = async () => {
+    if (!user) return;
+    const name = newRespName.trim();
+    if (!name) {
+      toast({ title: 'Falta nombre', variant: 'destructive' });
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('responsibles')
+        .insert({ user_id: user.id, name, responsible_type: 'banking' } as never)
+        .select('id, name')
+        .single();
+      if (error) throw error;
+      await queryClient.invalidateQueries({ queryKey: ['responsibles-remisiones'] });
+      setResponsibleId(data!.id);
+      setBeneficiary(data!.name);
+      setCreatingResp(false);
+      setNewRespName('');
+      toast({ title: 'Cliente/proveedor creado' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
   const reset = () => {
     setStep('form');
     setRemisionType('venta');
     setDate(new Date().toISOString().split('T')[0]);
+    setResponsibleId('');
     setBeneficiary('');
+    setCreatingResp(false);
+    setNewRespName('');
     setNotes('');
     setStatus('pendiente');
     setFileName('');
@@ -217,30 +284,24 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
         created.forEach((v, k) => finalProductMap.set(k, v));
       }
 
-      // Generate consecutive remision number per module
-      const prefix = isGerencial ? 'REMG' : 'REM';
+      // El numero consecutivo lo asigna el trigger SQL (anti race-condition).
       const moduleOriginVal = isGerencial ? 'gerencial' : 'dian';
-      const { count } = await (supabase
-        .from('remisiones') as any)
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('module_origin', moduleOriginVal);
-      const number = `${prefix}-${(count || 0) + 1}`;
 
       const { data: remision, error: remError } = await (supabase
         .from('remisiones') as any)
         .insert({
           user_id: user.id,
           date,
-          number,
+          // number: omitido — el trigger BEFORE INSERT lo asigna
           beneficiary,
+          responsible_id: responsibleId || null,
           notes,
           status,
           total_manual: totalRemision ? parseFloat(totalRemision) : null,
           module_origin: moduleOriginVal,
           remision_type: remisionType,
         })
-        .select('id')
+        .select('id, number')
         .single();
 
       if (remError) throw remError;
@@ -277,7 +338,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
       }
 
       toast({
-        title: `Remisión ${typeLabel} ${number} creada`,
+        title: `Remisión ${typeLabel} ${remision.number ?? ''} creada`,
         description,
       });
       onComplete();
@@ -292,7 +353,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
 
   const handleSave = async () => {
     if (!user?.id) return;
-    if (!beneficiary.trim()) {
+    if (!beneficiary.trim() && !responsibleId) {
       toast({ title: remisionType === 'compra' ? 'El proveedor es requerido' : 'El beneficiario es requerido', variant: 'destructive' });
       return;
     }
@@ -388,11 +449,38 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
               </div>
               <div className="col-span-2 space-y-2">
                 <Label>{beneficiaryLabel} <span className="text-xs text-muted-foreground">{beneficiaryHint}</span></Label>
-                <Input
-                  placeholder={beneficiaryPlaceholder}
-                  value={beneficiary}
-                  onChange={e => setBeneficiary(e.target.value)}
-                />
+                {creatingResp ? (
+                  <div className="flex gap-2">
+                    <Input
+                      autoFocus
+                      placeholder={beneficiaryPlaceholder}
+                      value={newRespName}
+                      onChange={(e) => setNewRespName(e.target.value)}
+                    />
+                    <Button type="button" size="sm" onClick={handleCreateResponsible}>Crear</Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { setCreatingResp(false); setNewRespName(''); }}>Cancelar</Button>
+                  </div>
+                ) : (
+                  <Select value={responsibleId} onValueChange={handleResponsibleChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={responsibles.length === 0 ? 'Crear nuevo' : 'Seleccionar...'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {responsibles.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                      ))}
+                      <SelectItem value={NEW_RESPONSIBLE_VALUE} className="text-primary">
+                        <span className="inline-flex items-center gap-1.5">
+                          <UserPlus className="h-3.5 w-3.5" />
+                          Crear nuevo
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  Misma lista que Conciliación bancaria. Vincula la remisión al cliente/proveedor real.
+                </p>
               </div>
               <div className="col-span-2 space-y-2">
                 <Label>Total de la remisión <span className="text-xs text-muted-foreground">(opcional)</span></Label>
