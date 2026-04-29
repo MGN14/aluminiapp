@@ -136,12 +136,15 @@ export default function MaestroProductos() {
     enabled: !!user?.id,
   });
 
-  const filtered = productos.filter(p =>
-    p.ref_siigo.toLowerCase().includes(search.toLowerCase()) ||
-    p.description.toLowerCase().includes(search.toLowerCase()) ||
-    (p.ref_local || '').toLowerCase().includes(search.toLowerCase()) ||
-    (p.ref_proveedor_a || '').toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = productos.filter(p => {
+    const q = search.toLowerCase();
+    return (
+      (p.ref_siigo || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q) ||
+      (p.ref_local || '').toLowerCase().includes(q) ||
+      (p.ref_proveedor_a || '').toLowerCase().includes(q)
+    );
+  });
 
   const openNew = () => {
     setEditId(null);

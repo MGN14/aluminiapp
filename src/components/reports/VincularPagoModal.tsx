@@ -206,7 +206,7 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, saldoIn
     if (!search.trim()) return txs;
     const q = search.toLowerCase();
     return txs.filter(t =>
-      t.description.toLowerCase().includes(q) ||
+      (t.description || '').toLowerCase().includes(q) ||
       (t.owner || '').toLowerCase().includes(q) ||
       (t.responsible_name || '').toLowerCase().includes(q) ||
       t.date.includes(q) ||

@@ -198,6 +198,7 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
       // 4) Generar PDF
       const fechaFormatted = format(parseISO(movement.date), "d 'de' MMMM 'de' yyyy", { locale: es });
       const data: CuentaDeCobroData = {
+        variant: movement.kind === 'cuenta_de_cobro' ? 'cuenta_de_cobro' : 'comprobante_pago',
         empresaNombre: empresa.company_name!,
         empresaNit: empresa.company_nit!,
         empresaDireccion: empresa.company_address ?? undefined,
@@ -207,7 +208,7 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
         prestadorDocumento: prestador.documento,
         prestadorCiudad: prestador.ciudad || undefined,
         prestadorTelefono: prestador.telefono || undefined,
-        numeroConsecutivo: movement.numero_cuenta_cobro ?? '—',
+        numeroConsecutivo: (movement as { numero_consecutivo?: string | null }).numero_consecutivo ?? movement.numero_cuenta_cobro ?? '—',
         fecha: fechaFormatted,
         ciudadEmision: empresa.company_city || prestador.ciudad || 'Bogotá D.C.',
         concepto: conceptoEditable.trim(),
@@ -216,7 +217,8 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
         incluyePrestacionesSociales: incluyePrestaciones,
       };
       const pdf = generateCuentaDeCobroPdf(data);
-      const filename = `cuenta-de-cobro-${data.numeroConsecutivo}-${prestador.nombre.replace(/\s+/g, '-').toLowerCase()}.pdf`;
+      const docPrefix = data.variant === 'cuenta_de_cobro' ? 'cuenta-de-cobro' : 'comprobante-de-pago';
+      const filename = `${docPrefix}-${data.numeroConsecutivo}-${prestador.nombre.replace(/\s+/g, '-').toLowerCase()}.pdf`;
       pdf.save(filename);
 
       // Refrescar la tabla
@@ -241,9 +243,11 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Generar cuenta de cobro</DialogTitle>
+          <DialogTitle>
+            {movement?.kind === 'cuenta_de_cobro' ? 'Generar cuenta de cobro' : 'Generar comprobante de pago'}
+          </DialogTitle>
           <DialogDescription>
-            Los datos de tu empresa quedan guardados. Solo cambiás los del prestador en cada cuenta.
+            Los datos de tu empresa quedan guardados. Solo cambiás los del prestador en cada documento.
           </DialogDescription>
         </DialogHeader>
 

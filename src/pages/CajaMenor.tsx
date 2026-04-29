@@ -211,17 +211,16 @@ export default function CajaMenor() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
-                            {r.kind === 'cuenta_de_cobro' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 gap-1.5 text-primary hover:text-primary"
-                                onClick={() => setPdfMovement(r)}
-                              >
-                                <FileDown className="h-3.5 w-3.5" />
-                                PDF
-                              </Button>
-                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 gap-1.5 text-primary hover:text-primary"
+                              onClick={() => setPdfMovement(r)}
+                              title={r.kind === 'cuenta_de_cobro' ? 'Generar cuenta de cobro' : 'Generar comprobante de pago'}
+                            >
+                              <FileDown className="h-3.5 w-3.5" />
+                              PDF
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"

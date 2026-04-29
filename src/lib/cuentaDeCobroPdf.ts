@@ -1,13 +1,18 @@
 import jsPDF from 'jspdf';
 import { numberToSpanishWords } from './numberToSpanishWords';
 
+export type CuentaDeCobroVariant = 'cuenta_de_cobro' | 'comprobante_pago';
+
 export interface CuentaDeCobroData {
+  // Variante: cuenta de cobro (formal, con manifestacion DIAN) o comprobante
+  // de pago (gasto en efectivo respaldado).
+  variant: CuentaDeCobroVariant;
   // Contratante (empresa del usuario)
   empresaNombre: string;
   empresaNit: string;
   empresaDireccion?: string;
   empresaCiudad?: string;
-  // Prestador (a quien se le hace la cuenta de cobro)
+  // Prestador (a quien se le hace la cuenta de cobro / pago)
   prestadorNombre: string;
   prestadorTipoDocumento: 'CC' | 'CE' | 'PA' | 'NIT';
   prestadorDocumento: string;
@@ -65,21 +70,24 @@ export function generateCuentaDeCobroPdf(data: CuentaDeCobroData): jsPDF {
   doc.text(`No. ${data.numeroConsecutivo}`, pageW - margin, headerRightY, { align: 'right' });
   doc.text(`${data.ciudadEmision}, ${data.fecha}`, pageW - margin, headerRightY + 5, { align: 'right' });
 
+  const isCuentaDeCobro = data.variant === 'cuenta_de_cobro';
+
   // Titulo
   y += 8;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
-  doc.text('CUENTA DE COBRO', pageW / 2, y, { align: 'center' });
+  doc.text(isCuentaDeCobro ? 'CUENTA DE COBRO' : 'COMPROBANTE DE PAGO', pageW / 2, y, { align: 'center' });
   y += 10;
 
   // Encabezado del cuerpo: el prestador certifica que la empresa le adeuda
+  // (cuenta de cobro) o que recibio el pago (comprobante de pago)
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   const lineSpacing = 5;
 
   doc.text(`${data.empresaNombre.toUpperCase()} con NIT ${data.empresaNit}`, margin, y);
   y += lineSpacing;
-  doc.text('DEBE A:', margin, y);
+  doc.text(isCuentaDeCobro ? 'DEBE A:' : 'PAGÓ A:', margin, y);
   y += lineSpacing + 2;
 
   doc.setFont('helvetica', 'bold');
@@ -101,7 +109,7 @@ export function generateCuentaDeCobroPdf(data: CuentaDeCobroData): jsPDF {
   // Monto destacado
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
-  doc.text(`LA SUMA DE: ${fmtMoney(data.monto)}`, margin, y);
+  doc.text(`${isCuentaDeCobro ? 'LA SUMA DE' : 'POR LA SUMA RECIBIDA DE'}: ${fmtMoney(data.monto)}`, margin, y);
   y += lineSpacing + 1;
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(9);
@@ -131,13 +139,13 @@ export function generateCuentaDeCobroPdf(data: CuentaDeCobroData): jsPDF {
     y += lineSpacing + 3;
   }
 
-  // Manifestacion legal
+  // Manifestacion legal (solo en cuenta de cobro formal)
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  const manifLines = doc.splitTextToSize(
-    'El suscrito declara bajo la gravedad de juramento que no se encuentra obligado a expedir factura electrónica de venta, conforme a las normas tributarias vigentes y los requisitos establecidos por la DIAN.',
-    pageW - 2 * margin
-  );
+  const manifText = isCuentaDeCobro
+    ? 'El suscrito declara bajo la gravedad de juramento que no se encuentra obligado a expedir factura electrónica de venta, conforme a las normas tributarias vigentes y los requisitos establecidos por la DIAN.'
+    : 'El suscrito declara haber recibido del contratante la suma indicada, en la fecha y por el concepto descritos. Firma como constancia del pago efectuado.';
+  const manifLines = doc.splitTextToSize(manifText, pageW - 2 * margin);
   doc.text(manifLines, margin, y);
   y += manifLines.length * 4 + 3;
 

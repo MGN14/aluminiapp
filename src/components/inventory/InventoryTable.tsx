@@ -141,7 +141,7 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter(p => {
-      if (q && !p.reference.toLowerCase().includes(q) && !p.name.toLowerCase().includes(q)) return false;
+      if (q && !(p.reference || '').toLowerCase().includes(q) && !(p.name || '').toLowerCase().includes(q)) return false;
       if (filter === 'critico' && p.status !== 'critico') return false;
       if (filter === 'exceso' && p.status !== 'exceso') return false;
       if (filter === 'diff' && p.difference === 0) return false;
