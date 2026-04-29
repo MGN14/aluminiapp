@@ -1373,10 +1373,13 @@ export type Database = {
           created_at: string
           date: string
           id: string
+          incluye_prestaciones_sociales: boolean
           kind: string
           notes: string | null
+          numero_consecutivo: string | null
           numero_cuenta_cobro: string | null
           responsible_id: string | null
+          retencion_amount: number | null
           updated_at: string
           user_id: string
         }
@@ -1387,10 +1390,13 @@ export type Database = {
           created_at?: string
           date: string
           id?: string
+          incluye_prestaciones_sociales?: boolean
           kind?: string
           notes?: string | null
+          numero_consecutivo?: string | null
           numero_cuenta_cobro?: string | null
           responsible_id?: string | null
+          retencion_amount?: number | null
           updated_at?: string
           user_id: string
         }
@@ -1401,10 +1407,13 @@ export type Database = {
           created_at?: string
           date?: string
           id?: string
+          incluye_prestaciones_sociales?: boolean
           kind?: string
           notes?: string | null
+          numero_consecutivo?: string | null
           numero_cuenta_cobro?: string | null
           responsible_id?: string | null
+          retencion_amount?: number | null
           updated_at?: string
           user_id?: string
         }
@@ -1428,8 +1437,12 @@ export type Database = {
       profiles: {
         Row: {
           accounting_email: string | null
+          company_address: string | null
+          company_city: string | null
           company_initial: string | null
           company_name: string | null
+          company_nit: string | null
+          company_phone: string | null
           created_at: string
           force_password_change: boolean
           full_name: string | null
@@ -1442,8 +1455,12 @@ export type Database = {
         }
         Insert: {
           accounting_email?: string | null
+          company_address?: string | null
+          company_city?: string | null
           company_initial?: string | null
           company_name?: string | null
+          company_nit?: string | null
+          company_phone?: string | null
           created_at?: string
           force_password_change?: boolean
           full_name?: string | null
@@ -1456,8 +1473,12 @@ export type Database = {
         }
         Update: {
           accounting_email?: string | null
+          company_address?: string | null
+          company_city?: string | null
           company_initial?: string | null
           company_name?: string | null
+          company_nit?: string | null
+          company_phone?: string | null
           created_at?: string
           force_password_change?: boolean
           full_name?: string | null
@@ -1685,28 +1706,37 @@ export type Database = {
       responsibles: {
         Row: {
           active: boolean
+          ciudad: string | null
           created_at: string
           id: string
           name: string
           nit: string | null
+          telefono: string | null
+          tipo_documento: string | null
           tipo_persona: string | null
           user_id: string
         }
         Insert: {
           active?: boolean
+          ciudad?: string | null
           created_at?: string
           id?: string
           name: string
           nit?: string | null
+          telefono?: string | null
+          tipo_documento?: string | null
           tipo_persona?: string | null
           user_id: string
         }
         Update: {
           active?: boolean
+          ciudad?: string | null
           created_at?: string
           id?: string
           name?: string
           nit?: string | null
+          telefono?: string | null
+          tipo_documento?: string | null
           tipo_persona?: string | null
           user_id?: string
         }
