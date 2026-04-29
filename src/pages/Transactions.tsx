@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Loader2, AlertCircle, Users } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, Users, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
 
@@ -488,9 +488,38 @@ export default function Transactions() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/50">
-                        <TableHead className="w-[80px]">Fecha</TableHead>
+                        <TableHead
+                          className="w-[80px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
+                          onClick={() => setFilters({ ...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
+                          title="Click para invertir orden por fecha"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            Fecha
+                            {filters.sortOrder === 'asc'
+                              ? <ArrowUp className="h-3 w-3 text-primary" />
+                              : <ArrowDown className="h-3 w-3 text-primary" />}
+                          </span>
+                        </TableHead>
                         <TableHead className="min-w-[300px]">Descripción</TableHead>
-                        <TableHead className="text-right w-[110px]">Monto</TableHead>
+                        <TableHead
+                          className="text-right w-[110px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
+                          onClick={() => {
+                            const next = filters.amountSortOrder === null
+                              ? 'desc'
+                              : filters.amountSortOrder === 'desc'
+                                ? 'asc'
+                                : null;
+                            setFilters({ ...filters, amountSortOrder: next });
+                          }}
+                          title="Click para ordenar por monto"
+                        >
+                          <span className="inline-flex items-center gap-1 justify-end w-full">
+                            Monto
+                            {filters.amountSortOrder === 'desc' && <ArrowDown className="h-3 w-3 text-primary" />}
+                            {filters.amountSortOrder === 'asc' && <ArrowUp className="h-3 w-3 text-primary" />}
+                            {filters.amountSortOrder === null && <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />}
+                          </span>
+                        </TableHead>
                         <TableHead className="w-[110px]">Tipo</TableHead>
                         <TableHead className="w-[140px]">Categoría</TableHead>
                         <TableHead className="w-[140px]">Beneficiario</TableHead>

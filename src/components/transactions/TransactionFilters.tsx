@@ -290,61 +290,8 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
           </PopoverContent>
         </Popover>
 
-        <Separator orientation="vertical" className="h-5" />
-
-        {/* Amount sort toggle */}
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(
-            'h-7 text-xs gap-1',
-            filters.amountSortOrder !== null && 'border-primary text-primary'
-          )}
-          onClick={() => {
-            const next = filters.amountSortOrder === null
-              ? 'desc'
-              : filters.amountSortOrder === 'desc'
-                ? 'asc'
-                : null;
-            update({ amountSortOrder: next as SortOrder | null });
-          }}
-        >
-          {filters.amountSortOrder === 'desc' ? (
-            <>
-              <ArrowDown className="h-3 w-3" />
-              Mayor → Menor
-            </>
-          ) : filters.amountSortOrder === 'asc' ? (
-            <>
-              <ArrowUp className="h-3 w-3" />
-              Menor → Mayor
-            </>
-          ) : (
-            <>💰 Monto</>
-          )}
-        </Button>
-
-        <Separator orientation="vertical" className="h-5" />
-
-        {/* Date sort toggle */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1"
-          onClick={() => update({ sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
-        >
-          {filters.sortOrder === 'asc' ? (
-            <>
-              <ArrowUp className="h-3 w-3" />
-              Antiguas → Recientes
-            </>
-          ) : (
-            <>
-              <ArrowDown className="h-3 w-3" />
-              Recientes → Antiguas
-            </>
-          )}
-        </Button>
+        {/* Sort por Monto y Fecha movido a los headers de la tabla
+            (clickeable directamente desde la columna). */}
 
         {/* Clear filters */}
         {hasActiveFilters && (
