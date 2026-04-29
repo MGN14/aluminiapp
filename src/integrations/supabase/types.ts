@@ -1677,6 +1677,7 @@ export type Database = {
           notes: string | null
           number: string
           remision_type: string
+          responsible_id: string | null
           status: string
           total_manual: number | null
           updated_at: string
@@ -1691,6 +1692,7 @@ export type Database = {
           notes?: string | null
           number?: string
           remision_type?: string
+          responsible_id?: string | null
           status?: string
           total_manual?: number | null
           updated_at?: string
@@ -1705,12 +1707,21 @@ export type Database = {
           notes?: string | null
           number?: string
           remision_type?: string
+          responsible_id?: string | null
           status?: string
           total_manual?: number | null
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "remisiones_responsible_id_fkey"
+            columns: ["responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       responsibles: {
         Row: {
