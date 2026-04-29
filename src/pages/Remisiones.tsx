@@ -267,9 +267,13 @@ export default function Remisiones() {
             <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">
               Módulo activo: {mode}
             </span>
-            <Button onClick={() => setNewOpen(true)} className="gap-2">
-              <Plus className="h-4 w-4" />Nueva Remisión
-            </Button>
+            {/* Las remisiones siempre se crean en DIAN. En Modo Gerencial
+                no se muestran nuevas — el flujo es Mover desde DIAN. */}
+            {!effectiveGerencial && (
+              <Button onClick={() => setNewOpen(true)} className="gap-2">
+                <Plus className="h-4 w-4" />Nueva Remisión
+              </Button>
+            )}
           </div>
         </div>
 
@@ -359,10 +363,16 @@ export default function Remisiones() {
             ) : remisiones.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
                 <Package className="h-10 w-10 text-muted-foreground/40" />
-                <p className="text-muted-foreground">No hay remisiones en este módulo aún.</p>
-                <Button variant="outline" onClick={() => setNewOpen(true)} className="gap-2">
-                  <Plus className="h-4 w-4" />Crear primera remisión
-                </Button>
+                <p className="text-muted-foreground">
+                  {effectiveGerencial
+                    ? 'No hay remisiones en Modo Gerencial. Para mover desde DIAN, andá a Modo DIAN, abrí una remisión y usá "Mover a Gerencial".'
+                    : 'No hay remisiones en este módulo aún.'}
+                </p>
+                {!effectiveGerencial && (
+                  <Button variant="outline" onClick={() => setNewOpen(true)} className="gap-2">
+                    <Plus className="h-4 w-4" />Crear primera remisión
+                  </Button>
+                )}
               </div>
             ) : (
               <Table>

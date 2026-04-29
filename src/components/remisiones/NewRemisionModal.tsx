@@ -2,7 +2,6 @@ import { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useModuleContext } from '@/hooks/useModuleContext';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -40,7 +39,6 @@ const NEW_RESPONSIBLE_VALUE = '__new__';
 
 export default function NewRemisionModal({ open, onOpenChange, onComplete }: Props) {
   const { user } = useAuth();
-  const { isGerencial } = useModuleContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -285,7 +283,10 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
       }
 
       // El numero consecutivo lo asigna el trigger SQL (anti race-condition).
-      const moduleOriginVal = isGerencial ? 'gerencial' : 'dian';
+      // Las remisiones SIEMPRE se crean en DIAN, sin importar el modo activo.
+      // Los colaboradores no tienen acceso a Gerencial, asi que el flujo es:
+      // siempre crear en DIAN y el admin decide despues si la mueve a Gerencial.
+      const moduleOriginVal = 'dian';
 
       const { data: remision, error: remError } = await (supabase
         .from('remisiones') as any)
