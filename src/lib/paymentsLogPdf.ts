@@ -145,7 +145,7 @@ export function generatePaymentsLogPdf(data: PaymentsLogPdfData): jsPDF {
   // Card Saldo por cobrar
   if (data.saldoPorCobrar && data.counterparty) {
     const s = data.saldoPorCobrar;
-    const cardH = 32;
+    const cardH = 36;
     setFill(doc, [254, 252, 247]);
     setStroke(doc, [230, 215, 180]);
     doc.setLineWidth(0.3);
@@ -153,22 +153,40 @@ export function generatePaymentsLogPdf(data: PaymentsLogPdfData): jsPDF {
     setText(doc, [110, 80, 30]);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
-    doc.text('TE DEBEN (SALDO POR COBRAR)', marginX + 4, y + 5);
+    doc.text('TE DEBEN (SALDO POR COBRAR)', marginX + 4, y + 6);
     setText(doc, COLORS.ink);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(15);
-    doc.text(fmt(s.saldoPendiente), marginX + 4, y + 13);
+    doc.setFontSize(16);
+    doc.text(fmt(s.saldoPendiente), marginX + 4, y + 16);
 
+    // Desglose: 2 columnas (label izq, valor der). Sin caracteres unicode
+    // raros que rompan el kerning de Helvetica.
     setText(doc, COLORS.muted);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    const rightX = pageW - marginX - 4;
-    doc.text(`Facturado: ${fmt(s.facturado)}`, rightX, y + 8, { align: 'right' });
-    doc.text(`+ Saldo inicial: ${fmt(s.saldoInicial)}`, rightX, y + 13, { align: 'right' });
+    doc.setFontSize(8);
+    const labelX = pageW / 2 + 6;
+    const valueX = pageW - marginX - 4;
+    let by = y + 9;
+    const lineSpacing = 4.2;
+
+    doc.text('Facturado:', labelX, by);
+    doc.text(fmt(s.facturado), valueX, by, { align: 'right' });
+    by += lineSpacing;
+
+    doc.text('Saldo inicial:', labelX, by);
+    doc.text(fmt(s.saldoInicial), valueX, by, { align: 'right' });
+    by += lineSpacing;
+
     setText(doc, COLORS.success);
-    doc.text(`− Pagos identificados: ${fmt(s.pagosIdentificados)}`, rightX, y + 18, { align: 'right' });
-    setText(doc, COLORS.muted);
-    doc.text(`= Saldo pendiente: ${fmt(s.saldoPendiente)}`, rightX, y + 23, { align: 'right' });
+    doc.text('Pagos identificados:', labelX, by);
+    doc.text(`-${fmt(s.pagosIdentificados).replace('$ ', '$ ')}`, valueX, by, { align: 'right' });
+    by += lineSpacing;
+
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Saldo pendiente:', labelX, by);
+    doc.text(fmt(s.saldoPendiente), valueX, by, { align: 'right' });
+
     y += cardH + 8;
   }
 

@@ -681,30 +681,13 @@ export default function PaymentsLogReport() {
 
     const { data: profileData } = await supabase
       .from('profiles')
-      .select('company_name, company_nit, company_city, letterhead_path, letterhead_top_margin_mm, letterhead_bottom_margin_mm')
+      .select('company_name, company_nit, company_city')
       .eq('user_id', user.id)
       .maybeSingle();
 
-    let letterheadDataUri: string | undefined;
-    let letterheadFormat: 'PNG' | 'JPEG' | undefined;
-    const letterheadPath = (profileData as { letterhead_path?: string | null } | null)?.letterhead_path;
-    if (letterheadPath) {
-      try {
-        const { data: blob } = await supabase.storage.from('letterheads').download(letterheadPath);
-        if (blob) {
-          letterheadDataUri = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(blob);
-          });
-          const ext = letterheadPath.split('.').pop()?.toLowerCase();
-          letterheadFormat = ext === 'jpg' || ext === 'jpeg' ? 'JPEG' : 'PNG';
-        }
-      } catch (e) {
-        console.error('Error letterhead:', e);
-      }
-    }
+    // Relación de pagos NO usa letterhead — Nico prefiere hoja en blanco
+    // para este reporte. La hoja membretada solo aplica a cuentas de cobro
+    // y comprobantes de pago en Caja Menor.
 
     const pdfRows: PaymentsLogPdfRow[] = rows.map((r) => ({
       date: r.date,
@@ -720,10 +703,6 @@ export default function PaymentsLogReport() {
       empresaNombre: (profileData as { company_name?: string | null })?.company_name || 'Mi empresa',
       empresaNit: (profileData as { company_nit?: string | null })?.company_nit ?? undefined,
       empresaCiudad: (profileData as { company_city?: string | null })?.company_city ?? undefined,
-      letterheadDataUri,
-      letterheadFormat,
-      letterheadTopMarginMm: (profileData as { letterhead_top_margin_mm?: number | null })?.letterhead_top_margin_mm ?? undefined,
-      letterheadBottomMarginMm: (profileData as { letterhead_bottom_margin_mm?: number | null })?.letterhead_bottom_margin_mm ?? undefined,
       periodoLabel,
       counterparty: counterparty !== 'all' ? counterparty : null,
       tePagaron: counterparty !== 'all' && counterpartySummary
