@@ -66,7 +66,6 @@ export default function CashMovements() {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [type, setType] = useState<'ingreso' | 'egreso'>('ingreso');
   const [amount, setAmount] = useState('');
-  const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [notes, setNotes] = useState('');
   const [responsibleId, setResponsibleId] = useState<string>(NO_RESPONSIBLE);
@@ -106,8 +105,12 @@ export default function CashMovements() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!date || !amount || !description.trim()) {
-      toast({ title: 'Campos requeridos', description: 'Completa fecha, monto y descripción.', variant: 'destructive' });
+    if (!date || !amount) {
+      toast({ title: 'Campos requeridos', description: 'Completa fecha y monto.', variant: 'destructive' });
+      return;
+    }
+    if (responsibleId === NO_RESPONSIBLE) {
+      toast({ title: 'Falta beneficiario', description: 'Seleccioná un beneficiario. Si no existe, creálo desde Conciliación bancaria.', variant: 'destructive' });
       return;
     }
     const numAmount = parseFloat(amount);
@@ -121,21 +124,22 @@ export default function CashMovements() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No autenticado');
 
+      const beneficiaryName = responsibles.find(r => r.id === responsibleId)?.name ?? null;
+
       const { error } = await supabase.from('cash_movements').insert({
         user_id: user.id,
         date: format(date, 'yyyy-MM-dd'),
         type,
         amount: numAmount,
-        description: description.trim(),
+        description: beneficiaryName,
         category: category || null,
         notes: notes.trim() || null,
-        responsible_id: responsibleId !== NO_RESPONSIBLE ? responsibleId : null,
+        responsible_id: responsibleId,
       });
       if (error) throw error;
 
       toast({ title: 'Movimiento registrado' });
       setAmount('');
-      setDescription('');
       setCategory('');
       setNotes('');
       setResponsibleId(NO_RESPONSIBLE);
@@ -262,10 +266,30 @@ export default function CashMovements() {
                 <Input type="number" min="0" step="1" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
               </div>
 
-              {/* Descripción */}
+              {/* Beneficiario (vinculado a responsibles de Conciliación bancaria) */}
               <div className="space-y-1.5">
-                <Label>Descripción</Label>
-                <Input placeholder="Ej: Pago proveedor materiales" value={description} onChange={e => setDescription(e.target.value)} />
+                <Label>Beneficiario</Label>
+                <Select value={responsibleId} onValueChange={setResponsibleId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={responsibles.length === 0 ? 'Crealo en Conciliación bancaria primero' : 'Seleccionar beneficiario'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {responsibles.length === 0 ? (
+                      <div className="text-xs text-muted-foreground p-2">
+                        No tenés beneficiarios. Creá uno desde Conciliación bancaria.
+                      </div>
+                    ) : (
+                      responsibles.map(r => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {type === 'ingreso' && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Este ingreso descuenta automáticamente la deuda del beneficiario en Cartera Operativa.
+                  </p>
+                )}
               </div>
 
               {/* Categoría */}
@@ -278,25 +302,6 @@ export default function CashMovements() {
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Cliente (solo aplica a ingresos para descontar de cartera operativa) */}
-              {type === 'ingreso' && (
-                <div className="space-y-1.5">
-                  <Label>Cliente (opcional)</Label>
-                  <Select value={responsibleId} onValueChange={setResponsibleId}>
-                    <SelectTrigger><SelectValue placeholder="Sin cliente" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_RESPONSIBLE}>Sin cliente</SelectItem>
-                      {responsibles.map(r => (
-                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[10px] text-muted-foreground">
-                    Si elegís cliente, este ingreso descuenta automáticamente su deuda en Cartera Operativa.
-                  </p>
-                </div>
-              )}
 
               {/* Notas */}
               <div className="space-y-1.5">
@@ -332,15 +337,19 @@ export default function CashMovements() {
                       <TableHead>Fecha</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead>Monto</TableHead>
-                      <TableHead>Descripción</TableHead>
-                      <TableHead>Cliente</TableHead>
+                      <TableHead>Beneficiario</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Notas</TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {movements.map(m => (
+                    {movements.map(m => {
+                      const beneficiarioName = m.responsible_id
+                        ? responsibleNameById.get(m.responsible_id) ?? null
+                        : null;
+                      const legacyDescription = !m.responsible_id ? m.description : null;
+                      return (
                       <TableRow key={m.id}>
                         <TableCell className="whitespace-nowrap">{format(new Date(m.date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</TableCell>
                         <TableCell>
@@ -351,9 +360,16 @@ export default function CashMovements() {
                         <TableCell className={cn("font-medium", m.type === 'ingreso' ? 'text-success' : 'text-destructive')}>
                           {formatCurrency(m.amount)}
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate">{m.description}</TableCell>
-                        <TableCell className="text-muted-foreground text-sm max-w-[140px] truncate">
-                          {m.responsible_id ? (responsibleNameById.get(m.responsible_id) ?? '—') : '—'}
+                        <TableCell className="max-w-[220px] truncate">
+                          {beneficiarioName ? (
+                            <span className="font-medium">{beneficiarioName}</span>
+                          ) : legacyDescription ? (
+                            <span className="text-muted-foreground italic text-sm" title="Descripción legacy (sin beneficiario vinculado)">
+                              {legacyDescription}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">{m.category || '—'}</TableCell>
                         <TableCell className="text-muted-foreground text-sm max-w-[150px] truncate">{m.notes || '—'}</TableCell>
@@ -363,7 +379,8 @@ export default function CashMovements() {
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
