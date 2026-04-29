@@ -230,7 +230,7 @@ export default function PaymentsLogReport() {
         .from('responsibles')
         .select('id')
         .eq('user_id', user.id)
-        .eq('name', counterparty)
+        .ilike('name', counterparty.trim())
         .maybeSingle();
       let movIngresos = 0;
       let movEgresos = 0;
@@ -452,16 +452,11 @@ export default function PaymentsLogReport() {
         if (isIncome || isCost) validCatIds.add(c.id);
       });
 
-      // Si el user no tiene categorías comerciales y NO seleccionó un cliente
-      // específico, devolvemos vacío. Si hay un cliente, queremos verlos
-      // todos sin filtrar por categoría — bug reportado por Nico: KPI mostraba
-      // pagos pero tabla quedaba vacía porque las txs estaban categorizadas
-      // como "Otros" o "Servicios" y no matcheaban venta/cliente/compra.
-      if (validCatIds.size === 0 && counterparty === 'all') return [];
+      // Si el user no tiene categorías comerciales todavía, devolvemos vacío.
+      if (validCatIds.size === 0) return [];
 
-      // Banco: transactions con join a categories/responsibles/invoices.
-      // Cuando hay counterparty seleccionado mostramos TODOS sus pagos (sin
-      // filtrar por categoría) — el cliente es el filtro principal.
+      // Banco: transactions con join a categories/responsibles/invoices,
+      // FILTRADAS por categoría venta/compra.
       let txQuery = supabase
         .from('transactions')
         .select(`
@@ -473,27 +468,22 @@ export default function PaymentsLogReport() {
         .eq('user_id', user.id)
         .is('deleted_at', null)
         .in('type', ['ingreso', 'egreso'])
+        .in('category_id', Array.from(validCatIds))
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: false });
 
-      if (counterparty === 'all') {
-        // Vista global: solo pagos categorizados como venta/compra para no
-        // contaminar con gastos operativos, nómina, etc.
-        txQuery = txQuery.in('category_id', Array.from(validCatIds));
-      } else {
-        // Vista de un cliente específico: filtrar por su responsible_id.
-        // Sin filtro de categoría — queremos TODOS los movimientos del cliente.
+      // Si hay counterparty seleccionado, filtrar adicionalmente por su
+      // responsible_id (case-insensitive, tolera espacios extra).
+      if (counterparty !== 'all') {
         const { data: respFilter } = await supabase
           .from('responsibles')
           .select('id')
           .eq('user_id', user.id)
-          .eq('name', counterparty)
+          .ilike('name', counterparty.trim())
           .maybeSingle();
         if (respFilter?.id) {
           txQuery = txQuery.eq('responsible_id', respFilter.id);
-        } else {
-          return [];
         }
       }
       const txResult = await txQuery;
