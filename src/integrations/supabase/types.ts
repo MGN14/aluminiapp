@@ -370,6 +370,7 @@ export type Database = {
           active: boolean
           created_at: string
           id: string
+          is_tax_deductible: boolean
           name: string
           report_group: string
           sort_order: number
@@ -379,6 +380,7 @@ export type Database = {
           active?: boolean
           created_at?: string
           id?: string
+          is_tax_deductible?: boolean
           name: string
           report_group?: string
           sort_order?: number
@@ -388,6 +390,7 @@ export type Database = {
           active?: boolean
           created_at?: string
           id?: string
+          is_tax_deductible?: boolean
           name?: string
           report_group?: string
           sort_order?: number
@@ -1362,6 +1365,66 @@ export type Database = {
           },
         ]
       }
+      petty_cash_movements: {
+        Row: {
+          amount: number
+          category_id: string | null
+          concept: string | null
+          created_at: string
+          date: string
+          id: string
+          kind: string
+          notes: string | null
+          numero_cuenta_cobro: string | null
+          responsible_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          category_id?: string | null
+          concept?: string | null
+          created_at?: string
+          date: string
+          id?: string
+          kind?: string
+          notes?: string | null
+          numero_cuenta_cobro?: string | null
+          responsible_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          category_id?: string | null
+          concept?: string | null
+          created_at?: string
+          date?: string
+          id?: string
+          kind?: string
+          notes?: string | null
+          numero_cuenta_cobro?: string | null
+          responsible_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "petty_cash_movements_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "petty_cash_movements_responsible_id_fkey"
+            columns: ["responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           accounting_email: string | null
@@ -1625,6 +1688,8 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          nit: string | null
+          tipo_persona: string | null
           user_id: string
         }
         Insert: {
@@ -1632,6 +1697,8 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          nit?: string | null
+          tipo_persona?: string | null
           user_id: string
         }
         Update: {
@@ -1639,6 +1706,8 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          nit?: string | null
+          tipo_persona?: string | null
           user_id?: string
         }
         Relationships: []
