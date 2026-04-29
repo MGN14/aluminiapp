@@ -1711,6 +1711,7 @@ export type Database = {
           id: string
           name: string
           nit: string | null
+          responsible_type: string
           telefono: string | null
           tipo_documento: string | null
           tipo_persona: string | null
@@ -1723,6 +1724,7 @@ export type Database = {
           id?: string
           name: string
           nit?: string | null
+          responsible_type?: string
           telefono?: string | null
           tipo_documento?: string | null
           tipo_persona?: string | null
@@ -1735,6 +1737,7 @@ export type Database = {
           id?: string
           name?: string
           nit?: string | null
+          responsible_type?: string
           telefono?: string | null
           tipo_documento?: string | null
           tipo_persona?: string | null
