@@ -17,6 +17,9 @@ type CardDef = {
   iconBg: string;
   iconColor: string;
   getBadge: (v: number) => { label: string; bg: string; color: string; border: string } | null;
+  /** Si true, este KPI requiere movimientos registrados. Cuando metrics.hasMovementData
+   *  es false, mostramos "—" en lugar de un número engañoso. */
+  needsMovements?: boolean;
 };
 
 const BADGE_AMBER = { bg: 'oklch(0.70 0.17 70 / 0.12)', color: 'oklch(0.55 0.17 70)', border: 'oklch(0.70 0.17 70 / 0.25)' };
@@ -50,6 +53,7 @@ const cards: CardDef[] = [
       v < 15 ? { label: 'Crítico', ...BADGE_RED }
       : v > 90 ? { label: 'Exceso', ...BADGE_VIOLET }
       : null,
+    needsMovements: true,
   },
   {
     key: 'pctNoMovement',
@@ -62,6 +66,7 @@ const cards: CardDef[] = [
     iconBg: 'oklch(0.55 0.17 305 / 0.12)',
     iconColor: 'oklch(0.55 0.17 305)',
     getBadge: (v: number) => (v > 30 ? { label: 'Alto', ...BADGE_AMBER } : null),
+    needsMovements: true,
   },
   {
     key: 'totalDifference',
@@ -94,7 +99,8 @@ export default function InventoryMetrics({ metrics }: Props) {
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
       {cards.map((c, idx) => {
         const value = metrics[c.key] as number;
-        const badge = c.getBadge(value);
+        const showPlaceholder = c.needsMovements && !metrics.hasMovementData;
+        const badge = showPlaceholder ? null : c.getBadge(value);
         const Icon = c.icon;
         return (
           <div
@@ -158,12 +164,12 @@ export default function InventoryMetrics({ metrics }: Props) {
                 fontSize: 24,
                 fontWeight: 700,
                 letterSpacing: '-0.6px',
-                color: '#1d1d1f',
+                color: showPlaceholder ? '#a1a1a6' : '#1d1d1f',
                 margin: 0,
                 lineHeight: 1.1,
               }}
             >
-              {c.format(value)}
+              {showPlaceholder ? '—' : c.format(value)}
             </p>
             <p
               style={{
@@ -186,7 +192,9 @@ export default function InventoryMetrics({ metrics }: Props) {
                 lineHeight: 1.4,
               }}
             >
-              {c.hint}
+              {showPlaceholder
+                ? 'Sin movimientos registrados. Crea remisiones de venta o registra movimientos para calcularlo.'
+                : c.hint}
             </p>
           </div>
         );

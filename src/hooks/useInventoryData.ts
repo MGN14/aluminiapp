@@ -55,6 +55,10 @@ export interface InventoryMetrics {
   totalProducts: number;
   criticalCount: number;
   excessCount: number;
+  /** false cuando no hay ningun inventory_movement registrado — los KPIs
+   *  de "Días de Inventario" y "Sin Movimiento" no son confiables y la UI
+   *  debe mostrar "—" en lugar de 0d/100%. */
+  hasMovementData: boolean;
 }
 
 function classifyStatus(daysOfInventory: number, avgDailySales: number): InventoryStatus {
@@ -75,6 +79,7 @@ export function useInventoryData() {
     totalValue: 0, avgDaysOfInventory: 0, avgRotation: 0,
     pctNoMovement: 0, totalDifference: 0, totalDifferenceValue: 0,
     totalProducts: 0, criticalCount: 0, excessCount: 0,
+    hasMovementData: false,
   });
 
   const fetchData = useCallback(async () => {
@@ -138,6 +143,11 @@ export function useInventoryData() {
       const totalDiff = enriched.reduce((s, p) => s + Math.abs(p.difference), 0);
       const totalDiffValue = enriched.reduce((s, p) => s + Math.abs(p.difference) * (p.cost_per_unit || 0), 0);
 
+      // Si no hay movimientos registrados en absoluto, los KPIs de "días" y
+      // "sin movimiento" son engañosos (muestran 0d y 100%). Marcamos
+      // hasMovementData=false para que la UI los muestre como "—".
+      const hasMovementData = rawMovements.length > 0;
+
       setMetrics({
         totalValue,
         avgDaysOfInventory: Math.round(avgDays),
@@ -148,6 +158,7 @@ export function useInventoryData() {
         totalProducts: enriched.length,
         criticalCount: enriched.filter(p => p.status === 'critico').length,
         excessCount: enriched.filter(p => p.status === 'exceso').length,
+        hasMovementData,
       });
     } catch (err: any) {
       toast({ title: 'Error cargando inventario', description: err.message, variant: 'destructive' });

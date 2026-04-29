@@ -467,8 +467,9 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
                           minWidth: 30,
                           textAlign: 'right',
                         }}
+                        title={days >= 999 ? 'Sin ventas registradas en últimos 30 días' : `${days} días al ritmo actual`}
                       >
-                        {days >= 999 ? '∞' : `${days}d`}
+                        {days >= 999 ? '—' : `${days}d`}
                       </span>
                       <div
                         style={{
