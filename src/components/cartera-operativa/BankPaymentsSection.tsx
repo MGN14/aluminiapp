@@ -74,11 +74,11 @@ export default function BankPaymentsSection() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Inbox className="h-4 w-4 text-muted-foreground" />
-                Pagos bancarios sin asignar
+                Pagos bancarios sin asignar a operativa
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Ingresos de los últimos 90 días sin factura DIAN. Asignalos a un cliente para
-                descontarlos de Cartera Operativa.
+                Todos los ingresos bancarios de los últimos 90 días que aún no asignaste a
+                Cartera Operativa. Asignar acá NO afecta tu conciliación en Modo DIAN.
               </p>
             </div>
             {unassigned.length > 0 && (
@@ -116,9 +116,9 @@ export default function BankPaymentsSection() {
                       </TableCell>
                       <TableCell className="max-w-[280px] truncate text-sm" title={p.description}>
                         {p.description || '—'}
-                        {p.operative_responsible_name && (
+                        {p.dian_responsible_name && (
                           <span className="block text-[11px] text-muted-foreground">
-                            Beneficiario sugerido: {p.operative_responsible_name}
+                            En DIAN: {p.dian_responsible_name}
                           </span>
                         )}
                       </TableCell>
@@ -128,7 +128,7 @@ export default function BankPaymentsSection() {
                       <TableCell className="text-right">
                         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openAssign(p)}>
                           <Link2 className="h-3.5 w-3.5" />
-                          Asignar
+                          Asignar a operativa
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -182,6 +182,11 @@ export default function BankPaymentsSection() {
                       </TableCell>
                       <TableCell className="max-w-[240px] truncate text-sm text-muted-foreground" title={p.description}>
                         {p.description || '—'}
+                        {p.dian_responsible_name && (
+                          <span className="block text-[11px] text-muted-foreground/70">
+                            En DIAN: {p.dian_responsible_name}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums font-medium">
                         {formatCurrency(p.credit)}

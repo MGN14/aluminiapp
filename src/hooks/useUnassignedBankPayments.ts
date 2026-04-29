@@ -7,7 +7,10 @@ export interface BankPayment {
   date: string;
   description: string;
   credit: number;
-  /** Beneficiario para Cartera Operativa (independiente del de DIAN). */
+  /** Beneficiario en DIAN (responsible_id), si está conciliado. Solo info — no editable desde Cartera Operativa. */
+  dian_responsible_id: string | null;
+  dian_responsible_name: string | null;
+  /** Beneficiario para Cartera Operativa (operative_responsible_id), independiente del DIAN. */
   operative_responsible_id: string | null;
   operative_responsible_name: string | null;
 }
@@ -27,12 +30,14 @@ async function fetchPayments(opts: {
 }): Promise<BankPayment[]> {
   const { userId, assigned, lookbackDays = DEFAULT_LOOKBACK_DAYS } = opts;
 
-  // "Sin asignar" = misma fuente que Pendientes del Dashboard:
-  // transacciones con responsible_id NULL (no conciliadas a DIAN), credit > 0 (ingresos).
-  // "Asignados" = operative_receivable_assigned = true, sin importar responsible_id.
+  // "Sin asignar a operativa" = todos los ingresos bancarios que aún NO fueron
+  // asignados a Cartera Operativa, sin importar si tienen o no responsible_id
+  // de DIAN. Asignar acá NO toca la conciliación DIAN — solo crea el vínculo
+  // operativo. Coincide con la lista que el dashboard mostraba antes.
+  // "Asignados" = operative_receivable_assigned = true.
   let query = supabase
     .from('transactions')
-    .select('id, date, description, credit, operative_responsible_id')
+    .select('id, date, description, credit, responsible_id, operative_responsible_id')
     .eq('user_id', userId)
     .is('deleted_at', null)
     .gt('credit', 0)
@@ -42,9 +47,7 @@ async function fetchPayments(opts: {
   if (assigned) {
     query = query.eq('operative_receivable_assigned', true);
   } else {
-    query = query
-      .is('responsible_id', null)
-      .eq('operative_receivable_assigned', false);
+    query = query.eq('operative_receivable_assigned', false);
   }
 
   const { data, error } = await query;
@@ -55,19 +58,24 @@ async function fetchPayments(opts: {
     date: string;
     description: string | null;
     credit: number | null;
+    responsible_id: string | null;
     operative_responsible_id: string | null;
   }>;
 
-  const responsibleIds = Array.from(
-    new Set(rows.map((r) => r.operative_responsible_id).filter((id): id is string => !!id))
-  );
+  // Recolecta todos los responsible_ids (tanto de DIAN como de operativa) para
+  // resolver nombres en una sola consulta.
+  const allResponsibleIds = new Set<string>();
+  for (const r of rows) {
+    if (r.responsible_id) allResponsibleIds.add(r.responsible_id);
+    if (r.operative_responsible_id) allResponsibleIds.add(r.operative_responsible_id);
+  }
 
   const nameById = new Map<string, string>();
-  if (responsibleIds.length > 0) {
+  if (allResponsibleIds.size > 0) {
     const { data: respData } = await supabase
       .from('responsibles')
       .select('id, name')
-      .in('id', responsibleIds);
+      .in('id', Array.from(allResponsibleIds));
     for (const r of respData ?? []) nameById.set(r.id, r.name);
   }
 
@@ -76,6 +84,8 @@ async function fetchPayments(opts: {
     date: r.date,
     description: r.description ?? '',
     credit: Number(r.credit) || 0,
+    dian_responsible_id: r.responsible_id,
+    dian_responsible_name: r.responsible_id ? nameById.get(r.responsible_id) ?? null : null,
     operative_responsible_id: r.operative_responsible_id,
     operative_responsible_name: r.operative_responsible_id
       ? nameById.get(r.operative_responsible_id) ?? null
