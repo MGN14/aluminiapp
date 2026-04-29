@@ -6,6 +6,7 @@ import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import LetterheadSection from '@/components/settings/LetterheadSection';
+import CategoriesDeductibleSettings from '@/components/settings/CategoriesDeductibleSettings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -246,6 +247,11 @@ export default function Settings() {
 
             {/* Letterhead */}
             <LetterheadSection />
+
+            <Separator />
+
+            {/* Categorías deducibles DIAN */}
+            <CategoriesDeductibleSettings />
 
             <Separator />
 
