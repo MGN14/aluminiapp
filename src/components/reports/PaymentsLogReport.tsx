@@ -819,83 +819,81 @@ export default function PaymentsLogReport() {
     <div className="space-y-4">
       {/* Filtros + acciones */}
       <Card>
-        <CardContent className="py-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
-              <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-                <SelectTrigger className="w-[100px] h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {yearOptions.map((y) => (
-                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
-                <SelectTrigger className="w-[160px] h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {MONTH_LABELS.map((label, i) => (
-                    <SelectItem key={i} value={String(i)}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as FilterType)}>
-                <SelectTrigger className="w-[140px] h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Ingresos y egresos</SelectItem>
-                  <SelectItem value="ingreso">Solo ingresos</SelectItem>
-                  <SelectItem value="egreso">Solo egresos</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={counterparty} onValueChange={setCounterparty}>
-                <SelectTrigger className="w-[200px] h-9 text-sm">
-                  <User className="h-3.5 w-3.5 mr-1 shrink-0" />
-                  <SelectValue placeholder="Todos los clientes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los clientes</SelectItem>
-                  {(counterpartyOptions ?? []).map((c) => (
-                    <SelectItem key={c.slug} value={c.name}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <CardContent className="py-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+              <SelectTrigger className="w-[90px] h-8 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {yearOptions.map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
+              <SelectTrigger className="w-[150px] h-8 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MONTH_LABELS.map((label, i) => (
+                  <SelectItem key={i} value={String(i)}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as FilterType)}>
+              <SelectTrigger className="w-[150px] h-8 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Ingresos y egresos</SelectItem>
+                <SelectItem value="ingreso">Solo ingresos</SelectItem>
+                <SelectItem value="egreso">Solo egresos</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={counterparty} onValueChange={setCounterparty}>
+              <SelectTrigger className="w-[200px] h-8 text-sm">
+                <User className="h-3.5 w-3.5 mr-1 shrink-0" />
+                <SelectValue placeholder="Todos los clientes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los clientes</SelectItem>
+                {(counterpartyOptions ?? []).map((c) => (
+                  <SelectItem key={c.slug} value={c.name}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-            <div className="flex flex-wrap gap-2">
+            {/* Acciones inline a la derecha en pantallas grandes; abajo en mobile */}
+            <div className="flex flex-wrap items-center gap-1.5 ml-auto">
               <Button
                 variant="outline" size="sm"
                 onClick={handlePdfDownload}
                 disabled={isLoading || rows.length === 0}
-                className="gap-2"
+                className="h-8 gap-1.5"
               >
-                <Download className="h-4 w-4" />
+                <Download className="h-3.5 w-3.5" />
                 PDF
               </Button>
               <Button
                 variant="outline" size="sm"
                 onClick={handleExport}
                 disabled={isLoading || rows.length === 0}
-                className="gap-2"
+                className="h-8 gap-1.5"
               >
-                <Download className="h-4 w-4" />
+                <Download className="h-3.5 w-3.5" />
                 Excel
               </Button>
               <Button
                 variant="outline" size="sm"
                 onClick={handleWhatsAppShare}
                 disabled={isLoading || rows.length === 0}
-                className="gap-2 border-green-600/30 text-green-700 hover:bg-green-50 hover:text-green-700"
+                className="h-8 gap-1.5 border-green-600/30 text-green-700 hover:bg-green-50 hover:text-green-700"
               >
-                <MessageCircle className="h-4 w-4" />
+                <MessageCircle className="h-3.5 w-3.5" />
                 WhatsApp
               </Button>
               <Button
                 size="sm"
                 onClick={() => setEmailModalOpen(true)}
                 disabled={isLoading || rows.length === 0}
-                className="gap-2"
+                className="h-8 gap-1.5"
               >
-                <Mail className="h-4 w-4" />
+                <Mail className="h-3.5 w-3.5" />
                 Enviar por correo
               </Button>
             </div>
