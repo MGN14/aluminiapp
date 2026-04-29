@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { CalendarIcon, Plus, BadgeCheck, BadgeX } from 'lucide-react';
+import { CalendarIcon, Plus, BadgeCheck, BadgeX, UserPlus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -36,8 +36,10 @@ interface Category {
 
 const KIND_LABELS: Record<string, string> = {
   gasto_efectivo: 'Gasto en efectivo (sin documento)',
-  cuenta_de_cobro: 'Cuenta de cobro (proveedor sin factura electrónica)',
+  cuenta_de_cobro: 'Cuenta de cobro (servicio ocasional)',
 };
+
+const NEW_PRESTADOR_VALUE = '__new__';
 
 export default function RegistrarGastoModal() {
   const { user } = useAuth();
@@ -46,14 +48,17 @@ export default function RegistrarGastoModal() {
 
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<'gasto_efectivo' | 'cuenta_de_cobro'>('gasto_efectivo');
-  const [responsibleId, setResponsibleId] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [responsibleId, setResponsibleId] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [concept, setConcept] = useState('');
   const [notes, setNotes] = useState('');
-  const [numeroCdc, setNumeroCdc] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // State para crear nuevo prestador inline
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newPrestadorName, setNewPrestadorName] = useState('');
 
   const { data: responsibles = [] } = useQuery<Responsible[]>({
     queryKey: ['responsibles-caja-menor', user?.id],
@@ -61,12 +66,15 @@ export default function RegistrarGastoModal() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('responsibles')
-        .select('id, name')
+        .select('id, name, responsible_type')
         .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
       if (error) throw error;
-      return data ?? [];
+      // Solo prestadores de Caja Menor o ambos
+      return ((data ?? []) as unknown as Array<{ id: string; name: string; responsible_type: string }>)
+        .filter((r) => r.responsible_type === 'petty_cash' || r.responsible_type === 'both')
+        .map((r) => ({ id: r.id, name: r.name }));
     },
   });
 
@@ -89,20 +97,59 @@ export default function RegistrarGastoModal() {
 
   const reset = () => {
     setKind('gasto_efectivo');
-    setResponsibleId('');
     setCategoryId('');
+    setResponsibleId('');
     setAmount('');
     setDate(new Date());
     setConcept('');
     setNotes('');
-    setNumeroCdc('');
+    setCreatingNew(false);
+    setNewPrestadorName('');
+  };
+
+  const handleResponsibleChange = (value: string) => {
+    if (value === NEW_PRESTADOR_VALUE) {
+      setCreatingNew(true);
+      setResponsibleId('');
+    } else {
+      setResponsibleId(value);
+      setCreatingNew(false);
+    }
+  };
+
+  const handleCreatePrestador = async () => {
+    if (!user) return;
+    const name = newPrestadorName.trim();
+    if (!name) {
+      toast({ title: 'Falta nombre', variant: 'destructive' });
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('responsibles')
+        .insert({
+          user_id: user.id,
+          name,
+          responsible_type: 'petty_cash',
+        } as never)
+        .select('id, name')
+        .single();
+      if (error) throw error;
+      await queryClient.invalidateQueries({ queryKey: ['responsibles-caja-menor'] });
+      setResponsibleId(data!.id);
+      setCreatingNew(false);
+      setNewPrestadorName('');
+      toast({ title: 'Prestador creado' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     if (!responsibleId) {
-      toast({ title: 'Falta proveedor', description: 'Seleccioná un proveedor.', variant: 'destructive' });
+      toast({ title: 'Falta prestador', description: 'Seleccioná o creá un prestador.', variant: 'destructive' });
       return;
     }
     if (!date) {
@@ -125,7 +172,6 @@ export default function RegistrarGastoModal() {
         category_id: categoryId || null,
         concept: concept.trim() || null,
         kind,
-        numero_cuenta_cobro: kind === 'cuenta_de_cobro' ? (numeroCdc.trim() || null) : null,
         notes: notes.trim() || null,
       });
       if (error) throw error;
@@ -164,6 +210,7 @@ export default function RegistrarGastoModal() {
             </DialogDescription>
           </DialogHeader>
 
+          {/* Tipo */}
           <div className="space-y-1.5">
             <Label>Tipo</Label>
             <Select value={kind} onValueChange={(v) => setKind(v as 'gasto_efectivo' | 'cuenta_de_cobro')}>
@@ -177,28 +224,90 @@ export default function RegistrarGastoModal() {
             </Select>
           </div>
 
+          {/* Categoría — justo después de Tipo */}
           <div className="space-y-1.5">
-            <Label>Proveedor</Label>
-            <Select value={responsibleId} onValueChange={setResponsibleId}>
+            <Label>Categoría</Label>
+            <Select value={categoryId} onValueChange={setCategoryId}>
               <SelectTrigger>
-                <SelectValue placeholder={responsibles.length === 0 ? 'Crealo en Conciliación bancaria primero' : 'Seleccionar proveedor'} />
+                <SelectValue placeholder="Sin categoría" />
               </SelectTrigger>
               <SelectContent>
-                {responsibles.length === 0 ? (
-                  <div className="text-xs text-muted-foreground p-2">
-                    No tenés proveedores. Creá uno desde Conciliación bancaria.
-                  </div>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedCategory && (
+              <div className="flex items-center gap-1.5 text-[11px] mt-1">
+                {selectedCategory.is_tax_deductible ? (
+                  <span className="inline-flex items-center gap-1 text-success">
+                    <BadgeCheck className="h-3 w-3" />
+                    Categoría deducible DIAN
+                  </span>
                 ) : (
-                  responsibles.map((r) => (
+                  <span className="inline-flex items-center gap-1 text-muted-foreground">
+                    <BadgeX className="h-3 w-3" />
+                    No deducible (cambialo en Settings si corresponde)
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Prestador — separado de los beneficiarios de Conciliación bancaria */}
+          <div className="space-y-1.5">
+            <Label>Prestador del servicio</Label>
+            {creatingNew ? (
+              <div className="flex gap-2">
+                <Input
+                  autoFocus
+                  placeholder="Ej: Juan Pérez"
+                  value={newPrestadorName}
+                  onChange={(e) => setNewPrestadorName(e.target.value)}
+                />
+                <Button type="button" size="sm" onClick={handleCreatePrestador}>
+                  Crear
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setCreatingNew(false);
+                    setNewPrestadorName('');
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            ) : (
+              <Select value={responsibleId} onValueChange={handleResponsibleChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder={responsibles.length === 0 ? 'Crear nuevo prestador' : 'Seleccionar prestador'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {responsibles.map((r) => (
                     <SelectItem key={r.id} value={r.id}>
                       {r.name}
                     </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+                  ))}
+                  <SelectItem value={NEW_PRESTADOR_VALUE} className="text-primary">
+                    <span className="inline-flex items-center gap-1.5">
+                      <UserPlus className="h-3.5 w-3.5" />
+                      Crear nuevo prestador
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              Lista separada de los beneficiarios de Conciliación Bancaria.
+            </p>
           </div>
 
+          {/* Monto + Fecha */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Monto</Label>
@@ -232,54 +341,9 @@ export default function RegistrarGastoModal() {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Categoría</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Sin categoría" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedCategory && (
-              <div className="flex items-center gap-1.5 text-[11px] mt-1">
-                {selectedCategory.is_tax_deductible ? (
-                  <span className="inline-flex items-center gap-1 text-success">
-                    <BadgeCheck className="h-3 w-3" />
-                    Categoría deducible DIAN
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-muted-foreground">
-                    <BadgeX className="h-3 w-3" />
-                    No deducible (cambialo en Settings si corresponde)
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
             <Label>Concepto</Label>
-            <Input placeholder="Ej: Servicio de mantenimiento marzo" value={concept} onChange={(e) => setConcept(e.target.value)} />
+            <Input placeholder="Ej: Servicio de cargue 28 abril" value={concept} onChange={(e) => setConcept(e.target.value)} />
           </div>
-
-          {kind === 'cuenta_de_cobro' && (
-            <div className="space-y-1.5">
-              <Label>Número de cuenta de cobro (opcional)</Label>
-              <Input
-                placeholder="Ej: CDC-001-2026"
-                value={numeroCdc}
-                onChange={(e) => setNumeroCdc(e.target.value)}
-              />
-              <p className="text-[10px] text-muted-foreground">
-                En el próximo update vas a poder generar el PDF con consecutivo automático.
-              </p>
-            </div>
-          )}
 
           <div className="space-y-1.5">
             <Label>Notas (opcional)</Label>
