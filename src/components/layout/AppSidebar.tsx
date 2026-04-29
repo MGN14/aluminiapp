@@ -23,6 +23,7 @@ import {
   Zap,
   Wallet,
   ListChecks,
+  Coins,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -83,7 +84,9 @@ const reportItems: NavItem[] = [
   { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 
-const reportItemsGerencial: NavItem[] = [];
+const reportItemsGerencial: NavItem[] = [
+  { title: 'Cartera Operativa', url: '/reportes/cartera-operativa', icon: Coins, gerencial: true },
+];
 
 const exportItems: NavItem[] = [
   { title: 'Exportar movimientos', url: '/export', icon: Download },

@@ -40,6 +40,7 @@ const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
+const CarteraOperativa = lazy(() => import("./pages/CarteraOperativa"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -158,6 +159,10 @@ const App = () => (
               <Route
                 path="/reportes/relacion-pagos"
                 element={<ProtectedRoute><Reports tab="pagos" /></ProtectedRoute>}
+              />
+              <Route
+                path="/reportes/cartera-operativa"
+                element={<ProtectedRoute><CarteraOperativa /></ProtectedRoute>}
               />
               {/* Legacy redirect */}
               <Route
