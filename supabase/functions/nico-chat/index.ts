@@ -1306,6 +1306,116 @@ ${inventoryCtx}
     }>;
     const opPendingTotal = opPendingPayments.reduce((s, p) => s + (Number(p.credit) || 0), 0);
 
+    // =============================================
+    // MÓDULO 13 — CAJA MENOR Y GASTOS DEDUCIBLES (Modo DIAN)
+    // Egresos en efectivo + cuentas de cobro de servicios ocasionales,
+    // con clasificacion deducible/no deducible heredada de categories.
+    // =============================================
+    const yearStartIso = `${thisYear}-01-01`;
+    const yearEndIso = `${thisYear}-12-31`;
+    const monthStart = (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    })();
+
+    const [pettyMovYearRes, categoriesRes, pettyResponsiblesRes] = await Promise.all([
+      supabase
+        .from("petty_cash_movements")
+        .select("date, amount, category_id, kind, responsible_id, numero_consecutivo")
+        .eq("user_id", user.id)
+        .gte("date", yearStartIso)
+        .lte("date", yearEndIso),
+      supabase
+        .from("categories")
+        .select("id, name, is_tax_deductible")
+        .eq("user_id", user.id),
+      supabase
+        .from("responsibles")
+        .select("id, name")
+        .eq("user_id", user.id),
+    ]);
+
+    const pcCatMap = new Map<string, { name: string; deductible: boolean }>();
+    for (const c of (categoriesRes.data ?? []) as Array<{ id: string; name: string; is_tax_deductible: boolean }>) {
+      pcCatMap.set(c.id, { name: c.name, deductible: !!c.is_tax_deductible });
+    }
+    const pcRespMap = new Map<string, string>();
+    for (const r of (pettyResponsiblesRes.data ?? []) as Array<{ id: string; name: string }>) {
+      pcRespMap.set(r.id, r.name);
+    }
+
+    type PcMov = {
+      date: string;
+      amount: number | null;
+      category_id: string | null;
+      kind: string | null;
+      responsible_id: string | null;
+      numero_consecutivo: string | null;
+    };
+    const pcMovs = ((pettyMovYearRes.data ?? []) as PcMov[]).map((m) => ({
+      ...m,
+      amountNum: Number(m.amount) || 0,
+      cat: m.category_id ? pcCatMap.get(m.category_id) : undefined,
+    }));
+
+    const pcTotalAno = pcMovs.reduce((s, m) => s + m.amountNum, 0);
+    const pcTotalDeducibleAno = pcMovs.filter((m) => m.cat?.deductible).reduce((s, m) => s + m.amountNum, 0);
+    const pcTotalNoDeducibleAno = pcTotalAno - pcTotalDeducibleAno;
+    const pcMesActual = pcMovs.filter((m) => m.date >= monthStart);
+    const pcTotalMes = pcMesActual.reduce((s, m) => s + m.amountNum, 0);
+    const pcTotalDeducibleMes = pcMesActual.filter((m) => m.cat?.deductible).reduce((s, m) => s + m.amountNum, 0);
+    const pcCuentasCobroCount = pcMovs.filter((m) => m.kind === "cuenta_de_cobro").length;
+    const pcCuentasCobroMonto = pcMovs.filter((m) => m.kind === "cuenta_de_cobro").reduce((s, m) => s + m.amountNum, 0);
+    const pcComprobantesCount = pcMovs.filter((m) => m.kind === "gasto_efectivo").length;
+
+    // Top categorias por gasto en el año
+    const pcCatTotals = new Map<string, { name: string; deductible: boolean; total: number }>();
+    for (const m of pcMovs) {
+      const key = m.category_id ?? "__sin__";
+      const name = m.cat?.name ?? "Sin categoria";
+      const deductible = m.cat?.deductible ?? false;
+      const cur = pcCatTotals.get(key) ?? { name, deductible, total: 0 };
+      cur.total += m.amountNum;
+      pcCatTotals.set(key, cur);
+    }
+    const pcTopCats = Array.from(pcCatTotals.values()).sort((a, b) => b.total - a.total).slice(0, 5);
+
+    // Top prestadores
+    const pcRespTotals = new Map<string, number>();
+    for (const m of pcMovs) {
+      if (!m.responsible_id) continue;
+      pcRespTotals.set(m.responsible_id, (pcRespTotals.get(m.responsible_id) ?? 0) + m.amountNum);
+    }
+    const pcTopResps = Array.from(pcRespTotals.entries())
+      .map(([id, total]) => ({ name: pcRespMap.get(id) ?? "(sin nombre)", total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    const cajaMenorCtx = pcMovs.length === 0
+      ? "No hay movimientos en Caja Menor todavia. El usuario puede registrar gastos en /caja-menor (Modo DIAN)."
+      : [
+          `PERIODO: ${thisYear}`,
+          "",
+          "RESUMEN ANUAL:",
+          `- Total gastos Caja Menor ${thisYear}: ${fmt(pcTotalAno)} (${pcMovs.length} movimientos)`,
+          `- Deducible DIAN: ${fmt(pcTotalDeducibleAno)} (${pcTotalAno > 0 ? Math.round(pcTotalDeducibleAno / pcTotalAno * 100) : 0}%)`,
+          `- No deducible: ${fmt(pcTotalNoDeducibleAno)} (${pcTotalAno > 0 ? Math.round(pcTotalNoDeducibleAno / pcTotalAno * 100) : 0}%)`,
+          "",
+          "MES EN CURSO:",
+          `- Total gastos: ${fmt(pcTotalMes)} (${pcMesActual.length} movimientos)`,
+          `- Deducible: ${fmt(pcTotalDeducibleMes)}`,
+          "",
+          "DOCUMENTOS GENERADOS:",
+          `- Cuentas de cobro registradas: ${pcCuentasCobroCount} por ${fmt(pcCuentasCobroMonto)} (servicios ocasionales: coteros, instaladores, contratistas esporadicos)`,
+          `- Gastos en efectivo (comprobantes de pago): ${pcComprobantesCount}`,
+          "",
+          pcTopCats.length > 0 ? "TOP CATEGORIAS DE GASTO:" : "",
+          ...pcTopCats.map((c, i) => `${i + 1}. ${c.name} (${c.deductible ? "deducible" : "NO deducible"}): ${fmt(c.total)}`),
+          "",
+          pcTopResps.length > 0 ? "TOP PRESTADORES (por monto pagado):" : "",
+          ...pcTopResps.map((r, i) => `${i + 1}. ${r.name}: ${fmt(r.total)}`),
+        ].filter((l) => l !== "").join("\n");
+
     const carteraOperativaCtx = (opTotalDeudas === 0 && opPendingPayments.length === 0)
       ? "No hay cartera operativa registrada todavia. El admin puede registrar deudas en /reportes/cartera-operativa o asignar pagos bancarios pendientes a clientes."
       : [
@@ -1328,6 +1438,7 @@ ${inventoryCtx}
       + "\n\n═══════════════════════════════════════════\nMÓDULO 10 — PATRONES DETECTADOS\n═══════════════════════════════════════════\n\n" + patternsCtx
       + "\n\n═══════════════════════════════════════════\nMÓDULO 11 — BRECHA DIAN Y RENTABILIDAD DE FORMALIZAR\n═══════════════════════════════════════════\n\n" + evasionCtx
       + "\n\n═══════════════════════════════════════════\nMÓDULO 12 — CARTERA OPERATIVA (Gerencial, admin only)\n═══════════════════════════════════════════\n\n" + carteraOperativaCtx
+      + "\n\n═══════════════════════════════════════════\nMÓDULO 13 — CAJA MENOR Y GASTOS DEDUCIBLES (Modo DIAN)\n═══════════════════════════════════════════\n\n" + cajaMenorCtx
       + "\n\n═══════════════════════════════════════════\nINFORMACIÓN DEL NEGOCIO\n═══════════════════════════════════════════\n"
       + "Empresa: " + companyName + "\n"
       + "Contacto: " + (userName || "No registrado");
@@ -1343,14 +1454,14 @@ ${inventoryCtx}
         modules: "TODOS (1-10). Usas todos los módulos según lo que pregunten.",
       },
       contador: {
-        role: `Eres Nico Contador, el asesor contable y fiscal de ${empresa}. Tu foco único es la parte tributaria: facturación DIAN, IVA, retefuente, ReteICA, autorretefuente y calendario tributario colombiano.`,
-        focus: "Impuestos. Saldo a favor. Retenciones. Fechas DIAN. Optimización fiscal dentro de la ley. Evita comentar caja, inventario o estrategia — eso no es tu área; si preguntan, remite al agente correspondiente.",
-        modules: "MÓDULO 2 (Facturación DIAN) y MÓDULO 3 (Obligaciones Fiscales) son tu base. También consultas MÓDULO 5 (alertas fiscales).",
+        role: `Eres Nico Contador, el asesor contable y fiscal de ${empresa}. Tu foco único es la parte tributaria: facturación DIAN, IVA, retefuente, ReteICA, autorretefuente, calendario tributario colombiano y soporte de gastos deducibles.`,
+        focus: "Impuestos. Saldo a favor. Retenciones. Fechas DIAN. Optimización fiscal dentro de la ley. Caja Menor (MÓDULO 13): gastos en efectivo y cuentas de cobro de servicios ocasionales — diferenciá deducible vs no deducible según categoría, sugerí mejoras al usuario cuando una categoría con muchos movimientos no está marcada deducible y sí podría serlo. Cuentas de cobro: solo aplican a servicios ocasionales (coteros, instaladores, contratistas esporádicos), NO a proveedores formales obligados a facturar electrónicamente. Evita comentar caja general, inventario o estrategia — eso no es tu área; si preguntan, remite al agente correspondiente.",
+        modules: "MÓDULO 2 (Facturación DIAN), MÓDULO 3 (Obligaciones Fiscales) y MÓDULO 13 (Caja Menor / Gastos Deducibles) son tu base. También consultas MÓDULO 5 (alertas fiscales).",
       },
       visita_dian: {
         role: `Eres Nico Visita DIAN, el auditor interno de ${empresa}. Piensas como un funcionario DIAN revisando la empresa. Tu trabajo es detectar inconsistencias ANTES de que la DIAN lo haga y prevenir sanciones.`,
-        focus: "Score de salud fiscal (5 factores × 20 pts: conciliación, facturación soportada, Control de Inventario — descuadre Siigo vs físico en costo —, cartera/anticipos, Pulmón financiero — meses de operación con la plata disponible). Inconsistencias entre facturación y banco. Descuadre de inventario como señal fiscal (posibles ventas sin factura). Riesgos de sanción. Qué pediría la DIAN en una visita real. Cómo subir el score.",
-        modules: "MÓDULO 5 (Alertas), MÓDULO 7 (Salud/Score), MÓDULO 3 (Obligaciones Fiscales), MÓDULO 8 (Inventario — alimenta el factor Control de Inventario del score).",
+        focus: "Score de salud fiscal (5 factores × 20 pts: conciliación, facturación soportada, Control de Inventario — descuadre Siigo vs físico en costo —, cartera/anticipos, Pulmón financiero — meses de operación con la plata disponible). Inconsistencias entre facturación y banco. Descuadre de inventario como señal fiscal (posibles ventas sin factura). Caja Menor (MÓDULO 13): cuentas de cobro y comprobantes de pago como soporte de gastos. Si el ratio deducible/no-deducible es muy bajo, hay riesgo de pérdida fiscal innecesaria. Si hay muchas cuentas de cobro a un mismo prestador, sugiere que probablemente debería formalizarse como proveedor con factura. Riesgos de sanción. Cómo subir el score.",
+        modules: "MÓDULO 5 (Alertas), MÓDULO 7 (Salud/Score), MÓDULO 3 (Obligaciones Fiscales), MÓDULO 8 (Inventario), MÓDULO 13 (Caja Menor — soporte de gastos deducibles).",
       },
       tesoreria: {
         role: `Eres Nico Tesorería, el encargado de caja y cobranza de ${empresa}. Te preocupa la plata que entra, la que sale y la que falta por cobrar o pagar.`,
