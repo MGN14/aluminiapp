@@ -16,7 +16,10 @@ import { useToast } from '@/hooks/use-toast';
 import NewRemisionModal from '@/components/remisiones/NewRemisionModal';
 import RemisionDetailModal from '@/components/remisiones/RemisionDetailModal';
 import VincularFacturaModal from '@/components/remisiones/VincularFacturaModal';
+import VincularPagoRemisionModal from '@/components/remisiones/VincularPagoRemisionModal';
 import { reverseRemisionInventory } from '@/lib/remisionInventory';
+import { useRemisionPaymentStatus } from '@/hooks/useRemisionPaymentStatus';
+import { DollarSign, AlertTriangle as AlertTriangleIcon } from 'lucide-react';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -101,6 +104,7 @@ export default function Remisiones() {
   const [scoreDetail, setScoreDetail] = useState<{ label: string; detail: string; color: string } | null>(null);
   const [vincularRemision, setVincularRemision] = useState<{ id: string; number: string } | null>(null);
   const [moverGerencialId, setMoverGerencialId] = useState<string | null>(null);
+  const [vincularPagoRemision, setVincularPagoRemision] = useState<any | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -242,6 +246,13 @@ export default function Remisiones() {
 
   const moverRemision = remisiones.find((r: any) => r.id === moverId) as any;
 
+  // Estado de cobro y KPIs gerenciales (solo en Modo Gerencial)
+  const currentYear = new Date().getFullYear();
+  const { data: paymentStatus } = useRemisionPaymentStatus(
+    effectiveGerencial ? remisiones : [],
+    currentYear
+  );
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -262,7 +273,7 @@ export default function Remisiones() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className={`grid grid-cols-1 ${effectiveGerencial ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'} gap-4`}>
           <Card className="border-0 shadow-sm"><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Total Remisiones</p>
             <p className="text-2xl font-bold">{totalRemisiones}</p>
@@ -275,7 +286,37 @@ export default function Remisiones() {
             <p className="text-sm text-muted-foreground">Valor Total</p>
             <p className="text-2xl font-bold">{formatCurrency(totalValor)}</p>
           </CardContent></Card>
+          {effectiveGerencial && paymentStatus && (
+            <Card className="border-0 shadow-sm border-amber-200 bg-amber-50/40 dark:bg-amber-950/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangleIcon className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />
+                  <p className="text-sm text-amber-900 dark:text-amber-100">Brecha vs DIAN {currentYear}</p>
+                </div>
+                <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">
+                  {paymentStatus.brechaPct}%
+                </p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
+                  Real: {formatCurrency(paymentStatus.totalRemisiones)} · DIAN: {formatCurrency(paymentStatus.totalDIANFacturado)}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
+
+        {effectiveGerencial && paymentStatus && paymentStatus.agingSinCobrar60d.count > 0 && (
+          <Card className="border-amber-200 bg-amber-50/40 dark:bg-amber-950/10">
+            <CardContent className="py-3 flex items-center gap-3 text-sm">
+              <AlertTriangleIcon className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+              <div>
+                <strong className="text-amber-900 dark:text-amber-100">{paymentStatus.agingSinCobrar60d.count} remisiones sin cobrar &gt; 60 días</strong>
+                <span className="text-amber-700 dark:text-amber-300 ml-2">
+                  · Exposición: {formatCurrency(paymentStatus.agingSinCobrar60d.total)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-0 shadow-sm">
           <CardHeader className="space-y-3">
@@ -344,6 +385,9 @@ export default function Remisiones() {
                         <span className="inline-flex items-center gap-1">Score Fiscal {sortIcon('score')}</span>
                       </TableHead>
                     )}
+                    {effectiveGerencial && (
+                      <TableHead>Cobro</TableHead>
+                    )}
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -400,6 +444,30 @@ export default function Remisiones() {
                             )}
                           </TableCell>
                         )}
+                        {effectiveGerencial && (() => {
+                          const summary = paymentStatus?.byRemision.get(r.id);
+                          if (!summary || valor === 0) {
+                            return <TableCell><span className="text-xs text-muted-foreground">—</span></TableCell>;
+                          }
+                          const colorMap = {
+                            cobrada: 'bg-success/10 text-success border-success/30',
+                            parcial: 'bg-amber-100 text-amber-700 border-amber-300',
+                            sin_cobrar: 'bg-red-100 text-red-700 border-red-300',
+                          } as const;
+                          const labelMap = { cobrada: 'Cobrada', parcial: 'Parcial', sin_cobrar: 'Sin cobrar' } as const;
+                          return (
+                            <TableCell>
+                              <Badge variant="outline" className={`text-[10px] ${colorMap[summary.status]}`}>
+                                {labelMap[summary.status]}
+                              </Badge>
+                              {summary.status !== 'sin_cobrar' && (
+                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                  {Math.round((summary.total_pagado / summary.total_remision) * 100)}%
+                                </p>
+                              )}
+                            </TableCell>
+                          );
+                        })()}
                         <TableCell>
                           <div className="flex items-center gap-1">
                             <Button variant="ghost" size="icon" onClick={() => setDetailId(r.id)} title="Ver detalle">
@@ -409,9 +477,25 @@ export default function Remisiones() {
                               <Pencil className="h-4 w-4" />
                             </Button>
                             {effectiveGerencial && !isCompra && (
-                              <Button variant="ghost" size="icon" onClick={() => setMoverId(r.id)} title="Mover a Módulo DIAN">
-                                <ArrowRightLeft className="h-4 w-4 text-blue-500" />
-                              </Button>
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setVincularPagoRemision({
+                                    id: r.id,
+                                    number: r.number,
+                                    responsible_id: r.responsible_id ?? null,
+                                    beneficiary: r.beneficiary,
+                                    total: valor,
+                                  })}
+                                  title="Vincular pago"
+                                >
+                                  <DollarSign className="h-4 w-4 text-green-600" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => setMoverId(r.id)} title="Mover a Módulo DIAN">
+                                  <ArrowRightLeft className="h-4 w-4 text-blue-500" />
+                                </Button>
+                              </>
                             )}
                             {!effectiveGerencial && !isCompra && (
                               <Button variant="ghost" size="icon" onClick={() => setVincularRemision({ id: r.id, number: r.number })} title="Vincular a factura">
@@ -505,6 +589,18 @@ export default function Remisiones() {
           remisionNumber={vincularRemision.number}
           open={!!vincularRemision}
           onOpenChange={(o) => { if (!o) setVincularRemision(null); }}
+        />
+      )}
+
+      {vincularPagoRemision && (
+        <VincularPagoRemisionModal
+          remisionId={vincularPagoRemision.id}
+          remisionNumber={vincularPagoRemision.number}
+          remisionResponsibleId={vincularPagoRemision.responsible_id}
+          remisionBeneficiary={vincularPagoRemision.beneficiary}
+          remisionTotal={vincularPagoRemision.total}
+          open={!!vincularPagoRemision}
+          onOpenChange={(o) => { if (!o) setVincularPagoRemision(null); }}
         />
       )}
     </AppLayout>
