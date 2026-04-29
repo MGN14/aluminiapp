@@ -452,19 +452,13 @@ export default function PaymentsLogReport() {
         if (isIncome || isCost) validCatIds.add(c.id);
       });
 
-      // Banco: TODAS las transactions del periodo. El filtrado por tipo
-      // (ingreso/egreso) y por cliente lo hace el usuario en los dropdowns
-      // de la UI. Antes había un filtro adicional por categoría comercial
-      // (venta/cliente/compra/proveedor) que escondía pagos legítimos
-      // categorizados como "Servicios", "Otros", etc.
+      // Banco: TODAS las transactions del periodo. Sin joins implicitos
+      // (que estaban fallando silenciosamente y devolviendo array vacio).
+      // Traemos categories + responsibles + invoices por separado y cruzamos
+      // en JS. Mas robusto.
       let txQuery = supabase
         .from('transactions')
-        .select(`
-          id, date, description, type, amount, category_id, responsible_id, invoice_id,
-          categories ( name ),
-          responsibles ( id, name ),
-          invoices ( invoice_number, counterparty_name )
-        `)
+        .select('id, date, description, type, amount, category_id, responsible_id, invoice_id')
         .eq('user_id', user.id)
         .is('deleted_at', null)
         .in('type', ['ingreso', 'egreso'])
@@ -488,20 +482,57 @@ export default function PaymentsLogReport() {
       const txResult = await txQuery;
       if (txResult.error) throw txResult.error;
 
-      const bankRows: PaymentRow[] = (txResult.data ?? []).map((r: any) => ({
-        id: `bank-${r.id}`,
-        rawTxId: r.id,
-        date: r.date,
-        description: r.description ?? 'Sin descripción',
-        type: r.type as 'ingreso' | 'egreso',
-        amount: Math.abs(Number(r.amount ?? 0)),
-        source: 'banco',
-        category: r.categories?.name ?? null,
-        responsible: r.responsibles?.name ?? null,
-        responsible_id: r.responsible_id ?? null,
-        invoice_ref: r.invoices?.invoice_number ?? null,
-        counterparty: r.responsibles?.name ?? null, // = beneficiario en conciliación
-      }));
+      const txs = (txResult.data ?? []) as Array<{
+        id: string;
+        date: string;
+        description: string | null;
+        type: string;
+        amount: number | null;
+        category_id: string | null;
+        responsible_id: string | null;
+        invoice_id: string | null;
+      }>;
+
+      // Lookups en paralelo: categorias del usuario, responsibles del usuario,
+      // y solo las invoices vinculadas a las txs (por invoice_id).
+      const linkedInvoiceIds = Array.from(new Set(txs.map(t => t.invoice_id).filter((id): id is string => !!id)));
+      const [allRespsRes, linkedInvsRes] = await Promise.all([
+        supabase.from('responsibles').select('id, name').eq('user_id', user.id),
+        linkedInvoiceIds.length > 0
+          ? supabase.from('invoices').select('id, invoice_number').in('id', linkedInvoiceIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      const catNameById = new Map<string, string>();
+      for (const c of (allCats ?? []) as Array<{ id: string; name: string }>) {
+        catNameById.set(c.id, c.name);
+      }
+      const respNameById = new Map<string, string>();
+      for (const r of (allRespsRes.data ?? []) as Array<{ id: string; name: string }>) {
+        respNameById.set(r.id, r.name);
+      }
+      const invoiceNumById = new Map<string, string>();
+      for (const i of (linkedInvsRes.data ?? []) as Array<{ id: string; invoice_number: string }>) {
+        invoiceNumById.set(i.id, i.invoice_number);
+      }
+
+      const bankRows: PaymentRow[] = txs.map((r) => {
+        const respName = r.responsible_id ? respNameById.get(r.responsible_id) ?? null : null;
+        return {
+          id: `bank-${r.id}`,
+          rawTxId: r.id,
+          date: r.date,
+          description: r.description ?? 'Sin descripción',
+          type: r.type as 'ingreso' | 'egreso',
+          amount: Math.abs(Number(r.amount ?? 0)),
+          source: 'banco',
+          category: r.category_id ? catNameById.get(r.category_id) ?? null : null,
+          responsible: respName,
+          responsible_id: r.responsible_id ?? null,
+          invoice_ref: r.invoice_id ? invoiceNumById.get(r.invoice_id) ?? null : null,
+          counterparty: respName,
+        };
+      });
 
       // Efectivo solo en Gerencial — y solo si la categoría del cash_movement
       // es "ventas" o "compra" (se filtra en JS porque cash_movements.category
