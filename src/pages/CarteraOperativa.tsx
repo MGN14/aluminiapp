@@ -1,11 +1,24 @@
 import { Navigate } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
-import { Card, CardContent } from '@/components/ui/card';
-import { Wallet, Info } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Wallet, Info, Coins, TrendingUp, Users, AlertCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useModuleContext } from '@/hooks/useModuleContext';
+import { useOperativeReceivables } from '@/hooks/useOperativeReceivables';
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
 
 export default function CarteraOperativa() {
   const { isGerencial } = useModuleContext();
+  const { data, isLoading, error } = useOperativeReceivables();
 
   if (!isGerencial) {
     return <Navigate to="/dashboard" replace />;
@@ -43,15 +56,119 @@ export default function CarteraOperativa() {
           </CardContent>
         </Card>
 
+        {/* KPIs */}
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Coins className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Saldo pendiente</p>
+                <p className="text-xl font-bold text-primary">
+                  {isLoading ? '—' : formatCurrency(data?.total_saldo_pendiente ?? 0)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center">
+                <TrendingUp className="h-5 w-5 text-success" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Recibido</p>
+                <p className="text-xl font-bold text-success">
+                  {isLoading ? '—' : formatCurrency(data?.total_pagado ?? 0)}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Efectivo + banco asignados</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
+                <Users className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Clientes con deuda</p>
+                <p className="text-xl font-bold">
+                  {isLoading ? '—' : data?.clientes_con_deuda ?? 0}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Tabla */}
         <Card className="border-0 shadow-sm">
-          <CardContent className="p-12 flex flex-col items-center justify-center text-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
-              <Wallet className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <p className="text-sm text-muted-foreground max-w-md">
-              Próximamente vas a poder registrar deudas operativas, ver el saldo por cliente y
-              asignar pagos desde conciliación bancaria y movimientos en efectivo.
-            </p>
+          <CardHeader>
+            <CardTitle className="text-base">Cartera por cliente</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {error ? (
+              <div className="flex items-center gap-2 text-sm text-destructive p-4">
+                <AlertCircle className="h-4 w-4" />
+                <span>Error al cargar la cartera. Recargá la página.</span>
+              </div>
+            ) : isLoading ? (
+              <p className="text-sm text-muted-foreground p-4">Cargando...</p>
+            ) : !data || data.rows.length === 0 ? (
+              <div className="text-center py-12 space-y-2">
+                <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mx-auto">
+                  <Wallet className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                  Aún no registraste deudas operativas ni asignaste pagos a esta cartera.
+                  Próximamente vas a poder hacerlo desde acá y desde conciliación bancaria.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead className="text-right">Deuda registrada</TableHead>
+                      <TableHead className="text-right">Pagos en efectivo</TableHead>
+                      <TableHead className="text-right">Pagos en banco</TableHead>
+                      <TableHead className="text-right">Saldo</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.rows.map((r) => (
+                      <TableRow key={r.responsible_id}>
+                        <TableCell className="font-medium">{r.responsible_name}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(r.total_deuda)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-success">
+                          {r.pagado_efectivo > 0 ? formatCurrency(r.pagado_efectivo) : '—'}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-success">
+                          {r.pagado_banco > 0 ? formatCurrency(r.pagado_banco) : '—'}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            'text-right tabular-nums font-semibold',
+                            r.saldo > 0 && 'text-primary',
+                            r.saldo < 0 && 'text-success',
+                            r.saldo === 0 && 'text-muted-foreground'
+                          )}
+                        >
+                          {formatCurrency(r.saldo)}
+                          {r.saldo < 0 && (
+                            <span className="block text-[10px] font-normal text-muted-foreground">
+                              saldo a favor
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
