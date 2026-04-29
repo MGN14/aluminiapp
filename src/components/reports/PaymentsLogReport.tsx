@@ -452,11 +452,11 @@ export default function PaymentsLogReport() {
         if (isIncome || isCost) validCatIds.add(c.id);
       });
 
-      // Si el user no tiene categorías comerciales todavía, devolvemos vacío.
-      if (validCatIds.size === 0) return [];
-
-      // Banco: transactions con join a categories/responsibles/invoices,
-      // FILTRADAS por categoría venta/compra.
+      // Banco: TODAS las transactions del periodo. El filtrado por tipo
+      // (ingreso/egreso) y por cliente lo hace el usuario en los dropdowns
+      // de la UI. Antes había un filtro adicional por categoría comercial
+      // (venta/cliente/compra/proveedor) que escondía pagos legítimos
+      // categorizados como "Servicios", "Otros", etc.
       let txQuery = supabase
         .from('transactions')
         .select(`
@@ -468,7 +468,6 @@ export default function PaymentsLogReport() {
         .eq('user_id', user.id)
         .is('deleted_at', null)
         .in('type', ['ingreso', 'egreso'])
-        .in('category_id', Array.from(validCatIds))
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: false });
