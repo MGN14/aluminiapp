@@ -40,8 +40,19 @@ export interface InformeBancoData {
   concentracionTopPct: number;    // % del cliente top
   // Inventario
   valorInventario: number;
+  rotacionInventario: number; // ratio: ventas año / valor inventario
+  diasInventario: number | null;
   // Promedio mensual
   promedioVentasMensual: number;
+  promedioEgresosMensual: number;
+  puntoEquilibrioMensual: number;
+  // Mix de cobro
+  pctIngresoBanco: number; // 100% si todo banco
+  pctIngresoEfectivo: number;
+  // Top ciudades (de responsibles vinculados a invoices/transactions)
+  topCiudades: Array<{ city: string; total: number; pct: number }>;
+  // Saldo bancario más reciente disponible
+  saldoBancarioActual: number | null;
   // Métricas semáforo para preguntas del banco
   metricas: BancoMetrica[];
 }
@@ -90,7 +101,7 @@ export function useInformeBancoData() {
       const lastYearStart = `${thisYear - 1}-01-01`;
       const lastYearEnd = `${thisYear - 1}-12-31`;
 
-      const [profileRes, txRes, invRes, txPrevRes, productsRes] = await Promise.all([
+      const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('company_name, company_nit, company_city, company_address, company_phone')
@@ -98,14 +109,14 @@ export function useInformeBancoData() {
           .maybeSingle(),
         supabase
           .from('transactions')
-          .select('credit, debit, date, responsible_id')
+          .select('credit, debit, date, responsible_id, balance')
           .eq('user_id', user!.id)
           .is('deleted_at', null)
           .gte('date', yearStart)
           .lte('date', yearEnd),
         supabase
           .from('invoices')
-          .select('id, type, total_amount, issue_date, counterparty_name')
+          .select('id, type, total_amount, issue_date, counterparty_name, responsible_id')
           .eq('user_id', user!.id)
           .eq('status', 'confirmed'),
         supabase
@@ -120,6 +131,25 @@ export function useInformeBancoData() {
           .select('stock_system, cost_per_unit')
           .eq('user_id', user!.id)
           .eq('active', true),
+        supabase
+          .from('cash_movements')
+          .select('amount, type, date')
+          .eq('user_id', user!.id)
+          .gte('date', yearStart)
+          .lte('date', yearEnd),
+        supabase
+          .from('responsibles')
+          .select('id, ciudad')
+          .eq('user_id', user!.id),
+        supabase
+          .from('transactions')
+          .select('balance, date')
+          .eq('user_id', user!.id)
+          .is('deleted_at', null)
+          .order('date', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
 
       const profile = profileRes.data ?? {};
@@ -166,6 +196,15 @@ export function useInformeBancoData() {
 
       // Inventario
       const valorInventario = products.reduce((s, p) => s + (Number(p.stock_system) || 0) * (Number(p.cost_per_unit) || 0), 0);
+      // Rotación: cuántas veces el inventario "se vende" al año.
+      // Aproximamos con costos (egresos compras) sobre valor inv promedio.
+      // Si hay datos: rotación ≈ facturado_compra / valor_inventario
+      const rotacionInventario = valorInventario > 0
+        ? facturadoCompraAno / valorInventario
+        : 0;
+      const diasInventario = rotacionInventario > 0
+        ? Math.round(365 / rotacionInventario)
+        : null;
 
       // Antigüedad: desde primera factura registrada
       const fechaMasAntigua = invs.length > 0
@@ -176,6 +215,41 @@ export function useInformeBancoData() {
         : 0;
 
       const promedioVentasMensual = ingresosBancoAno / 12;
+      const promedioEgresosMensual = egresosBancoAno / 12;
+      // Punto de equilibrio mensual = egresos mensuales / margen operativo
+      // Si margen <= 0, el punto de equilibrio no se puede calcular (negocio en pérdida)
+      const puntoEquilibrioMensual = margenOperativoPct > 0
+        ? promedioEgresosMensual / (margenOperativoPct / 100)
+        : 0;
+
+      // Mix de cobro
+      const cashMovs = (cashRes.data ?? []) as Array<{ amount: number; type: string; date: string }>;
+      const cashIngresoAno = cashMovs.filter(c => c.type === 'ingreso').reduce((s, c) => s + Number(c.amount || 0), 0);
+      const totalIngresoMix = ingresosBancoAno + cashIngresoAno;
+      const pctIngresoBanco = totalIngresoMix > 0 ? (ingresosBancoAno / totalIngresoMix) * 100 : 0;
+      const pctIngresoEfectivo = totalIngresoMix > 0 ? (cashIngresoAno / totalIngresoMix) * 100 : 0;
+
+      // Top ciudades (responsibles vinculados a transactions del año por monto)
+      const respCiudad = new Map<string, string>();
+      for (const r of (respRes.data ?? []) as Array<{ id: string; ciudad: string | null }>) {
+        if (r.ciudad) respCiudad.set(r.id, r.ciudad);
+      }
+      const ciudadAcc = new Map<string, number>();
+      for (const t of txs as Array<{ credit: number | null; responsible_id: string | null }>) {
+        const credit = Number(t.credit || 0);
+        if (credit <= 0 || !t.responsible_id) continue;
+        const ciudad = respCiudad.get(t.responsible_id);
+        if (!ciudad) continue;
+        ciudadAcc.set(ciudad, (ciudadAcc.get(ciudad) ?? 0) + credit);
+      }
+      const totalCiudadesIdent = Array.from(ciudadAcc.values()).reduce((s, v) => s + v, 0);
+      const topCiudades = Array.from(ciudadAcc.entries())
+        .map(([city, total]) => ({ city, total, pct: totalCiudadesIdent > 0 ? (total / totalCiudadesIdent) * 100 : 0 }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 5);
+
+      // Saldo bancario más reciente
+      const saldoBancarioActual = (lastTxRes.data as { balance: number | null } | null)?.balance ?? null;
 
       // Métricas con semáforo
       const metricas: BancoMetrica[] = [
@@ -246,6 +320,63 @@ export function useInformeBancoData() {
           valor: antiguedadMeses,
           semaforo: semaforoAntiguedad(antiguedadMeses),
         },
+        {
+          pregunta: '¿Cuál es tu rotación de inventario?',
+          respuesta: rotacionInventario > 0
+            ? `${rotacionInventario.toFixed(1)} veces al año`
+            : 'Sin datos suficientes',
+          detalle: diasInventario !== null
+            ? `Aprox ${diasInventario} días promedio para rotar todo el inventario`
+            : 'Necesitás facturación de compra registrada e inventario activo.',
+          valor: rotacionInventario,
+          semaforo: rotacionInventario >= 4 ? 'green' : rotacionInventario >= 2 ? 'yellow' : 'red',
+        },
+        {
+          pregunta: '¿Cuánto necesitás vender al mes para cubrir gastos?',
+          respuesta: puntoEquilibrioMensual > 0
+            ? `${fmt(puntoEquilibrioMensual)} (punto de equilibrio)`
+            : 'No calculable con margen actual',
+          detalle: puntoEquilibrioMensual > 0
+            ? `Egresos promedio: ${fmt(promedioEgresosMensual)}/mes · Margen: ${margenOperativoPct.toFixed(1)}%`
+            : 'Negocio en pérdida — los egresos superan ingresos.',
+          valor: puntoEquilibrioMensual,
+          semaforo: puntoEquilibrioMensual > 0 && promedioVentasMensual > puntoEquilibrioMensual ? 'green'
+            : puntoEquilibrioMensual > 0 && promedioVentasMensual >= puntoEquilibrioMensual * 0.8 ? 'yellow'
+            : 'red',
+        },
+        {
+          pregunta: '¿Tu negocio es formal o opera mucho con efectivo?',
+          respuesta: totalIngresoMix > 0
+            ? `${pctIngresoBanco.toFixed(0)}% banco · ${pctIngresoEfectivo.toFixed(0)}% efectivo`
+            : 'Sin ingresos registrados',
+          detalle: pctIngresoEfectivo > 30
+            ? 'El banco prefiere ver alto porcentaje bancario. Considerá formalizar más operaciones.'
+            : 'Buena trazabilidad bancaria — el banco lo va a valorar.',
+          valor: pctIngresoBanco,
+          semaforo: pctIngresoBanco >= 80 ? 'green' : pctIngresoBanco >= 50 ? 'yellow' : 'red',
+        },
+        {
+          pregunta: '¿Dónde están geográficamente tus clientes?',
+          respuesta: topCiudades.length > 0
+            ? `Top: ${topCiudades[0].city} (${topCiudades[0].pct.toFixed(0)}%)`
+            : 'Cargá la ciudad de tus clientes en Conciliación bancaria',
+          detalle: topCiudades.length > 1
+            ? topCiudades.slice(0, 3).map(c => `${c.city} ${c.pct.toFixed(0)}%`).join(' · ')
+            : undefined,
+          valor: topCiudades.length,
+          semaforo: 'green',
+        },
+        {
+          pregunta: '¿Cuál es tu saldo bancario actual aproximado?',
+          respuesta: saldoBancarioActual !== null
+            ? fmt(saldoBancarioActual)
+            : 'Sin extractos cargados',
+          detalle: saldoBancarioActual !== null
+            ? 'Último saldo registrado en conciliación bancaria.'
+            : 'Subí extractos para ver saldo más reciente.',
+          valor: saldoBancarioActual ?? 0,
+          semaforo: 'green',
+        },
       ];
 
       return {
@@ -271,7 +402,15 @@ export function useInformeBancoData() {
         topClientes,
         concentracionTopPct,
         valorInventario,
+        rotacionInventario,
+        diasInventario,
         promedioVentasMensual,
+        promedioEgresosMensual,
+        puntoEquilibrioMensual,
+        pctIngresoBanco,
+        pctIngresoEfectivo,
+        topCiudades,
+        saldoBancarioActual,
         metricas,
       };
     },
