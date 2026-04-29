@@ -1,0 +1,285 @@
+import jsPDF from 'jspdf';
+
+export interface PaymentsLogPdfRow {
+  date: string; // YYYY-MM-DD
+  type: 'ingreso' | 'egreso';
+  source: 'banco' | 'efectivo';
+  description: string;
+  responsible: string | null;
+  invoice_ref: string | null;
+  amount: number;
+}
+
+export interface PaymentsLogPdfData {
+  // Empresa contratante (header)
+  empresaNombre: string;
+  empresaNit?: string;
+  empresaCiudad?: string;
+  // Letterhead opcional
+  letterheadDataUri?: string;
+  letterheadFormat?: 'PNG' | 'JPEG';
+  letterheadTopMarginMm?: number;
+  letterheadBottomMarginMm?: number;
+  // Filtros
+  periodoLabel: string; // ej "Año 2026" o "Marzo 2026"
+  counterparty: string | null; // nombre del cliente, null si es vista global
+  // KPIs
+  tePagaron: number;
+  lePagaste: number;
+  movimientosCount: number;
+  // Saldo por cobrar (solo si hay counterparty con facturas)
+  saldoPorCobrar?: {
+    facturado: number;
+    saldoInicial: number;
+    pagosIdentificados: number;
+    saldoPendiente: number;
+  };
+  // Tabla
+  rows: PaymentsLogPdfRow[];
+}
+
+const COLORS = {
+  ink: [33, 37, 41] as [number, number, number],
+  muted: [110, 110, 115] as [number, number, number],
+  rule: [225, 225, 230] as [number, number, number],
+  panel: [248, 249, 251] as [number, number, number],
+  panelBorder: [220, 222, 228] as [number, number, number],
+  brand: [60, 100, 80] as [number, number, number],
+  success: [40, 130, 80] as [number, number, number],
+  warning: [180, 110, 30] as [number, number, number],
+};
+
+function fmt(n: number): string {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+}
+
+function setText(doc: jsPDF, c: [number, number, number]) {
+  doc.setTextColor(c[0], c[1], c[2]);
+}
+function setFill(doc: jsPDF, c: [number, number, number]) {
+  doc.setFillColor(c[0], c[1], c[2]);
+}
+function setStroke(doc: jsPDF, c: [number, number, number]) {
+  doc.setDrawColor(c[0], c[1], c[2]);
+}
+
+export function generatePaymentsLogPdf(data: PaymentsLogPdfData): jsPDF {
+  const doc = new jsPDF({ unit: 'mm', format: 'letter' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 20;
+  const hasLetterhead = !!data.letterheadDataUri;
+
+  // Letterhead background
+  if (hasLetterhead) {
+    try {
+      doc.addImage(data.letterheadDataUri!, data.letterheadFormat ?? 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
+    } catch (e) {
+      console.error('Error letterhead:', e);
+    }
+  }
+
+  const topMargin = hasLetterhead ? data.letterheadTopMarginMm ?? 35 : 20;
+  const bottomMargin = hasLetterhead ? data.letterheadBottomMarginMm ?? 25 : 18;
+  let y = topMargin;
+
+  // Header empresa (si no hay letterhead)
+  if (!hasLetterhead) {
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(data.empresaNombre.toUpperCase(), marginX, y);
+    y += 4.5;
+    if (data.empresaNit || data.empresaCiudad) {
+      setText(doc, COLORS.muted);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.text([data.empresaNit ? `NIT ${data.empresaNit}` : '', data.empresaCiudad].filter(Boolean).join(' · '), marginX, y);
+    }
+    y += 6;
+    setStroke(doc, COLORS.rule);
+    doc.setLineWidth(0.3);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 8;
+  } else {
+    y += 8;
+  }
+
+  // Título + filtros
+  setText(doc, COLORS.ink);
+  doc.setFont('times', 'bold');
+  doc.setFontSize(16);
+  doc.text(data.counterparty ? `Estado de cuenta — ${data.counterparty}` : 'Relación de pagos', marginX, y);
+  y += 6;
+  setText(doc, COLORS.muted);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text(data.periodoLabel, marginX, y);
+  y += 8;
+
+  // KPIs en 3 columnas
+  const kpiW = (pageW - 2 * marginX - 8) / 3;
+  const kpiH = 18;
+  const kpis = [
+    { label: data.counterparty ? 'TE PAGARON (BANCO)' : 'INGRESOS (BANCO)', value: fmt(data.tePagaron), color: COLORS.success },
+    { label: data.counterparty ? 'LE PAGASTE (BANCO)' : 'EGRESOS (BANCO)', value: fmt(data.lePagaste), color: COLORS.warning },
+    { label: 'MOVIMIENTOS', value: String(data.movimientosCount), color: COLORS.ink },
+  ];
+  kpis.forEach((k, i) => {
+    const x = marginX + i * (kpiW + 4);
+    setFill(doc, COLORS.panel);
+    setStroke(doc, COLORS.panelBorder);
+    doc.setLineWidth(0.2);
+    doc.roundedRect(x, y, kpiW, kpiH, 1.5, 1.5, 'FD');
+    setText(doc, COLORS.muted);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text(k.label, x + 4, y + 5);
+    setText(doc, k.color);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text(k.value, x + 4, y + 13);
+  });
+  y += kpiH + 8;
+
+  // Card Saldo por cobrar
+  if (data.saldoPorCobrar && data.counterparty) {
+    const s = data.saldoPorCobrar;
+    const cardH = 32;
+    setFill(doc, [254, 252, 247]);
+    setStroke(doc, [230, 215, 180]);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(marginX, y, pageW - 2 * marginX, cardH, 1.5, 1.5, 'FD');
+    setText(doc, [110, 80, 30]);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text('TE DEBEN (SALDO POR COBRAR)', marginX + 4, y + 5);
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.text(fmt(s.saldoPendiente), marginX + 4, y + 13);
+
+    setText(doc, COLORS.muted);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    const rightX = pageW - marginX - 4;
+    doc.text(`Facturado: ${fmt(s.facturado)}`, rightX, y + 8, { align: 'right' });
+    doc.text(`+ Saldo inicial: ${fmt(s.saldoInicial)}`, rightX, y + 13, { align: 'right' });
+    setText(doc, COLORS.success);
+    doc.text(`− Pagos identificados: ${fmt(s.pagosIdentificados)}`, rightX, y + 18, { align: 'right' });
+    setText(doc, COLORS.muted);
+    doc.text(`= Saldo pendiente: ${fmt(s.saldoPendiente)}`, rightX, y + 23, { align: 'right' });
+    y += cardH + 8;
+  }
+
+  // Tabla
+  setText(doc, COLORS.ink);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text(`Detalle de movimientos (${data.rows.length})`, marginX, y);
+  y += 5;
+
+  // Headers de columnas
+  const colW = {
+    fecha: 20,
+    tipo: 18,
+    origen: 18,
+    desc: 70,
+    factura: 22,
+    monto: 27,
+  };
+  const colX = {
+    fecha: marginX,
+    tipo: marginX + colW.fecha,
+    origen: marginX + colW.fecha + colW.tipo,
+    desc: marginX + colW.fecha + colW.tipo + colW.origen,
+    factura: marginX + colW.fecha + colW.tipo + colW.origen + colW.desc,
+    monto: marginX + colW.fecha + colW.tipo + colW.origen + colW.desc + colW.factura,
+  };
+
+  setFill(doc, COLORS.panel);
+  doc.rect(marginX, y, pageW - 2 * marginX, 6, 'F');
+  setText(doc, COLORS.muted);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.text('FECHA', colX.fecha + 1, y + 4);
+  doc.text('TIPO', colX.tipo + 1, y + 4);
+  doc.text('ORIGEN', colX.origen + 1, y + 4);
+  doc.text('DESCRIPCIÓN', colX.desc + 1, y + 4);
+  doc.text('FACTURA', colX.factura + 1, y + 4);
+  doc.text('MONTO', colX.monto + colW.monto - 1, y + 4, { align: 'right' });
+  y += 6;
+
+  setText(doc, COLORS.ink);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  const rowH = 5.5;
+
+  for (const r of data.rows) {
+    if (y + rowH > pageH - bottomMargin) {
+      doc.addPage();
+      if (hasLetterhead) {
+        try {
+          doc.addImage(data.letterheadDataUri!, data.letterheadFormat ?? 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
+        } catch {}
+      }
+      y = topMargin + 5;
+    }
+
+    setStroke(doc, COLORS.rule);
+    doc.setLineWidth(0.1);
+    doc.line(marginX, y + rowH - 0.5, pageW - marginX, y + rowH - 0.5);
+
+    setText(doc, COLORS.ink);
+    const dateShort = r.date.slice(5).replace('-', '/'); // MM/DD
+    doc.text(dateShort, colX.fecha + 1, y + 3.8);
+
+    setText(doc, r.type === 'ingreso' ? COLORS.success : COLORS.warning);
+    doc.text(r.type === 'ingreso' ? 'Ingreso' : 'Egreso', colX.tipo + 1, y + 3.8);
+
+    setText(doc, COLORS.muted);
+    doc.text(r.source === 'banco' ? 'Banco' : 'Efectivo', colX.origen + 1, y + 3.8);
+
+    setText(doc, COLORS.ink);
+    const descTrunc = doc.splitTextToSize(r.description, colW.desc - 2)[0] ?? '';
+    doc.text(descTrunc, colX.desc + 1, y + 3.8);
+
+    setText(doc, COLORS.muted);
+    doc.text(r.invoice_ref ?? '—', colX.factura + 1, y + 3.8);
+
+    setText(doc, r.type === 'ingreso' ? COLORS.success : COLORS.ink);
+    doc.setFont('helvetica', 'bold');
+    doc.text(fmt(r.amount), colX.monto + colW.monto - 1, y + 3.8, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+
+    y += rowH;
+  }
+
+  // Totales al pie
+  if (data.rows.length > 0) {
+    y += 2;
+    setStroke(doc, COLORS.ink);
+    doc.setLineWidth(0.4);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 4;
+    const totalIngresos = data.rows.filter(r => r.type === 'ingreso').reduce((s, r) => s + r.amount, 0);
+    const totalEgresos = data.rows.filter(r => r.type === 'egreso').reduce((s, r) => s + r.amount, 0);
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('TOTAL INGRESOS:', colX.factura - 5, y, { align: 'right' });
+    setText(doc, COLORS.success);
+    doc.text(fmt(totalIngresos), colX.monto + colW.monto - 1, y, { align: 'right' });
+    y += 4.5;
+    setText(doc, COLORS.ink);
+    doc.text('TOTAL EGRESOS:', colX.factura - 5, y, { align: 'right' });
+    setText(doc, COLORS.warning);
+    doc.text(fmt(totalEgresos), colX.monto + colW.monto - 1, y, { align: 'right' });
+    y += 4.5;
+    setText(doc, COLORS.ink);
+    doc.text('NETO:', colX.factura - 5, y, { align: 'right' });
+    doc.text(fmt(totalIngresos - totalEgresos), colX.monto + colW.monto - 1, y, { align: 'right' });
+  }
+
+  return doc;
+}

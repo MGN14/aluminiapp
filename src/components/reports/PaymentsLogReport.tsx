@@ -47,6 +47,8 @@ import {
 } from 'lucide-react';
 import VincularFacturaTxModal from './VincularFacturaTxModal';
 import { useQueryClient } from '@tanstack/react-query';
+import { generatePaymentsLogPdf, type PaymentsLogPdfData, type PaymentsLogPdfRow } from '@/lib/paymentsLogPdf';
+import type jsPDF from 'jspdf';
 
 const currentYear = new Date().getFullYear();
 const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - i);
@@ -450,12 +452,17 @@ export default function PaymentsLogReport() {
         if (isIncome || isCost) validCatIds.add(c.id);
       });
 
-      // Si el user no tiene categorías comerciales todavía, devolvemos vacío.
-      if (validCatIds.size === 0) return [];
+      // Si el user no tiene categorías comerciales y NO seleccionó un cliente
+      // específico, devolvemos vacío. Si hay un cliente, queremos verlos
+      // todos sin filtrar por categoría — bug reportado por Nico: KPI mostraba
+      // pagos pero tabla quedaba vacía porque las txs estaban categorizadas
+      // como "Otros" o "Servicios" y no matcheaban venta/cliente/compra.
+      if (validCatIds.size === 0 && counterparty === 'all') return [];
 
-      // Banco: transactions con join a categories/responsibles/invoices,
-      // FILTRADAS por categoría venta/compra.
-      const txQuery = supabase
+      // Banco: transactions con join a categories/responsibles/invoices.
+      // Cuando hay counterparty seleccionado mostramos TODOS sus pagos (sin
+      // filtrar por categoría) — el cliente es el filtro principal.
+      let txQuery = supabase
         .from('transactions')
         .select(`
           id, date, description, type, amount, category_id, responsible_id, invoice_id,
@@ -466,10 +473,29 @@ export default function PaymentsLogReport() {
         .eq('user_id', user.id)
         .is('deleted_at', null)
         .in('type', ['ingreso', 'egreso'])
-        .in('category_id', Array.from(validCatIds))
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: false });
+
+      if (counterparty === 'all') {
+        // Vista global: solo pagos categorizados como venta/compra para no
+        // contaminar con gastos operativos, nómina, etc.
+        txQuery = txQuery.in('category_id', Array.from(validCatIds));
+      } else {
+        // Vista de un cliente específico: filtrar por su responsible_id.
+        // Sin filtro de categoría — queremos TODOS los movimientos del cliente.
+        const { data: respFilter } = await supabase
+          .from('responsibles')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('name', counterparty)
+          .maybeSingle();
+        if (respFilter?.id) {
+          txQuery = txQuery.eq('responsible_id', respFilter.id);
+        } else {
+          return [];
+        }
+      }
       const txResult = await txQuery;
       if (txResult.error) throw txResult.error;
 
@@ -624,6 +650,95 @@ export default function PaymentsLogReport() {
     }
   };
 
+  // Construir data y generar PDF de Relación de Pagos.
+  // Carga datos de empresa + letterhead del profile en cada llamada.
+  const buildAndDownloadPdf = async (): Promise<jsPDF | null> => {
+    if (!user) return null;
+    if (rows.length === 0) {
+      toast.error('No hay pagos en el periodo seleccionado.');
+      return null;
+    }
+
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('company_name, company_nit, company_city, letterhead_path, letterhead_top_margin_mm, letterhead_bottom_margin_mm')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    let letterheadDataUri: string | undefined;
+    let letterheadFormat: 'PNG' | 'JPEG' | undefined;
+    const letterheadPath = (profileData as { letterhead_path?: string | null } | null)?.letterhead_path;
+    if (letterheadPath) {
+      try {
+        const { data: blob } = await supabase.storage.from('letterheads').download(letterheadPath);
+        if (blob) {
+          letterheadDataUri = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+          });
+          const ext = letterheadPath.split('.').pop()?.toLowerCase();
+          letterheadFormat = ext === 'jpg' || ext === 'jpeg' ? 'JPEG' : 'PNG';
+        }
+      } catch (e) {
+        console.error('Error letterhead:', e);
+      }
+    }
+
+    const pdfRows: PaymentsLogPdfRow[] = rows.map((r) => ({
+      date: r.date,
+      type: r.type,
+      source: r.source,
+      description: r.description ?? '',
+      responsible: r.responsible ?? r.counterparty ?? null,
+      invoice_ref: r.invoice_ref ?? null,
+      amount: r.amount,
+    }));
+
+    const pdfData: PaymentsLogPdfData = {
+      empresaNombre: (profileData as { company_name?: string | null })?.company_name || 'Mi empresa',
+      empresaNit: (profileData as { company_nit?: string | null })?.company_nit ?? undefined,
+      empresaCiudad: (profileData as { company_city?: string | null })?.company_city ?? undefined,
+      letterheadDataUri,
+      letterheadFormat,
+      letterheadTopMarginMm: (profileData as { letterhead_top_margin_mm?: number | null })?.letterhead_top_margin_mm ?? undefined,
+      letterheadBottomMarginMm: (profileData as { letterhead_bottom_margin_mm?: number | null })?.letterhead_bottom_margin_mm ?? undefined,
+      periodoLabel,
+      counterparty: counterparty !== 'all' ? counterparty : null,
+      tePagaron: counterparty !== 'all' && counterpartySummary
+        ? counterpartySummary.movIngresos
+        : totals.ingresos,
+      lePagaste: counterparty !== 'all' && counterpartySummary
+        ? counterpartySummary.movEgresos
+        : totals.egresos,
+      movimientosCount: rows.length,
+      saldoPorCobrar: counterparty !== 'all' && counterpartySummary && counterpartySummary.hasInvoices
+        ? {
+            facturado: counterpartySummary.facturado,
+            saldoInicial: counterpartySummary.anticiposClienteUnlinked,
+            pagosIdentificados: counterpartySummary.movIngresos,
+            saldoPendiente: counterpartySummary.pendienteVenta,
+          }
+        : undefined,
+      rows: pdfRows,
+    };
+
+    return generatePaymentsLogPdf(pdfData);
+  };
+
+  const handlePdfDownload = async () => {
+    try {
+      const pdf = await buildAndDownloadPdf();
+      if (!pdf) return;
+      pdf.save(`${fileSlug}.pdf`);
+      toast.success(`PDF generado: ${rows.length} movimientos`);
+    } catch (e: any) {
+      console.error(e);
+      toast.error('No pudimos generar el PDF. Intentá de nuevo.');
+    }
+  };
+
   // WhatsApp share — abre wa.me sin número (el usuario elige contacto).
   // En paralelo descarga el Excel local para que lo arrastre al chat manualmente.
   // Mensaje limpio sin emojis pesados.
@@ -669,16 +784,33 @@ export default function PaymentsLogReport() {
           `Detalle en el Excel adjunto.`,
         ].join('\n');
       }
-      // Descargar Excel en paralelo
-      const data = buildWorkbook();
-      await writeXlsxFile(data as any, { fileName: fileSlug, columns: xlsxColumns } as any);
-      // Abrir WhatsApp sin número — el usuario elige contacto
+      // Generar PDF en paralelo
+      const pdf = await buildAndDownloadPdf();
+      if (!pdf) return;
+
+      // Si el browser soporta Web Share API con archivos, compartir directo
+      const pdfBlob = pdf.output('blob');
+      const pdfFile = new File([pdfBlob], `${fileSlug}.pdf`, { type: 'application/pdf' });
+
+      const navAny = navigator as Navigator & { canShare?: (data: ShareData) => boolean; share?: (data: ShareData) => Promise<void> };
+      if (navAny.canShare && navAny.canShare({ files: [pdfFile] }) && navAny.share) {
+        try {
+          await navAny.share({ files: [pdfFile], text: msg, title: 'Relación de pagos' });
+          return;
+        } catch (e: any) {
+          if (e?.name === 'AbortError') return;
+          // Si la share API falla, caemos al fallback de descargar + wa.me
+        }
+      }
+
+      // Fallback: descargar PDF + abrir wa.me
+      pdf.save(`${fileSlug}.pdf`);
       const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
       window.open(url, '_blank');
-      toast.info('WhatsApp abierto. El Excel se descargó — arrastralo al chat.');
+      toast.info('PDF descargado. WhatsApp abierto — arrastrá el PDF al chat.');
     } catch (e) {
       console.error(e);
-      toast.error('No pudimos abrir WhatsApp. Intentá descargar el Excel y enviarlo manual.');
+      toast.error('No pudimos abrir WhatsApp. Intentá descargar el PDF y enviarlo manual.');
     }
   };
 
@@ -731,6 +863,15 @@ export default function PaymentsLogReport() {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline" size="sm"
+                onClick={handlePdfDownload}
+                disabled={isLoading || rows.length === 0}
+                className="gap-2"
+              >
+                <Download className="h-4 w-4" />
+                PDF
+              </Button>
               <Button
                 variant="outline" size="sm"
                 onClick={handleExport}
