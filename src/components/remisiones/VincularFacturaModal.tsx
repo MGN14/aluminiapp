@@ -33,6 +33,20 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Datos de la remision para saber su responsible_id (pre-filtrar facturas)
+  const { data: remision } = useQuery({
+    queryKey: ['remision-for-link', remisionId],
+    queryFn: async () => {
+      const { data } = await (supabase
+        .from('remisiones') as any)
+        .select('responsible_id, beneficiary')
+        .eq('id', remisionId)
+        .maybeSingle();
+      return data as { responsible_id: string | null; beneficiary: string | null } | null;
+    },
+    enabled: !!remisionId && open,
+  });
+
   // Facturas disponibles
   const { data: invoices = [] } = useQuery({
     queryKey: ['invoices-for-link', user?.id],
@@ -40,7 +54,7 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
       if (!user?.id) return [];
       const { data } = await supabase
         .from('invoices')
-        .select('id, invoice_number, issue_date, total_amount, counterparty_name, display_name')
+        .select('id, invoice_number, issue_date, total_amount, counterparty_name, display_name, responsible_id')
         .eq('user_id', user.id)
         .eq('type', 'venta')
         .order('issue_date', { ascending: false });
@@ -48,6 +62,9 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
     },
     enabled: !!user?.id && open,
   });
+
+  // Toggle: mostrar todas las facturas o solo las del cliente de la remision
+  const [showAll, setShowAll] = useState(false);
 
   // Facturas ya vinculadas a esta remisión
   const { data: linked = [] } = useQuery({
@@ -62,8 +79,25 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
     enabled: !!remisionId && open,
   });
 
-  const filteredInvoices = invoices.filter((inv: any) => {
+  // Pre-filtro por cliente de la remision (si tiene responsible_id):
+  //   - Match exacto por responsible_id
+  //   - Fallback: ilike por counterparty_name con el beneficiary text
+  // El usuario puede activar "showAll" para ver todas si necesita.
+  const clientFilteredInvoices = (() => {
+    if (showAll || !remision) return invoices;
+    const respId = remision.responsible_id;
+    const benef = remision.beneficiary?.trim().toLowerCase();
+    if (!respId && !benef) return invoices;
+    return invoices.filter((inv: any) => {
+      if (respId && inv.responsible_id === respId) return true;
+      if (benef && inv.counterparty_name?.toLowerCase().includes(benef)) return true;
+      return false;
+    });
+  })();
+
+  const filteredInvoices = clientFilteredInvoices.filter((inv: any) => {
     const q = search.toLowerCase();
+    if (!q) return true;
     return (
       inv.invoice_number?.toLowerCase().includes(q) ||
       inv.counterparty_name?.toLowerCase().includes(q) ||
@@ -74,22 +108,29 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
   const handleToggle = async (invoiceId: string) => {
     if (!user?.id) return;
     setSaving(true);
-    if (linked.includes(invoiceId)) {
-      // Desvincular
-      await (supabase.from('remision_invoices') as any)
-        .delete()
-        .eq('remision_id', remisionId)
-        .eq('invoice_id', invoiceId);
-      toast({ title: 'Factura desvinculada' });
-    } else {
-      // Vincular
-      await (supabase.from('remision_invoices') as any)
-        .insert({ remision_id: remisionId, invoice_id: invoiceId, user_id: user.id });
-      toast({ title: 'Factura vinculada correctamente' });
+    try {
+      if (linked.includes(invoiceId)) {
+        // Desvincular
+        await (supabase.from('remision_invoices') as any)
+          .delete()
+          .eq('remision_id', remisionId)
+          .eq('invoice_id', invoiceId);
+        toast({ title: 'Factura desvinculada' });
+      } else {
+        // Vincular. UNIQUE constraint en (remision_id, invoice_id) previene
+        // duplicados a nivel DB; aca atrapamos el conflict por las dudas.
+        const { error } = await (supabase.from('remision_invoices') as any)
+          .insert({ remision_id: remisionId, invoice_id: invoiceId, user_id: user.id });
+        if (error && error.code !== '23505') throw error;
+        toast({ title: 'Factura vinculada correctamente' });
+      }
+      queryClient.invalidateQueries({ queryKey: ['remision-invoices', remisionId] });
+      queryClient.invalidateQueries({ queryKey: ['remisiones'] });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
     }
-    queryClient.invalidateQueries({ queryKey: ['remision-invoices', remisionId] });
-    queryClient.invalidateQueries({ queryKey: ['remisiones'] });
-    setSaving(false);
   };
 
   return (
@@ -121,14 +162,32 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
           </div>
         )}
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por número o cliente..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-9"
-          />
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por número o cliente..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {(remision?.responsible_id || remision?.beneficiary) && (
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">
+                {showAll
+                  ? 'Mostrando TODAS las facturas de venta'
+                  : `Filtrando facturas de "${remision.beneficiary || 'cliente de la remisión'}" (${clientFilteredInvoices.length})`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAll((v) => !v)}
+                className="text-primary hover:underline"
+              >
+                {showAll ? 'Solo del cliente' : 'Ver todas'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-1 max-h-80">
