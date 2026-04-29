@@ -1213,10 +1213,121 @@ ${inventoryCtx}
           "7. Sin estados formales, no accedés a crédito formal.",
         ].join("\n");
 
+    // =============================================
+    // MÓDULO 12 — CARTERA OPERATIVA (Gerencial, admin only)
+    // Resume el estado de Cartera Operativa para que Nico Gerencial pueda
+    // responder sobre saldos por cliente y pagos por cazar.
+    // =============================================
+    const lookback90 = new Date();
+    lookback90.setDate(lookback90.getDate() - 90);
+    const lookback90Iso = lookback90.toISOString().slice(0, 10);
+
+    const [
+      operativeDebtsRes,
+      operativeBankAssignedRes,
+      operativeCashAssignedRes,
+      operativePendingPaymentsRes,
+      operativeResponsiblesRes,
+    ] = await Promise.all([
+      supabase
+        .from("operative_receivables")
+        .select("responsible_id, amount")
+        .eq("user_id", user.id),
+      supabase
+        .from("transactions")
+        .select("operative_responsible_id, credit")
+        .eq("user_id", user.id)
+        .eq("operative_receivable_assigned", true)
+        .is("deleted_at", null),
+      supabase
+        .from("cash_movements")
+        .select("responsible_id, amount")
+        .eq("user_id", user.id)
+        .eq("type", "ingreso")
+        .not("responsible_id", "is", null),
+      supabase
+        .from("transactions")
+        .select("id, date, description, credit")
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
+        .is("responsible_id", null)
+        .eq("operative_receivable_assigned", false)
+        .gt("credit", 0)
+        .gte("date", lookback90Iso)
+        .order("date", { ascending: false })
+        .limit(20),
+      supabase
+        .from("responsibles")
+        .select("id, name")
+        .eq("user_id", user.id),
+    ]);
+
+    const opNamesById = new Map<string, string>();
+    for (const r of operativeResponsiblesRes.data ?? []) opNamesById.set(r.id, r.name);
+
+    type OpRow = { name: string; deuda: number; pagado: number; saldo: number };
+    const opAcc = new Map<string, OpRow>();
+    const opGet = (id: string): OpRow => {
+      let row = opAcc.get(id);
+      if (!row) {
+        row = { name: opNamesById.get(id) ?? "(Sin nombre)", deuda: 0, pagado: 0, saldo: 0 };
+        opAcc.set(id, row);
+      }
+      return row;
+    };
+    for (const d of operativeDebtsRes.data ?? []) {
+      if (!d.responsible_id) continue;
+      opGet(d.responsible_id).deuda += Number(d.amount) || 0;
+    }
+    for (const b of (operativeBankAssignedRes.data ?? []) as Array<{ operative_responsible_id: string | null; credit: number | null }>) {
+      if (!b.operative_responsible_id) continue;
+      opGet(b.operative_responsible_id).pagado += Number(b.credit) || 0;
+    }
+    for (const c of operativeCashAssignedRes.data ?? []) {
+      if (!c.responsible_id) continue;
+      opGet(c.responsible_id).pagado += Number(c.amount) || 0;
+    }
+    const opRows = Array.from(opAcc.values()).map((r) => ({ ...r, saldo: r.deuda - r.pagado }));
+
+    const opTotalDeudas = opRows.reduce((s, r) => s + r.deuda, 0);
+    const opTotalPagado = opRows.reduce((s, r) => s + r.pagado, 0);
+    const opSaldoPendiente = opRows.filter((r) => r.saldo > 0).reduce((s, r) => s + r.saldo, 0);
+    const opSaldoAFavor = opRows.filter((r) => r.saldo < 0).reduce((s, r) => s + Math.abs(r.saldo), 0);
+    const opTopDeudores = opRows
+      .filter((r) => r.saldo > 0)
+      .sort((a, b) => b.saldo - a.saldo)
+      .slice(0, 5);
+
+    const opPendingPayments = (operativePendingPaymentsRes.data ?? []) as Array<{
+      id: string;
+      date: string;
+      description: string | null;
+      credit: number | null;
+    }>;
+    const opPendingTotal = opPendingPayments.reduce((s, p) => s + (Number(p.credit) || 0), 0);
+
+    const carteraOperativaCtx = (opTotalDeudas === 0 && opPendingPayments.length === 0)
+      ? "No hay cartera operativa registrada todavia. El admin puede registrar deudas en /reportes/cartera-operativa o asignar pagos bancarios pendientes a clientes."
+      : [
+          "RESUMEN GLOBAL:",
+          `- Deudas registradas (manual): ${fmt(opTotalDeudas)}`,
+          `- Pagado a operativa (banco asignado + efectivo de cliente): ${fmt(opTotalPagado)}`,
+          `- Saldo pendiente (clientes que aún deben): ${fmt(opSaldoPendiente)}`,
+          opSaldoAFavor > 0 ? `- Saldo a favor (clientes que pagaron de más): ${fmt(opSaldoAFavor)}` : "",
+          "",
+          opTopDeudores.length > 0 ? "TOP CLIENTES CON SALDO PENDIENTE:" : "Ningún cliente con saldo pendiente.",
+          ...opTopDeudores.map((r, i) => `${i + 1}. ${r.name}: deuda ${fmt(r.deuda)} − pagado ${fmt(r.pagado)} = saldo ${fmt(r.saldo)}`),
+          "",
+          `PAGOS BANCARIOS PENDIENTES DE ASIGNAR (últimos 90 días, sin beneficiario DIAN ni operativa): ${opPendingPayments.length} pagos por ${fmt(opPendingTotal)}`,
+          ...opPendingPayments.slice(0, 8).map((p) => `- ${p.date}: ${(p.description ?? "").slice(0, 60)} → ${fmt(Number(p.credit) || 0)}`),
+          opPendingPayments.length > 8 ? `(${opPendingPayments.length - 8} pagos más)` : "",
+        ].filter(Boolean).join("\n");
+
     const financialContext = baseFinancialContext
       + "\n\n═══════════════════════════════════════════\nMÓDULO 9 — MEMORIA DEL NEGOCIO\n═══════════════════════════════════════════\n\n" + memoryCtx
       + "\n\n═══════════════════════════════════════════\nMÓDULO 10 — PATRONES DETECTADOS\n═══════════════════════════════════════════\n\n" + patternsCtx
       + "\n\n═══════════════════════════════════════════\nMÓDULO 11 — BRECHA DIAN Y RENTABILIDAD DE FORMALIZAR\n═══════════════════════════════════════════\n\n" + evasionCtx
+      + "\n\n═══════════════════════════════════════════\nMÓDULO 12 — CARTERA OPERATIVA (Gerencial, admin only)\n═══════════════════════════════════════════\n\n" + carteraOperativaCtx
       + "\n\n═══════════════════════════════════════════\nINFORMACIÓN DEL NEGOCIO\n═══════════════════════════════════════════\n"
       + "Empresa: " + companyName + "\n"
       + "Contacto: " + (userName || "No registrado");
@@ -1257,9 +1368,9 @@ ${inventoryCtx}
         modules: "MÓDULO 9 (Memoria del negocio) y MÓDULO 10 (Patrones y predicciones) son tu base. También usas MÓDULO 1 y 2 para contexto histórico.",
       },
       gerencial: {
-        role: `Eres Nico Gerencial, el consejero directo del dueño de ${empresa} para la pregunta que realmente importa: ¿vale la pena evadir? Tu trabajo es poner números fríos a la brecha entre lo real y lo facturado, y mostrar por qué formalizar (pagar impuestos legalmente) suele ser más rentable que esconder. Hablás como un asesor que está del mismo lado del empresario y que quiere que duerma tranquilo.`,
-        focus: "Brecha entre ingresos reales y facturación DIAN (MÓDULO 11). Distinción crítica: el efectivo NO es auditable por cruces estándar, pero tiene 7 enemigos (UIAF, denuncias, cruce patrimonial, consignaciones, robo, clientes corporativos, crédito). Rentabilidad esperada de formalizar vs evadir: compará ahorro tributario aparente vs costo esperado (sanción Art 648 ET 100% + intereses 24% + probabilidad auditoría). Riesgo penal Art 434A CP si impuesto omitido anual > 250 SMLMV. Empujá a ver el simulador en /visita-dian#rentabilidad y al disclaimer del Dashboard. No moralices: hablá de plata y riesgo, no de ética.",
-        modules: "MÓDULO 11 (Brecha DIAN y rentabilidad de formalizar) es tu base. Usás MÓDULO 1 (caja), MÓDULO 2 (facturación) y MÓDULO 6 (estado inicial) para contexto. Si preguntan por score fiscal, remití a Nico Visita DIAN.",
+        role: `Eres Nico Gerencial, el consejero directo del dueño de ${empresa} para las preguntas que realmente importan: ¿quién me debe en la realidad? ¿qué pagos están sueltos? ¿vale la pena formalizar este efectivo? Tu trabajo es poner números fríos a la brecha entre lo real y lo facturado, y ayudar al dueño a manejar Cartera Operativa (deudas y cobros que no necesariamente pasan por DIAN) con visión completa. Hablás como un asesor que está del mismo lado del empresario y que quiere que duerma tranquilo.`,
+        focus: "Cartera Operativa (MÓDULO 12): saldos por cliente sumando deudas registradas + pagos en efectivo + pagos bancarios asignados. Cuando preguntan '¿quién me debe?', '¿cuánto me deben en realidad?', '¿qué pagos tengo sueltos?' o '¿cómo va el cobro de X cliente?' tu respuesta sale de ahí. Pagos bancarios pendientes de asignar (últimos 90d) son oportunidades para cazar dueño — sugerí asignarlos a clientes conocidos cuando el monto/fecha lo haga obvio. Brecha DIAN (MÓDULO 11) y rentabilidad de formalizar: efectivo no auditable por cruces estándar pero tiene 7 enemigos (UIAF, denuncias, cruce patrimonial, consignaciones, robo, clientes corporativos, crédito). Compará ahorro aparente vs costo esperado (sanción 100% Art 648 ET + intereses 24% + prob auditoría). Riesgo penal Art 434A CP si impuesto omitido anual > 250 SMLMV. Empujá al simulador en /visita-dian#rentabilidad y a /reportes/cartera-operativa para gestionar saldos. No moralices: hablá de plata y riesgo.",
+        modules: "MÓDULO 11 (Brecha DIAN) y MÓDULO 12 (Cartera Operativa) son tus bases. Usás MÓDULO 1 (caja) y MÓDULO 2 (facturación) para contexto. Si preguntan por score fiscal, remití a Nico Visita DIAN.",
       },
     };
     const persona = agentPersonas[agent_key];
