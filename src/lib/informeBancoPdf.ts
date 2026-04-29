@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import { addAluminiaFooter } from './pdfBranding';
 import type { InformeBancoData, SemaforoColor } from '@/hooks/useInformeBancoData';
+import { DOCUMENTOS_BANCO, CATEGORY_LABELS, type DocCategory } from './informeBancoDocs';
 
 const COLORS = {
   ink: [33, 37, 41] as [number, number, number],
@@ -250,6 +251,90 @@ export function generateInformeBancoPdf(data: InformeBancoData): jsPDF {
     }
 
     y += cardH + 3;
+  }
+
+  // ============= PÁGINA 3: DOCUMENTOS QUE EL BANCO PUEDE PEDIR =============
+  doc.addPage();
+  y = 22;
+  setText(doc, COLORS.ink);
+  doc.setFont('times', 'bold');
+  doc.setFontSize(14);
+  doc.text('Documentos que el banco te puede pedir', marginX, y);
+  y += 5;
+  setText(doc, COLORS.muted);
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8.5);
+  doc.text('Checklist de soporte típico para una solicitud de crédito empresarial.', marginX, y);
+  y += 8;
+
+  // Agrupar por categoría
+  const cats: DocCategory[] = ['antecedentes', 'fiscales', 'financieros', 'personales', 'operativos'];
+  for (const cat of cats) {
+    const docsInCat = DOCUMENTOS_BANCO.filter(d => d.category === cat);
+    if (docsInCat.length === 0) continue;
+
+    if (y > pageH - 40) {
+      doc.addPage();
+      y = 22;
+    }
+
+    setText(doc, COLORS.muted);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text(CATEGORY_LABELS[cat].toUpperCase(), marginX, y);
+    y += 5;
+
+    setStroke(doc, COLORS.rule);
+    doc.setLineWidth(0.2);
+    doc.line(marginX, y - 2, pageW - marginX, y - 2);
+
+    for (const d of docsInCat) {
+      if (y > pageH - 30) {
+        doc.addPage();
+        y = 22;
+      }
+
+      // Checkbox visual (cuadrito vacío)
+      setStroke(doc, COLORS.muted);
+      doc.setLineWidth(0.3);
+      doc.rect(marginX, y - 2.5, 3, 3);
+
+      // Nombre
+      setText(doc, COLORS.ink);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.text(d.nombre, marginX + 5, y);
+
+      // Costo badge si tiene
+      if (d.costoLabel) {
+        setText(doc, COLORS.muted);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        const costoX = marginX + 5 + doc.getTextWidth(d.nombre) + 3;
+        doc.text(`(${d.costoLabel})`, costoX, y);
+      }
+
+      // Descripción
+      setText(doc, COLORS.muted);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      const descLines = doc.splitTextToSize(d.descripcion, pageW - 2 * marginX - 5);
+      doc.text(descLines.slice(0, 2), marginX + 5, y + 4);
+      y += 4 + Math.min(descLines.length, 2) * 3.5;
+
+      // Link
+      if (d.link) {
+        setText(doc, COLORS.brand);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        const linkText = `→ ${d.linkLabel ?? d.link}`;
+        doc.textWithLink(linkText, marginX + 5, y, { url: d.link });
+        y += 4;
+      }
+
+      y += 2.5;
+    }
+    y += 3;
   }
 
   // Disclaimer al pie

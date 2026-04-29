@@ -1,10 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Building2, FileDown, Loader2, AlertCircle, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { Building2, FileDown, Loader2, AlertCircle, CheckCircle2, AlertTriangle, XCircle, ExternalLink, FileCheck } from 'lucide-react';
 import { useInformeBancoData, type SemaforoColor } from '@/hooks/useInformeBancoData';
 import { generateInformeBancoPdf } from '@/lib/informeBancoPdf';
 import { useToast } from '@/hooks/use-toast';
+import { groupDocsByCategory, CATEGORY_LABELS } from '@/lib/informeBancoDocs';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -190,6 +191,61 @@ export default function InformeBancoView() {
               </div>
             );
           })}
+        </CardContent>
+      </Card>
+
+      {/* Documentos que el banco te puede pedir */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileCheck className="h-4 w-4 text-muted-foreground" />
+            Documentos que el banco te puede pedir
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Recordatorio de lo que típicamente se solicita en una solicitud de crédito empresarial.
+            Los marcados con <ExternalLink className="h-2.5 w-2.5 inline" /> tienen link al portal oficial.
+            AluminIA no consulta ni almacena estos documentos automáticamente.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {Object.entries(groupDocsByCategory()).map(([cat, docs]) => (
+            <div key={cat} className="space-y-1.5">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                {CATEGORY_LABELS[cat as keyof typeof CATEGORY_LABELS]}
+              </p>
+              <div className="space-y-1">
+                {docs.map((d) => (
+                  <div
+                    key={d.id}
+                    className="flex items-start justify-between gap-3 p-2.5 rounded-lg border bg-muted/20"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium">{d.nombre}</p>
+                        {d.costoLabel && (
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+                            {d.costoLabel}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{d.descripcion}</p>
+                    </div>
+                    {d.link && (
+                      <a
+                        href={d.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        {d.linkLabel ?? 'Abrir'}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
