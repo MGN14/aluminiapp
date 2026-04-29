@@ -773,10 +773,14 @@ function DashboardContent() {
         </div>
       </DashboardBlock>
     ),
-    pendingTable: (idx: number) => (
+    pendingTable: (idx: number) => {
+      // En Modo Gerencial el card de Pendientes se oculta: la conciliacion DIAN
+      // se hace en Modo DIAN, la asignacion de pagos a clientes en Cartera Operativa.
+      if (isGerencial) return null;
+      return (
       <DashboardBlock id="pendingTable" customization={customization} index={idx}>
         <PendingTransactionsTable
-          transactions={transactions.filter(tx => parseLocalDate(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type }))}
+          transactions={transactions.filter(tx => parseLocalDate(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type, operative_receivable_assigned: (tx as { operative_receivable_assigned?: boolean | null }).operative_receivable_assigned ?? false }))}
           categories={categories}
           responsibles={responsibles}
           periodLabel={`Año ${periodSelection.year}`}
@@ -785,7 +789,8 @@ function DashboardContent() {
           onResponsibleAdded={fetchResponsibles}
         />
       </DashboardBlock>
-    ),
+      );
+    },
   };
 
   // ── Loading state ──
