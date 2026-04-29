@@ -54,6 +54,8 @@ interface NavItem {
   /** El ítem existe siempre, pero su contenido cambia en Modo Gerencial
    *  (ej: Dashboard, Remisiones, Estado de resultados) */
   hasGerencialVariant?: boolean;
+  /** El ítem se OCULTA en Modo Gerencial porque otro item gerencial lo reemplaza */
+  hideInGerencial?: boolean;
 }
 
 const documentItems: NavItem[] = [
@@ -77,7 +79,7 @@ const movementItemsGerencial: NavItem[] = [];
 const reportItems: NavItem[] = [
   { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3, hasGerencialVariant: true },
   { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt },
-  { title: 'Lo que me deben', url: '/reportes/cuentas-por-cobrar', icon: Users },
+  { title: 'Lo que me deben', url: '/reportes/cuentas-por-cobrar', icon: Users, hideInGerencial: true },
   { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
   { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet },
   { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks },
@@ -292,7 +294,8 @@ function SidebarSection({
   currentSearch,
   isGerencial,
 }: SectionProps) {
-  const allItems = isGerencial && gerencialItems ? [...items, ...gerencialItems] : items;
+  const baseItems = isGerencial ? items.filter((item) => !item.hideInGerencial) : items;
+  const allItems = isGerencial && gerencialItems ? [...baseItems, ...gerencialItems] : baseItems;
 
   return (
     <SidebarGroup>

@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { SubscriptionProvider } from "@/hooks/useSubscription";
-import { ModuleProvider } from "@/hooks/useModuleContext";
+import { ModuleProvider, useModuleContext } from "@/hooks/useModuleContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
 import RouteErrorBoundary from "@/components/RouteErrorBoundary";
@@ -71,6 +71,14 @@ const RouteFallback = () => (
     <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
   </div>
 );
+
+// En Modo Gerencial, "Lo que me deben" se reemplaza por Cartera Operativa.
+// Si el admin entra por URL directa estando en Gerencial, lo redirigimos.
+function CuentasPorCobrarGuard() {
+  const { isGerencial } = useModuleContext();
+  if (isGerencial) return <Navigate to="/reportes/cartera-operativa" replace />;
+  return <Reports tab="cxc" />;
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -146,7 +154,7 @@ const App = () => (
               />
               <Route
                 path="/reportes/cuentas-por-cobrar"
-                element={<ProtectedRoute><Reports tab="cxc" /></ProtectedRoute>}
+                element={<ProtectedRoute><CuentasPorCobrarGuard /></ProtectedRoute>}
               />
               <Route
                 path="/reportes/cuentas-por-pagar"

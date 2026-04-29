@@ -1,8 +1,8 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Wallet, Info, Coins, TrendingUp, Users, AlertCircle } from 'lucide-react';
+import { Wallet, Info, Coins, TrendingUp, Users, AlertCircle, Landmark, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useOperativeReceivables } from '@/hooks/useOperativeReceivables';
@@ -17,12 +17,18 @@ function formatCurrency(value: number) {
 }
 
 export default function CarteraOperativa() {
-  const { isGerencial } = useModuleContext();
+  const { isGerencial, setMode } = useModuleContext();
   const { data, isLoading, error } = useOperativeReceivables();
+  const navigate = useNavigate();
 
   if (!isGerencial) {
     return <Navigate to="/dashboard" replace />;
   }
+
+  const goToCarteraDian = () => {
+    setMode('dian');
+    navigate('/reportes/cuentas-por-cobrar');
+  };
 
   return (
     <AppLayout>
@@ -171,6 +177,24 @@ export default function CarteraOperativa() {
             )}
           </CardContent>
         </Card>
+
+        {/* Referencia a cartera fiscal DIAN */}
+        <button
+          type="button"
+          onClick={goToCarteraDian}
+          className="w-full text-left group rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 hover:bg-muted/40 hover:border-muted-foreground/50 transition-colors p-4 flex items-center gap-3"
+        >
+          <div className="w-9 h-9 rounded-lg bg-background flex items-center justify-center flex-shrink-0">
+            <Landmark className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">¿Buscás tu cartera fiscal?</p>
+            <p className="text-xs text-muted-foreground">
+              Las facturas electrónicas pendientes de pago viven en Modo DIAN — Lo que me deben.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform flex-shrink-0" />
+        </button>
       </div>
     </AppLayout>
   );
