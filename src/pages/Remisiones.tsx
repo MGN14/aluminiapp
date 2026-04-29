@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -7,8 +7,9 @@ import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Package, Eye, Trash2, Pencil, ArrowRightLeft, AlertTriangle, CheckCircle, AlertCircle, XCircle, Link } from 'lucide-react';
+import { Plus, Package, Eye, Trash2, Pencil, ArrowRightLeft, AlertTriangle, CheckCircle, AlertCircle, XCircle, Link, ArrowUp, ArrowDown, ArrowUpDown, Search } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -97,6 +98,12 @@ export default function Remisiones() {
   const [moverId, setMoverId] = useState<string | null>(null);
   const [scoreDetail, setScoreDetail] = useState<{ label: string; detail: string; color: string } | null>(null);
   const [vincularRemision, setVincularRemision] = useState<{ id: string; number: string } | null>(null);
+  const [moverGerencialId, setMoverGerencialId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'date' | 'value' | 'score'>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const effectiveGerencial = mode === 'gerencial';
   const moduleOrigin = effectiveGerencial ? 'gerencial' : 'dian';
@@ -166,6 +173,64 @@ export default function Remisiones() {
     setMoverId(null);
   };
 
+  const handleMoverGerencial = async () => {
+    if (!moverGerencialId) return;
+    const { error } = await (supabase.from('remisiones') as any).update({ module_origin: 'gerencial' }).eq('id', moverGerencialId);
+    if (error) {
+      toast({ title: 'No se pudo mover', variant: 'destructive' });
+    } else {
+      toast({ title: 'Remisión movida al Módulo Gerencial', description: 'Ya no se monitoreará su cobertura fiscal.' });
+      queryClient.invalidateQueries({ queryKey: ['remisiones'] });
+    }
+    setMoverGerencialId(null);
+  };
+
+  // Filter + sort en JS sobre el array ya cargado
+  const filteredRemisiones = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let arr = remisiones.filter((r: any) => {
+      if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+      if (typeFilter !== 'all' && r.remision_type !== typeFilter) return false;
+      if (q) {
+        const blob = `${r.number ?? ''} ${r.beneficiary ?? ''} ${r.notes ?? ''}`.toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+      return true;
+    });
+    arr = [...arr].sort((a: any, b: any) => {
+      let aVal: number = 0;
+      let bVal: number = 0;
+      if (sortBy === 'date') {
+        aVal = new Date(a.date).getTime();
+        bVal = new Date(b.date).getTime();
+      } else if (sortBy === 'value') {
+        const aItems = a.remision_items || [];
+        const bItems = b.remision_items || [];
+        aVal = a.total_manual ? Number(a.total_manual) : aItems.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
+        bVal = b.total_manual ? Number(b.total_manual) : bItems.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
+      } else if (sortBy === 'score') {
+        aVal = !effectiveGerencial && a.remision_type !== 'compra' ? calcScore(a).score : -1;
+        bVal = !effectiveGerencial && b.remision_type !== 'compra' ? calcScore(b).score : -1;
+      }
+      return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+    return arr;
+  }, [remisiones, search, statusFilter, typeFilter, sortBy, sortDir, effectiveGerencial]);
+
+  const toggleSort = (col: 'date' | 'value' | 'score') => {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col);
+      setSortDir('desc');
+    }
+  };
+
+  const sortIcon = (col: 'date' | 'value' | 'score') => {
+    if (sortBy !== col) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />;
+    return sortDir === 'asc' ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />;
+  };
+
   const totalRemisiones = remisiones.length;
   const totalUnidades = remisiones.reduce((s, r: any) => s + (r.remision_items?.reduce((si: number, i: any) => si + Number(i.units), 0) || 0), 0);
   const totalValor = remisiones.reduce((s, r: any) => {
@@ -211,7 +276,40 @@ export default function Remisiones() {
         </div>
 
         <Card className="border-0 shadow-sm">
-          <CardHeader><CardTitle className="text-base">Historial de Remisiones</CardTitle></CardHeader>
+          <CardHeader className="space-y-3">
+            <CardTitle className="text-base">Historial de Remisiones</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por número, cliente, nota..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+              </div>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-[120px] h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="venta">Venta</SelectItem>
+                  <SelectItem value="compra">Compra</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[140px] h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="pendiente">Pendiente</SelectItem>
+                  <SelectItem value="despachado">Despachado</SelectItem>
+                  <SelectItem value="cancelado">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground ml-auto">
+                {filteredRemisiones.length} de {remisiones.length}
+              </span>
+            </div>
+          </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
               <div className="text-center py-12 text-muted-foreground">Cargando...</div>
@@ -229,18 +327,26 @@ export default function Remisiones() {
                   <TableRow>
                     <TableHead># Remisión</TableHead>
                     <TableHead>Tipo</TableHead>
-                    <TableHead>Fecha</TableHead>
+                    <TableHead className="cursor-pointer select-none hover:bg-muted/70" onClick={() => toggleSort('date')}>
+                      <span className="inline-flex items-center gap-1">Fecha {sortIcon('date')}</span>
+                    </TableHead>
                     <TableHead>Beneficiario / Proveedor</TableHead>
                     <TableHead className="text-right">Refs.</TableHead>
                     <TableHead className="text-right">Unidades</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
+                    <TableHead className="text-right cursor-pointer select-none hover:bg-muted/70" onClick={() => toggleSort('value')}>
+                      <span className="inline-flex items-center gap-1 justify-end w-full">Valor {sortIcon('value')}</span>
+                    </TableHead>
                     <TableHead>Estado</TableHead>
-                    {!effectiveGerencial && <TableHead>Score Fiscal</TableHead>}
+                    {!effectiveGerencial && (
+                      <TableHead className="cursor-pointer select-none hover:bg-muted/70" onClick={() => toggleSort('score')}>
+                        <span className="inline-flex items-center gap-1">Score Fiscal {sortIcon('score')}</span>
+                      </TableHead>
+                    )}
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {remisiones.map((r: any) => {
+                  {filteredRemisiones.map((r: any) => {
                     const items = r.remision_items || [];
                     const unidades = items.reduce((s: number, i: any) => s + Number(i.units), 0);
                     const itemsValor = items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
@@ -310,6 +416,11 @@ export default function Remisiones() {
                                 <Link className="h-4 w-4 text-blue-500" />
                               </Button>
                             )}
+                            {!effectiveGerencial && (
+                              <Button variant="ghost" size="icon" onClick={() => setMoverGerencialId(r.id)} title="Mover a Módulo Gerencial">
+                                <ArrowRightLeft className="h-4 w-4 text-amber-500" />
+                              </Button>
+                            )}
                             <Button variant="ghost" size="icon" onClick={() => handleDelete(r.id, r.number)} title="Eliminar">
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -324,6 +435,23 @@ export default function Remisiones() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal mover a Gerencial (desde DIAN) */}
+      <Dialog open={!!moverGerencialId} onOpenChange={(o) => { if (!o) setMoverGerencialId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mover al Módulo Gerencial</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>Esta remisión saldrá del módulo DIAN y dejará de ser monitoreada por cobertura fiscal.</p>
+            <p className="text-amber-600 font-medium">¿Confirmás el cambio?</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoverGerencialId(null)}>Cancelar</Button>
+            <Button onClick={handleMoverGerencial}>Sí, mover a Gerencial</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal mover a DIAN */}
       <Dialog open={!!moverId} onOpenChange={(o) => { if (!o) setMoverId(null); }}>
