@@ -324,7 +324,7 @@ export type Database = {
           category: string | null
           created_at: string
           date: string
-          description: string
+          description: string | null
           id: string
           notes: string | null
           responsible_id: string | null
@@ -336,7 +336,7 @@ export type Database = {
           category?: string | null
           created_at?: string
           date: string
-          description: string
+          description?: string | null
           id?: string
           notes?: string | null
           responsible_id?: string | null
@@ -348,7 +348,7 @@ export type Database = {
           category?: string | null
           created_at?: string
           date?: string
-          description?: string
+          description?: string | null
           id?: string
           notes?: string | null
           responsible_id?: string | null
@@ -1760,6 +1760,7 @@ export type Database = {
           notes: string | null
           operational_type: string | null
           operative_receivable_assigned: boolean
+          operative_responsible_id: string | null
           owner: string | null
           raw_line: string | null
           responsible_id: string | null
@@ -1796,6 +1797,7 @@ export type Database = {
           notes?: string | null
           operational_type?: string | null
           operative_receivable_assigned?: boolean
+          operative_responsible_id?: string | null
           owner?: string | null
           raw_line?: string | null
           responsible_id?: string | null
@@ -1832,6 +1834,7 @@ export type Database = {
           notes?: string | null
           operational_type?: string | null
           operative_receivable_assigned?: boolean
+          operative_responsible_id?: string | null
           owner?: string | null
           raw_line?: string | null
           responsible_id?: string | null
@@ -1857,6 +1860,13 @@ export type Database = {
             columns: ["invoice_id"]
             isOneToOne: false
             referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_operative_responsible_id_fkey"
+            columns: ["operative_responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
             referencedColumns: ["id"]
           },
           {
