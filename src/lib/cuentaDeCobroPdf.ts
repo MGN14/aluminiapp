@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import { numberToSpanishWords } from './numberToSpanishWords';
+import { addAluminiaFooter } from './pdfBranding';
 
 export type CuentaDeCobroVariant = 'cuenta_de_cobro' | 'comprobante_pago';
 
@@ -304,5 +305,6 @@ export function generateCuentaDeCobroPdf(data: CuentaDeCobroData): jsPDF {
     firmaY + 9.5
   );
 
+  addAluminiaFooter(doc);
   return doc;
 }

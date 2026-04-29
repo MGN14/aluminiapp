@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf';
+import { addAluminiaFooter } from './pdfBranding';
 
 export interface PaymentsLogPdfRow {
   date: string; // YYYY-MM-DD
@@ -299,5 +300,6 @@ export function generatePaymentsLogPdf(data: PaymentsLogPdfData): jsPDF {
     doc.text(fmt(totalIngresos - totalEgresos), colX.monto + colW.monto - 1, y, { align: 'right' });
   }
 
+  addAluminiaFooter(doc);
   return doc;
 }
