@@ -30,10 +30,9 @@ async function fetchPayments(opts: {
 }): Promise<BankPayment[]> {
   const { userId, assigned, lookbackDays = DEFAULT_LOOKBACK_DAYS } = opts;
 
-  // "Sin asignar a operativa" = todos los ingresos bancarios que aún NO fueron
-  // asignados a Cartera Operativa, sin importar si tienen o no responsible_id
-  // de DIAN. Asignar acá NO toca la conciliación DIAN — solo crea el vínculo
-  // operativo. Coincide con la lista que el dashboard mostraba antes.
+  // "Sin asignar" = misma definición que "Pendientes" del Dashboard DIAN:
+  // ingresos bancarios sin responsible_id (sin beneficiario asignado en DIAN)
+  // y sin marcar como operativa. Asignarlos a operativa NO toca DIAN.
   // "Asignados" = operative_receivable_assigned = true.
   let query = supabase
     .from('transactions')
@@ -47,7 +46,9 @@ async function fetchPayments(opts: {
   if (assigned) {
     query = query.eq('operative_receivable_assigned', true);
   } else {
-    query = query.eq('operative_receivable_assigned', false);
+    query = query
+      .is('responsible_id', null)
+      .eq('operative_receivable_assigned', false);
   }
 
   const { data, error } = await query;

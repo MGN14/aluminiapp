@@ -74,11 +74,11 @@ export default function BankPaymentsSection() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Inbox className="h-4 w-4 text-muted-foreground" />
-                Pagos bancarios sin asignar a operativa
+                Pagos bancarios pendientes
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Todos los ingresos bancarios de los últimos 90 días que aún no asignaste a
-                Cartera Operativa. Asignar acá NO afecta tu conciliación en Modo DIAN.
+                Ingresos de los últimos 90 días sin beneficiario en DIAN. Asignalos a un cliente
+                acá para descontar Cartera Operativa sin afectar tu conciliación.
               </p>
             </div>
             {unassigned.length > 0 && (
