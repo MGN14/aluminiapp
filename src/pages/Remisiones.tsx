@@ -35,7 +35,9 @@ function calcScore(remision: any): { score: number; label: string; color: string
   const remItems = remision.remision_items || [];
   const remTotal = remision.total_manual ? Number(remision.total_manual) : remItems.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
   const remUnits = remItems.reduce((s: number, i: any) => s + Number(i.units), 0);
-  const remRefs = new Set(remItems.map((i: any) => String(i.reference).toLowerCase().trim()));
+  const remRefs = new Set(
+    remItems.map((i: any) => String(i.reference ?? '').toLowerCase().trim()).filter((s: string) => s.length > 0)
+  );
 
   // Usar SOLO las facturas vinculadas específicamente
   const linkedInvoices = (remision.remision_invoices || []).map((ri: any) => ri.invoices).filter(Boolean);
