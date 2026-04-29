@@ -62,20 +62,20 @@ const documentItems: NavItem[] = [
   { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true },
   { title: 'Facturas de Venta', url: '/invoices/venta', icon: FileText },
   { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown },
-  { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true },
 ];
 
-const documentItemsGerencial: NavItem[] = [
-  { title: 'Movimientos en efectivo', url: '/cash-movements', icon: Banknote, gerencial: true },
-];
+const documentItemsGerencial: NavItem[] = [];
 
 const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
+  { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true },
   { title: 'Inventarios', url: '/inventarios', icon: Package },
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true },
 ];
 
-const movementItemsGerencial: NavItem[] = [];
+const movementItemsGerencial: NavItem[] = [
+  { title: 'Movimientos en efectivo', url: '/cash-movements', icon: Banknote, gerencial: true },
+];
 
 const reportItems: NavItem[] = [
   { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3, hasGerencialVariant: true },
@@ -84,7 +84,6 @@ const reportItems: NavItem[] = [
   { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
   { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet },
   { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks },
-  { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 
 const reportItemsGerencial: NavItem[] = [
@@ -95,6 +94,7 @@ const exportItems: NavItem[] = [
   { title: 'Exportar movimientos', url: '/export', icon: Download },
   { title: 'Informe para banco', url: '/export?tipo=banco', icon: Building2 },
   { title: 'Informe para DIAN', url: '/export?tipo=dian', icon: Landmark },
+  { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
 ];
 
 const logisticaItemsGerencial: NavItem[] = [];
