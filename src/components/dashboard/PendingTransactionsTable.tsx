@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, PartyPopper, Clock } from 'lucide-react';
+import { ExternalLink, PartyPopper, Clock, Zap } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { SearchableSelect } from '@/components/transactions/SearchableSelect';
 import InvoiceSelector, { InvoiceTag } from '@/components/transactions/InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,6 +25,10 @@ interface PendingTransaction {
   invoice_id: string | null;
   notes: string | null;
   type: string | null;
+  /** True si el admin asignó este pago a Cartera Operativa desde Modo Gerencial.
+   *  El nombre del beneficiario operativo NO se expone aquí — para verlo hay
+   *  que entrar a Modo Gerencial. */
+  operative_receivable_assigned?: boolean | null;
 }
 
 interface PendingTransactionsTableProps {
@@ -340,6 +345,24 @@ export function PendingTransactionsTable({
                         ) : (
                           <Badge variant="destructive" className="text-[10px] px-2 py-0 h-5">Pendiente</Badge>
                         )}
+                        {tx.operative_receivable_assigned && (
+                          <TooltipProvider delayDuration={150}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] px-1.5 py-0 h-5 border-[oklch(0.43_0.14_155_/_0.4)] text-[oklch(0.43_0.14_155)] bg-[oklch(0.43_0.14_155_/_0.08)] flex items-center gap-1 cursor-help"
+                                >
+                                  <Zap className="h-2.5 w-2.5" />
+                                  Cazado en operativa
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                Este pago fue asignado a un cliente en Modo Gerencial. Cambiá a Modo Gerencial para ver de quién es.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                       </div>
                       <p className="text-sm text-foreground line-clamp-2" title={tx.description}>
                         {tx.description}
@@ -474,19 +497,39 @@ export function PendingTransactionsTable({
                       />
                     </TableCell>
                     <TableCell className="text-center">
-                      {conciliada ? (
-                        <Badge variant="outline" className="bg-success/10 text-success border-success/30">
-                          Conciliada
-                        </Badge>
-                      ) : tieneRespSinResto ? (
-                        <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
-                          Falta {!tx.category_id ? 'categoría' : 'factura'}
-                        </Badge>
-                      ) : (
-                        <Badge variant="destructive">
-                          Pendiente
-                        </Badge>
-                      )}
+                      <div className="flex flex-col items-center gap-1">
+                        {conciliada ? (
+                          <Badge variant="outline" className="bg-success/10 text-success border-success/30">
+                            Conciliada
+                          </Badge>
+                        ) : tieneRespSinResto ? (
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
+                            Falta {!tx.category_id ? 'categoría' : 'factura'}
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive">
+                            Pendiente
+                          </Badge>
+                        )}
+                        {tx.operative_receivable_assigned && (
+                          <TooltipProvider delayDuration={150}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] px-1.5 py-0 h-5 border-[oklch(0.43_0.14_155_/_0.4)] text-[oklch(0.43_0.14_155)] bg-[oklch(0.43_0.14_155_/_0.08)] flex items-center gap-1 cursor-help"
+                                >
+                                  <Zap className="h-2.5 w-2.5" />
+                                  Cazado en operativa
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                Este pago fue asignado a un cliente en Modo Gerencial. Cambiá a Modo Gerencial para ver de quién es.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                   );

@@ -283,7 +283,7 @@ function DashboardContent() {
 
   const fetchTransactions = useCallback(async () => {
     try {
-      let query = supabase.from('transactions').select(`id, date, description, amount, balance, category, category_id, responsible_id, invoice_id, notes, transaction_type, type, has_iva, has_retefuente, has_reteica, iva_amount, iva_type, retefuente_amount, reteica_amount, categories!transactions_category_id_fkey(name)`).is('deleted_at', null).order('date', { ascending: true });
+      let query = supabase.from('transactions').select(`id, date, description, amount, balance, category, category_id, responsible_id, invoice_id, notes, transaction_type, type, has_iva, has_retefuente, has_reteica, iva_amount, iva_type, retefuente_amount, reteica_amount, operative_receivable_assigned, categories!transactions_category_id_fkey(name)`).is('deleted_at', null).order('date', { ascending: true });
       if (dashLimits.historyMonths && dashLimits.historyMonths > 0) {
         const cutoff = new Date();
         cutoff.setMonth(cutoff.getMonth() - dashLimits.historyMonths);
