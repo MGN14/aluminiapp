@@ -505,6 +505,104 @@ export type Database = {
         }
         Relationships: []
       }
+      credit_payments: {
+        Row: {
+          amount_paid: number
+          created_at: string
+          credit_id: string
+          id: string
+          interest_paid: number
+          is_extra: boolean
+          notes: string | null
+          payment_date: string
+          principal_paid: number
+          user_id: string
+        }
+        Insert: {
+          amount_paid: number
+          created_at?: string
+          credit_id: string
+          id?: string
+          interest_paid?: number
+          is_extra?: boolean
+          notes?: string | null
+          payment_date: string
+          principal_paid?: number
+          user_id: string
+        }
+        Update: {
+          amount_paid?: number
+          created_at?: string
+          credit_id?: string
+          id?: string
+          interest_paid?: number
+          is_extra?: boolean
+          notes?: string | null
+          payment_date?: string
+          principal_paid?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_payments_credit_id_fkey"
+            columns: ["credit_id"]
+            isOneToOne: false
+            referencedRelation: "credits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      credits: {
+        Row: {
+          amortization_type: string
+          bank_name: string | null
+          created_at: string
+          first_payment_date: string
+          id: string
+          interest_rate_monthly: number
+          name: string
+          notes: string | null
+          principal: number
+          start_date: string
+          status: string
+          term_months: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amortization_type?: string
+          bank_name?: string | null
+          created_at?: string
+          first_payment_date: string
+          id?: string
+          interest_rate_monthly: number
+          name: string
+          notes?: string | null
+          principal: number
+          start_date: string
+          status?: string
+          term_months: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amortization_type?: string
+          bank_name?: string | null
+          created_at?: string
+          first_payment_date?: string
+          id?: string
+          interest_rate_monthly?: number
+          name?: string
+          notes?: string | null
+          principal?: number
+          start_date?: string
+          status?: string
+          term_months?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       financial_health_scores: {
         Row: {
           created_at: string
@@ -1437,6 +1535,12 @@ export type Database = {
       profiles: {
         Row: {
           accounting_email: string | null
+          business_description: string | null
+          business_employees_count: number | null
+          business_logistics: string | null
+          business_main_suppliers: string | null
+          business_operation_days: string | null
+          business_warehouse_location: string | null
           company_address: string | null
           company_city: string | null
           company_initial: string | null
@@ -1458,6 +1562,12 @@ export type Database = {
         }
         Insert: {
           accounting_email?: string | null
+          business_description?: string | null
+          business_employees_count?: number | null
+          business_logistics?: string | null
+          business_main_suppliers?: string | null
+          business_operation_days?: string | null
+          business_warehouse_location?: string | null
           company_address?: string | null
           company_city?: string | null
           company_initial?: string | null
@@ -1479,6 +1589,12 @@ export type Database = {
         }
         Update: {
           accounting_email?: string | null
+          business_description?: string | null
+          business_employees_count?: number | null
+          business_logistics?: string | null
+          business_main_suppliers?: string | null
+          business_operation_days?: string | null
+          business_warehouse_location?: string | null
           company_address?: string | null
           company_city?: string | null
           company_initial?: string | null
@@ -1660,6 +1776,47 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "remision_items_remision_id_fkey"
+            columns: ["remision_id"]
+            isOneToOne: false
+            referencedRelation: "remisiones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      remision_payments: {
+        Row: {
+          amount_assigned: number
+          created_at: string
+          id: string
+          notes: string | null
+          payment_id: string
+          payment_kind: string
+          remision_id: string
+          user_id: string
+        }
+        Insert: {
+          amount_assigned: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          payment_id: string
+          payment_kind: string
+          remision_id: string
+          user_id: string
+        }
+        Update: {
+          amount_assigned?: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          payment_id?: string
+          payment_kind?: string
+          remision_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "remision_payments_remision_id_fkey"
             columns: ["remision_id"]
             isOneToOne: false
             referencedRelation: "remisiones"
