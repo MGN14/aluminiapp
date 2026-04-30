@@ -24,6 +24,7 @@ import {
   Wallet,
   ListChecks,
   Coins,
+  CreditCard,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -540,6 +541,19 @@ export default function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={currentPath === '/creditos'}>
+                  <NavLink
+                    to="/creditos"
+                    style={navItemStyle(currentPath === '/creditos')}
+                    onMouseEnter={handleHoverEnter(currentPath === '/creditos')}
+                    onMouseLeave={handleHoverLeave(currentPath === '/creditos')}
+                  >
+                    <CreditCard style={{ width: 15, height: 15, flexShrink: 0 }} />
+                    {!collapsed && <span>Créditos</span>}
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={currentPath === '/colaboradores'}>
                   <NavLink
