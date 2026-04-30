@@ -33,13 +33,17 @@ export default function NuevoCreditoModal() {
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [firstPaymentDate, setFirstPaymentDate] = useState('');
   const [amortizationType, setAmortizationType] = useState<AmortizationType>('francesa');
+  const [extraCostsPct, setExtraCostsPct] = useState('');
+  const [extraCostsLabel, setExtraCostsLabel] = useState('');
   const [notes, setNotes] = useState('');
 
   const reset = () => {
     setName(''); setBankName(''); setPrincipal(''); setRate(''); setTerm('');
     setStartDate(new Date().toISOString().slice(0, 10));
     setFirstPaymentDate('');
-    setAmortizationType('francesa'); setNotes('');
+    setAmortizationType('francesa');
+    setExtraCostsPct(''); setExtraCostsLabel('');
+    setNotes('');
   };
 
   // Preview cuota estimada
@@ -73,6 +77,8 @@ export default function NuevoCreditoModal() {
         start_date: startDate,
         first_payment_date: firstPaymentDate,
         amortization_type: amortizationType,
+        additional_costs_pct: parseFloat(extraCostsPct) || 0,
+        additional_costs_label: extraCostsLabel.trim() || null,
         notes: notes.trim() || null,
       });
       if (error) throw error;
@@ -142,6 +148,31 @@ export default function NuevoCreditoModal() {
               <Label className="text-xs">1ra cuota</Label>
               <Input type="date" value={firstPaymentDate} onChange={(e) => setFirstPaymentDate(e.target.value)} />
             </div>
+            <div className="space-y-1.5 col-span-2 pt-2 border-t">
+              <Label className="text-xs">Otros costos del crédito (opcional)</Label>
+              <p className="text-[10px] text-muted-foreground">
+                Seguro Fogafin, comisión de apertura, estudio de crédito, etc. Reduce la rentabilidad real del préstamo.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Costos %</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={extraCostsPct}
+                onChange={(e) => setExtraCostsPct(e.target.value)}
+                placeholder="Ej: 4.85"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Descripción</Label>
+              <Input
+                value={extraCostsLabel}
+                onChange={(e) => setExtraCostsLabel(e.target.value)}
+                placeholder="Ej: Seguro Fogafin"
+              />
+            </div>
             <div className="space-y-1.5 col-span-2">
               <Label className="text-xs">Notas (opcional)</Label>
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
@@ -149,9 +180,27 @@ export default function NuevoCreditoModal() {
           </div>
 
           {previewCuota !== null && previewCuota > 0 && (
-            <div className="rounded-lg border bg-muted/30 p-3 text-xs">
-              <span className="text-muted-foreground">Cuota estimada {amortizationType === 'alemana' ? '(primera, decreciente)' : amortizationType === 'bullet' ? '(solo intereses, capital al final)' : ''}: </span>
-              <span className="font-bold">{fmt(previewCuota)}</span>
+            <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-1">
+              <div>
+                <span className="text-muted-foreground">Cuota estimada {amortizationType === 'alemana' ? '(primera, decreciente)' : amortizationType === 'bullet' ? '(solo intereses, capital al final)' : ''}: </span>
+                <span className="font-bold">{fmt(previewCuota)}</span>
+              </div>
+              {(() => {
+                const p = parseFloat(principal) || 0;
+                const extraCost = p * (parseFloat(extraCostsPct) || 0) / 100;
+                if (extraCost <= 0) return null;
+                const desembolsoEfectivo = p - extraCost;
+                return (
+                  <>
+                    <div className="text-amber-700 dark:text-amber-400">
+                      Costos adicionales: <span className="font-bold">{fmt(extraCost)}</span> ({parseFloat(extraCostsPct).toFixed(2)}% sobre el principal)
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      Desembolso efectivo: {fmt(desembolsoEfectivo)} (recibís esto, pero las cuotas se calculan sobre el principal completo)
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 

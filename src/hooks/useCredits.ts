@@ -15,6 +15,8 @@ export interface Credit {
   amortization_type: AmortizationType;
   status: 'active' | 'paid' | 'cancelled';
   notes: string | null;
+  additional_costs_pct: number;
+  additional_costs_label: string | null;
 }
 
 export interface CreditPayment {
@@ -66,6 +68,7 @@ export function useCredits() {
             type: c.amortization_type,
           },
           p,
+          Number(c.additional_costs_pct ?? 0),
         );
         return { credit: c, payments: p, summary };
       });

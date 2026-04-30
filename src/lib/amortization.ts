@@ -128,11 +128,18 @@ export interface AmortizationSummary {
   percentPaid: number;
   /** Próxima cuota teórica pendiente (la que viene). */
   nextCuota: AmortizationRow | null;
+  /** Total intereses TEÓRICOS del schedule (suma de la columna interes). */
+  totalInterestScheduled: number;
+  /** Costo único de costos adicionales (Fogafin, comisión, etc.) sobre el principal. */
+  additionalCostsAmount: number;
+  /** Costo total del crédito = principal × (1 + additionalCostsPct/100) + intereses teóricos. */
+  totalCreditCost: number;
 }
 
 export function summarizeCredit(
   input: AmortizationInput,
   payments: Array<{ payment_date: string; amount_paid: number; principal_paid: number; interest_paid: number; is_extra: boolean }>,
+  additionalCostsPct: number = 0,
 ): AmortizationSummary {
   const schedule = buildAmortization(input);
   const totalPrincipalPaid = payments.reduce((s, p) => s + Number(p.principal_paid || 0), 0);
@@ -145,6 +152,10 @@ export function summarizeCredit(
   const today = new Date().toISOString().slice(0, 10);
   const nextCuota = schedule.find(r => r.fecha >= today) ?? null;
 
+  const totalInterestScheduled = schedule.reduce((s, r) => s + r.interesPagado, 0);
+  const additionalCostsAmount = input.principal * (additionalCostsPct / 100);
+  const totalCreditCost = input.principal + totalInterestScheduled + additionalCostsAmount;
+
   return {
     schedule,
     totalPrincipalPaid: r2(totalPrincipalPaid),
@@ -153,7 +164,93 @@ export function summarizeCredit(
     currentBalance: r2(currentBalance),
     percentPaid: r2(percentPaid),
     nextCuota,
+    totalInterestScheduled: r2(totalInterestScheduled),
+    additionalCostsAmount: r2(additionalCostsAmount),
+    totalCreditCost: r2(totalCreditCost),
   };
+}
+
+/**
+ * Simula qué pasaría si hacés un abono extraordinario hoy.
+ * Devuelve cuánto te ahorrarías en intereses futuros si el saldo se reduce
+ * inmediatamente y seguís pagando las cuotas restantes (modalidad: reducir
+ * el plazo, terminás antes pagando lo mismo).
+ */
+export function simulateExtraPayment(
+  currentBalance: number,
+  monthlyRatePct: number,
+  remainingMonths: number,
+  extraAmount: number,
+  amortizationType: AmortizationType,
+): {
+  newBalance: number;
+  interestSavedReducingTerm: number;
+  interestSavedKeepingTerm: number;
+  monthsSavedReducingTerm: number;
+} {
+  const i = monthlyRatePct / 100;
+  const newBalance = Math.max(0, currentBalance - extraAmount);
+
+  // Sin abono: intereses futuros del saldo actual
+  const baseFuture = simulateInterestForward(currentBalance, monthlyRatePct, remainingMonths, amortizationType);
+  // Con abono, manteniendo plazo (cuota baja)
+  const keepTermFuture = simulateInterestForward(newBalance, monthlyRatePct, remainingMonths, amortizationType);
+  const interestSavedKeepingTerm = baseFuture - keepTermFuture;
+
+  // Con abono, reduciendo plazo: mantener cuota original y ver cuántos meses tarda
+  let monthsSavedReducingTerm = 0;
+  let interestSavedReducingTerm = 0;
+  if (amortizationType === 'francesa' && newBalance > 0 && i > 0) {
+    const cuotaOriginal = frenchPayment(currentBalance, i, remainingMonths);
+    // n = -log(1 - newBalance·i/cuota) / log(1+i)
+    const ratio = (newBalance * i) / cuotaOriginal;
+    if (ratio < 1) {
+      const newN = Math.ceil(-Math.log(1 - ratio) / Math.log(1 + i));
+      monthsSavedReducingTerm = remainingMonths - newN;
+      const totalCuotasOriginal = cuotaOriginal * remainingMonths;
+      const totalCuotasNuevo = cuotaOriginal * newN;
+      // intereses ahorrados ≈ (cuotas pagadas en menos meses) - capital extra abonado
+      interestSavedReducingTerm = (totalCuotasOriginal - totalCuotasNuevo);
+    }
+  } else {
+    interestSavedReducingTerm = interestSavedKeepingTerm;
+  }
+
+  return {
+    newBalance: r2(newBalance),
+    interestSavedReducingTerm: r2(Math.max(0, interestSavedReducingTerm)),
+    interestSavedKeepingTerm: r2(Math.max(0, interestSavedKeepingTerm)),
+    monthsSavedReducingTerm: Math.max(0, monthsSavedReducingTerm),
+  };
+}
+
+function simulateInterestForward(balance: number, monthlyRatePct: number, months: number, type: AmortizationType): number {
+  if (balance <= 0 || months <= 0) return 0;
+  const i = monthlyRatePct / 100;
+  let saldo = balance;
+  let totalInt = 0;
+  if (type === 'francesa') {
+    const cuota = frenchPayment(balance, i, months);
+    for (let k = 1; k <= months; k++) {
+      const interes = saldo * i;
+      const capital = Math.min(cuota - interes, saldo);
+      totalInt += interes;
+      saldo -= capital;
+      if (saldo <= 0.01) break;
+    }
+  } else if (type === 'alemana') {
+    const capital = balance / months;
+    for (let k = 1; k <= months; k++) {
+      const interes = saldo * i;
+      const capitalReal = Math.min(capital, saldo);
+      totalInt += interes;
+      saldo -= capitalReal;
+      if (saldo <= 0.01) break;
+    }
+  } else {
+    totalInt = balance * i * months;
+  }
+  return totalInt;
 }
 
 /**

@@ -196,6 +196,30 @@ export default function Creditos() {
                                   </div>
                                 </div>
 
+                                {/* Costo total del crédito y costos adicionales */}
+                                <div className="grid grid-cols-3 gap-3 text-xs p-2 rounded-lg bg-amber-50/40 dark:bg-amber-950/10 border border-amber-200">
+                                  <div>
+                                    <p className="text-muted-foreground">Intereses teóricos totales</p>
+                                    <p className="font-semibold text-amber-700">{fmt(c.summary.totalInterestScheduled)}</p>
+                                  </div>
+                                  {c.summary.additionalCostsAmount > 0 && (
+                                    <div>
+                                      <p className="text-muted-foreground">Costos adicionales</p>
+                                      <p className="font-semibold text-amber-700">{fmt(c.summary.additionalCostsAmount)}</p>
+                                      {c.credit.additional_costs_label && (
+                                        <p className="text-[10px] text-muted-foreground">{c.credit.additional_costs_label}</p>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div>
+                                    <p className="text-muted-foreground">Costo total del crédito</p>
+                                    <p className="font-bold">{fmt(c.summary.totalCreditCost)}</p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Sobre principal: +{((c.summary.totalCreditCost / Number(c.credit.principal) - 1) * 100).toFixed(1)}%
+                                    </p>
+                                  </div>
+                                </div>
+
                                 <div className="rounded-lg border max-h-72 overflow-y-auto">
                                   <table className="w-full text-xs">
                                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">

@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { suggestPaymentSplit } from '@/lib/amortization';
+import { suggestPaymentSplit, simulateExtraPayment } from '@/lib/amortization';
 import type { CreditWithSummary } from '@/hooks/useCredits';
+import { TrendingDown } from 'lucide-react';
 
 interface Props {
   credit: CreditWithSummary | null;
@@ -147,6 +148,44 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange }
             </div>
             <Switch checked={isExtra} onCheckedChange={setIsExtra} />
           </div>
+
+          {/* Simulador: si es abono extra, mostrar ahorro estimado */}
+          {credit && isExtra && parseFloat(amount) > 0 && (() => {
+            const remainingMonths = credit.summary.schedule.filter(r => {
+              const today = new Date().toISOString().slice(0, 10);
+              return r.fecha >= today;
+            }).length;
+            const sim = simulateExtraPayment(
+              credit.summary.currentBalance,
+              Number(credit.credit.interest_rate_monthly),
+              remainingMonths,
+              parseFloat(amount),
+              credit.credit.amortization_type,
+            );
+            if (sim.interestSavedReducingTerm <= 0 && sim.interestSavedKeepingTerm <= 0) return null;
+            return (
+              <div className="rounded-lg border border-success/30 bg-success/5 p-3 text-xs space-y-1.5">
+                <div className="flex items-center gap-1.5 font-semibold text-success">
+                  <TrendingDown className="h-3.5 w-3.5" />
+                  Simulación del abono
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider">Saldo después del abono</p>
+                    <p className="font-bold text-foreground">{fmt(sim.newBalance)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider">Reduciendo plazo</p>
+                    <p className="font-bold text-success">{fmt(sim.interestSavedReducingTerm)}</p>
+                    <p className="text-[10px]">{sim.monthsSavedReducingTerm} meses menos</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground italic pt-1 border-t border-success/20">
+                  Estimación: si seguís pagando la cuota actual, terminás antes y ahorrás intereses. Si reducís cuota manteniendo plazo: ahorrás aprox {fmt(sim.interestSavedKeepingTerm)}.
+                </p>
+              </div>
+            );
+          })()}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
