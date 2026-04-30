@@ -554,6 +554,8 @@ export type Database = {
       }
       credits: {
         Row: {
+          additional_costs_label: string | null
+          additional_costs_pct: number
           amortization_type: string
           bank_name: string | null
           created_at: string
@@ -570,6 +572,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          additional_costs_label?: string | null
+          additional_costs_pct?: number
           amortization_type?: string
           bank_name?: string | null
           created_at?: string
@@ -586,6 +590,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          additional_costs_label?: string | null
+          additional_costs_pct?: number
           amortization_type?: string
           bank_name?: string | null
           created_at?: string
