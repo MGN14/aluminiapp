@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { normalizeForMatch } from '@/lib/stringUtils';
 
 export interface ReconciliationRule {
   id: string;
@@ -41,16 +42,6 @@ export interface NewReconciliationRule {
   responsible_id?: string;
   responsible_name?: string;
   auto_conciliate?: boolean;
-}
-
-/**
- * Normaliza string para matching: lowercase, trim, y strip de acentos
- * (NFD descompone "á" en "a" + diacrítico, regex elimina diacríticos).
- * Necesario porque CSV de Bancolombia viene sin tildes pero usuarios crean
- * reglas con acentos: "BOGOTÁ" debe matchear "BOGOTA" del extracto.
- */
-function normalizeForMatch(s: string): string {
-  return s.toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
 
 /** Returns true if a transaction matches a given rule */

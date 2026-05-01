@@ -14,6 +14,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Loader2, Save, X, CheckCircle, Info } from 'lucide-react';
+import { normalizeCompanyName as normalizeForMatch } from '@/lib/stringUtils';
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
@@ -57,19 +58,6 @@ interface ResponsibleOption {
   name: string;
 }
 
-// Normaliza un texto para matching: quita tildes, lowercase, sufijos
-// comunes ("S.A.S", "SAS", "LTDA", "S.A."), espacios extra.
-function normalizeForMatch(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/\s+s\.?a\.?s\.?\s*$/i, '')
-    .replace(/\s+ltda\.?\s*$/i, '')
-    .replace(/\s+s\.?a\.?\s*$/i, '')
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 interface Props {
   data: ExtractedInvoiceData;
