@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { ExtractedInvoiceData } from '@/types/invoice';
@@ -210,10 +210,21 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
     });
   }, []);
 
+  // Coherencia base + IVA = total. Tolerancia ±1 COP por redondeo.
+  // Solo validamos al confirmar — un draft puede tener números incompletos.
+  const coherenceMismatch = useMemo(() => {
+    const expected = (form.subtotal_base ?? 0) + (form.iva_amount ?? 0);
+    const actual = form.total_amount ?? 0;
+    const diff = Math.abs(expected - actual);
+    if (diff <= 1) return null;
+    return { expected, actual, diff };
+  }, [form.subtotal_base, form.iva_amount, form.total_amount]);
+
   const handleConfirm = useCallback(() => {
     if (!form.display_name.trim()) return;
+    if (coherenceMismatch) return; // bloquea confirm si los totales no cuadran
     onSave({ ...form, status: 'confirmed' });
-  }, [form, onSave]);
+  }, [form, onSave, coherenceMismatch]);
 
   const handleDraft = useCallback(() => {
     if (!form.display_name.trim()) return;
@@ -370,6 +381,14 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           <Label>Total</Label>
           <Input type="number" value={form.total_amount} onChange={e => update('total_amount', parseFloat(e.target.value) || 0)} className="font-semibold" />
         </div>
+        {coherenceMismatch && (
+          <div className="sm:col-span-4 mt-1 flex items-start gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/30">
+            <Info className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+            <p className="text-xs text-destructive">
+              <strong>Los totales no cuadran.</strong> Base + IVA = ${formatCurrency(coherenceMismatch.expected)} pero el Total dice ${formatCurrency(coherenceMismatch.actual)} (diferencia ${formatCurrency(coherenceMismatch.diff)}). No vas a poder confirmar hasta que coincida.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Tax fields for VENTAS — auto-calculated from settings */}
@@ -467,7 +486,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
           Guardar borrador
         </Button>
-        <Button onClick={handleConfirm} disabled={saving || !form.display_name.trim()}>
+        <Button onClick={handleConfirm} disabled={saving || !form.display_name.trim() || !!coherenceMismatch}>
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-1" />}
           Confirmar factura
         </Button>

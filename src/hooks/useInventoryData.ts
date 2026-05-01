@@ -193,6 +193,23 @@ export function useInventoryData() {
 
   const addMovement = async (movement: { product_id: string; movement_type: string; quantity: number; unit_cost: number; notes?: string; movement_date?: string }) => {
     if (!user) return;
+
+    // Validación pre-insert: bloquear salidas que dejarían stock negativo.
+    // Idealmente esto va respaldado por trigger SQL para resistir concurrencia,
+    // pero el check cliente cubre el caso single-user típico.
+    const product = products.find(p => p.id === movement.product_id);
+    if (product && movement.movement_type === 'salida') {
+      const projected = product.stock_system - movement.quantity;
+      if (projected < 0) {
+        toast({
+          title: 'Stock insuficiente',
+          description: `Stock actual: ${product.stock_system}. Intentás retirar: ${movement.quantity}.`,
+          variant: 'destructive',
+        });
+        return false;
+      }
+    }
+
     const totalCost = movement.quantity * movement.unit_cost;
     const { error: movErr } = await supabase.from('inventory_movements').insert({
       ...movement,
@@ -206,7 +223,6 @@ export function useInventoryData() {
     }
 
     // Update stock
-    const product = products.find(p => p.id === movement.product_id);
     if (product) {
       let newStock = product.stock_system;
       if (movement.movement_type === 'entrada') newStock += movement.quantity;

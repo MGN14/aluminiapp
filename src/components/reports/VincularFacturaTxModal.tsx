@@ -151,7 +151,7 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
       try {
         const [credRes, paymentsRes] = await Promise.all([
           (supabase.from('credits' as never) as any)
-            .select('id, name, bank_name, principal, interest_rate_monthly, term_months, first_payment_date, amortization_type, default_category_id, default_responsible_id')
+            .select('id, name, bank_name, principal, interest_rate_monthly, term_months, first_payment_date, amortization_type, default_category_id, default_responsible_id, additional_costs_pct, additional_costs_label')
             .eq('user_id', user.id)
             .eq('status', 'active'),
           (supabase.from('credit_payments' as never) as any)
@@ -163,6 +163,7 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
 
         const allCreds = (credRes.data ?? []) as Array<CreditCandidate & {
           principal: number; interest_rate_monthly: number;
+          additional_costs_pct: number | null;
         }>;
         const allPays = (paymentsRes.data ?? []) as Array<{
           credit_id: string; payment_date: string; amount_paid: number;
@@ -180,7 +181,7 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
               type: c.amortization_type,
             },
             myPays,
-            0,
+            Number(c.additional_costs_pct ?? 0),
           );
           return {
             ...c,

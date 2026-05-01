@@ -9,6 +9,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useNico } from '@/hooks/useNicoContext';
 import nicoAvatar from '@/assets/nico-avatar.png';
 
+const isDev = import.meta.env.MODE === 'development';
+
 interface Insight {
   key: string;
   title: string;
@@ -153,7 +155,7 @@ export default function CFOInsights({ periodSelection, hasTransactions, title, s
     setLoading(true);
     setError(null);
     try {
-      console.log('[CFOInsights] Fetching insights for', periodSelection);
+      if (isDev) console.log('[CFOInsights] Fetching insights for', periodSelection);
       const { data, error: fnError } = await supabase.functions.invoke('cfo-insights', {
         body: {
           periodType: periodSelection.type,
@@ -165,7 +167,7 @@ export default function CFOInsights({ periodSelection, hasTransactions, title, s
 
       if (fnError) throw fnError;
 
-      console.log('[CFOInsights] Received', data?.insights?.length, 'insights');
+      if (isDev) console.log('[CFOInsights] Received', data?.insights?.length, 'insights');
       // Sort by impact descending
       const sorted = (data?.insights || []).sort((a: Insight, b: Insight) => b.impact - a.impact);
       setInsights(sorted);

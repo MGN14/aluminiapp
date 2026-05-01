@@ -43,6 +43,16 @@ export interface NewReconciliationRule {
   auto_conciliate?: boolean;
 }
 
+/**
+ * Normaliza string para matching: lowercase, trim, y strip de acentos
+ * (NFD descompone "á" en "a" + diacrítico, regex elimina diacríticos).
+ * Necesario porque CSV de Bancolombia viene sin tildes pero usuarios crean
+ * reglas con acentos: "BOGOTÁ" debe matchear "BOGOTA" del extracto.
+ */
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
 /** Returns true if a transaction matches a given rule */
 export function matchesRule(
   rule: ReconciliationRule,
@@ -59,8 +69,9 @@ export function matchesRule(
   if (rule.day_min != null && day < rule.day_min) return false;
   if (rule.day_max != null && day > rule.day_max) return false;
   if (rule.keyword) {
-    const kw = rule.keyword.toLowerCase().trim();
-    if (!tx.description?.toLowerCase().includes(kw)) return false;
+    const kw = normalizeForMatch(rule.keyword);
+    const desc = normalizeForMatch(tx.description ?? '');
+    if (!desc.includes(kw)) return false;
   }
   return true;
 }
