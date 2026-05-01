@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { NavLink } from '@/components/NavLink';
 import {
   LayoutDashboard,
@@ -594,17 +594,34 @@ export default function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
         {!collapsed && (
-          <div
+          <Link
+            to="/pricing"
+            title="Gestionar suscripción"
             style={{
               marginTop: 8,
               background: 'oklch(0.43 0.14 155 / 0.08)',
               border: `1px solid ${BRAND_BORDER}`,
               borderRadius: 10,
               padding: '10px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              transition: 'background 0.15s, border-color 0.15s',
+              textDecoration: 'none',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'oklch(0.43 0.14 155 / 0.14)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'oklch(0.43 0.14 155 / 0.08)';
             }}
           >
             <PlanBadge />
-          </div>
+            <span style={{ fontSize: 10, color: 'oklch(0.43 0.14 155)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              Cambiar →
+            </span>
+          </Link>
         )}
       </SidebarFooter>
     </Sidebar>
