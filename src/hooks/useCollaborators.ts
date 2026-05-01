@@ -86,21 +86,28 @@ export function useCollaborators() {
 
       if (error) throw error;
 
-      const withPerms: Collaborator[] = [];
-      for (const c of collabs || []) {
-        const { data: perms } = await supabase
+      // Bulk fetch de permisos (1 query) en lugar de N queries (uno por colaborador).
+      const collaboratorIds = (collabs || []).map(c => c.id);
+      let permsAll: { collaborator_id: string; module_key: string; access_level: string }[] = [];
+      if (collaboratorIds.length > 0) {
+        const { data: permsData, error: permsErr } = await supabase
           .from('collaborator_permissions')
-          .select('module_key, access_level')
-          .eq('collaborator_id', c.id);
+          .select('collaborator_id, module_key, access_level')
+          .in('collaborator_id', collaboratorIds);
+        if (permsErr) throw permsErr;
+        permsAll = permsData || [];
+      }
 
+      const withPerms: Collaborator[] = (collabs || []).map(c => {
+        const myPerms = permsAll.filter(p => p.collaborator_id === c.id);
         const permissions = { ...DEFAULT_PERMISSIONS };
-        for (const p of perms || []) {
+        for (const p of myPerms) {
           if (p.module_key in permissions) {
             permissions[p.module_key as ModuleKey] = p.access_level as AccessLevel;
           }
         }
-        withPerms.push({ ...c, permissions } as Collaborator);
-      }
+        return { ...c, permissions } as Collaborator;
+      });
       setCollaborators(withPerms);
     } catch (e) {
       console.error('Error fetching collaborators:', e);

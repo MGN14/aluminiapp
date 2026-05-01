@@ -18,6 +18,25 @@ import { Loader2, Save, X, CheckCircle, Info } from 'lucide-react';
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
 
+// Devuelve 0 si NaN/Infinity (parseFloat normal acepta "1e1000" → Infinity).
+function safeParseFloat(v: string): number {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// safeParseFloat + clamp a [0, 100] para tasas de % (IVA, retenciones).
+function safeParsePercent(v: string): number {
+  const n = safeParseFloat(v);
+  return Math.max(0, Math.min(100, n));
+}
+
+// safeParseInt + clamp a [0, 365] para días de crédito.
+function safeParseDays(v: string): number {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(365, n));
+}
+
 interface FormData extends ExtractedInvoiceData {
   autoretefuente_rate: number;
   autoretefuente_amount: number;
@@ -293,7 +312,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
             type="number"
             min={0}
             value={form.dias_credito}
-            onChange={e => update('dias_credito', parseInt(e.target.value) || 0)}
+            onChange={e => update('dias_credito', safeParseDays(e.target.value))}
             className="mt-1"
             placeholder="Días personalizados"
           />
@@ -367,19 +386,19 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 rounded-md bg-muted/50">
         <div>
           <Label>Base gravable</Label>
-          <Input type="number" value={form.subtotal_base} onChange={e => update('subtotal_base', parseFloat(e.target.value) || 0)} />
+          <Input type="number" value={form.subtotal_base} onChange={e => update('subtotal_base', safeParseFloat(e.target.value))} />
         </div>
         <div>
           <Label>% IVA</Label>
-          <Input type="number" step="0.01" value={form.iva_rate} onChange={e => update('iva_rate', parseFloat(e.target.value) || 0)} />
+          <Input type="number" step="0.01" min={0} max={100} value={form.iva_rate} onChange={e => update('iva_rate', safeParsePercent(e.target.value))} />
         </div>
         <div>
           <Label>$ IVA</Label>
-          <Input type="number" value={form.iva_amount} onChange={e => update('iva_amount', parseFloat(e.target.value) || 0)} />
+          <Input type="number" value={form.iva_amount} onChange={e => update('iva_amount', safeParseFloat(e.target.value))} />
         </div>
         <div>
           <Label>Total</Label>
-          <Input type="number" value={form.total_amount} onChange={e => update('total_amount', parseFloat(e.target.value) || 0)} className="font-semibold" />
+          <Input type="number" value={form.total_amount} onChange={e => update('total_amount', safeParseFloat(e.target.value))} className="font-semibold" />
         </div>
         {coherenceMismatch && (
           <div className="sm:col-span-4 mt-1 flex items-start gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/30">
@@ -403,7 +422,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           </div>
           <div>
             <Label>% Autorretefuente</Label>
-            <Input type="number" step="0.01" value={form.autoretefuente_rate} onChange={e => update('autoretefuente_rate', parseFloat(e.target.value) || 0)} placeholder="Ej: 0.4" />
+            <Input type="number" step="0.01" min={0} max={100} value={form.autoretefuente_rate} onChange={e => update('autoretefuente_rate', safeParsePercent(e.target.value))} placeholder="Ej: 0.4" />
           </div>
           <div>
             <Label>$ Autorretefuente</Label>
@@ -411,7 +430,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           </div>
           <div>
             <Label>% ReteICA</Label>
-            <Input type="number" step="0.01" value={form.reteica_rate} onChange={e => update('reteica_rate', parseFloat(e.target.value) || 0)} placeholder="Ej: 0.966" />
+            <Input type="number" step="0.01" min={0} max={100} value={form.reteica_rate} onChange={e => update('reteica_rate', safeParsePercent(e.target.value))} placeholder="Ej: 0.966" />
           </div>
           <div>
             <Label>$ ReteICA</Label>
@@ -419,7 +438,7 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
           </div>
           <div>
             <Label>% Retefuente cliente</Label>
-            <Input type="number" step="0.01" value={form.retefuente_cliente_rate} onChange={e => update('retefuente_cliente_rate', parseFloat(e.target.value) || 0)} placeholder="Ej: 2.5" />
+            <Input type="number" step="0.01" min={0} max={100} value={form.retefuente_cliente_rate} onChange={e => update('retefuente_cliente_rate', safeParsePercent(e.target.value))} placeholder="Ej: 2.5" />
           </div>
           <div>
             <Label>$ Retefuente cliente</Label>
