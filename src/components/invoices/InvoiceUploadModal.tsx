@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { ExtractedInvoiceData, Invoice } from '@/types/invoice';
+import { IVA_RATE } from '@/types/transaction';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Loader2, Upload, RefreshCw, X, AlertTriangle, Save, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -41,7 +42,7 @@ function mapExtracted(draft: Invoice, ed: any): ExtractedInvoiceData {
     buyer_nit: draft.buyer_nit || ed.buyer_nit || '',
     city: draft.city || ed.city || null,
     subtotal_base: draft.subtotal_base || ed.subtotal_base || 0,
-    iva_rate: draft.iva_rate ?? ed.iva_rate ?? 0.19,
+    iva_rate: draft.iva_rate ?? ed.iva_rate ?? IVA_RATE,
     iva_amount: draft.iva_amount || ed.iva_amount || 0,
     total_amount: draft.total_amount || ed.total_amount || 0,
     cufe: draft.cufe || ed.cufe || null,
@@ -55,7 +56,7 @@ function emptyExtracted(): ExtractedInvoiceData {
     invoice_number: '', prefix: '', number_int: null, type: 'compra',
     issue_date: '', due_date: '', counterparty_name: '', counterparty_nit: '',
     seller_name: '', seller_nit: '', buyer_name: '', buyer_nit: '',
-    city: '', subtotal_base: 0, iva_rate: 0.19, iva_amount: 0,
+    city: '', subtotal_base: 0, iva_rate: IVA_RATE, iva_amount: 0,
     total_amount: 0, cufe: '', payment_method: '', items: [],
     responsible_id: null,
   } as any;
@@ -409,7 +410,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
             quantity: item.quantity ?? 1,
             unit_price: item.unit_price ?? 0,
             line_base: item.line_base ?? 0,
-            iva_rate: item.iva_rate ?? 0.19,
+            iva_rate: item.iva_rate ?? IVA_RATE,
             iva_amount: item.iva_amount ?? 0,
             line_total: item.line_total ?? 0,
           }));
@@ -469,7 +470,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
             quantity: item.quantity ?? 1,
             unit_price: item.unit_price ?? 0,
             line_base: item.line_base ?? 0,
-            iva_rate: item.iva_rate ?? 0.19,
+            iva_rate: item.iva_rate ?? IVA_RATE,
             iva_amount: item.iva_amount ?? 0,
             line_total: item.line_total ?? 0,
           }));

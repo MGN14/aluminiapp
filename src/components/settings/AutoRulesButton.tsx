@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Wand2 } from 'lucide-react';
 import { AUTO_RULES, findMatchingRule } from '@/lib/autoRules';
+import { IVA_RATE, RETEFUENTE_RATE } from '@/types/transaction';
 
 interface ApplyResult {
   total: number;
@@ -86,8 +87,8 @@ export default function AutoRulesButton() {
 
           // Calculate tax amounts
           const absAmount = Math.abs(tx.amount || 0);
-          const ivaAmount = rule.hasIva ? absAmount * 0.19 : 0;
-          const retefuenteAmount = rule.hasRetefuente && rule.type === 'egreso' ? absAmount * 0.025 : 0;
+          const ivaAmount = rule.hasIva ? absAmount * IVA_RATE : 0;
+          const retefuenteAmount = rule.hasRetefuente && rule.type === 'egreso' ? absAmount * RETEFUENTE_RATE : 0;
           const reteicaAmount = rule.hasReteica && reteicaRate > 0 && rule.type === 'ingreso' 
             ? Math.round(absAmount * (reteicaRate / 100)) 
             : 0;

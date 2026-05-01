@@ -16,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Loader2, Calculator, CheckCircle2 } from 'lucide-react';
+import { IVA_RATE, RETEFUENTE_RATE } from '@/types/transaction';
 
 // The "Ventas" category ID - same as in TransactionRow
 const SALES_CATEGORY_ID = '0299ed3c-4b09-402d-bbf1-cf4b097ff8a5';
@@ -47,8 +48,8 @@ export default function TaxRecalculationButton({ onComplete }: TaxRecalculationB
         .maybeSingle();
 
       const reteicaRate = profile?.reteica_rate || 0;
-      const ivaRate = 0.19;
-      const retefuenteRate = 0.025;
+      const ivaRate = IVA_RATE;
+      const retefuenteRate = RETEFUENTE_RATE;
 
       // 2. Fetch ALL user transactions (not deleted)
       const { data: transactions, error: fetchError } = await supabase
