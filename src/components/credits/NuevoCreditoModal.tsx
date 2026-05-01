@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -13,6 +13,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
 import { frenchPayment, type AmortizationType } from '@/lib/amortization';
+
+interface CategoryOpt { id: string; name: string }
+interface ResponsibleOpt { id: string; name: string }
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
@@ -36,6 +39,26 @@ export default function NuevoCreditoModal() {
   const [extraCostsPct, setExtraCostsPct] = useState('');
   const [extraCostsLabel, setExtraCostsLabel] = useState('');
   const [notes, setNotes] = useState('');
+  const [defaultCategoryId, setDefaultCategoryId] = useState<string>('');
+  const [defaultResponsibleId, setDefaultResponsibleId] = useState<string>('');
+  const [categories, setCategories] = useState<CategoryOpt[]>([]);
+  const [responsibles, setResponsibles] = useState<ResponsibleOpt[]>([]);
+
+  // Cargar categorías y beneficiarios cuando se abre el modal
+  useEffect(() => {
+    if (!open || !user) return;
+    let cancelled = false;
+    (async () => {
+      const [catRes, respRes] = await Promise.all([
+        supabase.from('categories').select('id, name').eq('user_id', user.id).order('name'),
+        supabase.from('responsibles').select('id, name').eq('user_id', user.id).order('name'),
+      ]);
+      if (cancelled) return;
+      setCategories((catRes.data ?? []) as CategoryOpt[]);
+      setResponsibles((respRes.data ?? []) as ResponsibleOpt[]);
+    })();
+    return () => { cancelled = true; };
+  }, [open, user]);
 
   const reset = () => {
     setName(''); setBankName(''); setPrincipal(''); setRate(''); setTerm('');
@@ -44,6 +67,7 @@ export default function NuevoCreditoModal() {
     setAmortizationType('francesa');
     setExtraCostsPct(''); setExtraCostsLabel('');
     setNotes('');
+    setDefaultCategoryId(''); setDefaultResponsibleId('');
   };
 
   // Preview cuota estimada
@@ -80,6 +104,8 @@ export default function NuevoCreditoModal() {
         additional_costs_pct: parseFloat(extraCostsPct) || 0,
         additional_costs_label: extraCostsLabel.trim() || null,
         notes: notes.trim() || null,
+        default_category_id: defaultCategoryId || null,
+        default_responsible_id: defaultResponsibleId || null,
       });
       if (error) throw error;
       await queryClient.invalidateQueries({ queryKey: ['credits'] });
@@ -117,6 +143,33 @@ export default function NuevoCreditoModal() {
               <Label className="text-xs">Banco/Entidad (opcional)</Label>
               <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Ej: Bancolombia" />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Categoría por defecto</Label>
+              <Select value={defaultCategoryId || '__none__'} onValueChange={(v) => setDefaultCategoryId(v === '__none__' ? '' : v)}>
+                <SelectTrigger><SelectValue placeholder="Ej: Gastos Financieros" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin categoría</SelectItem>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Beneficiario por defecto</Label>
+              <Select value={defaultResponsibleId || '__none__'} onValueChange={(v) => setDefaultResponsibleId(v === '__none__' ? '' : v)}>
+                <SelectTrigger><SelectValue placeholder="Ej: Bancolombia" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin beneficiario</SelectItem>
+                  {responsibles.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-[10px] text-muted-foreground col-span-2 -mt-1">
+              Estos defaults se aplican al conciliar un pago bancario con este crédito.
+            </p>
             <div className="space-y-1.5">
               <Label className="text-xs">Monto inicial</Label>
               <Input type="number" min="0" step="1" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="70000000" />

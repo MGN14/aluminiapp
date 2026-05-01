@@ -17,6 +17,8 @@ export interface Credit {
   notes: string | null;
   additional_costs_pct: number;
   additional_costs_label: string | null;
+  default_category_id: string | null;
+  default_responsible_id: string | null;
 }
 
 export interface CreditPayment {
@@ -28,6 +30,7 @@ export interface CreditPayment {
   interest_paid: number;
   is_extra: boolean;
   notes: string | null;
+  transaction_id: string | null;
 }
 
 export interface CreditWithSummary {

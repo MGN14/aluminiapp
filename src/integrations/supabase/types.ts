@@ -516,6 +516,7 @@ export type Database = {
           notes: string | null
           payment_date: string
           principal_paid: number
+          transaction_id: string | null
           user_id: string
         }
         Insert: {
@@ -528,6 +529,7 @@ export type Database = {
           notes?: string | null
           payment_date: string
           principal_paid?: number
+          transaction_id?: string | null
           user_id: string
         }
         Update: {
@@ -540,6 +542,7 @@ export type Database = {
           notes?: string | null
           payment_date?: string
           principal_paid?: number
+          transaction_id?: string | null
           user_id?: string
         }
         Relationships: [
@@ -548,6 +551,13 @@ export type Database = {
             columns: ["credit_id"]
             isOneToOne: false
             referencedRelation: "credits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_payments_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
         ]
@@ -559,6 +569,8 @@ export type Database = {
           amortization_type: string
           bank_name: string | null
           created_at: string
+          default_category_id: string | null
+          default_responsible_id: string | null
           first_payment_date: string
           id: string
           interest_rate_monthly: number
@@ -577,6 +589,8 @@ export type Database = {
           amortization_type?: string
           bank_name?: string | null
           created_at?: string
+          default_category_id?: string | null
+          default_responsible_id?: string | null
           first_payment_date: string
           id?: string
           interest_rate_monthly: number
@@ -595,6 +609,8 @@ export type Database = {
           amortization_type?: string
           bank_name?: string | null
           created_at?: string
+          default_category_id?: string | null
+          default_responsible_id?: string | null
           first_payment_date?: string
           id?: string
           interest_rate_monthly?: number
@@ -607,7 +623,22 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "credits_default_category_id_fkey"
+            columns: ["default_category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credits_default_responsible_id_fkey"
+            columns: ["default_responsible_id"]
+            isOneToOne: false
+            referencedRelation: "responsibles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       financial_health_scores: {
         Row: {
