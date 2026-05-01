@@ -87,7 +87,12 @@ export default function TransactionRow({
     updateField({ type });
   };
 
-  const handleInvoiceChange = async (newInvoiceId: string | null, newTags: InvoiceTag[], autoMatches?: import('./InvoiceSelector').AutoMatchResult[]) => {
+  const handleInvoiceChange = async (
+    newInvoiceId: string | null,
+    newTags: InvoiceTag[],
+    autoMatches?: import('./InvoiceSelector').AutoMatchResult[],
+    creditLink?: import('./InvoiceSelector').CreditLinkInfo,
+  ) => {
     // Build notes from tags
     const tagMarkers: Record<InvoiceTag, string> = {
       na: '[N/A - Sin factura]',
@@ -102,17 +107,25 @@ export default function TransactionRow({
       .replace(/\[IVA a favor - Pago DIAN\]/g, '')
       .replace(/\[Retefuente - Sin factura\]/g, '')
       .replace(/\[Anticipo\]/g, '')
+      .replace(/\[Crédito - [^\]]+\]/g, '')
       .trim();
 
     // Add new markers
     const markers = newTags.map(t => tagMarkers[t]).join('');
-    const finalNotes = [markers, cleanNotes].filter(Boolean).join('') || null;
+    const creditMarker = creditLink ? `[Crédito - ${creditLink.creditName}]` : '';
+    const finalNotes = [markers, creditMarker, cleanNotes].filter(Boolean).join('') || null;
 
-    updateField({
+    // Si vino un creditLink, también pisamos categoría/responsable con los defaults del crédito
+    const fieldUpdate: Record<string, unknown> = {
       invoice_id: newInvoiceId,
       notes: finalNotes,
       has_retefuente: newTags.includes('retefuente'),
-    });
+    };
+    if (creditLink) {
+      if (creditLink.defaultCategoryId) fieldUpdate.category_id = creditLink.defaultCategoryId;
+      if (creditLink.defaultResponsibleId) fieldUpdate.responsible_id = creditLink.defaultResponsibleId;
+    }
+    updateField(fieldUpdate);
 
     // Create auto-match records for excess distribution
     if (autoMatches?.length && user) {
@@ -126,6 +139,33 @@ export default function TransactionRow({
             matched_amount: match.matchedAmount,
             match_type: 'manual',
           });
+      }
+    }
+
+    // Vincular pago a crédito: insert credit_payment + actualizar status si saldó
+    if (creditLink && user) {
+      try {
+        const { error: cpErr } = await (supabase.from('credit_payments' as never) as any)
+          .insert({
+            user_id: user.id,
+            credit_id: creditLink.creditId,
+            payment_date: creditLink.paymentDate,
+            amount_paid: creditLink.amountPaid,
+            principal_paid: creditLink.principalPaid,
+            interest_paid: creditLink.interestPaid,
+            is_extra: false,
+            notes: `Conciliado desde extracto`,
+            transaction_id: localTransaction.id,
+          });
+        if (cpErr) throw cpErr;
+
+        if (creditLink.newBalance <= 0.5) {
+          await (supabase.from('credits' as never) as any)
+            .update({ status: 'paid' })
+            .eq('id', creditLink.creditId);
+        }
+      } catch (err) {
+        console.error('Error linking credit:', err);
       }
     }
   };
@@ -300,6 +340,7 @@ export default function TransactionRow({
               tags={derivedTags}
               transactionType={localTransaction.type || 'egreso'}
               transactionAmount={localTransaction.amount}
+              transactionDate={localTransaction.date}
               transactionId={localTransaction.id}
               onChange={handleInvoiceChange}
             />

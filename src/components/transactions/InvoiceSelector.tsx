@@ -4,8 +4,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { FileText, Search, X, ShieldCheck, Receipt, Plus, Wallet } from 'lucide-react';
+import { FileText, Search, X, ShieldCheck, Receipt, Plus, Wallet, CreditCard } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { suggestPaymentSplit, summarizeCredit, type AmortizationType } from '@/lib/amortization';
 
 interface InvoiceOption {
   id: string;
@@ -19,13 +20,26 @@ interface InvoiceOption {
 
 export type InvoiceTag = 'na' | 'iva_favor' | 'retefuente' | 'anticipo';
 
+export interface CreditLinkInfo {
+  creditId: string;
+  creditName: string;
+  paymentDate: string;
+  amountPaid: number;
+  principalPaid: number;
+  interestPaid: number;
+  newBalance: number;
+  defaultCategoryId: string | null;
+  defaultResponsibleId: string | null;
+}
+
 interface InvoiceSelectorProps {
   invoiceId: string | null;
   tags: InvoiceTag[];
   transactionType: string;
   transactionAmount?: number | null;
+  transactionDate?: string;
   transactionId?: string;
-  onChange: (invoiceId: string | null, tags: InvoiceTag[], autoMatches?: AutoMatchResult[]) => void;
+  onChange: (invoiceId: string | null, tags: InvoiceTag[], autoMatches?: AutoMatchResult[], creditLink?: CreditLinkInfo) => void;
   className?: string;
 }
 
@@ -33,6 +47,17 @@ export interface AutoMatchResult {
   invoiceId: string;
   invoiceNumber: string;
   matchedAmount: number;
+}
+
+interface CreditOption {
+  id: string;
+  name: string;
+  bank_name: string | null;
+  interest_rate_monthly: number;
+  default_category_id: string | null;
+  default_responsible_id: string | null;
+  currentBalance: number;
+  nextCuotaAmount: number | null;
 }
 
 function formatCurrency(value: number) {
@@ -51,9 +76,10 @@ const TAG_CONFIG: Record<InvoiceTag, { label: string; icon: typeof FileText; col
   anticipo: { label: 'Anticipo', icon: Wallet, colorClass: 'text-warning', description: 'Pago anticipado sin factura' },
 };
 
-export default function InvoiceSelector({ invoiceId, tags, transactionType, transactionAmount, transactionId, onChange, className }: InvoiceSelectorProps) {
+export default function InvoiceSelector({ invoiceId, tags, transactionType, transactionAmount, transactionDate, transactionId, onChange, className }: InvoiceSelectorProps) {
   const [open, setOpen] = useState(false);
   const [invoices, setInvoices] = useState<InvoiceOption[]>([]);
+  const [credits, setCredits] = useState<CreditOption[]>([]);
   const [search, setSearch] = useState('');
   const [loaded, setLoaded] = useState(false);
   const { toast } = useToast();
@@ -126,8 +152,59 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     });
 
     setInvoices(enriched);
+
+    // Cargar créditos activos sólo para egresos
+    if (transactionType === 'egreso') {
+      const [credRes, paysRes] = await Promise.all([
+        (supabase.from('credits' as never) as any)
+          .select('id, name, bank_name, principal, interest_rate_monthly, term_months, first_payment_date, amortization_type, default_category_id, default_responsible_id')
+          .eq('status', 'active'),
+        (supabase.from('credit_payments' as never) as any)
+          .select('credit_id, payment_date, amount_paid, principal_paid, interest_paid, is_extra'),
+      ]);
+
+      const allCreds = (credRes.data ?? []) as Array<{
+        id: string; name: string; bank_name: string | null;
+        principal: number; interest_rate_monthly: number; term_months: number;
+        first_payment_date: string; amortization_type: AmortizationType;
+        default_category_id: string | null; default_responsible_id: string | null;
+      }>;
+      const allPays = (paysRes.data ?? []) as Array<{
+        credit_id: string; payment_date: string; amount_paid: number;
+        principal_paid: number; interest_paid: number; is_extra: boolean;
+      }>;
+
+      const enrichedCreds: CreditOption[] = allCreds.map((c) => {
+        const myPays = allPays.filter((p) => p.credit_id === c.id);
+        const summary = summarizeCredit(
+          {
+            principal: Number(c.principal),
+            interestRateMonthlyPct: Number(c.interest_rate_monthly),
+            termMonths: c.term_months,
+            firstPaymentDate: c.first_payment_date,
+            type: c.amortization_type,
+          },
+          myPays,
+          0,
+        );
+        return {
+          id: c.id,
+          name: c.name,
+          bank_name: c.bank_name,
+          interest_rate_monthly: Number(c.interest_rate_monthly),
+          default_category_id: c.default_category_id,
+          default_responsible_id: c.default_responsible_id,
+          currentBalance: summary.currentBalance,
+          nextCuotaAmount: summary.nextCuota?.cuotaTotal ?? null,
+        };
+      });
+      setCredits(enrichedCreds);
+    } else {
+      setCredits([]);
+    }
+
     setLoaded(true);
-  }, [transactionId, transactionAmount, invoiceId]);
+  }, [transactionId, transactionAmount, invoiceId, transactionType]);
 
   useEffect(() => {
     if (!open || loaded) return;
@@ -252,6 +329,36 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     onChange(null, tags.filter(t => t !== 'anticipo'));
   };
 
+  const selectCredit = (credit: CreditOption) => {
+    if (transactionAmount == null) return;
+    const paymentDate = transactionDate ?? new Date().toISOString().slice(0, 10);
+    const amountPaid = Math.abs(transactionAmount);
+    const split = suggestPaymentSplit(
+      credit.currentBalance,
+      credit.interest_rate_monthly,
+      amountPaid,
+      false,
+    );
+    const newBalance = credit.currentBalance - split.principal;
+
+    // Limpiar invoice si había, y notificar al padre con la info del crédito.
+    // El padre se encarga del INSERT credit_payment + UPDATE category/responsible.
+    const newTags = tags.filter(t => t !== 'na' && t !== 'anticipo');
+    onChange(null, newTags, undefined, {
+      creditId: credit.id,
+      creditName: credit.name,
+      paymentDate,
+      amountPaid,
+      principalPaid: split.principal,
+      interestPaid: split.interest,
+      newBalance,
+      defaultCategoryId: credit.default_category_id,
+      defaultResponsibleId: credit.default_responsible_id,
+    });
+    setOpen(false);
+    setSearch('');
+  };
+
   const hasAnySelection = !!invoiceId || tags.length > 0;
 
   const availableTags: InvoiceTag[] = transactionType === 'egreso'
@@ -348,6 +455,43 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
                 </button>
               );
             })}
+
+            {/* Créditos vigentes (solo egresos) */}
+            {transactionType === 'egreso' && credits.length > 0 && (
+              <>
+                <div className="px-3 py-1.5 text-[10px] text-muted-foreground uppercase tracking-wider bg-muted/30 border-b border-border">
+                  Créditos vigentes
+                </div>
+                {credits.map((c) => {
+                  const matchesCuota = c.nextCuotaAmount && transactionAmount != null
+                    ? Math.abs(c.nextCuotaAmount - Math.abs(transactionAmount)) / c.nextCuotaAmount <= 0.15
+                    : false;
+                  return (
+                    <button
+                      key={c.id}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/50 flex items-center gap-2 border-b border-border/50"
+                      onClick={() => selectCredit(c)}
+                    >
+                      <CreditCard className="h-3.5 w-3.5 shrink-0 text-cyan-700" />
+                      <span className="font-medium shrink-0">{c.name}</span>
+                      <span className="text-muted-foreground truncate flex-1">
+                        {c.bank_name ?? 'Sin banco'} · saldo {formatCurrency(c.currentBalance)}
+                      </span>
+                      {matchesCuota && (
+                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary font-semibold shrink-0">
+                          Cuota
+                        </span>
+                      )}
+                      {c.nextCuotaAmount && (
+                        <span className="font-medium shrink-0 text-cyan-700">
+                          {formatCurrency(c.nextCuotaAmount)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </>
+            )}
 
             {/* Separator */}
             <div className="px-3 py-1.5 text-[10px] text-muted-foreground uppercase tracking-wider bg-muted/30 border-b border-border">

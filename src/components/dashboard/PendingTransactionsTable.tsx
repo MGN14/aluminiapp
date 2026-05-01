@@ -249,8 +249,14 @@ export function PendingTransactionsTable({
     return tags;
   };
 
-  // Handle invoice/tag changes
-  const handleInvoiceChange = async (transactionId: string, invoiceId: string | null, tags: InvoiceTag[], currentNotes: string | null) => {
+  // Handle invoice/tag changes (and optional credit link)
+  const handleInvoiceChange = async (
+    transactionId: string,
+    invoiceId: string | null,
+    tags: InvoiceTag[],
+    currentNotes: string | null,
+    creditLink?: import('@/components/transactions/InvoiceSelector').CreditLinkInfo,
+  ) => {
     setUpdatingId(transactionId);
     try {
       // Build notes with tags
@@ -259,20 +265,58 @@ export function PendingTransactionsTable({
         .replace(/\[IVA a favor - Pago DIAN\]/g, '')
         .replace(/\[Retefuente - Sin factura\]/g, '')
         .replace(/\[Anticipo\]/g, '')
+        .replace(/\[Crédito - [^\]]+\]/g, '')
         .trim();
       const tagMarkers: string[] = [];
       if (tags.includes('na')) tagMarkers.push('[N/A]');
       if (tags.includes('iva_favor')) tagMarkers.push('[IVA a favor - Pago DIAN]');
       if (tags.includes('retefuente')) tagMarkers.push('[Retefuente - Sin factura]');
       if (tags.includes('anticipo')) tagMarkers.push('[Anticipo]');
+      if (creditLink) tagMarkers.push(`[Crédito - ${creditLink.creditName}]`);
       const newNotes = [...tagMarkers, cleanNotes].filter(Boolean).join(' ').trim() || null;
+
+      // Pisamos categoría/responsable cuando hay creditLink
+      const update: Record<string, unknown> = { invoice_id: invoiceId, notes: newNotes };
+      if (creditLink) {
+        if (creditLink.defaultCategoryId) update.category_id = creditLink.defaultCategoryId;
+        if (creditLink.defaultResponsibleId) update.responsible_id = creditLink.defaultResponsibleId;
+      }
 
       const { error } = await supabase
         .from('transactions')
-        .update({ invoice_id: invoiceId, notes: newNotes })
+        .update(update)
         .eq('id', transactionId);
-
       if (error) throw error;
+
+      // Vincular pago a crédito
+      if (creditLink) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { error: cpErr } = await (supabase.from('credit_payments' as never) as any)
+            .insert({
+              user_id: user.id,
+              credit_id: creditLink.creditId,
+              payment_date: creditLink.paymentDate,
+              amount_paid: creditLink.amountPaid,
+              principal_paid: creditLink.principalPaid,
+              interest_paid: creditLink.interestPaid,
+              is_extra: false,
+              notes: 'Conciliado desde extracto',
+              transaction_id: transactionId,
+            });
+          if (cpErr) console.error('Error inserting credit_payment:', cpErr);
+
+          if (creditLink.newBalance <= 0.5) {
+            await (supabase.from('credits' as never) as any)
+              .update({ status: 'paid' })
+              .eq('id', creditLink.creditId);
+            toast({ title: `Crédito ${creditLink.creditName} saldado 🎉` });
+          } else {
+            toast({ title: `Pago vinculado a "${creditLink.creditName}"` });
+          }
+        }
+      }
+
       onTransactionUpdated();
     } catch (error) {
       console.error('Error updating invoice:', error);
@@ -401,8 +445,9 @@ export function PendingTransactionsTable({
                       tags={parseTagsFromNotes(tx.notes)}
                       transactionType={tx.type || 'egreso'}
                       transactionAmount={tx.amount}
+                      transactionDate={tx.date}
                       transactionId={tx.id}
-                      onChange={(invId, tags) => handleInvoiceChange(tx.id, invId, tags, tx.notes)}
+                      onChange={(invId, tags, _autoMatches, creditLink) => handleInvoiceChange(tx.id, invId, tags, tx.notes, creditLink)}
                       className="w-full"
                     />
                   </div>
@@ -491,8 +536,9 @@ export function PendingTransactionsTable({
                         tags={parseTagsFromNotes(tx.notes)}
                         transactionType={tx.type || 'egreso'}
                         transactionAmount={tx.amount}
+                        transactionDate={tx.date}
                         transactionId={tx.id}
-                        onChange={(invId, tags) => handleInvoiceChange(tx.id, invId, tags, tx.notes)}
+                        onChange={(invId, tags, _autoMatches, creditLink) => handleInvoiceChange(tx.id, invId, tags, tx.notes, creditLink)}
                         className="min-w-[120px]"
                       />
                     </TableCell>
