@@ -62,6 +62,8 @@ export default function AdvancesReport() {
       ]);
 
       if (txResult.error) throw txResult.error;
+      if (initialDetailsResult.error) throw initialDetailsResult.error;
+      if (initialStateResult.error) throw initialStateResult.error;
       const transactions = txResult.data || [];
       const initialDetails = (initialDetailsResult.data as any[]) || [];
       const initialState = initialStateResult.data as any;

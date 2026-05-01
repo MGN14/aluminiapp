@@ -158,6 +158,15 @@ export function useInformeBancoData() {
           .maybeSingle(),
       ]);
 
+      if (profileRes.error) throw profileRes.error;
+      if (txRes.error) throw txRes.error;
+      if (invRes.error) throw invRes.error;
+      if (txPrevRes.error) throw txPrevRes.error;
+      if (productsRes.error) throw productsRes.error;
+      if (cashRes.error) throw cashRes.error;
+      if (respRes.error) throw respRes.error;
+      if (lastTxRes.error) throw lastTxRes.error;
+
       const profile = profileRes.data ?? {};
       const txs = txRes.data ?? [];
       const invs = (invRes.data ?? []) as Array<{ id: string; type: string; total_amount: number; issue_date: string; counterparty_name: string | null }>;

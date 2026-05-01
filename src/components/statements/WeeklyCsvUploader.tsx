@@ -201,7 +201,7 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
       // Nota: usamos `as any` porque types.ts todavía no conoce la columna
       // period_type (se regenera por Lovable después). El valor es válido
       // gracias a la migración de Fase 1.
-      const account = preview.parsed.summary.accountsSeen[0] || null;
+      const account = preview.parsed.summary?.accountsSeen?.[0] ?? null;
       const { data: stmt, error: stmtErr } = await supabase
         .from("bank_statements")
         .insert({

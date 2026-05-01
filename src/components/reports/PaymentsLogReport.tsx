@@ -503,6 +503,9 @@ export default function PaymentsLogReport() {
           : Promise.resolve({ data: [], error: null }),
       ]);
 
+      if (allRespsRes.error) throw allRespsRes.error;
+      if (linkedInvsRes.error) throw linkedInvsRes.error;
+
       const catNameById = new Map<string, string>();
       for (const c of (allCats ?? []) as Array<{ id: string; name: string }>) {
         catNameById.set(c.id, c.name);

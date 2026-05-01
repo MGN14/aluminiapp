@@ -148,6 +148,12 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       if (txResult.error) throw txResult.error;
       if (invoiceResult.error) throw invoiceResult.error;
       if (matchesResult.error) throw matchesResult.error;
+      if (initialStateResult.error) throw initialStateResult.error;
+      if (advanceDetailsResult.error) throw advanceDetailsResult.error;
+      if (categoriesResult.error) throw categoriesResult.error;
+      if (responsiblesResult.error) throw responsiblesResult.error;
+      if (allAdvanceDetailsResult.error) throw allAdvanceDetailsResult.error;
+      if (inventoryResult.error) throw inventoryResult.error;
 
       const initialState = (initialStateResult.data as any) ?? null;
       const advanceDetails = ((advanceDetailsResult.data || []) as any[]);

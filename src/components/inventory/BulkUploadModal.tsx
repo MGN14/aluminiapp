@@ -86,7 +86,12 @@ export default function BulkUploadModal({ open, onOpenChange, onComplete }: Prop
         const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as string) as any;
         const data = await file.arrayBuffer();
         const wb = XLSX.read(data, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
+        const firstSheetName = wb.SheetNames?.[0];
+        if (!firstSheetName) {
+          toast({ title: 'Archivo sin hojas', description: 'El archivo Excel no contiene hojas.', variant: 'destructive' });
+          return;
+        }
+        const ws = wb.Sheets[firstSheetName];
         const jsonRows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
         if (jsonRows.length < 2) {
           toast({ title: 'Archivo vacío', description: 'El archivo no contiene datos.', variant: 'destructive' });

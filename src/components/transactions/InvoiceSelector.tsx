@@ -116,7 +116,11 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
       .select('invoice_id, matched_amount')
       .in('invoice_id', invoiceIds);
 
-    const [{ data: directPayments }, { data: matchPayments }] = await Promise.all([directQuery, matchQuery]);
+    const [directRes, matchRes] = await Promise.all([directQuery, matchQuery]);
+    if (directRes.error) throw directRes.error;
+    if (matchRes.error) throw matchRes.error;
+    const directPayments = directRes.data;
+    const matchPayments = matchRes.data;
 
     // Aggregate payments per invoice
     const paidByInvoice = new Map<string, number>();

@@ -157,7 +157,7 @@ export default function RegistrarGastoModal() {
       return;
     }
     const num = parseFloat(amount);
-    if (!num || num <= 0) {
+    if (!Number.isFinite(num) || num <= 0) {
       toast({ title: 'Monto inválido', description: 'El monto debe ser mayor a 0.', variant: 'destructive' });
       return;
     }

@@ -147,6 +147,9 @@ export default function FinancialHealth() {
           supabase.from('invoices').select('issue_date').eq('user_id', user.id).eq('status', 'confirmed').order('issue_date', { ascending: false }).limit(1),
         ]);
 
+        if (latestTx.error) throw latestTx.error;
+        if (latestInvoice.error) throw latestInvoice.error;
+
         const txDate = latestTx.data?.[0]?.date ? new Date(`${latestTx.data[0].date}T00:00:00`) : null;
         const invoiceDate = latestInvoice.data?.[0]?.issue_date ? new Date(`${latestInvoice.data[0].issue_date}T00:00:00`) : null;
 

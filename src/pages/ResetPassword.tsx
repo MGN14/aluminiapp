@@ -106,7 +106,13 @@ export default function ResetPassword() {
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const errorDescription = hashParams.get('error_description');
     if (errorDescription) {
-      markLinkError(decodeURIComponent(errorDescription).replace(/\+/g, ' '));
+      let decoded = errorDescription;
+      try {
+        decoded = decodeURIComponent(errorDescription);
+      } catch {
+        // URI malformado en el hash — usar el string raw como fallback
+      }
+      markLinkError(decoded.replace(/\+/g, ' '));
       return;
     }
 

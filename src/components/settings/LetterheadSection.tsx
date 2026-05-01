@@ -207,7 +207,7 @@ export default function LetterheadSection() {
                 min="0"
                 max="100"
                 value={topMargin}
-                onChange={(e) => setTopMargin(parseInt(e.target.value) || 0)}
+                onChange={(e) => setTopMargin(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
               />
               <p className="text-[10px] text-muted-foreground">Espacio para no pisar el logo/header de tu hoja.</p>
             </div>
@@ -219,7 +219,7 @@ export default function LetterheadSection() {
                 min="0"
                 max="100"
                 value={bottomMargin}
-                onChange={(e) => setBottomMargin(parseInt(e.target.value) || 0)}
+                onChange={(e) => setBottomMargin(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
               />
               <p className="text-[10px] text-muted-foreground">Espacio para no pisar el footer.</p>
             </div>

@@ -84,6 +84,12 @@ export function useOperationalData(year: number): OperationalData {
         invoicesPromise, anticiposPromise, comprasPromise, initialCxCPromise, initialAnticiposPromise,
       ]);
 
+      if (invoicesRes.error) throw invoicesRes.error;
+      if (anticiposRes.error) throw anticiposRes.error;
+      if (comprasRes.error) throw comprasRes.error;
+      if (initialCxCRes.error) throw initialCxCRes.error;
+      if (initialAnticiposRes.error) throw initialAnticiposRes.error;
+
       // --- CxC ---
       const initialCxCTotal = (initialCxCRes.data || []).reduce((s, d) => s + (d.amount ?? 0), 0);
 

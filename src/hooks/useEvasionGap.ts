@@ -94,6 +94,12 @@ export function useEvasionGap({
 
         if (cancelled) return;
 
+        if (txRes.error) throw txRes.error;
+        if (cashRes.error) throw cashRes.error;
+        if (invRes.error) throw invRes.error;
+        if (advRes.error) throw advRes.error;
+        if (stateRes.error) throw stateRes.error;
+
         const txRows = (txRes.data || []) as Array<{ amount: number | null; date: string }>;
         const cashRows = (cashRes.data || []) as Array<{ amount: number | null; type: string; date: string }>;
         const invRows = (invRes.data || []) as Array<{ total_amount: number | null; issue_date: string }>;
