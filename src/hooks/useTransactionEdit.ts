@@ -17,19 +17,19 @@ interface UseTransactionEditReturn {
   localTransaction: Transaction;
 }
 
-// Calculate IVA amount based on type and amount
+// COP no usa centavos en transacciones reales — las 3 retenciones redondean
+// al peso entero para evitar drift acumulativo y mantener cuadre con totales.
+
 function calculateIvaAmount(amount: number | null, hasIva: boolean, type: string): number {
   if (!hasIva || type === 'transferencia') return 0;
-  return Math.abs(amount ?? 0) * IVA_RATE;
+  return Math.round(Math.abs(amount ?? 0) * IVA_RATE);
 }
 
-// Calculate Retefuente amount (only for expenses)
 function calculateRetefuenteAmount(amount: number | null, hasRetefuente: boolean, type: string): number {
   if (!hasRetefuente || type !== 'egreso') return 0;
-  return Math.abs(amount ?? 0) * RETEFUENTE_RATE;
+  return Math.round(Math.abs(amount ?? 0) * RETEFUENTE_RATE);
 }
 
-// Calculate ReteICA amount (only for income)
 function calculateReteicaAmount(amount: number | null, hasReteica: boolean, type: string, reteicaRate: number): number {
   if (!hasReteica || type !== 'ingreso' || reteicaRate <= 0) return 0;
   return Math.round(Math.abs(amount ?? 0) * reteicaRate);

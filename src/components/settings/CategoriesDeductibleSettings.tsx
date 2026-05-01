@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BadgeCheck, BadgeX, Info, ChevronDown, ChevronUp } from 'lucide-react';
+import { formatUvtAsCOP } from '@/lib/uvt';
 
 interface CategoryRow {
   id: string;
@@ -117,7 +118,7 @@ export default function CategoriesDeductibleSettings() {
                 <li>Pagos a paraísos fiscales (sin retención 33%)</li>
                 <li>Donaciones sin certificado válido</li>
                 <li>IVA descontable (se cruza con IVA, no en renta)</li>
-                <li>Gastos en efectivo &gt; 100 UVT por transacción ($5.237.000 en 2026)</li>
+                <li>Gastos en efectivo &gt; 100 UVT por transacción ({formatUvtAsCOP(100)} en 2026)</li>
               </ul>
             </div>
             <p className="italic text-blue-700 dark:text-blue-300 pt-1">

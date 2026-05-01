@@ -202,6 +202,28 @@ serve(async (req) => {
       .eq("statement_id", statement_id);
 
     if ((existingTxCount ?? 0) > 0) {
+      // Solo self-healear si el count existente coincide con el payload. Si no
+      // coincide, la corrida previa quedó parcial — marcar processed=true
+      // ocultaría que faltan filas. Mejor abortar y pedir borrar+resubir.
+      if (existingTxCount !== validMovements.length) {
+        console.warn(
+          `parse-bancolombia-csv: self-heal abortado statement ${statement_id} — ` +
+            `existentes=${existingTxCount}, payload=${validMovements.length}. ` +
+            `Insert previo quedó parcial.`,
+        );
+        return jsonResponse(
+          {
+            error:
+              `Este extracto tiene ${existingTxCount} transacciones existentes ` +
+              `pero el archivo trae ${validMovements.length}. La corrida anterior ` +
+              `quedó incompleta. Borrá el extracto y volvé a subirlo.`,
+            existing_tx_count: existingTxCount,
+            expected_tx_count: validMovements.length,
+          },
+          409,
+        );
+      }
+
       const { error: healErr } = await supabase
         .from("bank_statements")
         .update({
@@ -220,7 +242,7 @@ serve(async (req) => {
 
       console.log(
         `parse-bancolombia-csv: self-healed statement ${statement_id} ` +
-          `(encontró ${existingTxCount} transactions huérfanas de corrida previa)`,
+          `(encontró ${existingTxCount} transactions huérfanas de corrida previa, count exacto)`,
       );
       return jsonResponse({
         success: true,

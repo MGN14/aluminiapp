@@ -170,41 +170,48 @@ export function useReconciliationRules() {
     const uncategorized = txs.filter((tx: any) => !tx.category_id);
     if (!uncategorized.length) return 0;
 
-    let applied = 0;
-    const ruleUpdates: { ruleId: string; matchCount: number }[] = [];
+    // Group tx ids by category_id to enable bulk updates (1 UPDATE per category
+    // instead of 1 per transaction). For N tx and C distinct categories matched,
+    // queries drop from N+1 to C+1.
+    const matchedByCategory = new Map<string, string[]>();
+    const ruleHits: Record<string, number> = {};
 
     for (const tx of uncategorized) {
       for (const rule of activeRules) {
         if (matchesRule(rule, tx as any)) {
-          const { error: updErr } = await supabase
-            .from('transactions')
-            .update({ category_id: rule.category_id })
-            .eq('id', (tx as any).id);
-
-          if (!updErr) {
-            applied++;
-            const existing = ruleUpdates.find(u => u.ruleId === rule.id);
-            if (existing) existing.matchCount++;
-            else ruleUpdates.push({ ruleId: rule.id, matchCount: 1 });
-          }
+          const catId = rule.category_id as string;
+          const list = matchedByCategory.get(catId) ?? [];
+          list.push((tx as any).id);
+          matchedByCategory.set(catId, list);
+          ruleHits[rule.id] = (ruleHits[rule.id] ?? 0) + 1;
           break; // first matching rule wins
         }
       }
     }
 
-    // Update match counts for all matched rules in one batch
-    for (const { ruleId, matchCount } of ruleUpdates) {
-      const rule = activeRules.find(r => r.id === ruleId);
-      if (rule) {
-        await (supabase as any)
+    let applied = 0;
+    for (const [categoryId, txIds] of matchedByCategory.entries()) {
+      const { error: updErr } = await supabase
+        .from('transactions')
+        .update({ category_id: categoryId })
+        .in('id', txIds);
+      if (!updErr) applied += txIds.length;
+    }
+
+    // Update rule match counts in parallel
+    await Promise.all(
+      Object.entries(ruleHits).map(([ruleId, matchCount]) => {
+        const rule = activeRules.find(r => r.id === ruleId);
+        if (!rule) return null;
+        return (supabase as any)
           .from('reconciliation_rules')
           .update({
             match_count: rule.match_count + matchCount,
             last_matched_at: new Date().toISOString(),
           })
           .eq('id', ruleId);
-      }
-    }
+      }),
+    );
 
     if (applied > 0) {
       qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
