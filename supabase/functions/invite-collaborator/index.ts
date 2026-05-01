@@ -5,6 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const RESEND_FROM = Deno.env.get("RESEND_FROM") || "onboarding@resend.dev";
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -135,7 +137,7 @@ Deno.serve(async (req) => {
           "Authorization": `Bearer ${resendApiKey}`,
         },
         body: JSON.stringify({
-          from: "onboarding@resend.dev",
+          from: `AluminIA <${RESEND_FROM}>`,
           to: [normalizedEmail],
           subject: "Te agregaron a AluminIA",
           html: `

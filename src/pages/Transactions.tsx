@@ -165,9 +165,17 @@ export default function Transactions() {
   const fetchTransactions = async () => {
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setTransactions([]);
+        setLoading(false);
+        return;
+      }
+
       let query = supabase
         .from('transactions')
         .select('*')
+        .eq('user_id', user.id)
         .is('deleted_at', null)
         .order('date', { ascending: true })
         .order('created_at', { ascending: true }); // Stable secondary sort
