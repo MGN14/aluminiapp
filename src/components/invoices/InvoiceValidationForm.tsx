@@ -19,24 +19,8 @@ import { normalizeCompanyName as normalizeForMatch } from '@/lib/stringUtils';
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
 
-// Devuelve 0 si NaN/Infinity (parseFloat normal acepta "1e1000" → Infinity).
-function safeParseFloat(v: string): number {
-  const n = parseFloat(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-// safeParseFloat + clamp a [0, 100] para tasas de % (IVA, retenciones).
-function safeParsePercent(v: string): number {
-  const n = safeParseFloat(v);
-  return Math.max(0, Math.min(100, n));
-}
-
-// safeParseInt + clamp a [0, 365] para días de crédito.
-function safeParseDays(v: string): number {
-  const n = parseInt(v, 10);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(365, n));
-}
+import { safeParseFloat, safeParsePercent, safeParseIntClamp } from '@/lib/numberUtils';
+const safeParseDays = (v: string) => safeParseIntClamp(v, 0, 365);
 
 interface FormData extends ExtractedInvoiceData {
   autoretefuente_rate: number;
