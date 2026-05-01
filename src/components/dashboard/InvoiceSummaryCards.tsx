@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileText, Users, Package, Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { MONTH_LABELS } from '@/lib/constants';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -355,8 +356,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const nowDate = new Date();
     const pm = nowDate.getMonth() === 0 ? 12 : nowDate.getMonth();
     const pmYear = nowDate.getMonth() === 0 ? nowDate.getFullYear() - 1 : nowDate.getFullYear();
-    const MONTH_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-    const nextPaymentMonthLabel = `${MONTH_FULL[pm - 1]} ${pmYear}`;
+    const nextPaymentMonthLabel = `${MONTH_LABELS[pm - 1]} ${pmYear}`;
 
     return {
       ivaGenerado, ivaDescontable, ivaNeto,

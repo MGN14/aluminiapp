@@ -42,7 +42,7 @@ const VENCIMIENTOS_RETEFUENTE_2026: Record<number, string[]> = {
   9: ['2026-02-23','2026-03-23','2026-04-22','2026-05-25','2026-06-22','2026-07-22','2026-08-24','2026-09-22','2026-10-22','2026-11-23','2026-12-22','2027-01-23'],
 };
 
-const MESES_RETEFUENTE = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+import { MONTH_LABELS as MESES_RETEFUENTE } from '@/lib/constants';
 
 // Renta personas jurídicas 2026 (declaración año gravable 2025)
 const VENCIMIENTOS_RENTA_2026: Record<number, string> = {

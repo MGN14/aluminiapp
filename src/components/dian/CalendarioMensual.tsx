@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronLeft, ChevronRight, CalendarDays, Check } from 'lucide-react';
 import { usePaidObligations } from '@/hooks/usePaidObligations';
+import { MONTH_LABELS as MESES } from '@/lib/constants';
 
 interface Props {
   events: CalendarEvent[];
@@ -16,10 +17,6 @@ interface Props {
 }
 
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
 
 // lunes como primer día de semana
 function firstDayOffset(year: number, month: number): number {

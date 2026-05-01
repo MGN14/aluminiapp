@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useReconciliationRules } from '@/hooks/useReconciliationRules';
 import CrearReglaModal, { ReglaPatronSugerido } from './CrearReglaModal';
+import { MONTH_LABELS_SHORT } from '@/lib/constants';
 
 interface Patron {
   id: string;
@@ -44,7 +45,8 @@ const SEV_CONFIG = {
 export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (pregunta: string) => void }) {
   const { user } = useAuth();
   const currentYear = new Date().getFullYear();
-  const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  // Usa MONTH_LABELS_SHORT importado al top del archivo
+  const MESES = MONTH_LABELS_SHORT;
   const { rules } = useReconciliationRules();
   const [reglaModal, setReglaModal] = useState<{ open: boolean; patron?: ReglaPatronSugerido }>({ open: false });
 

@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, Wallet, Calendar, BarChart3, Zap, Flag } from 'lucide-react';
+import { MONTH_LABELS_SHORT } from '@/lib/constants';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -125,7 +126,7 @@ export default function NicoPronosticos() {
     const total3MIngresos = ing3.reduce((a, b) => a + b, 0);
     const total3MEgresos = egr3.reduce((a, b) => a + b, 0);
 
-    const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const mesesNombres = MONTH_LABELS_SHORT;
 
     // Cierre del año: real para meses pasados, proyectado para futuros
     const mesAMes = Array.from({ length: 12 }, (_, m) => {

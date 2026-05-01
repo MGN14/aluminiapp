@@ -37,10 +37,7 @@ const BRAND_BRIGHT = 'oklch(0.60 0.14 155)';
 const SUCCESS = 'oklch(0.55 0.16 150)';
 const DANGER = 'oklch(0.58 0.21 25)';
 
-const MONTH_NAMES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
+import { MONTH_LABELS as MONTH_NAMES } from '@/lib/constants';
 
 function formatCurrency(v: number): string {
   return new Intl.NumberFormat('es-CO', {
