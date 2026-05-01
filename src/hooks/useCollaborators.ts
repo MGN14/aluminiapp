@@ -4,16 +4,37 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { invokeFunctionWithAuthRetry } from '@/lib/authRetry';
 
+export type ModuleGroup = 'general' | 'documentos' | 'movimientos' | 'reportes' | 'ia';
+
 export const MODULE_KEYS = [
-  { key: 'dashboard', label: 'Dashboard' },
-  { key: 'extractos', label: 'Extractos Bancarios' },
-  { key: 'facturas_venta', label: 'Facturas de Venta' },
-  { key: 'facturas_compra', label: 'Facturas de Compra' },
-  { key: 'conciliacion', label: 'Conciliación Bancaria' },
-  { key: 'inventarios', label: 'Inventarios' },
-  { key: 'reportes', label: 'Reportes' },
-  { key: 'exportar', label: 'Exportar' },
+  // General
+  { key: 'dashboard', label: 'Dashboard', group: 'general' as ModuleGroup, description: 'Pantalla principal con KPIs' },
+  // Documentos
+  { key: 'extractos', label: 'Extractos Bancarios', group: 'documentos' as ModuleGroup, description: 'Subir y revisar extractos del banco' },
+  { key: 'facturas_venta', label: 'Facturas de Venta', group: 'documentos' as ModuleGroup, description: 'Facturas emitidas a clientes' },
+  { key: 'facturas_compra', label: 'Facturas de Compra', group: 'documentos' as ModuleGroup, description: 'Facturas recibidas de proveedores' },
+  // Movimientos
+  { key: 'conciliacion', label: 'Conciliación bancaria', group: 'movimientos' as ModuleGroup, description: 'Vincular pagos con facturas' },
+  { key: 'caja_menor', label: 'Caja Menor', group: 'movimientos' as ModuleGroup, description: 'Gastos en efectivo y cuentas de cobro' },
+  { key: 'inventarios', label: 'Inventarios', group: 'movimientos' as ModuleGroup, description: 'Productos, stock y movimientos' },
+  { key: 'remisiones', label: 'Remisiones', group: 'movimientos' as ModuleGroup, description: 'Notas de despacho a clientes' },
+  { key: 'creditos', label: 'Créditos', group: 'movimientos' as ModuleGroup, description: 'Préstamos bancarios y amortización' },
+  // Reportes
+  { key: 'reportes', label: 'Reportes', group: 'reportes' as ModuleGroup, description: 'PYG, anticipos, lo que me deben/debo, flujo de caja' },
+  { key: 'informe_dian', label: 'Visita / Informe DIAN', group: 'reportes' as ModuleGroup, description: 'Calendario tributario y informe de cumplimiento' },
+  { key: 'informe_banco', label: 'Informe para Banco', group: 'reportes' as ModuleGroup, description: 'Reporte para solicitar crédito' },
+  { key: 'exportar', label: 'Exportar', group: 'reportes' as ModuleGroup, description: 'Descargar datos a Excel/PDF' },
+  // IA
+  { key: 'nico_ia', label: 'Nico IA', group: 'ia' as ModuleGroup, description: 'Asistente conversacional' },
 ] as const;
+
+export const MODULE_GROUP_LABELS: Record<ModuleGroup, string> = {
+  general: 'General',
+  documentos: 'Documentos',
+  movimientos: 'Movimientos',
+  reportes: 'Reportes & Análisis',
+  ia: 'Asistente IA',
+};
 
 export type ModuleKey = typeof MODULE_KEYS[number]['key'];
 export type AccessLevel = 'none' | 'view' | 'edit';
@@ -36,9 +57,15 @@ const DEFAULT_PERMISSIONS: Record<ModuleKey, AccessLevel> = {
   facturas_venta: 'none',
   facturas_compra: 'none',
   conciliacion: 'none',
+  caja_menor: 'none',
   inventarios: 'none',
+  remisiones: 'none',
+  creditos: 'none',
   reportes: 'none',
+  informe_dian: 'none',
+  informe_banco: 'none',
   exportar: 'none',
+  nico_ia: 'view',
 };
 
 export function useCollaborators() {
@@ -125,16 +152,36 @@ export function useCollaborators() {
 
   const updatePermission = async (collaboratorId: string, moduleKey: ModuleKey, level: AccessLevel) => {
     try {
+      // upsert para soportar module_keys que aún no tienen fila (nuevos módulos)
       const { error } = await supabase
         .from('collaborator_permissions')
-        .update({ access_level: level })
-        .eq('collaborator_id', collaboratorId)
-        .eq('module_key', moduleKey);
+        .upsert(
+          { collaborator_id: collaboratorId, module_key: moduleKey, access_level: level },
+          { onConflict: 'collaborator_id,module_key' },
+        );
 
       if (error) throw error;
       await fetchCollaborators();
     } catch {
       toast({ title: 'Error', description: 'No se pudo actualizar el permiso.', variant: 'destructive' });
+    }
+  };
+
+  const updateAllPermissions = async (collaboratorId: string, level: AccessLevel) => {
+    try {
+      const rows = MODULE_KEYS.map((m) => ({
+        collaborator_id: collaboratorId,
+        module_key: m.key,
+        access_level: level,
+      }));
+      const { error } = await supabase
+        .from('collaborator_permissions')
+        .upsert(rows, { onConflict: 'collaborator_id,module_key' });
+
+      if (error) throw error;
+      await fetchCollaborators();
+    } catch {
+      toast({ title: 'Error', description: 'No se pudieron actualizar los permisos.', variant: 'destructive' });
     }
   };
 
@@ -161,6 +208,7 @@ export function useCollaborators() {
     loading,
     inviteCollaborator,
     updatePermission,
+    updateAllPermissions,
     deleteCollaborator,
     canInvite,
     hasRoleAvailable,
