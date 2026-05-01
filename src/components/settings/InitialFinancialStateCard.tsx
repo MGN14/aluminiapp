@@ -275,7 +275,11 @@ export default function InitialFinancialStateCard() {
   }, [user]);
 
   const addDetail = useCallback((field_type: InitialStateDetail['field_type']) => {
-    setDetails(prev => [...prev, { field_type, responsible_id: null, responsible_name: '', amount: 0 }]);
+    // Asigna id local (`tmp-...`) para que React tenga key estable durante el
+    // lifecycle del item nuevo (sin esto, key={index} causaba pérdida de focus
+    // al borrar otro item porque los índices se compactan).
+    const tmpId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setDetails(prev => [...prev, { id: tmpId, field_type, responsible_id: null, responsible_name: '', amount: 0 }]);
   }, []);
 
   const updateDetail = useCallback((globalIdx: number, updates: Partial<InitialStateDetail>) => {
@@ -412,7 +416,7 @@ export default function InitialFinancialStateCard() {
           <div className="space-y-2">
             {getItemsWithIndex('saldo_cuentas').map(({ detail, index }) => (
               <DetailRow
-                key={index}
+                key={detail.id ?? `idx-${index}`}
                 detail={detail}
                 index={index}
                 responsibles={[]}
@@ -443,7 +447,7 @@ export default function InitialFinancialStateCard() {
           <div className="space-y-2">
             {getItemsWithIndex('deudas').map(({ detail, index }) => (
               <DetailRow
-                key={index}
+                key={detail.id ?? `idx-${index}`}
                 detail={detail}
                 index={index}
                 responsibles={[]}
@@ -474,7 +478,7 @@ export default function InitialFinancialStateCard() {
           <div className="space-y-2">
             {getItemsWithIndex('cuentas_por_cobrar').map(({ detail, index }) => (
               <DetailRow
-                key={index}
+                key={detail.id ?? `idx-${index}`}
                 detail={detail}
                 index={index}
                 responsibles={responsibles}
@@ -506,7 +510,7 @@ export default function InitialFinancialStateCard() {
           <div className="space-y-2">
             {getItemsWithIndex('cuentas_por_pagar').map(({ detail, index }) => (
               <DetailRow
-                key={index}
+                key={detail.id ?? `idx-${index}`}
                 detail={detail}
                 index={index}
                 responsibles={responsibles}
@@ -545,7 +549,7 @@ export default function InitialFinancialStateCard() {
           <div className="space-y-2">
             {getItemsWithIndex('anticipos_de_clientes').map(({ detail, index }) => (
               <DetailRow
-                key={index}
+                key={detail.id ?? `idx-${index}`}
                 detail={detail}
                 index={index}
                 responsibles={responsibles}
@@ -577,7 +581,7 @@ export default function InitialFinancialStateCard() {
           <div className="space-y-2">
             {getItemsWithIndex('anticipos_a_proveedores').map(({ detail, index }) => (
               <DetailRow
-                key={index}
+                key={detail.id ?? `idx-${index}`}
                 detail={detail}
                 index={index}
                 responsibles={responsibles}
