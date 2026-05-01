@@ -222,7 +222,7 @@ function DashboardContent() {
       // Fuente canónica: columna agregada en initial_financial_state (se escribe
       // siempre al guardar en Ajustes). Fallback: sumar detalles sin invoice_id.
       // Mismo patrón que useEvasionGap + MÓDULO 11 del edge function.
-      const [{ data: stateRow }, { data: detailRows, error }] = await Promise.all([
+      const [stateRes, detailRes] = await Promise.all([
         supabase
           .from('initial_financial_state' as never)
           .select('anticipos_de_clientes')
@@ -234,9 +234,10 @@ function DashboardContent() {
           .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes'),
       ]);
-      if (error) throw error;
-      const aggregated = Number((stateRow as { anticipos_de_clientes: number | null } | null)?.anticipos_de_clientes) || 0;
-      const rows = (detailRows || []) as Array<{ amount: number | null; invoice_id: string | null }>;
+      if (stateRes.error) throw stateRes.error;
+      if (detailRes.error) throw detailRes.error;
+      const aggregated = Number((stateRes.data as { anticipos_de_clientes: number | null } | null)?.anticipos_de_clientes) || 0;
+      const rows = (detailRes.data || []) as Array<{ amount: number | null; invoice_id: string | null }>;
       const detail = rows
         .filter(d => !d.invoice_id)
         .reduce((s, d) => s + (Number(d.amount) || 0), 0);
@@ -583,6 +584,10 @@ function DashboardContent() {
             const dianIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((s, tx) => s + (tx.amount ?? 0), 0);
             const dianEgresos = Math.abs(periodTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((s, tx) => s + (tx.amount ?? 0), 0));
             const dianNeto = dianIngresos - dianEgresos;
+            // Tasa 35% = renta persona jurídica Colombia 2026 (Art 240 ET).
+            // Decisión consciente: simplificación educativa para el dashboard;
+            // no diferenciamos persona natural (5-37%) vs régimen tributario
+            // especial. Si el cliente quiere precisión fiscal, usa Informe DIAN.
             const rentaEstimada = dianNeto > 0 ? dianNeto * 0.35 : 0;
             return (
               <Card className="border-0 shadow-sm">
@@ -780,10 +785,10 @@ function DashboardContent() {
       return (
       <DashboardBlock id="pendingTable" customization={customization} index={idx}>
         <PendingTransactionsTable
-          transactions={transactions.filter(tx => parseLocalDate(tx.date).getFullYear() === periodSelection.year).map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type, operative_receivable_assigned: (tx as { operative_receivable_assigned?: boolean | null }).operative_receivable_assigned ?? false }))}
+          transactions={periodTransactions.map(tx => ({ id: tx.id, date: tx.date, description: tx.description, amount: tx.amount, category_id: tx.category_id, category_name: tx.category_name, responsible_id: tx.responsible_id, invoice_id: tx.invoice_id, notes: tx.notes, type: tx.type, operative_receivable_assigned: (tx as { operative_receivable_assigned?: boolean | null }).operative_receivable_assigned ?? false }))}
           categories={categories}
           responsibles={responsibles}
-          periodLabel={`Año ${periodSelection.year}`}
+          periodLabel={periodRange.label}
           onTransactionUpdated={fetchTransactions}
           onCategoryAdded={fetchCategories}
           onResponsibleAdded={fetchResponsibles}

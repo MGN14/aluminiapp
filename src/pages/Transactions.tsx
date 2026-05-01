@@ -297,10 +297,12 @@ export default function Transactions() {
 
     // Sort logic
     if (filters.amountSortOrder) {
-      // Sort by amount (debit or credit)
+      // Sort by signed amount: ingreso=credit (positivo), egreso=debit (negativo).
+      // Antes hacíamos `debit || credit` que perdía la dirección — egreso 100
+      // y ingreso 100 daban el mismo valor para ordenar.
       result.sort((a, b) => {
-        const amountA = a.debit || a.credit || 0;
-        const amountB = b.debit || b.credit || 0;
+        const amountA = (a.credit ?? 0) - (a.debit ?? 0);
+        const amountB = (b.credit ?? 0) - (b.debit ?? 0);
         return filters.amountSortOrder === 'asc' ? amountA - amountB : amountB - amountA;
       });
     } else {

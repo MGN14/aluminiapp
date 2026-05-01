@@ -39,14 +39,26 @@ export default function Inventory() {
       // Step 2: recalculate cost_per_unit from purchase invoices (Plan B —
       // Siigo's API doesn't expose the "Saldo de productos y valoración de
       // inventarios" report, so we compute weighted-avg cost from compras).
+      // Si Step 2 falla, el sync de Step 1 quedó hecho — informamos
+      // explícitamente al usuario en lugar de mostrar éxito completo.
       const recalc = await supabase.functions.invoke('recalculate-inventory-costs', { body: {} });
-      const recalcData = recalc.data ?? {};
-
       await refetch();
 
       const synced = sync.data.synced ?? 0;
-      const updated = recalcData.updated ?? 0;
       const skippedBits = sync.data.skipped ? `, ${sync.data.skipped} omitidos` : '';
+
+      if (recalc.error) {
+        console.error('recalculate-inventory-costs error:', recalc.error);
+        toast({
+          title: 'Productos sincronizados, pero falló el recálculo de costos',
+          description: `${synced} productos importados desde Siigo${skippedBits}. No pudimos recalcular costos desde compras (${recalc.error.message ?? 'error desconocido'}). Intentá "Sincronizar" de nuevo o ajustá costos manualmente.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const recalcData = recalc.data ?? {};
+      const updated = recalcData.updated ?? 0;
       const costBits = updated > 0
         ? ` Costos recalculados desde compras: ${updated} productos.`
         : recalcData.message ? ` ${recalcData.message}` : '';
