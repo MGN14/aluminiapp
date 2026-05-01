@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCredits, type CreditWithSummary } from '@/hooks/useCredits';
 import NuevoCreditoModal from '@/components/credits/NuevoCreditoModal';
 import RegistrarPagoCreditoModal, { type PrefillCuota } from '@/components/credits/RegistrarPagoCreditoModal';
+import ConciliacionMatchesPanel from '@/components/credits/ConciliacionMatchesPanel';
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
@@ -327,6 +328,8 @@ export default function Creditos() {
                                     ★ Cuota recalculada por abono extra (modalidad: reducir plazo). Las cuotas finales pueden quedar saldadas si el saldo llega a cero antes.
                                   </p>
                                 )}
+
+                                {c.credit.status === 'active' && <ConciliacionMatchesPanel credit={c} />}
 
                                 {c.payments.length > 0 && (
                                   <div className="space-y-1">

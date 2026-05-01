@@ -65,11 +65,11 @@ function formatMarginPct(value: number, base: number): string | null {
 
 function useYearData(userId: string | undefined, year: number) {
   return useQuery({
-    queryKey: ['pyg-report-v3', userId, year],
+    queryKey: ['pyg-report-v4', userId, year],
     queryFn: async () => {
       if (!userId) return null;
 
-      const [txRes, catRes, respRes, pcRes] = await Promise.all([
+      const [txRes, catRes, respRes, pcRes, cpRes, credRes] = await Promise.all([
         supabase
           .from('transactions')
           .select('date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
@@ -91,6 +91,16 @@ function useYearData(userId: string | undefined, year: number) {
           .eq('user_id', userId)
           .gte('date', `${year}-01-01`)
           .lte('date', `${year}-12-31`),
+        // Pagos de créditos del año — sólo el componente interés (gasto financiero)
+        (supabase.from('credit_payments' as never) as any)
+          .select('payment_date, interest_paid, credit_id')
+          .eq('user_id', userId)
+          .gte('payment_date', `${year}-01-01`)
+          .lte('payment_date', `${year}-12-31`),
+        // Créditos para mostrar nombre como "beneficiario" en el desglose
+        (supabase.from('credits' as never) as any)
+          .select('id, name')
+          .eq('user_id', userId),
       ]);
 
       if (txRes.error) throw txRes.error;
@@ -121,9 +131,60 @@ function useYearData(userId: string | undefined, year: number) {
         reteica_amount: 0,
       }));
 
-      const allTransactions = [...(txRes.data as TransactionRow[]), ...pettyAsTx];
+      // Inyectamos credit_payments.interest_paid como gasto financiero virtual.
+      // El capital pagado NO entra (no es gasto, reduce pasivo).
+      const creditNameMap = new Map<string, string>();
+      for (const c of (credRes.data ?? []) as Array<{ id: string; name: string }>) {
+        creditNameMap.set(c.id, c.name);
+      }
+      const SYNTHETIC_CREDIT_INTEREST_CAT = '__credit_interest__';
+      const creditInterestAsTx: TransactionRow[] = ((cpRes.data ?? []) as Array<{
+        payment_date: string;
+        interest_paid: number | null;
+        credit_id: string | null;
+      }>)
+        .filter((p) => Number(p.interest_paid) > 0)
+        .map((p) => ({
+          date: p.payment_date,
+          amount: -Math.abs(Number(p.interest_paid) || 0),
+          type: 'egreso',
+          category_id: SYNTHETIC_CREDIT_INTEREST_CAT,
+          // Usamos credit_id como "beneficiario" virtual para que el desglose
+          // por crédito funcione con la lógica existente.
+          responsible_id: p.credit_id,
+          has_iva: false,
+          iva_amount: 0,
+          has_retefuente: false,
+          retefuente_amount: 0,
+          has_reteica: false,
+          reteica_amount: 0,
+        }));
 
-      return { transactions: allTransactions, categories, catMap, responsibles, respMap };
+      // Categoría virtual + responsables virtuales para que se rendericen
+      const virtualCategories: CategoryInfo[] = creditInterestAsTx.length > 0 ? [{
+        id: SYNTHETIC_CREDIT_INTEREST_CAT,
+        name: 'Intereses de créditos',
+        report_group: 'gastos_operativos',
+      }] : [];
+      const virtualResponsibles: ResponsibleInfo[] = Array.from(creditNameMap.entries()).map(([id, name]) => ({
+        id,
+        name: `Crédito · ${name}`,
+      }));
+
+      const allCategories = [...categories, ...virtualCategories];
+      const allCatMap = new Map(allCategories.map(c => [c.id, c]));
+      const allResponsibles = [...responsibles, ...virtualResponsibles];
+      const allRespMap = new Map(allResponsibles.map(r => [r.id, r]));
+
+      const allTransactions = [...(txRes.data as TransactionRow[]), ...pettyAsTx, ...creditInterestAsTx];
+
+      return {
+        transactions: allTransactions,
+        categories: allCategories,
+        catMap: allCatMap,
+        responsibles: allResponsibles,
+        respMap: allRespMap,
+      };
     },
     enabled: !!userId,
   });
@@ -819,6 +880,9 @@ export default function PYGReport() {
           </p>
           <p className="text-xs text-muted-foreground italic">
             * Incluye gastos de Caja Menor (efectivo y cuentas de cobro) ingresados en el año.
+          </p>
+          <p className="text-xs text-muted-foreground italic">
+            * Categoría "Intereses de créditos" se alimenta automáticamente desde Créditos (componente interés de cada cuota). El capital pagado <span className="font-semibold">no</span> entra como gasto. Si tu extracto bancario ya tiene la cuota completa como egreso, reclassificá la transacción para evitar doble conteo.
           </p>
         </div>
       </CardContent>

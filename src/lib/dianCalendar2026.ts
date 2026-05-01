@@ -92,6 +92,7 @@ export type ObligacionTipo =
   | 'servicios'
   | 'parafiscales'
   | 'cesantias'
+  | 'credito'
   | 'otro';
 
 export interface CalendarEvent {
@@ -101,9 +102,11 @@ export interface CalendarEvent {
   fecha: Date;
   periodo: string;
   monto?: number | null;
-  origen: 'dian' | 'ica' | 'negocio';
+  origen: 'dian' | 'ica' | 'negocio' | 'credito';
   // For negocio events: ID of the business_obligation row (needed to toggle `completadas`).
   obligationId?: string;
+  // For credito events: link de regreso al crédito.
+  creditId?: string;
 }
 
 export const TIPO_COLOR: Record<ObligacionTipo, string> = {
@@ -117,6 +120,7 @@ export const TIPO_COLOR: Record<ObligacionTipo, string> = {
   servicios: 'bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-950/40 dark:text-sky-300',
   parafiscales: 'bg-indigo-100 text-indigo-700 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300',
   cesantias: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300',
+  credito: 'bg-cyan-100 text-cyan-700 border-cyan-300 dark:bg-cyan-950/40 dark:text-cyan-300',
   otro: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300',
 };
 
@@ -131,10 +135,11 @@ export const TIPO_LABEL: Record<ObligacionTipo, string> = {
   servicios: 'Servicios',
   parafiscales: 'Parafiscales',
   cesantias: 'Cesantías',
+  credito: 'Crédito',
   otro: 'Otro',
 };
 
-export const TIPO_ORIGEN: Record<ObligacionTipo, 'dian' | 'ica' | 'negocio'> = {
+export const TIPO_ORIGEN: Record<ObligacionTipo, 'dian' | 'ica' | 'negocio' | 'credito'> = {
   iva: 'dian',
   retefuente: 'dian',
   renta: 'dian',
@@ -145,5 +150,6 @@ export const TIPO_ORIGEN: Record<ObligacionTipo, 'dian' | 'ica' | 'negocio'> = {
   servicios: 'negocio',
   parafiscales: 'negocio',
   cesantias: 'negocio',
+  credito: 'credito',
   otro: 'negocio',
 };

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useBusinessObligations } from '@/hooks/useBusinessObligations';
+import { useCredits } from '@/hooks/useCredits';
 import {
   VENCIMIENTOS_IVA_2026,
   VENCIMIENTOS_IVA_CUATRIMESTRAL_2026,
@@ -33,6 +34,7 @@ export interface UseUpcomingObligationsResult {
 export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObligationsResult {
   const { config } = useFiscalConfig();
   const { obligations, isLoading: obligationsLoading } = useBusinessObligations();
+  const { data: creditsData } = useCredits();
 
   const nitDigit = config?.nit_ultimo_digito ?? null;
   const effectiveRentaType = config?.persona_type === 'natural' ? 'natural' : (config?.renta_type ?? 'juridica');
@@ -137,8 +139,33 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
       }
     }
 
+    // Cuotas próximas de créditos activos: tomamos las cuotas pendientes (no
+    // pagadas/saldadas) de scheduleWithStatus, ventana de los próximos 90 días.
+    if (creditsData) {
+      const horizon = new Date();
+      horizon.setDate(horizon.getDate() + 90);
+      for (const c of creditsData) {
+        if (c.credit.status !== 'active') continue;
+        for (const row of c.summary.scheduleWithStatus) {
+          if (row.estado !== 'pendiente') continue;
+          const fecha = new Date(row.fecha + 'T12:00:00');
+          if (fecha > horizon) break;
+          list.push({
+            id: `cred-${c.credit.id}-${row.cuotaNumero}`,
+            tipo: 'credito',
+            descripcion: `${c.credit.name} — Cuota ${row.cuotaNumero}/${c.credit.term_months}`,
+            fecha,
+            periodo: `Cuota ${row.cuotaNumero}`,
+            monto: row.cuotaTotal,
+            origen: 'credito',
+            creditId: c.credit.id,
+          });
+        }
+      }
+    }
+
     return list;
-  }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral]);
+  }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral, creditsData]);
 
   const urgentes = useMemo(() => {
     return events

@@ -36,6 +36,12 @@ export function usePaidObligations() {
   const paidDianSet = useMemo(() => new Set(config?.paid_dian_events ?? []), [config?.paid_dian_events]);
 
   const isPaid = useCallback((ev: CalendarEvent): boolean => {
+    if (ev.origen === 'credito') {
+      // Solo se inyectan cuotas pendientes. Cuando el usuario registra el
+      // pago en /creditos, scheduleWithStatus pasa la cuota a 'pagada' y
+      // desaparece de upcoming events automáticamente.
+      return false;
+    }
     if (ev.origen === 'negocio') {
       const ob = obligations.find(o => o.id === ev.obligationId);
       if (!ob) return false;
@@ -67,6 +73,12 @@ export function usePaidObligations() {
 
   const togglePaid = useCallback(async (ev: CalendarEvent) => {
     const currentlyPaid = isPaid(ev);
+    if (ev.origen === 'credito') {
+      // Para cuotas de crédito, el toggle aquí no hace nada — el usuario
+      // registra el pago en /creditos y eso actualiza el estado automático.
+      toast.info('Registrá el pago desde Créditos para actualizar la cuota.');
+      return;
+    }
     if (ev.origen === 'negocio') {
       if (!ev.obligationId) return;
       await toggleMonthComplete.mutateAsync({
