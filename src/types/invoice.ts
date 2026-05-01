@@ -36,7 +36,7 @@ export interface Invoice {
   siigo_id?: string | null;
   storage_path: string | null;
   pdf_path: string | null;
-  extracted_data: any | null;
+  extracted_data: ExtractedInvoiceData | null;
   confidence_score: number | null;
   display_name: string | null;
   original_filename: string | null;
@@ -104,6 +104,11 @@ export interface ExtractedInvoiceData {
   cufe: string | null;
   payment_method: string | null;
   items: ExtractedInvoiceItem[];
+  /** Marca cuándo se re-extrajeron los items (re-procesamiento manual). */
+  items_reextracted_at?: string;
+  /** ID del responsible vinculado durante validación. Persiste para
+   *  re-uso si el invoice se reabre desde draft. */
+  responsible_id?: string | null;
 }
 
 export interface ExtractedInvoiceItem {

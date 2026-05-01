@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { ExtractedInvoiceData, Invoice } from '@/types/invoice';
+import { ExtractedInvoiceData, ExtractedInvoiceItem, Invoice } from '@/types/invoice';
 import { IVA_RATE } from '@/types/transaction';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Loader2, Upload, RefreshCw, X, AlertTriangle, Save, CheckCircle2 } from 'lucide-react';
@@ -25,7 +25,7 @@ type Step = 'upload' | 'uploading' | 'processing' | 'review' | 'error';
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLLS = 45;
 
-function mapExtracted(draft: Invoice, ed: any): ExtractedInvoiceData {
+function mapExtracted(draft: Invoice, ed: ExtractedInvoiceData): ExtractedInvoiceData {
   return {
     invoice_number: draft.invoice_number || ed.invoice_number || '',
     prefix: draft.prefix || ed.prefix || '',
@@ -54,12 +54,12 @@ function mapExtracted(draft: Invoice, ed: any): ExtractedInvoiceData {
 function emptyExtracted(): ExtractedInvoiceData {
   return {
     invoice_number: '', prefix: '', number_int: null, type: 'compra',
-    issue_date: '', due_date: '', counterparty_name: '', counterparty_nit: '',
+    issue_date: '', due_date: null, counterparty_name: '', counterparty_nit: '',
     seller_name: '', seller_nit: '', buyer_name: '', buyer_nit: '',
-    city: '', subtotal_base: 0, iva_rate: IVA_RATE, iva_amount: 0,
-    total_amount: 0, cufe: '', payment_method: '', items: [],
+    city: null, subtotal_base: 0, iva_rate: IVA_RATE, iva_amount: 0,
+    total_amount: 0, cufe: null, payment_method: null, items: [],
     responsible_id: null,
-  } as any;
+  };
 }
 
 export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resumeDraft }: Props) {
@@ -100,7 +100,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
   // (item_code, reference, unit_price, line_base, iva_amount, line_total).
   // extracted_data.items often carries the raw vendor shape (e.g. Siigo:
   // code/price/quantity), which doesn't render correctly.
-  async function loadNormalizedItems(invoiceId: string): Promise<any[]> {
+  async function loadNormalizedItems(invoiceId: string): Promise<ExtractedInvoiceItem[]> {
     const { data } = await supabase
       .from('invoice_items')
       .select('item_code, reference, description, quantity, unit_price, line_base, iva_rate, iva_amount, line_total')
@@ -117,7 +117,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
     const dbItems = await loadNormalizedItems(draft.id);
 
     if (draft.status === 'ready' && draft.extracted_data) {
-      const ed = { ...(draft.extracted_data as any) };
+      const ed: ExtractedInvoiceData = { ...draft.extracted_data };
       if (dbItems.length > 0) ed.items = dbItems;
       setExtracted(mapExtracted(draft, ed));
       setRawExtracted(ed);
