@@ -10,7 +10,7 @@ import nicoAvatar from '@/assets/nico-avatar.png';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
-import { parseLocalDate } from '@/lib/dateUtils';
+import { parseLocalDate, getYearRange } from '@/lib/dateUtils';
 import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/components/dashboard/UnifiedPeriodFilter';
 import { PendingTransactionsTable } from '@/components/dashboard/PendingTransactionsTable';
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
@@ -170,8 +170,7 @@ function DashboardContent() {
 
   const fetchSalesInvoices = useCallback(async () => {
     try {
-      const yearStart = `${periodSelection.year}-01-01`;
-      const yearEnd = `${periodSelection.year}-12-31`;
+      const { start: yearStart, end: yearEnd } = getYearRange(periodSelection.year);
       const { data, error } = await supabase.from('invoices').select('issue_date, total_amount, counterparty_name').eq('status', 'confirmed').eq('type', 'venta').gte('issue_date', yearStart).lte('issue_date', yearEnd).order('issue_date', { ascending: true });
       if (error) throw error;
       setSalesInvoices((data as SalesInvoiceData[]) || []);
@@ -188,8 +187,7 @@ function DashboardContent() {
     }
 
     try {
-      const yearStart = `${periodSelection.year}-01-01`;
-      const yearEnd = `${periodSelection.year}-12-31`;
+      const { start: yearStart, end: yearEnd } = getYearRange(periodSelection.year);
       const { data, error } = await supabase
         .from('cash_movements')
         .select('type, amount, date')

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { calculateEvasionGap, type EvasionGapResult } from '@/lib/evasionGap';
+import { getYearRange } from '@/lib/dateUtils';
 
 interface UseEvasionGapOptions {
   /** Año del periodo. Default: año actual */
@@ -50,8 +51,7 @@ export function useEvasionGap({
     let cancelled = false;
     setLoading(true);
 
-    const yearStart = `${year}-01-01`;
-    const yearEnd = `${year}-12-31`;
+    const { start: yearStart, end: yearEnd } = getYearRange(year);
 
     (async () => {
       try {

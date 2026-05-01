@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { getYearRangeExclusive } from '@/lib/dateUtils';
 import {
   calculateFinancialHealthMetrics,
   getRecommendations,
@@ -92,8 +93,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
         return;
       }
 
-      const yearStart = `${year}-01-01`;
-      const nextYearStart = `${year + 1}-01-01`;
+      const { start: yearStart, nextStart: nextYearStart } = getYearRangeExclusive(year);
 
       const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult, categoriesResult, responsiblesResult, allAdvanceDetailsResult, inventoryResult] = await Promise.all([
         supabase

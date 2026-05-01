@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { getYearRange } from '@/lib/dateUtils';
 
 export type SemaforoColor = 'green' | 'yellow' | 'red';
 
@@ -102,10 +103,8 @@ export function useInformeBancoData() {
     enabled: !!user?.id,
     queryFn: async () => {
       const thisYear = new Date().getFullYear();
-      const yearStart = `${thisYear}-01-01`;
-      const yearEnd = `${thisYear}-12-31`;
-      const lastYearStart = `${thisYear - 1}-01-01`;
-      const lastYearEnd = `${thisYear - 1}-12-31`;
+      const { start: yearStart, end: yearEnd } = getYearRange(thisYear);
+      const { start: lastYearStart, end: lastYearEnd } = getYearRange(thisYear - 1);
 
       const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes] = await Promise.all([
         supabase
