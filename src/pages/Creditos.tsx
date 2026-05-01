@@ -5,13 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, ChevronDown, ChevronUp, DollarSign, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { CreditCard, ChevronDown, ChevronUp, DollarSign, Trash2, Loader2, AlertCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useCredits, type CreditWithSummary } from '@/hooks/useCredits';
 import NuevoCreditoModal from '@/components/credits/NuevoCreditoModal';
-import RegistrarPagoCreditoModal from '@/components/credits/RegistrarPagoCreditoModal';
+import RegistrarPagoCreditoModal, { type PrefillCuota } from '@/components/credits/RegistrarPagoCreditoModal';
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
@@ -28,6 +28,7 @@ export default function Creditos() {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [paying, setPaying] = useState<CreditWithSummary | null>(null);
+  const [prefillCuota, setPrefillCuota] = useState<PrefillCuota | null>(null);
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`¿Eliminar "${name}" y todos sus pagos? No se puede deshacer.`)) return;
@@ -163,7 +164,7 @@ export default function Creditos() {
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                               {c.credit.status === 'active' && (
-                                <Button variant="ghost" size="icon" className="h-7 w-7 text-success" onClick={() => setPaying(c)} title="Registrar pago">
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-success" onClick={() => { setPrefillCuota(null); setPaying(c); }} title="Registrar pago">
                                   <DollarSign className="h-3.5 w-3.5" />
                                 </Button>
                               )}
@@ -226,30 +227,106 @@ export default function Creditos() {
                                       <tr>
                                         <th className="text-left p-2">#</th>
                                         <th className="text-left p-2">Fecha</th>
+                                        <th className="text-left p-2">Estado</th>
                                         <th className="text-right p-2">Capital</th>
                                         <th className="text-right p-2">Interés</th>
                                         <th className="text-right p-2">Cuota</th>
-                                        <th className="text-right p-2">Saldo</th>
+                                        <th className="text-right p-2">Saldo real</th>
+                                        <th className="p-2"></th>
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {c.summary.schedule.map((row) => {
-                                        const today = new Date().toISOString().slice(0, 10);
-                                        const isPast = row.fecha <= today;
+                                      {c.summary.scheduleWithStatus.map((row) => {
+                                        const isSaldado = row.estado === 'saldado';
+                                        const isPagada = row.estado === 'pagada';
+                                        const isParcial = row.estado === 'parcial';
+                                        const isPendiente = row.estado === 'pendiente';
+                                        const capitalShow = isPendiente ? row.capitalEfectivo : row.capitalPagado;
+                                        const interesShow = isPendiente ? row.interesEfectivo : row.interesPagado;
+                                        const cuotaShow = isPendiente ? capitalShow + interesShow : row.cuotaTotal;
                                         return (
-                                          <tr key={row.cuotaNumero} className={cn('border-t', isPast && 'bg-success/5')}>
+                                          <tr
+                                            key={row.cuotaNumero}
+                                            className={cn(
+                                              'border-t',
+                                              isPagada && 'bg-success/5',
+                                              isParcial && 'bg-amber-50/40 dark:bg-amber-950/10',
+                                              isSaldado && 'opacity-50',
+                                            )}
+                                          >
                                             <td className="p-2">{row.cuotaNumero}</td>
                                             <td className="p-2">{formatDate(row.fecha)}</td>
-                                            <td className="p-2 text-right tabular-nums">{fmt(row.capitalPagado)}</td>
-                                            <td className="p-2 text-right tabular-nums text-amber-700">{fmt(row.interesPagado)}</td>
-                                            <td className="p-2 text-right tabular-nums font-semibold">{fmt(row.cuotaTotal)}</td>
-                                            <td className="p-2 text-right tabular-nums text-muted-foreground">{fmt(row.saldoRestante)}</td>
+                                            <td className="p-2">
+                                              {isPagada && (
+                                                <span className="inline-flex items-center gap-1 text-success font-medium">
+                                                  <CheckCircle2 className="h-3 w-3" />
+                                                  Pagada
+                                                </span>
+                                              )}
+                                              {isParcial && (
+                                                <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 font-medium">
+                                                  <AlertTriangle className="h-3 w-3" />
+                                                  Parcial
+                                                </span>
+                                              )}
+                                              {isPendiente && (
+                                                <span className="text-muted-foreground">
+                                                  Pendiente
+                                                  {row.recalculada && (
+                                                    <span className="ml-1 text-[9px] text-primary" title="Recalculada por abono extra">★</span>
+                                                  )}
+                                                </span>
+                                              )}
+                                              {isSaldado && (
+                                                <span className="text-muted-foreground italic">Saldado</span>
+                                              )}
+                                            </td>
+                                            <td className={cn('p-2 text-right tabular-nums', isSaldado && 'line-through')}>
+                                              {isSaldado ? '—' : fmt(capitalShow)}
+                                            </td>
+                                            <td className={cn('p-2 text-right tabular-nums text-amber-700', isSaldado && 'line-through')}>
+                                              {isSaldado ? '—' : fmt(interesShow)}
+                                            </td>
+                                            <td className={cn('p-2 text-right tabular-nums font-semibold', isSaldado && 'line-through')}>
+                                              {isSaldado ? '—' : fmt(cuotaShow)}
+                                            </td>
+                                            <td className={cn('p-2 text-right tabular-nums', row.recalculada && !isSaldado ? 'text-primary font-medium' : 'text-muted-foreground')}>
+                                              {fmt(row.saldoRealRestante)}
+                                            </td>
+                                            <td className="p-2 text-right">
+                                              {isPendiente && c.credit.status === 'active' && (
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-6 w-6 text-success"
+                                                  title="Pagar esta cuota"
+                                                  onClick={() => {
+                                                    setPrefillCuota({
+                                                      fecha: row.fecha,
+                                                      cuotaTotal: cuotaShow,
+                                                      capitalEfectivo: capitalShow,
+                                                      interesEfectivo: interesShow,
+                                                      cuotaNumero: row.cuotaNumero,
+                                                    });
+                                                    setPaying(c);
+                                                  }}
+                                                >
+                                                  <DollarSign className="h-3 w-3" />
+                                                </Button>
+                                              )}
+                                            </td>
                                           </tr>
                                         );
                                       })}
                                     </tbody>
                                   </table>
                                 </div>
+
+                                {c.summary.scheduleWithStatus.some((r) => r.recalculada || r.estado === 'saldado') && (
+                                  <p className="text-[10px] text-muted-foreground italic">
+                                    ★ Cuota recalculada por abono extra (modalidad: reducir plazo). Las cuotas finales pueden quedar saldadas si el saldo llega a cero antes.
+                                  </p>
+                                )}
 
                                 {c.payments.length > 0 && (
                                   <div className="space-y-1">
@@ -285,7 +362,17 @@ export default function Creditos() {
         </Card>
       </div>
 
-      <RegistrarPagoCreditoModal credit={paying} open={!!paying} onOpenChange={(o) => { if (!o) setPaying(null); }} />
+      <RegistrarPagoCreditoModal
+        credit={paying}
+        open={!!paying}
+        prefillCuota={prefillCuota}
+        onOpenChange={(o) => {
+          if (!o) {
+            setPaying(null);
+            setPrefillCuota(null);
+          }
+        }}
+      />
     </AppLayout>
   );
 }

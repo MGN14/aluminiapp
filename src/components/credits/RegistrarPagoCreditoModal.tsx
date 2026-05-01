@@ -13,17 +13,26 @@ import { suggestPaymentSplit, simulateExtraPayment } from '@/lib/amortization';
 import type { CreditWithSummary } from '@/hooks/useCredits';
 import { TrendingDown } from 'lucide-react';
 
+export interface PrefillCuota {
+  fecha: string;
+  cuotaTotal: number;
+  capitalEfectivo: number;
+  interesEfectivo: number;
+  cuotaNumero: number;
+}
+
 interface Props {
   credit: CreditWithSummary | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  prefillCuota?: PrefillCuota | null;
 }
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
 }
 
-export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange }: Props) {
+export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, prefillCuota }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -36,9 +45,23 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange }
   const [interestPart, setInterestPart] = useState('');
   const [notes, setNotes] = useState('');
 
-  // Auto-sugerencia de split cuando cambia monto o isExtra
+  // Pre-fill cuando viene una cuota seleccionada (click "Pagar esta cuota")
+  useEffect(() => {
+    if (!open) return;
+    if (prefillCuota) {
+      setDate(new Date().toISOString().slice(0, 10));
+      setAmount(String(Math.round(prefillCuota.cuotaTotal)));
+      setIsExtra(false);
+      setPrincipalPart(String(Math.round(prefillCuota.capitalEfectivo)));
+      setInterestPart(String(Math.round(prefillCuota.interesEfectivo)));
+      setNotes(`Cuota #${prefillCuota.cuotaNumero}`);
+    }
+  }, [prefillCuota, open]);
+
+  // Auto-sugerencia de split cuando cambia monto o isExtra (solo si no hay prefill activo)
   useEffect(() => {
     if (!credit) return;
+    if (prefillCuota) return; // respetar prefill explícito
     const num = parseFloat(amount);
     if (!num || num <= 0) {
       setPrincipalPart('');
@@ -53,7 +76,7 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange }
     );
     setPrincipalPart(split.principal.toString());
     setInterestPart(split.interest.toString());
-  }, [amount, isExtra, credit]);
+  }, [amount, isExtra, credit, prefillCuota]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -19,6 +19,22 @@ export interface AmortizationRow {
   saldoRestante: number;
 }
 
+export type CuotaEstado = 'pagada' | 'parcial' | 'pendiente' | 'saldado';
+
+export interface AmortizationRowWithStatus extends AmortizationRow {
+  estado: CuotaEstado;
+  /** Saldo REAL después de aplicar pagos hasta esta cuota inclusive. */
+  saldoRealRestante: number;
+  /** Total pagado a esta cuota (de los registros reales). */
+  pagadoEnCuota: number;
+  /** Capital recalculado para cuotas futuras post-abono extra. */
+  capitalEfectivo: number;
+  /** Interés recalculado sobre saldo real para cuotas futuras. */
+  interesEfectivo: number;
+  /** True cuando hubo recálculo (saldo real < saldo teórico). */
+  recalculada: boolean;
+}
+
 export interface AmortizationInput {
   principal: number;
   interestRateMonthlyPct: number; // ej 1.5 = 1.5%
@@ -116,6 +132,8 @@ export function buildAmortization(input: AmortizationInput): AmortizationRow[] {
 export interface AmortizationSummary {
   /** Programa teórico desde la creación, sin descontar pagos hechos. */
   schedule: AmortizationRow[];
+  /** Schedule con estado y saldo real considerando pagos efectivos. */
+  scheduleWithStatus: AmortizationRowWithStatus[];
   /** Capital pagado realmente. */
   totalPrincipalPaid: number;
   /** Intereses pagados realmente. */
@@ -156,8 +174,91 @@ export function summarizeCredit(
   const additionalCostsAmount = input.principal * (additionalCostsPct / 100);
   const totalCreditCost = input.principal + totalInterestScheduled + additionalCostsAmount;
 
+  // Schedule con estado por cuota considerando pagos efectivos.
+  // Modalidad: "reducir plazo" — mantenemos la cuota teórica original. Para
+  // cuotas futuras (después de la última fecha pagada), el interés se
+  // calcula sobre el saldo REAL (que puede estar por debajo del teórico
+  // por abonos extra), reduciendo el plazo: el saldo se acaba antes y
+  // las cuotas finales del schedule pasan a estado "saldado" (no se paga).
+  const sortedPayments = payments.slice().sort((a, b) => a.payment_date.localeCompare(b.payment_date));
+  const scheduleWithStatus: AmortizationRowWithStatus[] = [];
+  let saldoReal = input.principal;
+  const i = input.interestRateMonthlyPct / 100;
+  let pIdx = 0;
+  let saldado = false;
+  for (const row of schedule) {
+    if (saldado) {
+      // Crédito ya fue saldado en una cuota anterior — el resto no se paga
+      scheduleWithStatus.push({
+        ...row,
+        cuotaTotal: 0,
+        capitalPagado: 0,
+        interesPagado: 0,
+        saldoRestante: 0,
+        estado: 'saldado',
+        saldoRealRestante: 0,
+        pagadoEnCuota: 0,
+        capitalEfectivo: 0,
+        interesEfectivo: 0,
+        recalculada: true,
+      });
+      continue;
+    }
+
+    // Pagos que cayeron antes/en la fecha de esta cuota
+    let pagadoCapitalEnCuota = 0;
+    let pagadoInteresEnCuota = 0;
+    let pagadoTotalEnCuota = 0;
+    while (pIdx < sortedPayments.length && sortedPayments[pIdx].payment_date <= row.fecha) {
+      const p = sortedPayments[pIdx];
+      pagadoCapitalEnCuota += Number(p.principal_paid || 0);
+      pagadoInteresEnCuota += Number(p.interest_paid || 0);
+      pagadoTotalEnCuota += Number(p.amount_paid || 0);
+      pIdx++;
+    }
+    saldoReal = Math.max(0, saldoReal - pagadoCapitalEnCuota);
+
+    // Para cuotas futuras (sin pagos): recalcular interés sobre saldo real
+    // y derivar capital = cuota teórica - interés efectivo.
+    const interesEfectivo = pagadoTotalEnCuota > 0 ? pagadoInteresEnCuota : saldoReal * i;
+    let capitalEfectivo = pagadoTotalEnCuota > 0 ? pagadoCapitalEnCuota : Math.max(0, row.cuotaTotal - interesEfectivo);
+    if (capitalEfectivo > saldoReal) capitalEfectivo = saldoReal;
+    const recalculada = pagadoTotalEnCuota === 0 && saldoReal > 0 && (saldoReal < row.saldoRestante + capitalEfectivo - 0.5);
+
+    let estado: CuotaEstado;
+    const cuotaEsperada = row.cuotaTotal;
+    if (saldoReal <= 0.5 && pagadoTotalEnCuota >= cuotaEsperada - 0.5) {
+      estado = 'pagada';
+    } else if (pagadoTotalEnCuota >= cuotaEsperada - 0.5) {
+      estado = 'pagada';
+    } else if (pagadoTotalEnCuota > 0) {
+      estado = 'parcial';
+    } else {
+      estado = 'pendiente';
+    }
+
+    // Si después de aplicar capital efectivo el saldo cae a 0, marcar saldado
+    const saldoPost = saldoReal - (pagadoTotalEnCuota === 0 ? capitalEfectivo : 0);
+    if (saldoPost <= 0.5 && pagadoTotalEnCuota === 0) {
+      saldado = true; // las siguientes cuotas se marcarán como saldado
+    }
+
+    scheduleWithStatus.push({
+      ...row,
+      estado,
+      saldoRealRestante: r2(Math.max(0, saldoPost)),
+      pagadoEnCuota: r2(pagadoTotalEnCuota),
+      capitalEfectivo: r2(capitalEfectivo),
+      interesEfectivo: r2(interesEfectivo),
+      recalculada,
+    });
+
+    saldoReal = Math.max(0, saldoPost);
+  }
+
   return {
     schedule,
+    scheduleWithStatus,
     totalPrincipalPaid: r2(totalPrincipalPaid),
     totalInterestPaid: r2(totalInterestPaid),
     totalPaid: r2(totalPaid),

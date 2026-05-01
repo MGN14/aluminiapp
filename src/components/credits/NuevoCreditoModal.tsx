@@ -101,7 +101,7 @@ export default function NuevoCreditoModal() {
           Nuevo crédito
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>Nuevo crédito</DialogTitle>
@@ -149,13 +149,16 @@ export default function NuevoCreditoModal() {
               <Input type="date" value={firstPaymentDate} onChange={(e) => setFirstPaymentDate(e.target.value)} />
             </div>
             <div className="space-y-1.5 col-span-2 pt-2 border-t">
-              <Label className="text-xs">Otros costos del crédito (opcional)</Label>
-              <p className="text-[10px] text-muted-foreground">
-                Seguro Fogafin, comisión de apertura, estudio de crédito, etc. Reduce la rentabilidad real del préstamo.
+              <Label className="text-xs">Costos asociados al crédito (opcional)</Label>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Cobros únicos del banco que se descuentan del desembolso o pagás aparte:
+                seguro Fogafin, comisión de apertura, estudio de crédito, comisión de gestión.
+                Estos costos reducen la rentabilidad real del préstamo — el banco te dice
+                que prestó X pero en realidad recibís X menos los costos.
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Costos %</Label>
+              <Label className="text-xs">% sobre el principal</Label>
               <Input
                 type="number"
                 min="0"
@@ -166,7 +169,7 @@ export default function NuevoCreditoModal() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Descripción</Label>
+              <Label className="text-xs">A qué corresponde</Label>
               <Input
                 value={extraCostsLabel}
                 onChange={(e) => setExtraCostsLabel(e.target.value)}
