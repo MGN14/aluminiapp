@@ -1,9 +1,9 @@
 /**
  * Parse a YYYY-MM-DD date string as a local date (not UTC).
- * 
+ *
  * `new Date("2025-01-15")` is parsed as UTC midnight, which can shift
  * to the previous day in negative UTC offsets (e.g. Colombia UTC-5).
- * 
+ *
  * This function appends "T00:00:00" so the date is treated as local time.
  * For non-date-only strings (timestamps), it falls back to normal parsing.
  */
@@ -15,4 +15,42 @@ export function parseLocalDate(dateStr: string): Date {
   }
   // Already has time component or is a full ISO string
   return new Date(dateStr);
+}
+
+/**
+ * Returns ISO date strings (YYYY-MM-DD) for the start and end of a year.
+ * Replaces the inline `${year}-01-01` / `${year}-12-31` repetido en N hooks.
+ */
+export function getYearRange(year: number): { start: string; end: string } {
+  return {
+    start: `${year}-01-01`,
+    end: `${year}-12-31`,
+  };
+}
+
+/**
+ * Returns ISO date strings for the start of a year and the start of the
+ * NEXT year. Útil para queries con `gte(start)` + `lt(nextStart)` donde se
+ * incluye 31-dic pero se evita ambigüedad con fechas con timestamp.
+ */
+export function getYearRangeExclusive(year: number): { start: string; nextStart: string } {
+  return {
+    start: `${year}-01-01`,
+    nextStart: `${year + 1}-01-01`,
+  };
+}
+
+/**
+ * Returns ISO start/end date strings for a calendar month.
+ * `month` is 1-12 (humano), no 0-11.
+ */
+export function getMonthRange(year: number, month: number): { start: string; end: string } {
+  const m = String(month).padStart(2, '0');
+  // Date(year, month, 0) con month 1-12 = último día del mes 0-11 anterior
+  // = último día del mes 1-12 que pedimos (overflow handles dic correctamente).
+  const lastDay = new Date(year, month, 0).getDate();
+  return {
+    start: `${year}-${m}-01`,
+    end: `${year}-${m}-${String(lastDay).padStart(2, '0')}`,
+  };
 }
