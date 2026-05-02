@@ -251,13 +251,65 @@ serve(async (req) => {
       });
     }
 
+    // ---- Calcular balance running ----
+    // El CSV de Bancolombia (semanal) NO trae columna saldo. Para que el chart
+    // "Saldo en el tiempo" funcione, necesitamos popular balance en cada row.
+    // Estrategia: arrancamos del último balance conocido del usuario en una
+    // fecha < primer date del CSV (puede venir de un PDF previo o de otro
+    // CSV ya backfilleado), y vamos sumando amounts cronológicamente.
+    // Si NO hay balance previo conocido, arrancamos en 0 (el chart va a
+    // mostrar saldo relativo, no absoluto — mejor que NULL que lo oculta).
+    const sortedMovs = [...validMovements].sort((a, b) => {
+      // Sort por date ASC, manteniendo el orden original como tie-breaker
+      // (los movements vienen en el orden del CSV, que respeta el orden
+      // cronológico real del banco para mismo día).
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return validMovements.indexOf(a) - validMovements.indexOf(b);
+    });
+    const firstDate = sortedMovs[0]?.date;
+
+    let seedBalance = 0;
+    if (firstDate) {
+      const { data: priorTx } = await supabase
+        .from("transactions")
+        .select("balance, date, created_at")
+        .eq("user_id", statement.user_id)
+        .is("deleted_at", null)
+        .not("balance", "is", null)
+        .lt("date", firstDate)
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (priorTx?.balance != null) {
+        seedBalance = Number(priorTx.balance);
+        console.log(
+          `parse-bancolombia-csv: seed balance ${seedBalance} desde tx previa del ${priorTx.date}`,
+        );
+      } else {
+        console.log(
+          `parse-bancolombia-csv: sin balance previo conocido, arranca en 0 (saldo relativo)`,
+        );
+      }
+    }
+
+    // Mapeamos balance a cada movement por su lineNumber/index para preservarlo
+    // en el orden original del payload (que es como nuestro insert los recibe).
+    const balanceByMovIndex = new Map<number, number>();
+    let running = seedBalance;
+    for (const m of sortedMovs) {
+      running = running + m.amount;
+      balanceByMovIndex.set(validMovements.indexOf(m), running);
+    }
+
     // ---- Construir rows para inserción ----
-    const rows = validMovements.map((m) => ({
+    const rows = validMovements.map((m, idx) => ({
       user_id: statement.user_id,
       statement_id: statement_id,
       date: m.date,
       description: m.description,
       amount: m.amount,
+      balance: balanceByMovIndex.get(idx) ?? null,
       debit: m.amount < 0 ? Math.abs(m.amount) : null,
       credit: m.amount > 0 ? m.amount : null,
       dcto: m.dcto ?? null,
