@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown, Lock, Unlock } from 'lucide-react';
+import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown, Lock, Unlock, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -17,6 +17,7 @@ import { useModuleContext } from '@/hooks/useModuleContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { usePettyCashMovements, type PettyCashRow } from '@/hooks/usePettyCashMovements';
 import { usePettyCashClosings, useReopenPettyCashClosing, type PettyCashClosing } from '@/hooks/usePettyCashClosings';
+import { usePromotePettyCashMovement } from '@/hooks/usePromotePettyCashMovement';
 import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
 import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
 import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
@@ -39,6 +40,7 @@ export default function CajaMenor() {
   const { data, isLoading, error } = usePettyCashMovements();
   const { data: closings = [] } = usePettyCashClosings();
   const reopenMutation = useReopenPettyCashClosing();
+  const promoteMutation = usePromotePettyCashMovement();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [pdfMovement, setPdfMovement] = useState<PettyCashRow | null>(null);
@@ -64,6 +66,39 @@ export default function CajaMenor() {
       toast({ title: 'Gasto eliminado' });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handlePromote = async (row: PettyCashRow) => {
+    if (!isAdmin) return;
+    if (row.closing_id) {
+      toast({
+        title: 'No se puede pasar',
+        description: 'Este movimiento está incluido en un cierre. Reabrí el cierre primero.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (row.cash_movement_id) {
+      toast({ title: 'Ya está en Gerencial', description: 'Este movimiento ya fue pasado a Movimientos en efectivo.' });
+      return;
+    }
+    const ok = window.confirm(
+      `¿Pasar este gasto a Movimientos en efectivo (Modo Gerencial)?\n\nEl gasto seguirá contando para deducibilidad DIAN. También va a aparecer como egreso en el flujo de efectivo del Modo Gerencial.`,
+    );
+    if (!ok) return;
+    try {
+      await promoteMutation.mutateAsync(row.id);
+      toast({
+        title: 'Pasado a Gerencial',
+        description: 'El gasto ya está visible en Movimientos en efectivo (Modo Gerencial).',
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error al pasar a Gerencial',
+        description: err?.message ?? 'Error desconocido',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -295,6 +330,30 @@ export default function CajaMenor() {
                               <FileDown className="h-3.5 w-3.5" />
                               PDF
                             </Button>
+                            {r.cash_movement_id ? (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 text-[10px] h-6 border-primary/40 text-primary"
+                                title="Este gasto también está en Movimientos en efectivo (Modo Gerencial)"
+                              >
+                                <Zap className="h-2.5 w-2.5" />
+                                En Gerencial
+                              </Badge>
+                            ) : (
+                              isAdmin && !r.closing_id && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 gap-1.5 text-primary hover:text-primary"
+                                  onClick={() => handlePromote(r)}
+                                  disabled={promoteMutation.isPending}
+                                  title="Pasar este gasto al Modo Gerencial (Movimientos en efectivo)"
+                                >
+                                  <Zap className="h-3.5 w-3.5" />
+                                  <span className="text-[11px]">A Gerencial</span>
+                                </Button>
+                              )
+                            )}
                             {r.closing_id ? (
                               <Badge variant="outline" className="gap-1 text-[10px] h-6">
                                 <Lock className="h-2.5 w-2.5" />

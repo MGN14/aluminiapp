@@ -20,6 +20,8 @@ export interface PettyCashRow {
   created_at: string;
   /** FK a petty_cash_closings. NULL = abierto/editable. NOT NULL = cerrado e inmutable. */
   closing_id: string | null;
+  /** FK a cash_movements. NOT NULL = ya fue replicado al Modo Gerencial. */
+  cash_movement_id: string | null;
 }
 
 export interface PettyCashSummary {
@@ -97,6 +99,7 @@ export function usePettyCashMovements() {
           notes: m.notes,
           created_at: m.created_at,
           closing_id: (m as { closing_id?: string | null }).closing_id ?? null,
+          cash_movement_id: (m as { cash_movement_id?: string | null }).cash_movement_id ?? null,
         };
       });
 
