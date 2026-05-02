@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Package, ArrowUpDown, Plus, Minus, Pencil, Search } from 'lucide-react';
+import { Package, ArrowUpDown, Plus, Minus, Pencil, Search, Scale } from 'lucide-react';
 import type { ProductWithMetrics, InventoryStatus } from '@/hooks/useInventoryData';
 
 const STATUS_STYLES: Record<InventoryStatus, { label: string; dot: string; color: string; bg: string; border: string }> = {
@@ -38,6 +38,7 @@ type FilterKey = 'all' | 'critico' | 'exceso' | 'diff';
 interface Props {
   products: ProductWithMetrics[];
   onAdjust: (product: ProductWithMetrics) => void;
+  onEdit: (product: ProductWithMetrics) => void;
   onAddMovement: (product: ProductWithMetrics, type: 'entrada' | 'salida') => void;
 }
 
@@ -132,7 +133,7 @@ function ActionButton({ onClick, title, color, bgHover, children }: { onClick: (
   );
 }
 
-export default function InventoryTable({ products, onAdjust, onAddMovement }: Props) {
+export default function InventoryTable({ products, onAdjust, onEdit, onAddMovement }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('status');
   const [sortAsc, setSortAsc] = useState(true);
   const [search, setSearch] = useState('');
@@ -619,9 +620,17 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
                       </ActionButton>
                       <ActionButton
                         onClick={() => onAdjust(p)}
-                        title="Ajustar"
+                        title="Ajustar stock físico"
                         color="#6e6e73"
                         bgHover="#f5f5f7"
+                      >
+                        <Scale style={{ width: 13, height: 13 }} />
+                      </ActionButton>
+                      <ActionButton
+                        onClick={() => onEdit(p)}
+                        title="Editar producto (nombre, sistema, costo, etc.)"
+                        color="oklch(0.43 0.14 155)"
+                        bgHover="oklch(0.43 0.14 155 / 0.10)"
                       >
                         <Pencil style={{ width: 13, height: 13 }} />
                       </ActionButton>

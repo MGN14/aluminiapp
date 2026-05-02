@@ -21,7 +21,7 @@ type Tab = 'inventario' | 'maestro';
 export default function Inventory() {
   const { isGerencial } = useModuleContext();
   const dataSource = isGerencial ? 'gerencial' : 'dian';
-  const { products, movements, metrics, loading, addProduct, addMovement, refetch } = useInventoryData(dataSource);
+  const { products, movements, metrics, loading, addProduct, updateProduct, addMovement, refetch } = useInventoryData(dataSource);
   const { toast } = useToast();
 
   const existingSystems = useMemo(() => {
@@ -39,6 +39,7 @@ export default function Inventory() {
   const [siigoSyncing, setSiigoSyncing] = useState(false);
   const [adjustProduct, setAdjustProduct] = useState<ProductWithMetrics | null>(null);
   const [adjustMode, setAdjustMode] = useState<'adjust' | 'entrada' | 'salida'>('adjust');
+  const [editProduct, setEditProduct] = useState<ProductWithMetrics | null>(null);
 
   const handleSiigoSync = async () => {
     setSiigoSyncing(true);
@@ -98,6 +99,17 @@ export default function Inventory() {
   const openAdjust = (product: ProductWithMetrics) => {
     setAdjustProduct(product);
     setAdjustMode('adjust');
+  };
+
+  const openEdit = (product: ProductWithMetrics) => {
+    setEditProduct(product);
+  };
+
+  const handleUpdateProduct = async (data: { reference: string; name: string; unit: string; stock_system: number; cost_per_unit: number; sale_price: number; min_stock: number; system: string | null }) => {
+    if (!editProduct) return false;
+    // No permitimos cambiar la referencia (es ID lógico). Resto sí.
+    const { reference: _ref, ...updates } = data;
+    return await updateProduct(editProduct.id, updates) ?? false;
   };
 
   return (
@@ -356,7 +368,7 @@ export default function Inventory() {
 
             {/* Table */}
             <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '240ms' }}>
-              <InventoryTable products={products} onAdjust={openAdjust} onAddMovement={openMovement} />
+              <InventoryTable products={products} onAdjust={openAdjust} onEdit={openEdit} onAddMovement={openMovement} />
             </div>
 
             {/* Historial de ajustes */}
@@ -411,6 +423,22 @@ export default function Inventory() {
       </div>
 
       <AddProductModal open={showAdd} onOpenChange={setShowAdd} onSubmit={addProduct} existingSystems={existingSystems} />
+      <AddProductModal
+        open={!!editProduct}
+        onOpenChange={(open) => { if (!open) setEditProduct(null); }}
+        onSubmit={handleUpdateProduct}
+        existingSystems={existingSystems}
+        initialData={editProduct ? {
+          reference: editProduct.reference,
+          name: editProduct.name,
+          unit: editProduct.unit,
+          stock_system: editProduct.stock_system,
+          cost_per_unit: editProduct.cost_per_unit,
+          sale_price: editProduct.sale_price,
+          min_stock: editProduct.min_stock,
+          system: editProduct.system ?? null,
+        } : null}
+      />
       <BulkUploadModal open={showBulk} onOpenChange={setShowBulk} onComplete={refetch} />
       <PhysicalCountModal open={showPhysical} onOpenChange={setShowPhysical} onComplete={refetch} />
       <AdjustStockModal
