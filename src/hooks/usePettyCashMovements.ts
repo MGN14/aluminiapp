@@ -18,6 +18,8 @@ export interface PettyCashRow {
   numero_cuenta_cobro: string | null;
   notes: string | null;
   created_at: string;
+  /** FK a petty_cash_closings. NULL = abierto/editable. NOT NULL = cerrado e inmutable. */
+  closing_id: string | null;
 }
 
 export interface PettyCashSummary {
@@ -94,6 +96,7 @@ export function usePettyCashMovements() {
           numero_cuenta_cobro: m.numero_cuenta_cobro,
           notes: m.notes,
           created_at: m.created_at,
+          closing_id: (m as { closing_id?: string | null }).closing_id ?? null,
         };
       });
 

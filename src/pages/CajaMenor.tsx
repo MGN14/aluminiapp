@@ -9,14 +9,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown } from 'lucide-react';
+import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { usePettyCashMovements, type PettyCashRow } from '@/hooks/usePettyCashMovements';
+import { usePettyCashClosings } from '@/hooks/usePettyCashClosings';
 import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
 import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
+import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -30,17 +32,27 @@ function formatCurrency(value: number) {
 export default function CajaMenor() {
   const { isGerencial } = useModuleContext();
   const { data, isLoading, error } = usePettyCashMovements();
+  const { data: closings = [] } = usePettyCashClosings();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [pdfMovement, setPdfMovement] = useState<PettyCashRow | null>(null);
+  const [closeModalOpen, setCloseModalOpen] = useState(false);
 
   if (isGerencial) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (row: PettyCashRow) => {
+    if (row.closing_id) {
+      toast({
+        title: 'No se puede eliminar',
+        description: 'Este movimiento está incluido en un cierre de caja. Para modificarlo, deberías reabrir el cierre primero (no implementado todavía).',
+        variant: 'destructive',
+      });
+      return;
+    }
     try {
-      const { error: delErr } = await supabase.from('petty_cash_movements').delete().eq('id', id);
+      const { error: delErr } = await supabase.from('petty_cash_movements').delete().eq('id', row.id);
       if (delErr) throw delErr;
       await queryClient.invalidateQueries({ queryKey: ['petty-cash-movements'] });
       toast({ title: 'Gasto eliminado' });
@@ -48,6 +60,8 @@ export default function CajaMenor() {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     }
   };
+
+  const hasOpenMovements = (data?.rows ?? []).some((r) => !r.closing_id);
 
   return (
     <AppLayout>
@@ -64,7 +78,19 @@ export default function CajaMenor() {
               </p>
             </div>
           </div>
-          <RegistrarGastoModal />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCloseModalOpen(true)}
+              disabled={!hasOpenMovements}
+              title={hasOpenMovements ? 'Cerrar caja del período' : 'No hay movimientos abiertos'}
+            >
+              <Lock className="h-4 w-4 mr-1.5" />
+              Cerrar caja
+            </Button>
+            <RegistrarGastoModal />
+          </div>
         </div>
 
         <Card className="border-blue-200 bg-blue-50/40 dark:bg-blue-950/10">
@@ -221,14 +247,21 @@ export default function CajaMenor() {
                               <FileDown className="h-3.5 w-3.5" />
                               PDF
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
-                              onClick={() => handleDelete(r.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {r.closing_id ? (
+                              <Badge variant="outline" className="gap-1 text-[10px] h-6">
+                                <Lock className="h-2.5 w-2.5" />
+                                Cerrado
+                              </Badge>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                onClick={() => handleDelete(r)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -240,10 +273,63 @@ export default function CajaMenor() {
           </CardContent>
         </Card>
 
+        {/* Listado de cierres anteriores */}
+        {closings.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Lock className="h-4 w-4 text-muted-foreground" />
+                Cierres anteriores
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Período</TableHead>
+                    <TableHead className="text-right">Movs.</TableHead>
+                    <TableHead className="text-right">Computado</TableHead>
+                    <TableHead className="text-right">Declarado</TableHead>
+                    <TableHead className="text-right">Diferencia</TableHead>
+                    <TableHead>Notas</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {closings.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="text-xs">
+                        {format(parseLocalDate(c.period_start), 'd MMM', { locale: es })} – {format(parseLocalDate(c.period_end), 'd MMM yyyy', { locale: es })}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-xs">{c.movements_count}</TableCell>
+                      <TableCell className="text-right tabular-nums text-xs">{formatCurrency(c.computed_balance)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-xs">{formatCurrency(c.declared_balance)}</TableCell>
+                      <TableCell className={cn(
+                        'text-right tabular-nums text-xs font-medium',
+                        Math.abs(c.difference) < 1 ? 'text-success' : c.difference > 0 ? 'text-warning' : 'text-destructive',
+                      )}>
+                        {formatCurrency(c.difference)}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[280px] truncate" title={c.notes ?? ''}>
+                        {c.notes ?? '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
         <GenerarCuentaDeCobroModal
           movement={pdfMovement}
           open={pdfMovement !== null}
           onOpenChange={(o) => !o && setPdfMovement(null)}
+        />
+
+        <CerrarCajaModal
+          open={closeModalOpen}
+          onClose={() => setCloseModalOpen(false)}
+          rows={data?.rows ?? []}
         />
       </div>
     </AppLayout>
