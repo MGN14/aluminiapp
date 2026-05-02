@@ -68,3 +68,22 @@ export function useClosePettyCashPeriod() {
     },
   });
 }
+
+/** Reabrir un cierre — admin-only (la función SQL valida is_admin). */
+export function useReopenPettyCashClosing() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (closingId: string) => {
+      const { data, error } = await (supabase as any).rpc('reopen_petty_cash_closing', {
+        p_closing_id: closingId,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['petty-cash-closings', user?.id] });
+      qc.invalidateQueries({ queryKey: ['petty-cash-movements', user?.id] });
+    },
+  });
+}

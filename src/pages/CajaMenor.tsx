@@ -9,16 +9,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown, Lock } from 'lucide-react';
+import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown, Lock, Unlock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useModuleContext } from '@/hooks/useModuleContext';
+import { useSubscription } from '@/hooks/useSubscription';
 import { usePettyCashMovements, type PettyCashRow } from '@/hooks/usePettyCashMovements';
-import { usePettyCashClosings } from '@/hooks/usePettyCashClosings';
+import { usePettyCashClosings, useReopenPettyCashClosing, type PettyCashClosing } from '@/hooks/usePettyCashClosings';
 import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
 import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
 import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
+import { generatePettyCashClosingPdf } from '@/lib/pettyCashClosingPdf';
+import { useAuth } from '@/hooks/useAuth';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -31,8 +34,11 @@ function formatCurrency(value: number) {
 
 export default function CajaMenor() {
   const { isGerencial } = useModuleContext();
+  const { user } = useAuth();
+  const { isAdmin } = useSubscription();
   const { data, isLoading, error } = usePettyCashMovements();
   const { data: closings = [] } = usePettyCashClosings();
+  const reopenMutation = useReopenPettyCashClosing();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [pdfMovement, setPdfMovement] = useState<PettyCashRow | null>(null);
@@ -62,6 +68,48 @@ export default function CajaMenor() {
   };
 
   const hasOpenMovements = (data?.rows ?? []).some((r) => !r.closing_id);
+
+  const handleReopen = async (closing: PettyCashClosing) => {
+    if (!isAdmin) return;
+    const confirm = window.confirm(
+      `¿Reabrir el cierre del ${closing.period_start} al ${closing.period_end}?\n\nEsto va a liberar ${closing.movements_count} movimientos para edición. Después vas a tener que cerrar el período de nuevo.`
+    );
+    if (!confirm) return;
+    try {
+      await reopenMutation.mutateAsync(closing.id);
+      toast({
+        title: 'Cierre reabierto',
+        description: `${closing.movements_count} movimientos volvieron a estar editables.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error al reabrir',
+        description: err?.message ?? 'Error desconocido',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDownloadClosingPdf = async (closing: PettyCashClosing) => {
+    try {
+      // Movimientos del cierre
+      const movements = (data?.rows ?? []).filter((r) => r.closing_id === closing.id);
+      // Datos de la empresa
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_name, company_nit, company_city')
+        .eq('user_id', user?.id ?? '')
+        .maybeSingle();
+      const doc = generatePettyCashClosingPdf(closing, movements, profile ?? {});
+      doc.save(`cierre-caja-${closing.period_start}-a-${closing.period_end}.pdf`);
+    } catch (err: any) {
+      toast({
+        title: 'Error al generar PDF',
+        description: err?.message ?? 'Error desconocido',
+        variant: 'destructive',
+      });
+    }
+  };
 
   return (
     <AppLayout>
@@ -292,6 +340,7 @@ export default function CajaMenor() {
                     <TableHead className="text-right">Declarado</TableHead>
                     <TableHead className="text-right">Diferencia</TableHead>
                     <TableHead>Notas</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -311,6 +360,33 @@ export default function CajaMenor() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground max-w-[280px] truncate" title={c.notes ?? ''}>
                         {c.notes ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1 text-primary hover:text-primary px-2"
+                            onClick={() => handleDownloadClosingPdf(c)}
+                            title="Descargar PDF del cierre"
+                          >
+                            <FileDown className="h-3.5 w-3.5" />
+                            <span className="text-[11px]">PDF</span>
+                          </Button>
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 gap-1 text-warning hover:text-warning px-2"
+                              onClick={() => handleReopen(c)}
+                              disabled={reopenMutation.isPending}
+                              title="Reabrir cierre (admin only)"
+                            >
+                              <Unlock className="h-3.5 w-3.5" />
+                              <span className="text-[11px]">Reabrir</span>
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
