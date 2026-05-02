@@ -43,8 +43,7 @@ const InvoicesCompra = lazy(() => import("./pages/InvoicesCompra"));
 const FinancialHealth = lazy(() => import("./pages/FinancialHealth"));
 const VisitaDIAN = lazy(() => import("./pages/VisitaDIAN"));
 const Inventory = lazy(() => import("./pages/Inventory"));
-const NicoPromptEvolution = lazy(() => import("./pages/NicoPromptEvolution"));
-const AdminAnalytics = lazy(() => import("./pages/AdminAnalytics"));
+const Founder = lazy(() => import("./pages/Founder"));
 const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
@@ -248,13 +247,12 @@ const App = () => (
                 element={<AdminRoute><CashMovements /></AdminRoute>}
               />
               <Route
-                path="/nico/evolution"
-                element={<AdminRoute><NicoPromptEvolution /></AdminRoute>}
+                path="/founder"
+                element={<AdminRoute><Founder /></AdminRoute>}
               />
-              <Route
-                path="/admin/analytics"
-                element={<AdminRoute><AdminAnalytics /></AdminRoute>}
-              />
+              {/* Rutas viejas redirigen a tabs del Founder (deep-link compat) */}
+              <Route path="/admin/analytics" element={<Navigate to="/founder?tab=analytics" replace />} />
+              <Route path="/nico/evolution" element={<Navigate to="/founder?tab=evolution" replace />} />
               <Route
                 path="/coming-soon"
                 element={<ProtectedRoute><ComingSoon /></ProtectedRoute>}

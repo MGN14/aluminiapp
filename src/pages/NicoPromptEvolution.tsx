@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useSubscription } from '@/hooks/useSubscription';
 import { toast } from 'sonner';
-import { CheckCircle2, XCircle, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle2, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface PromptVersion {
   id: string;
@@ -35,7 +32,6 @@ const AGENT_LABELS: Record<string, string> = {
 
 export default function NicoPromptEvolution() {
   const { user } = useAuth();
-  const { isFounder, loading: subLoading } = useSubscription();
   const [versions, setVersions] = useState<PromptVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -52,16 +48,8 @@ export default function NicoPromptEvolution() {
   };
 
   useEffect(() => {
-    if (subLoading || !isFounder) return;
     void load();
-  }, [subLoading, isFounder]);
-
-  // Defensa en profundidad: solo el founder puede ver/aprobar evolución
-  // del prompt. Las decisiones sobre cómo "razona" Nico son founder-only,
-  // no de cualquier admin.
-  if (!subLoading && !isFounder) {
-    return <Navigate to="/dashboard" replace />;
-  }
+  }, []);
 
   const handleApprove = async (v: PromptVersion) => {
     if (!user) return;
@@ -110,20 +98,11 @@ export default function NicoPromptEvolution() {
   const filtered = versions.filter(v => tab === 'pending' ? v.status === 'pending' : v.status !== 'pending');
 
   return (
-    <AppLayout>
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      <div className="space-y-6">
         <div>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center">
-              <Sparkles className="h-5 w-5 text-success" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Evolución del system prompt de Nico</h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Cada lunes Opus 4.7 analiza el feedback de la semana y propone reglas para agregar al prompt de cada agente. Vos aprobás o rechazás.
-              </p>
-            </div>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Cada lunes Opus 4.7 analiza el feedback de la semana y propone reglas para agregar al prompt de cada agente. Vos aprobás o rechazás.
+          </p>
         </div>
 
         {/* Tabs */}
@@ -233,6 +212,5 @@ export default function NicoPromptEvolution() {
           </div>
         )}
       </div>
-    </AppLayout>
   );
 }

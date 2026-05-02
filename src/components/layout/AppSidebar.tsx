@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { NavLink } from '@/components/NavLink';
 import {
@@ -96,8 +96,7 @@ const reportItems: NavItem[] = [
 
 const reportItemsGerencial: NavItem[] = [
   { title: 'Cartera Operativa', url: '/reportes/cartera-operativa', icon: Coins, gerencial: true },
-  { title: 'Evolución de Nico IA', url: '/nico/evolution', icon: Sparkles, gerencial: true, founderOnly: true },
-  { title: 'Analytics (founder)', url: '/admin/analytics', icon: BarChart3, gerencial: true, founderOnly: true },
+  { title: 'Cabina Founder', url: '/founder', icon: Sparkles, gerencial: true, founderOnly: true },
 ];
 
 const exportItems: NavItem[] = [
@@ -351,11 +350,18 @@ export default function AppSidebar() {
   const { isGerencial } = useModuleContext();
   const { isFounder } = useSubscription();
 
+  // Auto-abrir el sidebar SOLO cuando se entra a Modo Gerencial (transición
+  // false→true). Antes este effect tenía `state` en deps, lo que causaba que
+  // re-abriera el sidebar cada vez que el user lo colapsaba manualmente.
+  // Ahora solo dispara una vez al activar gerencial.
+  const wasGerencialRef = useRef(false);
   useEffect(() => {
-    if (isGerencial && state === 'collapsed') {
+    if (isGerencial && !wasGerencialRef.current) {
       setOpen(true);
     }
-  }, [isGerencial, state, setOpen]);
+    wasGerencialRef.current = isGerencial;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGerencial]);
 
   const nicoActive = currentPath === '/nico';
 

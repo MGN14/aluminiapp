@@ -53,7 +53,13 @@ export function ModuleProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const effectiveMode: ModuleMode = !isAdmin && mode === 'gerencial' ? 'dian' : mode;
+  // Durante loading, mantener el mode del localStorage (sin forzar 'dian').
+  // Si forzáramos dian durante loading, hay flicker DIAN→Gerencial al
+  // refrescar la página. Solo después de loading=false aplicamos la
+  // safety net del !isAdmin.
+  const effectiveMode: ModuleMode = loading
+    ? mode
+    : (!isAdmin && mode === 'gerencial' ? 'dian' : mode);
 
   return (
     <ModuleContext.Provider
