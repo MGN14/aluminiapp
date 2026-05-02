@@ -690,14 +690,20 @@ function DashboardContent() {
                           const pct = (invoiceMetrics.totalBaseRef ?? 0) > 0
                             ? ((total / invoiceMetrics.totalBaseRef) * 100).toFixed(0) : '0';
                           return (
-                            <div key={name} className="flex items-center gap-3">
-                              <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
+                            <div key={name} className="flex items-start gap-3">
+                              <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm text-foreground truncate">{name}</p>
                                 <p className="text-[10px] text-muted-foreground">{qty} {qty === 1 ? 'unidad' : 'unidades'}</p>
+                                {/* Mobile: monto debajo */}
+                                <p className="text-xs mt-0.5 sm:hidden">
+                                  <span className="font-semibold text-foreground tabular-nums">{formatCurrency(total)}</span>
+                                  <span className="text-muted-foreground ml-1.5">({pct}%)</span>
+                                </p>
                               </div>
-                              <div className="text-right shrink-0">
-                                <p className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</p>
+                              {/* Desktop: monto al lado */}
+                              <div className="hidden sm:block text-right shrink-0">
+                                <p className="font-semibold text-sm text-foreground whitespace-nowrap tabular-nums">{formatCurrency(total)}</p>
                                 <p className="text-[10px] text-muted-foreground">{pct}% del total</p>
                               </div>
                             </div>
@@ -710,15 +716,20 @@ function DashboardContent() {
                     <>
                       <div className="space-y-3">
                         {topInvoices.map((inv, index) => (
-                          <div key={inv.id ?? index} className="flex items-center gap-3">
-                            <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
+                          <div key={inv.id ?? index} className="flex items-start gap-3">
+                            <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm text-foreground truncate">{inv.counterparty_name || 'Sin nombre'}</p>
                               <p className="text-[10px] text-muted-foreground">
                                 {parseLocalDate(inv.issue_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                               </p>
+                              {/* Mobile: monto debajo */}
+                              <p className="text-xs mt-0.5 sm:hidden font-semibold text-foreground tabular-nums">
+                                {formatCurrency(inv.total_amount || 0)}
+                              </p>
                             </div>
-                            <p className="font-semibold text-sm text-foreground whitespace-nowrap shrink-0">
+                            {/* Desktop: monto al lado */}
+                            <p className="hidden sm:block font-semibold text-sm text-foreground whitespace-nowrap shrink-0 tabular-nums">
                               {formatCurrency(inv.total_amount || 0)}
                             </p>
                           </div>

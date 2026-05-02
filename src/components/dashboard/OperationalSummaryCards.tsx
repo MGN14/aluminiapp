@@ -239,11 +239,19 @@ export function TopBuyersCard({ topBuyers, totalComprasBase, year }: { topBuyers
               {topBuyers.map(([name, total], index) => {
                 const pct = totalComprasBase > 0 ? ((total / totalComprasBase) * 100).toFixed(0) : '0';
                 return (
-                  <div key={name} className="flex items-center gap-3">
-                    <span className={`font-bold text-lg w-6 text-center shrink-0 ${RANK_COLORS[index]}`}>{index + 1}</span>
-                    <span className="text-sm text-foreground truncate flex-1">{name}</span>
-                    <div className="text-right shrink-0">
-                      <span className="font-semibold text-sm text-foreground whitespace-nowrap">{formatCurrency(total)}</span>
+                  <div key={name} className="flex items-start gap-3">
+                    <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground truncate">{name}</p>
+                      {/* Mobile: monto debajo */}
+                      <p className="text-xs mt-0.5 sm:hidden">
+                        <span className="font-semibold text-foreground tabular-nums">{formatCurrency(total)}</span>
+                        <span className="text-muted-foreground ml-1.5">({pct}%)</span>
+                      </p>
+                    </div>
+                    {/* Desktop: monto al lado */}
+                    <div className="hidden sm:block text-right shrink-0">
+                      <span className="font-semibold text-sm text-foreground whitespace-nowrap tabular-nums">{formatCurrency(total)}</span>
                       <span className="text-xs text-muted-foreground ml-1">({pct}%)</span>
                     </div>
                   </div>
