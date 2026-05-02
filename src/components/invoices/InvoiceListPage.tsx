@@ -310,7 +310,10 @@ export default function InvoiceListPage({ type }: Props) {
   const markReextractedLocally = useCallback((invoiceId: string, reextractedAt: string) => {
     setInvoices(prev => prev.map(i => {
       if (i.id !== invoiceId) return i;
-      const nextExtractedData = { ...(i.extracted_data || {}), items_reextracted_at: reextractedAt };
+      // Marker optimist — si no había extracted_data, lo dejamos como null
+      // (el merge no aplica). Si había, agregamos el flag.
+      if (!i.extracted_data) return i;
+      const nextExtractedData = { ...i.extracted_data, items_reextracted_at: reextractedAt };
       return { ...i, extracted_data: nextExtractedData };
     }));
   }, []);

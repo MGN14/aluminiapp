@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import DuplicatesConfirmModal, { type DuplicateMatch } from "./DuplicatesConfirmModal";
 import {
   FileSpreadsheet,
   Loader2,
@@ -93,6 +94,10 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
   const [periodStart, setPeriodStart] = useState<string>("");
   const [periodEnd, setPeriodEnd] = useState<string>("");
   const [displayName, setDisplayName] = useState<string>("");
+
+  // Detector de duplicados
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([]);
+  const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -167,6 +172,8 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
     setDisplayName("");
   };
 
+  // Pre-check: ¿hay tx duplicadas con las que el usuario ya cargó? Si sí,
+  // mostramos modal antes de hacer el upload.
   const handleConfirmUpload = async () => {
     if (!preview || !user) return;
     if (!periodStart || !periodEnd) {
@@ -186,6 +193,45 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
       return;
     }
 
+    // Pre-check de duplicados via RPC (solo lectura, no toca DB).
+    setPhase("uploading"); // bloqueamos UI mientras chequeamos
+    setErrorMsg("");
+
+    try {
+      const candidates = preview.movements.map((m) => ({
+        date: m.date,
+        amount: m.amount,
+        description: m.description,
+      }));
+      const { data: dupRows, error: dupErr } = await (supabase as any).rpc(
+        "find_duplicate_transactions",
+        { p_user_id: user.id, p_candidates: candidates }
+      );
+      if (dupErr) {
+        // Si el check falla (ej. función no desplegada todavía), no bloqueamos
+        // el upload — sólo loguamos. El cliente sigue como antes.
+        console.warn("find_duplicate_transactions failed, skipping check:", dupErr);
+        await proceedUpload(preview.movements);
+        return;
+      }
+      const dups = (dupRows ?? []) as DuplicateMatch[];
+      if (dups.length === 0) {
+        await proceedUpload(preview.movements);
+        return;
+      }
+      // Hay duplicados — pausamos y mostramos modal.
+      setDuplicates(dups);
+      setDuplicatesModalOpen(true);
+      setPhase("preview"); // volvemos a estado interactivo mientras decide
+    } catch (err) {
+      console.error("Pre-check error:", err);
+      // Fallback: seguir igual sin check (no bloquear feature crítico por bug en RPC).
+      await proceedUpload(preview.movements);
+    }
+  };
+
+  const proceedUpload = async (movementsToInsert: BancolombiaMovement[]) => {
+    if (!preview || !user) return;
     setPhase("uploading");
     setErrorMsg("");
 
@@ -234,7 +280,7 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
       // 3. Llamar al edge function con los movimientos ya parseados
       const payload = {
         statement_id: stmt.id,
-        movements: preview.movements.map((m) => ({
+        movements: movementsToInsert.map((m) => ({
           date: m.date,
           amount: m.amount,
           description: m.description,
@@ -428,6 +474,7 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
   const uploading = phase === "uploading";
 
   return (
+    <>
     <Card>
       <CardContent style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
         {/* Header */}
@@ -594,6 +641,29 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
         </div>
       </CardContent>
     </Card>
+
+    <DuplicatesConfirmModal
+      open={duplicatesModalOpen}
+      duplicates={duplicates}
+      totalCandidates={preview.movements.length}
+      onCancel={() => {
+        setDuplicatesModalOpen(false);
+        setDuplicates([]);
+      }}
+      onSkipDuplicates={() => {
+        const dupIdxs = new Set(duplicates.map((d) => d.candidate_index));
+        const filtered = preview.movements.filter((_, i) => !dupIdxs.has(i));
+        setDuplicatesModalOpen(false);
+        setDuplicates([]);
+        proceedUpload(filtered);
+      }}
+      onImportAll={() => {
+        setDuplicatesModalOpen(false);
+        setDuplicates([]);
+        proceedUpload(preview.movements);
+      }}
+    />
+    </>
   );
 }
 
