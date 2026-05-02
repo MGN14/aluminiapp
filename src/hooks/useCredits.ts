@@ -19,6 +19,8 @@ export interface Credit {
   additional_costs_label: string | null;
   default_category_id: string | null;
   default_responsible_id: string | null;
+  cancellation_reason: string | null;
+  cancelled_at: string | null;
 }
 
 export interface CreditPayment {

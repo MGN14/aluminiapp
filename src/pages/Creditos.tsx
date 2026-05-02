@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, ChevronDown, ChevronUp, DollarSign, Trash2, Loader2, AlertCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { CreditCard, ChevronDown, ChevronUp, DollarSign, Trash2, Loader2, AlertCircle, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -13,6 +13,7 @@ import { useCredits, type CreditWithSummary } from '@/hooks/useCredits';
 import NuevoCreditoModal from '@/components/credits/NuevoCreditoModal';
 import RegistrarPagoCreditoModal, { type PrefillCuota } from '@/components/credits/RegistrarPagoCreditoModal';
 import ConciliacionMatchesPanel from '@/components/credits/ConciliacionMatchesPanel';
+import CancelarCreditoModal from '@/components/credits/CancelarCreditoModal';
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
@@ -30,6 +31,7 @@ export default function Creditos() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [paying, setPaying] = useState<CreditWithSummary | null>(null);
   const [prefillCuota, setPrefillCuota] = useState<PrefillCuota | null>(null);
+  const [cancelling, setCancelling] = useState<CreditWithSummary | null>(null);
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`¿Eliminar "${name}" y todos sus pagos? No se puede deshacer.`)) return;
@@ -165,9 +167,14 @@ export default function Creditos() {
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                               {c.credit.status === 'active' && (
-                                <Button variant="ghost" size="icon" className="h-7 w-7 text-success" onClick={() => { setPrefillCuota(null); setPaying(c); }} title="Registrar pago">
-                                  <DollarSign className="h-3.5 w-3.5" />
-                                </Button>
+                                <>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-success" onClick={() => { setPrefillCuota(null); setPaying(c); }} title="Registrar pago">
+                                    <DollarSign className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-warning" onClick={() => setCancelling(c)} title="Cancelar crédito (refinanciado/acuerdo/error)">
+                                    <XCircle className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
                               )}
                               <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(c.credit.id, c.credit.name)} title="Eliminar">
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -375,6 +382,13 @@ export default function Creditos() {
             setPrefillCuota(null);
           }
         }}
+      />
+
+      <CancelarCreditoModal
+        open={!!cancelling}
+        credit={cancelling?.credit ?? null}
+        currentBalance={cancelling?.summary.currentBalance ?? 0}
+        onClose={() => setCancelling(null)}
       />
     </AppLayout>
   );
