@@ -11,8 +11,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY no configurado");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY no configurado");
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -1873,57 +1873,90 @@ ${financialContext}${memoryBlock}${macroBlock}`;
       ? [...dbHistory, messages[messages.length - 1]]
       : messages;
 
-    // NOTA: Gemini OpenAI-compat con stream:true es inestable (devuelve 500).
-    // Hacemos la llamada SIN streaming y emitimos SSE "sintético" al cliente
-    // para preservar el parser SSE existente en NicoAgentChat.tsx.
+    // [v6] Anthropic Claude con prompt caching + streaming real.
+    // El system prompt de Nico es enorme (~10–15k tokens; 13 módulos de
+    // contexto financiero + macro indicators). Lo marcamos con cache_control
+    // ephemeral para que las preguntas seguidas en una sesión paguen ~10% del
+    // costo del prompt. Streaming real: traducimos el SSE de Anthropic
+    // (event: content_block_delta) al formato OpenAI-compat (choices[0].delta.content)
+    // que ya parsea NicoAgentChat.tsx — cero cambios en el frontend.
     //
-    // [v5] Estrategia multi-modelo contra 503 UNAVAILABLE y 429 RATE LIMIT:
-    //   1. Intentar gemini-2.5-flash (primario) 3 veces con backoff corto.
-    //   2. Si aún falla, UN intento con gemini-2.0-flash (fallback).
-    //      El 2.0 es generación anterior, pool independiente (15 RPM / 1500 RPD
-    //      vs 10 RPM / 250 RPD del 2.5-flash). Cuando el free-tier pega 429 en
-    //      el primario, usualmente el secundario responde sin problema.
-    //   3. Si ambos fallan, mensaje claro al usuario.
-    //
-    // IMPORTANTE: 429 del free tier de Google (RPM/RPD) se trata igual que 5xx
-    // transitorio para efectos de retry y fallback. NO lo tratamos como
-    // "quota agotada" hasta que el fallback también falle.
-    //
-    // Timing worst-case: ~2.1s en primario + ~2s en fallback = ~4-5s.
-    const PRIMARY_MODEL = "gemini-2.5-flash";
-    const FALLBACK_MODEL = "gemini-2.0-flash";
-    // 429 incluido: RPM/RPD del free tier se rotan vía fallback.
-    const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+    // Estrategia multi-modelo contra 5xx / 429:
+    //   1. Sonnet 4.6 (primario) — calidad para asesor financiero.
+    //   2. Haiku 4.5 (fallback) — rápido y barato si el primario falla.
+    const PRIMARY_MODEL = "claude-sonnet-4-6";
+    const FALLBACK_MODEL = "claude-haiku-4-5";
+    const MAX_OUTPUT_TOKENS = 2048;
+    const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
+
+    // Anthropic NO acepta role:"system" en messages, ni dos mensajes seguidos del
+    // mismo role. Saneamos: (a) quitamos cualquier role:"system", (b) el primer
+    // mensaje debe ser user (sino lo descartamos), (c) collapsamos consecutivos
+    // del mismo role concatenando contenido.
+    function sanitizeForAnthropic(
+      input: Array<{ role: string; content: string }>,
+    ): Array<{ role: "user" | "assistant"; content: string }> {
+      const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+      for (const m of input) {
+        if (!m || typeof m.content !== "string") continue;
+        const role = m.role === "assistant" ? "assistant" : m.role === "user" ? "user" : null;
+        if (!role) continue; // descarta system/tool/otros
+        const trimmed = m.content.trim();
+        if (!trimmed) continue;
+        const last = out[out.length - 1];
+        if (last && last.role === role) {
+          last.content = `${last.content}\n\n${trimmed}`;
+        } else {
+          out.push({ role, content: trimmed });
+        }
+      }
+      // Anthropic exige que el primer mensaje sea user.
+      while (out.length > 0 && out[0].role !== "user") out.shift();
+      return out;
+    }
+
+    const anthropicMessages = sanitizeForAnthropic(historyForModel);
+    if (anthropicMessages.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "Mensaje vacío. Escribí una pregunta para Nico." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     function buildBody(model: string): string {
       return JSON.stringify({
         model,
-        messages: [
-          { role: "system", content: finalSystemPrompt },
-          ...historyForModel,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        // Prompt caching: marcamos el system prompt entero (estable durante
+        // la sesión del usuario) con cache_control ephemeral. TTL ~5 min,
+        // hits cacheados cuestan 10% del precio normal.
+        system: [
+          {
+            type: "text",
+            text: finalSystemPrompt,
+            cache_control: { type: "ephemeral" },
+          },
         ],
+        messages: anthropicMessages,
+        stream: true,
       });
     }
 
-    async function callGemini(model: string): Promise<Response> {
-      return await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${GEMINI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: buildBody(model),
+    async function callAnthropic(model: string): Promise<Response> {
+      return await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
         },
-      );
+        body: buildBody(model),
+      });
     }
 
-    // Plan de intentos: [modelo, delayAntesDeIntento]
     const attempts: Array<{ model: string; delayMs: number; label: string }> = [
       { model: PRIMARY_MODEL, delayMs: 0, label: "primary-1" },
-      { model: PRIMARY_MODEL, delayMs: 600, label: "primary-2" },
-      { model: PRIMARY_MODEL, delayMs: 1500, label: "primary-3" },
+      { model: PRIMARY_MODEL, delayMs: 800, label: "primary-2" },
       { model: FALLBACK_MODEL, delayMs: 500, label: "fallback-1" },
     ];
 
@@ -1934,72 +1967,58 @@ ${financialContext}${memoryBlock}${macroBlock}`;
 
     for (const { model, delayMs, label } of attempts) {
       if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
-      response = await callGemini(model);
+      response = await callAnthropic(model);
       if (response.ok) {
         modelUsed = model;
         if (model !== PRIMARY_MODEL) {
-          console.log(`nico-chat [v4]: sirvió con ${model} (fallback OK tras saturación)`);
+          console.log(`nico-chat [v6]: sirvió con ${model} (fallback tras saturación primario)`);
         }
         break;
       }
       lastStatus = response.status;
-      // 4xx (401, 403, 429, 400) se cortan inmediato — no sirve reintentar.
       if (!RETRYABLE.has(response.status)) break;
       lastBody = await response.text();
-      console.warn(
-        `nico-chat [v4] ${label}: ${model} devolvió ${response.status}. Siguiente intento…`,
-      );
+      console.warn(`nico-chat [v6] ${label}: ${model} devolvió ${response.status}. Siguiente intento…`);
     }
 
     if (!response.ok) {
-      // 402 = billing/credits. No es transitorio, no reintentamos.
-      if (response.status === 402) {
+      if (response.status === 401 || response.status === 403) {
+        console.error("nico-chat: ANTHROPIC_API_KEY inválida o sin permisos:", lastBody || (await response.text().catch(() => "")));
         return new Response(
-          JSON.stringify({ error: "Se requieren créditos adicionales para continuar." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          JSON.stringify({ error: "Configuración de Nico inválida. Avisá al admin." }),
+          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      // Después de TODOS los reintentos + fallback: distinguimos mensaje por
-      // causa para ser honestos con el usuario.
       const finalStatus = lastStatus || response.status;
       const t = lastBody || (await response.text().catch(() => ""));
       console.error(`AI gateway error tras primario + fallback (${finalStatus}):`, t);
-      let msg: string;
-      if (finalStatus === 429) {
-        msg = "Se agotó temporalmente la cuota de Gemini (free tier limita requests/minuto). Probamos el modelo alternativo y también se agotó. Esperá 1–2 minutos y probá otra vez.";
-      } else if (RETRYABLE.has(finalStatus)) {
-        msg = "Nico está saturado en este momento (probamos modelo alternativo y también está ocupado). Intentá de nuevo en unos segundos.";
-      } else {
-        msg = `Error al conectar con Nico. [v5] Gemini status=${finalStatus}.`;
-      }
+      const msg = finalStatus === 429
+        ? "Anthropic está rate-limiteando temporalmente. Esperá 1–2 minutos y probá de nuevo."
+        : RETRYABLE.has(finalStatus)
+        ? "Nico está saturado en este momento (probamos modelo alternativo y también está ocupado). Intentá de nuevo en unos segundos."
+        : `Error al conectar con Nico. [v6] Anthropic status=${finalStatus}.`;
       return new Response(
         JSON.stringify({ error: msg }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    console.log(`nico-chat [v5]: OK con ${modelUsed}. Parseando…`);
-
-    // Parse de la respuesta completa (OpenAI-compat sin streaming).
-    const aiJson = await response.json().catch((err) => {
-      console.error("nico-chat: error parseando respuesta Gemini:", err);
-      return null;
-    });
-    const assistantText: string =
-      aiJson?.choices?.[0]?.message?.content ??
-      "";
-
-    if (!assistantText) {
-      console.error("nico-chat: respuesta de Gemini sin contenido:", JSON.stringify(aiJson)?.slice(0, 500));
-      return new Response(JSON.stringify({ error: "Nico no devolvió respuesta. Intenta otra vez." }), {
-        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    console.log(`nico-chat [v6]: OK con ${modelUsed}. Iniciando stream Anthropic→OpenAI-compat…`);
 
     const lastUserMsg = messages[messages.length - 1];
     const userMessageContent = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
 
-    // Persistencia: ocurre en paralelo al streaming al cliente, sin bloquearlo.
+    // Acumulador de tokens y texto para persistencia post-stream.
+    const usage = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    };
+    let assistantText = "";
+    let stopReason: string | null = null;
+
+    // Persistencia: corre después de que cerramos el stream al cliente.
     const persist = async () => {
       try {
         if (!userMessageContent || !assistantText) return;
@@ -2011,8 +2030,6 @@ ${financialContext}${memoryBlock}${macroBlock}`;
         const insertResult = await supabase.from("nico_messages" as never).insert(rows as never);
         if (insertResult.error) console.error("persist nico_messages failed:", insertResult.error);
 
-        // Threshold subido de 20 a 50 mensajes. Con 7 agentes, 20 era demasiado
-        // agresivo y quemaba quota Gemini. 50 = ~25 intercambios usuario/asistente.
         const { count } = await supabase
           .from("nico_messages" as never)
           .select("id", { count: "exact", head: true })
@@ -2029,7 +2046,6 @@ ${financialContext}${memoryBlock}${macroBlock}`;
           }).catch((err) => console.warn("summarize trigger failed:", err));
         }
 
-        // Increment daily usage counter (read-then-upsert; acceptable for low traffic)
         const { data: usageRow } = await supabase
           .from("nico_usage_daily" as never)
           .select("message_count")
@@ -2044,9 +2060,20 @@ ${financialContext}${memoryBlock}${macroBlock}`;
             { onConflict: "user_id,day" } as never,
           );
 
-        // Telemetría interna: registrar nico_query con agent_key + tamaño.
-        // Va a app_events para el reporte semanal del founder. Sólo se cuentan
-        // queries respondidas exitosamente (este path es post-respuesta).
+        // Costo estimado USD basado en tarifas Anthropic (Sonnet 4.6 / Haiku 4.5).
+        // Sonnet 4.6: input $3 / output $15 / cache_write $3.75 / cache_read $0.30 por M tokens.
+        // Haiku 4.5:  input $1 / output $5  / cache_write $1.25 / cache_read $0.10 por M tokens.
+        const isSonnet = modelUsed.startsWith("claude-sonnet");
+        const ratesPerMillion = isSonnet
+          ? { input: 3, output: 15, cache_write: 3.75, cache_read: 0.3 }
+          : { input: 1, output: 5, cache_write: 1.25, cache_read: 0.1 };
+        const costUsd =
+          (usage.input_tokens * ratesPerMillion.input +
+            usage.output_tokens * ratesPerMillion.output +
+            usage.cache_creation_input_tokens * ratesPerMillion.cache_write +
+            usage.cache_read_input_tokens * ratesPerMillion.cache_read) /
+          1_000_000;
+
         await supabase
           .from("app_events" as never)
           .insert({
@@ -2054,10 +2081,18 @@ ${financialContext}${memoryBlock}${macroBlock}`;
             event_type: "nico_query",
             props: {
               agent_key,
+              model_used: modelUsed,
               user_msg_len: userMessageContent.length,
               assistant_msg_len: assistantText.length,
-              model_used: modelUsed,
               page_context: pageContextNote2 || null,
+              input_tokens: usage.input_tokens,
+              output_tokens: usage.output_tokens,
+              cache_creation_input_tokens: usage.cache_creation_input_tokens,
+              cache_read_input_tokens: usage.cache_read_input_tokens,
+              cost_usd: Number(costUsd.toFixed(6)),
+              stop_reason: stopReason,
+              hour_bogota: new Date(new Date().toLocaleString("en-US", { timeZone: "America/Bogota" })).getHours(),
+              dow_bogota: new Date(new Date().toLocaleString("en-US", { timeZone: "America/Bogota" })).getDay(),
             },
           } as never);
       } catch (err) {
@@ -2065,28 +2100,79 @@ ${financialContext}${memoryBlock}${macroBlock}`;
       }
     };
 
-    // Construir stream SSE sintético en formato OpenAI para que el cliente
-    // (NicoAgentChat.tsx) lo consuma con su parser existente de `choices[0].delta.content`.
-    // Troceamos el texto en chunks pequeños para dar sensación de streaming.
+    // Traducción Anthropic SSE → OpenAI-compat SSE.
+    // Anthropic emite eventos delimitados por \n\n con líneas "event: foo" y
+    // "data: {...}". El frontend parsea SOLO `data: {choices:[{delta:{content}}]}`,
+    // así que mapeamos cada content_block_delta.text_delta a ese formato.
     const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    const upstream = response.body!.getReader();
+
     const stream = new ReadableStream({
       async start(controller) {
+        let buffer = "";
         try {
-          const CHUNK_SIZE = 24; // caracteres por evento — balance UX/overhead
-          const total = assistantText.length;
-          for (let i = 0; i < total; i += CHUNK_SIZE) {
-            const slice = assistantText.slice(i, i + CHUNK_SIZE);
-            const payload = JSON.stringify({
-              choices: [{ delta: { content: slice } }],
+          while (true) {
+            const { done, value } = await upstream.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            // Cada evento SSE termina con \n\n.
+            let idx: number;
+            while ((idx = buffer.indexOf("\n\n")) !== -1) {
+              const rawEvent = buffer.slice(0, idx);
+              buffer = buffer.slice(idx + 2);
+              if (!rawEvent.trim()) continue;
+
+              // Cada evento tiene una línea event: y una data:; nos importa data:.
+              const dataLine = rawEvent.split("\n").find((l) => l.startsWith("data:"));
+              if (!dataLine) continue;
+              const dataStr = dataLine.slice(5).trim();
+              if (!dataStr || dataStr === "[DONE]") continue;
+
+              let evt: any;
+              try {
+                evt = JSON.parse(dataStr);
+              } catch {
+                continue;
+              }
+
+              if (evt.type === "message_start" && evt.message?.usage) {
+                const u = evt.message.usage;
+                usage.input_tokens = u.input_tokens ?? 0;
+                usage.cache_creation_input_tokens = u.cache_creation_input_tokens ?? 0;
+                usage.cache_read_input_tokens = u.cache_read_input_tokens ?? 0;
+                if (typeof u.output_tokens === "number") usage.output_tokens = u.output_tokens;
+              } else if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+                const text: string = evt.delta.text ?? "";
+                if (text) {
+                  assistantText += text;
+                  const payload = JSON.stringify({ choices: [{ delta: { content: text } }] });
+                  controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+                }
+              } else if (evt.type === "message_delta") {
+                if (evt.usage?.output_tokens != null) usage.output_tokens = evt.usage.output_tokens;
+                if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+              }
+              // message_stop, content_block_start/stop, ping → no-ops para el cliente.
+            }
+          }
+          if (!assistantText) {
+            const errorPayload = JSON.stringify({
+              choices: [{ delta: { content: "Nico no devolvió respuesta. Intentá de nuevo." } }],
             });
-            controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${errorPayload}\n\n`));
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         } catch (err) {
-          console.error("synthetic SSE error:", err);
+          console.error("anthropic stream error:", err);
+          const errorPayload = JSON.stringify({
+            choices: [{ delta: { content: "\n\n[Stream interrumpido. Intentá de nuevo.]" } }],
+          });
+          controller.enqueue(encoder.encode(`data: ${errorPayload}\n\n`));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         } finally {
           controller.close();
-          // Persistir después de cerrar el stream al cliente.
           persist();
         }
       },

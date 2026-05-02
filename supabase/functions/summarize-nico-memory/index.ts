@@ -13,10 +13,10 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    if (!GEMINI_API_KEY || !SERVICE_ROLE || !SUPABASE_URL) {
+    if (!ANTHROPIC_API_KEY || !SERVICE_ROLE || !SUPABASE_URL) {
       return new Response(JSON.stringify({ error: "Config faltante" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -103,20 +103,23 @@ ${prevFacts.length > 0 ? prevFacts.map((f, i) => `${i + 1}. ${typeof f === "stri
 CONVERSACIÓN A INTEGRAR:
 ${conversationText}`;
 
-    const aiResp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+    // Haiku 4.5: rápido y económico. Resumir conversaciones a JSON estructurado
+    // no requiere razonamiento profundo; Haiku lo hace bien y a 1/3 del costo de Sonnet.
+    // Prefill "{" fuerza al modelo a empezar el JSON inmediatamente, evita preámbulos.
+    const aiResp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
-        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
       },
       body: JSON.stringify({
-        // gemini-2.0-flash-lite: 1500 RPD / 30 RPM free tier. Resumir memoria
-        // no requiere la calidad de 2.5; el modelo lite es suficiente y libera
-        // quota para la UI principal (chat y parsers).
-        model: "gemini-2.0-flash-lite",
+        model: "claude-haiku-4-5",
+        max_tokens: 1500,
+        system: systemPrompt,
         messages: [
-          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
+          { role: "assistant", content: "{" },
         ],
       }),
     });
@@ -130,7 +133,12 @@ ${conversationText}`;
     }
 
     const aiJson = await aiResp.json();
-    const raw = aiJson?.choices?.[0]?.message?.content ?? "";
+    // Anthropic devuelve content: [{ type: "text", text: "..." }]
+    // Como prefilleamos "{", la respuesta empieza directo con el resto del JSON.
+    const text = Array.isArray(aiJson?.content)
+      ? aiJson.content.find((c: any) => c?.type === "text")?.text ?? ""
+      : "";
+    const raw = "{" + text;
     const cleaned = raw.replace(/```json|```/g, "").trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) {
