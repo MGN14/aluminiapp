@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useSubscription } from '@/hooks/useSubscription';
 import { toast } from 'sonner';
 import { CheckCircle2, XCircle, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -33,6 +35,7 @@ const AGENT_LABELS: Record<string, string> = {
 
 export default function NicoPromptEvolution() {
   const { user } = useAuth();
+  const { isFounder, loading: subLoading } = useSubscription();
   const [versions, setVersions] = useState<PromptVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -48,7 +51,17 @@ export default function NicoPromptEvolution() {
     setLoading(false);
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    if (subLoading || !isFounder) return;
+    void load();
+  }, [subLoading, isFounder]);
+
+  // Defensa en profundidad: solo el founder puede ver/aprobar evolución
+  // del prompt. Las decisiones sobre cómo "razona" Nico son founder-only,
+  // no de cualquier admin.
+  if (!subLoading && !isFounder) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const handleApprove = async (v: PromptVersion) => {
     if (!user) return;
