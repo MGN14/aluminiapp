@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
+import { useSubscription } from '@/hooks/useSubscription';
 import { TrendingUp, Users, Activity, Sparkles, DollarSign, Heart, Loader2 } from 'lucide-react';
 
 interface KPI {
@@ -49,13 +51,24 @@ function formatPct(n: number): string {
 }
 
 export default function AdminAnalytics() {
+  const { isFounder, loading: subLoading } = useSubscription();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (subLoading) return;
+    if (!isFounder) return; // no cargamos si no es founder
     void loadAnalytics();
-  }, []);
+  }, [subLoading, isFounder]);
+
+  // Defensa en profundidad: solo el founder (niko14_gomez@hotmail.com)
+  // puede ver este panel. La RLS de app_events / nico_messages / app_feedback
+  // hardcodea el email también — pero este redirect le evita ver una página
+  // vacía a cualquier admin que no sea founder.
+  if (!subLoading && !isFounder) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const loadAnalytics = async () => {
     setLoading(true);

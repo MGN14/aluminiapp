@@ -44,6 +44,7 @@ import {
 import NicoLogo from '@/components/nico/NicoLogo';
 import PlanBadge from '@/components/subscription/PlanBadge';
 import { useModuleContext } from '@/hooks/useModuleContext';
+import { useSubscription } from '@/hooks/useSubscription';
 
 interface NavItem {
   title: string;
@@ -58,6 +59,10 @@ interface NavItem {
   hasGerencialVariant?: boolean;
   /** El ítem se OCULTA en Modo Gerencial porque otro item gerencial lo reemplaza */
   hideInGerencial?: boolean;
+  /** SOLO visible para el founder (niko14_gomez@hotmail.com). El RLS
+   *  bloquea acceso a otros admins igual, pero esconderlo del menú evita
+   *  confusión. */
+  founderOnly?: boolean;
 }
 
 const documentItems: NavItem[] = [
@@ -92,7 +97,7 @@ const reportItems: NavItem[] = [
 const reportItemsGerencial: NavItem[] = [
   { title: 'Cartera Operativa', url: '/reportes/cartera-operativa', icon: Coins, gerencial: true },
   { title: 'Evolución de Nico IA', url: '/nico/evolution', icon: Sparkles, gerencial: true },
-  { title: 'Analytics (founder)', url: '/admin/analytics', icon: BarChart3, gerencial: true },
+  { title: 'Analytics (founder)', url: '/admin/analytics', icon: BarChart3, gerencial: true, founderOnly: true },
 ];
 
 const exportItems: NavItem[] = [
@@ -287,6 +292,7 @@ interface SectionProps {
   currentPath: string;
   currentSearch: string;
   isGerencial: boolean;
+  isFounder: boolean;
 }
 
 function SidebarSection({
@@ -297,9 +303,11 @@ function SidebarSection({
   currentPath,
   currentSearch,
   isGerencial,
+  isFounder,
 }: SectionProps) {
   const baseItems = isGerencial ? items.filter((item) => !item.hideInGerencial) : items;
-  const allItems = isGerencial && gerencialItems ? [...baseItems, ...gerencialItems] : baseItems;
+  const merged = isGerencial && gerencialItems ? [...baseItems, ...gerencialItems] : baseItems;
+  const allItems = merged.filter((item) => !item.founderOnly || isFounder);
 
   return (
     <SidebarGroup>
@@ -341,6 +349,7 @@ export default function AppSidebar() {
   const currentPath = location.pathname;
   const currentSearch = location.search;
   const { isGerencial } = useModuleContext();
+  const { isFounder } = useSubscription();
 
   useEffect(() => {
     if (isGerencial && state === 'collapsed') {
@@ -484,6 +493,7 @@ export default function AppSidebar() {
           currentPath={currentPath}
           currentSearch={currentSearch}
           isGerencial={isGerencial}
+          isFounder={isFounder}
         />
         <SidebarSection
           label="Movimientos"
@@ -493,6 +503,7 @@ export default function AppSidebar() {
           currentPath={currentPath}
           currentSearch={currentSearch}
           isGerencial={isGerencial}
+          isFounder={isFounder}
         />
         <SidebarSection
           label="Reportes"
@@ -502,6 +513,7 @@ export default function AppSidebar() {
           currentPath={currentPath}
           currentSearch={currentSearch}
           isGerencial={isGerencial}
+          isFounder={isFounder}
         />
         <SidebarSection
           label="Exportar"
@@ -510,6 +522,7 @@ export default function AppSidebar() {
           currentPath={currentPath}
           currentSearch={currentSearch}
           isGerencial={isGerencial}
+          isFounder={isFounder}
         />
 
         {isGerencial && (
@@ -521,6 +534,7 @@ export default function AppSidebar() {
             currentPath={currentPath}
             currentSearch={currentSearch}
             isGerencial={isGerencial}
+            isFounder={isFounder}
           />
         )}
 
