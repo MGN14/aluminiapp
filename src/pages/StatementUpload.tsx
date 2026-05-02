@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useReconciliationRules } from '@/hooks/useReconciliationRules';
 import { logEvent } from '@/lib/analytics';
+import PostUploadDuplicatesModal, { type PostUploadDuplicate } from '@/components/statements/PostUploadDuplicatesModal';
 
 interface Statement {
   id: string;
@@ -45,6 +46,94 @@ export default function StatementUpload() {
   const [modalOpen, setModalOpen] = useState(false);
   const [pendingStatementId, setPendingStatementId] = useState<string | null>(null);
   const [editingStatement, setEditingStatement] = useState<Statement | null>(null);
+
+  // Post-upload dedup
+  const [postUploadDuplicates, setPostUploadDuplicates] = useState<PostUploadDuplicate[]>([]);
+  const [postUploadDupOpen, setPostUploadDupOpen] = useState(false);
+  const [postUploadTotalNew, setPostUploadTotalNew] = useState(0);
+  const [postUploadDeleting, setPostUploadDeleting] = useState(false);
+
+  /** Detector post-hoc: chequea si las tx recién insertadas tienen duplicados
+   *  en otros statements del mismo user. Si sí, muestra modal. */
+  const checkPostUploadDuplicates = async (statementId: string) => {
+    try {
+      const { data: newTxs, error: txErr } = await supabase
+        .from('transactions')
+        .select('id, date, amount, description')
+        .eq('statement_id', statementId)
+        .is('deleted_at', null);
+      if (txErr || !newTxs || newTxs.length === 0) return;
+
+      const candidates = newTxs.map((t) => ({
+        date: t.date,
+        amount: t.amount,
+        description: t.description,
+      }));
+      const { data: matches, error: rpcErr } = await (supabase as any).rpc(
+        'find_duplicate_transactions',
+        { p_user_id: user?.id, p_candidates: candidates }
+      );
+      if (rpcErr) {
+        console.warn('Post-upload dedup check failed:', rpcErr);
+        return;
+      }
+
+      // Filtrar: solo matches con OTROS statements (no consigo mismo).
+      const crossStatementMatches = ((matches ?? []) as Array<{
+        candidate_index: number;
+        matched_tx_id: string;
+        matched_date: string;
+        matched_amount: number;
+        matched_description: string;
+        matched_statement_id: string | null;
+      }>).filter((m) => m.matched_statement_id !== statementId);
+
+      if (crossStatementMatches.length === 0) return;
+
+      // Mapear a shape de modal: new_tx_id = id de la nueva tx en este statement.
+      const dups: PostUploadDuplicate[] = crossStatementMatches.map((m) => ({
+        new_tx_id: newTxs[m.candidate_index].id,
+        matched_tx_id: m.matched_tx_id,
+        matched_date: m.matched_date,
+        matched_amount: m.matched_amount,
+        matched_description: m.matched_description,
+      }));
+
+      setPostUploadDuplicates(dups);
+      setPostUploadTotalNew(newTxs.length);
+      setPostUploadDupOpen(true);
+    } catch (err) {
+      console.warn('Post-upload dedup unexpected error:', err);
+    }
+  };
+
+  const handleDeletePostUploadDuplicates = async () => {
+    if (postUploadDuplicates.length === 0) return;
+    setPostUploadDeleting(true);
+    try {
+      const ids = postUploadDuplicates.map((d) => d.new_tx_id);
+      const { error: delErr } = await supabase
+        .from('transactions')
+        .update({ deleted_at: new Date().toISOString() })
+        .in('id', ids);
+      if (delErr) throw delErr;
+      toast({
+        title: 'Duplicadas borradas',
+        description: `${ids.length} transacciones nuevas marcadas como eliminadas. Las originales se preservaron.`,
+      });
+      setPostUploadDupOpen(false);
+      setPostUploadDuplicates([]);
+      await fetchStatements();
+    } catch (err: any) {
+      toast({
+        title: 'Error al borrar',
+        description: err?.message ?? 'Error desconocido',
+        variant: 'destructive',
+      });
+    } finally {
+      setPostUploadDeleting(false);
+    }
+  };
 
   useEffect(() => {
     fetchStatements();
@@ -150,6 +239,10 @@ export default function StatementUpload() {
           description: `Se encontraron ${result.transactions_count} transacciones. Configura el extracto para continuar.`,
         });
       }
+
+      // Detector de duplicados cross-statement (post-hoc). Si encuentra
+      // matches con otros extractos previos, muestra modal antes del config.
+      await checkPostUploadDuplicates(statementId);
 
       // Open mandatory config modal after successful processing
       setPendingStatementId(statementId);
@@ -554,6 +647,19 @@ export default function StatementUpload() {
           required={!editingStatement} // Required only after a new upload
         />
       )}
+
+      {/* Detector duplicados cross-statement (post-hoc, solo PDF) */}
+      <PostUploadDuplicatesModal
+        open={postUploadDupOpen}
+        duplicates={postUploadDuplicates}
+        totalNew={postUploadTotalNew}
+        isProcessing={postUploadDeleting}
+        onKeep={() => {
+          setPostUploadDupOpen(false);
+          setPostUploadDuplicates([]);
+        }}
+        onDeleteDuplicates={handleDeletePostUploadDuplicates}
+      />
     </AppLayout>
   );
 }
