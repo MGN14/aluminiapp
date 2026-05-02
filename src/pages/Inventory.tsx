@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, History, BookOpen, RefreshCw, Loader2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Plus, Package, Upload, ClipboardCheck, History, BookOpen, RefreshCw, Loader2, FileText, ScrollText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
+import { useModuleContext } from '@/hooks/useModuleContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import InventoryMetrics from '@/components/inventory/InventoryMetrics';
@@ -18,8 +19,19 @@ import AppLayout from '@/components/layout/AppLayout';
 type Tab = 'inventario' | 'maestro';
 
 export default function Inventory() {
-  const { products, movements, metrics, loading, addProduct, addMovement, refetch } = useInventoryData();
+  const { isGerencial } = useModuleContext();
+  const dataSource = isGerencial ? 'gerencial' : 'dian';
+  const { products, movements, metrics, loading, addProduct, addMovement, refetch } = useInventoryData(dataSource);
   const { toast } = useToast();
+
+  const existingSystems = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      const s = (p.system ?? '').trim();
+      if (s) set.add(s);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  }, [products]);
   const [tab, setTab] = useState<Tab>('inventario');
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
@@ -145,9 +157,35 @@ export default function Inventory() {
                 >
                   Inventario bajo control
                 </h1>
-                <p style={{ fontSize: 13, color: '#6e6e73', margin: 0, marginTop: 4 }}>
-                  {loading ? 'Cargando...' : `${metrics.totalProducts} referencias activas`}
-                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                  <p style={{ fontSize: 13, color: '#6e6e73', margin: 0 }}>
+                    {loading ? 'Cargando...' : `${metrics.totalProducts} referencias activas`}
+                  </p>
+                  <span
+                    title={
+                      isGerencial
+                        ? 'Rotación y días de inventario calculados desde remisiones del Modo Gerencial (operativo real)'
+                        : 'Rotación y días de inventario calculados desde facturas de venta (lo que ven la DIAN y los bancos)'
+                    }
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 8px',
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      borderRadius: 999,
+                      background: isGerencial ? 'oklch(0.43 0.14 155 / 0.10)' : 'oklch(0.55 0.15 240 / 0.10)',
+                      color: isGerencial ? 'oklch(0.43 0.14 155)' : 'oklch(0.55 0.15 240)',
+                      border: `1px solid ${isGerencial ? 'oklch(0.43 0.14 155 / 0.22)' : 'oklch(0.55 0.15 240 / 0.22)'}`,
+                      letterSpacing: '0.02em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {isGerencial ? <ScrollText style={{ width: 11, height: 11 }} /> : <FileText style={{ width: 11, height: 11 }} />}
+                    KPIs según {isGerencial ? 'remisiones gerenciales' : 'facturas DIAN'}
+                  </span>
+                </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -372,7 +410,7 @@ export default function Inventory() {
         ))}
       </div>
 
-      <AddProductModal open={showAdd} onOpenChange={setShowAdd} onSubmit={addProduct} />
+      <AddProductModal open={showAdd} onOpenChange={setShowAdd} onSubmit={addProduct} existingSystems={existingSystems} />
       <BulkUploadModal open={showBulk} onOpenChange={setShowBulk} onComplete={refetch} />
       <PhysicalCountModal open={showPhysical} onOpenChange={setShowPhysical} onComplete={refetch} />
       <AdjustStockModal

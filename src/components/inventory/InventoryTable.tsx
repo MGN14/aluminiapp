@@ -137,6 +137,18 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
   const [sortAsc, setSortAsc] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
+  // Filtro adicional por sistema. 'all' = todos, 'none' = sin sistema asignado,
+  // o un string con el sistema específico (ej: "744").
+  const [systemFilter, setSystemFilter] = useState<string>('all');
+
+  const availableSystems = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      const s = (p.system ?? '').trim();
+      if (s) set.add(s);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  }, [products]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -145,9 +157,14 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
       if (filter === 'critico' && p.status !== 'critico') return false;
       if (filter === 'exceso' && p.status !== 'exceso') return false;
       if (filter === 'diff' && p.difference === 0) return false;
+      if (systemFilter === 'none') {
+        if ((p.system ?? '').trim()) return false;
+      } else if (systemFilter !== 'all') {
+        if ((p.system ?? '').trim() !== systemFilter) return false;
+      }
       return true;
     });
-  }, [products, search, filter]);
+  }, [products, search, filter, systemFilter]);
 
   const sorted = useMemo(() => {
     const statusOrder: Record<InventoryStatus, number> = { critico: 0, alerta: 1, sano: 2, exceso: 3 };
@@ -301,11 +318,41 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
                 whiteSpace: 'nowrap',
                 transition: 'all 0.15s',
               }}
-            >
-              {label}
-            </button>
+            >{label}</button>
           ))}
         </div>
+
+        {/* Filtro por Sistema (dropdown) */}
+        {(availableSystems.length > 0 || products.some(p => !p.system)) && (
+          <select
+            value={systemFilter}
+            onChange={(e) => setSystemFilter(e.target.value)}
+            style={{
+              height: 30,
+              padding: '0 28px 0 10px',
+              fontSize: 11.5,
+              fontWeight: 500,
+              borderRadius: 9,
+              border: '1px solid rgba(0,0,0,0.08)',
+              background: systemFilter === 'all' ? '#fff' : 'oklch(0.43 0.14 155 / 0.08)',
+              color: systemFilter === 'all' ? '#6e6e73' : 'oklch(0.43 0.14 155)',
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              outline: 'none',
+              appearance: 'none',
+              backgroundImage: 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 10 10\'><path d=\'M2 4l3 3 3-3\' fill=\'none\' stroke=\'%236e6e73\' stroke-width=\'1.5\'/></svg>")',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 10px center',
+            }}
+          >
+            <option value="all">Sistema: todos</option>
+            <option value="none">Sin sistema</option>
+            {availableSystems.map(s => (
+              <option key={s} value={s}>Sistema: {s}</option>
+            ))}
+          </select>
+        )}
+
       </div>
 
       {/* Table */}
@@ -390,6 +437,34 @@ export default function InventoryTable({ products, onAdjust, onAddMovement }: Pr
                         >
                           {p.name}
                         </div>
+                        {p.system && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSystemFilter(p.system!);
+                            }}
+                            title={`Filtrar por sistema "${p.system}"`}
+                            style={{
+                              marginTop: 4,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '1px 7px',
+                              fontSize: 9.5,
+                              fontWeight: 600,
+                              borderRadius: 6,
+                              background: 'oklch(0.43 0.14 155 / 0.10)',
+                              color: 'oklch(0.43 0.14 155)',
+                              border: '1px solid oklch(0.43 0.14 155 / 0.22)',
+                              fontFamily: 'inherit',
+                              cursor: 'pointer',
+                              letterSpacing: '0.02em',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {p.system}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </td>

@@ -20,7 +20,11 @@ export interface InventoryProduct {
   source?: 'manual' | 'siigo';
   siigo_id?: string | null;
   last_siigo_sync_at?: string | null;
+  /** Sistema/grupo al que pertenece la referencia (ej: "744", "8025", "proyectante"). */
+  system?: string | null;
 }
+
+export type InventoryDataSource = 'dian' | 'gerencial';
 
 export interface InventoryMovement {
   id: string;
@@ -69,7 +73,15 @@ function classifyStatus(daysOfInventory: number, avgDailySales: number): Invento
   return 'exceso';
 }
 
-export function useInventoryData() {
+/**
+ * Hook de inventario.
+ *
+ * @param dataSource Fuente para calcular ventas/rotación de los últimos 30 días:
+ *   - 'dian': usa invoice_items de invoices type='venta' (lo que ven la DIAN y los bancos)
+ *   - 'gerencial': usa remision_items de remisiones module_origin='gerencial' (operativo real)
+ * Si se omite, usa 'dian' (default seguro).
+ */
+export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
   const { user } = useAuth();
   const { toast } = useToast();
   const [products, setProducts] = useState<ProductWithMetrics[]>([]);
@@ -87,6 +99,11 @@ export function useInventoryData() {
     setLoading(true);
 
     try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const thirtyDaysAgoIso = thirtyDaysAgo.toISOString().split('T')[0];
+
+      // 1. Catálogo + historial completo de movimientos (para auditoría y compatibilidad)
       const [prodRes, movRes] = await Promise.all([
         supabase.from('inventory_products').select('*').eq('user_id', user.id).eq('active', true).order('reference'),
         supabase.from('inventory_movements').select('*').eq('user_id', user.id).order('movement_date', { ascending: false }),
@@ -99,16 +116,17 @@ export function useInventoryData() {
       const rawMovements = (movRes.data || []) as InventoryMovement[];
       setMovements(rawMovements);
 
-      // Calculate metrics per product
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now);
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      // 2. Ventas de los últimos 30 días según fuente del modo activo.
+      //    Devuelve Map<reference_normalizada, total_unidades>.
+      const recentSalesByRef = await loadRecentSalesByReference(
+        user.id,
+        dataSource,
+        thirtyDaysAgoIso,
+      );
 
       const enriched: ProductWithMetrics[] = rawProducts.map(p => {
-        const productMovements = rawMovements.filter(m => m.product_id === p.id);
-        const recentSales = productMovements
-          .filter(m => m.movement_type === 'salida' && new Date(m.movement_date) >= thirtyDaysAgo)
-          .reduce((sum, m) => sum + Math.abs(m.quantity), 0);
+        const refKey = (p.reference ?? '').trim().toLowerCase();
+        const recentSales = recentSalesByRef.get(refKey) ?? 0;
 
         const avgDailySales = recentSales / 30;
         const daysOfInventory = avgDailySales > 0 ? p.stock_system / avgDailySales : 999;
@@ -143,10 +161,10 @@ export function useInventoryData() {
       const totalDiff = enriched.reduce((s, p) => s + Math.abs(p.difference), 0);
       const totalDiffValue = enriched.reduce((s, p) => s + Math.abs(p.difference) * (p.cost_per_unit || 0), 0);
 
-      // Si no hay movimientos registrados en absoluto, los KPIs de "días" y
-      // "sin movimiento" son engañosos (muestran 0d y 100%). Marcamos
-      // hasMovementData=false para que la UI los muestre como "—".
-      const hasMovementData = rawMovements.length > 0;
+      // hasMovementData refleja si la FUENTE ACTIVA (DIAN/Gerencial) tiene
+      // ventas en los últimos 30d. Si no hay, "Días de Inventario" y
+      // "Sin Movimiento" no son confiables y la UI los muestra como "—".
+      const hasMovementData = recentSalesByRef.size > 0;
 
       setMetrics({
         totalValue,
@@ -253,5 +271,58 @@ export function useInventoryData() {
   return {
     products, movements, metrics, loading,
     addProduct, updateProduct, addMovement, deleteProduct, refetch: fetchData,
+    dataSource,
   };
+}
+
+/**
+ * Carga ventas de los últimos N días según la fuente del modo activo.
+ *
+ * - DIAN: invoice_items de invoices type='venta' confirmadas en el período.
+ *   Es lo que ve la DIAN y lo que reportan los bancos.
+ * - Gerencial: remision_items de remisiones module_origin='gerencial' y
+ *   remision_type='venta' en el período. Es el flujo operativo real.
+ *
+ * Devuelve Map<reference normalizada (lowercase + trim), total_unidades>.
+ */
+async function loadRecentSalesByReference(
+  userId: string,
+  source: InventoryDataSource,
+  sinceIso: string,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+
+  if (source === 'dian') {
+    // invoice_items <- invoices (type='venta', issue_date >= sinceIso)
+    const { data, error } = await supabase
+      .from('invoice_items')
+      .select('reference, quantity, invoices!inner(issue_date, type, user_id)')
+      .eq('user_id', userId)
+      .eq('invoices.user_id', userId)
+      .eq('invoices.type', 'venta')
+      .gte('invoices.issue_date', sinceIso);
+    if (error) throw error;
+    for (const row of (data ?? []) as Array<{ reference: string | null; quantity: number | null }>) {
+      if (!row.reference) continue;
+      const k = row.reference.trim().toLowerCase();
+      out.set(k, (out.get(k) ?? 0) + Math.abs(Number(row.quantity ?? 0)));
+    }
+    return out;
+  }
+
+  // gerencial
+  const { data, error } = await supabase
+    .from('remision_items')
+    .select('reference, units, remisiones!inner(date, module_origin, remision_type, user_id, status)')
+    .eq('remisiones.user_id', userId)
+    .eq('remisiones.module_origin', 'gerencial')
+    .eq('remisiones.remision_type', 'venta')
+    .gte('remisiones.date', sinceIso);
+  if (error) throw error;
+  for (const row of (data ?? []) as Array<{ reference: string | null; units: number | null }>) {
+    if (!row.reference) continue;
+    const k = row.reference.trim().toLowerCase();
+    out.set(k, (out.get(k) ?? 0) + Math.abs(Number(row.units ?? 0)));
+  }
+  return out;
 }
