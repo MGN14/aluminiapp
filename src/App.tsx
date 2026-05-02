@@ -13,6 +13,13 @@ import RouteErrorBoundary from "@/components/RouteErrorBoundary";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
 import TourOverlay from "@/components/tour/TourOverlay";
+import { usePageViewTracking } from "@/hooks/useTrackEvent";
+
+/** Mount global de tracking de page views — debe estar dentro de BrowserRouter */
+function PageViewTracker() {
+  usePageViewTracking();
+  return null;
+}
 
 const Index = lazy(() => import("./pages/Index"));
 const Login = lazy(() => import("./pages/Login"));
@@ -37,6 +44,7 @@ const FinancialHealth = lazy(() => import("./pages/FinancialHealth"));
 const VisitaDIAN = lazy(() => import("./pages/VisitaDIAN"));
 const Inventory = lazy(() => import("./pages/Inventory"));
 const NicoPromptEvolution = lazy(() => import("./pages/NicoPromptEvolution"));
+const AdminAnalytics = lazy(() => import("./pages/AdminAnalytics"));
 const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
@@ -95,6 +103,7 @@ const App = () => (
           <BrowserRouter>
             <SessionExpiredModal />
             <AuthDebugPanel />
+            <PageViewTracker />
             <RouteErrorBoundary>
             <Suspense fallback={<RouteFallback />}>
             <Routes>
@@ -241,6 +250,10 @@ const App = () => (
               <Route
                 path="/nico/evolution"
                 element={<AdminRoute><NicoPromptEvolution /></AdminRoute>}
+              />
+              <Route
+                path="/admin/analytics"
+                element={<AdminRoute><AdminAnalytics /></AdminRoute>}
               />
               <Route
                 path="/coming-soon"

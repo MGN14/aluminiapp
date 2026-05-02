@@ -92,6 +92,7 @@ const reportItems: NavItem[] = [
 const reportItemsGerencial: NavItem[] = [
   { title: 'Cartera Operativa', url: '/reportes/cartera-operativa', icon: Coins, gerencial: true },
   { title: 'Evolución de Nico IA', url: '/nico/evolution', icon: Sparkles, gerencial: true },
+  { title: 'Analytics (founder)', url: '/admin/analytics', icon: BarChart3, gerencial: true },
 ];
 
 const exportItems: NavItem[] = [

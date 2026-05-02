@@ -162,6 +162,20 @@ export default function StatementUpload() {
       description: 'Procesando PDF con inteligencia artificial...',
     });
 
+    // Track upload (fire-and-forget)
+    void (async () => {
+      try {
+        const { data: { user: u } } = await supabase.auth.getUser();
+        if (u) {
+          await supabase.from('app_events' as never).insert({
+            user_id: u.id,
+            event_type: 'statement_uploaded',
+            props: { statement_id: statementId, source: 'pdf' },
+          } as never);
+        }
+      } catch {}
+    })();
+
     try {
       const response = await fetchWithAuthRetry(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-bancolombia-pdf`,

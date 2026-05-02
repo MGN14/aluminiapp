@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useSubscription } from '@/hooks/useSubscription';
+import { supabase } from '@/integrations/supabase/client';
 
 type ModuleMode = 'dian' | 'gerencial';
 
@@ -33,8 +34,23 @@ export function ModuleProvider({ children }: { children: ReactNode }) {
 
   const setMode = (newMode: ModuleMode) => {
     if (newMode === 'gerencial' && !isAdmin) return;
+    const previousMode = mode;
     localStorage.setItem('aluminia_module_mode', newMode);
     setModeState(newMode);
+    // Track switch (fire-and-forget)
+    if (previousMode !== newMode) {
+      void (async () => {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) return;
+          await supabase.from('app_events' as never).insert({
+            user_id: user.id,
+            event_type: 'module_mode_switched',
+            props: { from: previousMode, to: newMode },
+          } as never);
+        } catch {}
+      })();
+    }
   };
 
   const effectiveMode: ModuleMode = !isAdmin && mode === 'gerencial' ? 'dian' : mode;
