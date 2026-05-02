@@ -256,7 +256,70 @@ export default function CajaMenor() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-auto">
+              <>
+              {/* Mobile: cards stackeadas */}
+              <div className="md:hidden space-y-3">
+                {data.rows.map((r) => (
+                  <div key={r.id} className="rounded-xl border border-border bg-card p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-xs text-muted-foreground">
+                        {format(parseLocalDate(r.date), 'dd MMM yyyy', { locale: es })}
+                      </div>
+                      <div className={cn('text-base font-bold tabular-nums whitespace-nowrap', r.category_is_tax_deductible && 'text-success')}>
+                        {formatCurrency(r.amount)}
+                      </div>
+                    </div>
+                    <div className="text-sm font-medium">{r.responsible_name ?? '—'}</div>
+                    {(r.concept || r.numero_cuenta_cobro) && (
+                      <div className="text-xs text-muted-foreground">
+                        {r.concept || '—'}
+                        {r.numero_cuenta_cobro && <span className="block">#{r.numero_cuenta_cobro}</span>}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {r.kind === 'cuenta_de_cobro' ? (
+                        <Badge variant="outline" className="text-[10px] gap-1"><Receipt className="h-3 w-3" />Cuenta cobro</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">Efectivo</Badge>
+                      )}
+                      {r.category_name && (
+                        <Badge variant="outline" className="text-[10px] gap-1">
+                          {r.category_is_tax_deductible ? <BadgeCheck className="h-3 w-3 text-success" /> : <BadgeX className="h-3 w-3 text-muted-foreground" />}
+                          {r.category_name}
+                        </Badge>
+                      )}
+                      {r.cash_movement_id && (
+                        <Badge variant="outline" className="gap-1 text-[10px] border-primary/40 text-primary">
+                          <Zap className="h-2.5 w-2.5" />En Gerencial
+                        </Badge>
+                      )}
+                      {r.closing_id && (
+                        <Badge variant="outline" className="gap-1 text-[10px]">
+                          <Lock className="h-2.5 w-2.5" />Cerrado
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-1 border-t border-border">
+                      <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-primary flex-1" onClick={() => setPdfMovement(r)}>
+                        <FileDown className="h-3.5 w-3.5" />PDF
+                      </Button>
+                      {!r.cash_movement_id && isAdmin && !r.closing_id && (
+                        <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-primary flex-1" onClick={() => handlePromote(r)} disabled={promoteMutation.isPending}>
+                          <Zap className="h-3.5 w-3.5" />A Gerencial
+                        </Button>
+                      )}
+                      {!r.closing_id && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(r)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop: tabla tradicional */}
+              <div className="hidden md:block overflow-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -376,6 +439,7 @@ export default function CajaMenor() {
                   </TableBody>
                 </Table>
               </div>
+              </>
             )}
           </CardContent>
         </Card>

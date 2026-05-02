@@ -330,7 +330,47 @@ export default function CashMovements() {
             ) : movements.length === 0 ? (
               <p className="text-sm text-muted-foreground">No hay movimientos registrados aún.</p>
             ) : (
-              <div className="overflow-auto">
+              <>
+              {/* Mobile: cards stackeadas */}
+              <div className="md:hidden space-y-3">
+                {movements.map(m => {
+                  const beneficiarioName = m.responsible_id ? responsibleNameById.get(m.responsible_id) ?? null : null;
+                  const legacyDescription = !m.responsible_id ? m.description : null;
+                  return (
+                    <div key={m.id} className="rounded-xl border border-border bg-card p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-muted-foreground">{format(new Date(m.date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</span>
+                          <span className={cn("text-[11px] font-medium px-2 py-0.5 rounded-full inline-block self-start", m.type === 'ingreso' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive')}>
+                            {m.type === 'ingreso' ? 'Ingreso' : 'Egreso'}
+                          </span>
+                        </div>
+                        <div className={cn("text-base font-bold tabular-nums whitespace-nowrap", m.type === 'ingreso' ? 'text-success' : 'text-destructive')}>
+                          {formatCurrency(m.amount)}
+                        </div>
+                      </div>
+                      <div className="text-sm font-medium">
+                        {beneficiarioName ?? (legacyDescription ? <span className="text-muted-foreground italic text-sm">{legacyDescription}</span> : '—')}
+                      </div>
+                      {(m.category || m.notes) && (
+                        <div className="text-xs text-muted-foreground space-y-0.5">
+                          {m.category && <div>📂 {m.category}</div>}
+                          {m.notes && <div className="line-clamp-2">{m.notes}</div>}
+                        </div>
+                      )}
+                      <div className="flex justify-end pt-1 border-t border-border">
+                        <Button variant="ghost" size="sm" className="h-8 text-destructive gap-1.5" onClick={() => handleDelete(m.id)}>
+                          <Trash2 className="h-4 w-4" />
+                          <span className="text-xs">Eliminar</span>
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop: tabla tradicional */}
+              <div className="hidden md:block overflow-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -384,6 +424,7 @@ export default function CashMovements() {
                   </TableBody>
                 </Table>
               </div>
+              </>
             )}
           </CardContent>
         </Card>

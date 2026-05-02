@@ -18,21 +18,34 @@ interface ModuleConfig {
   pinned: boolean;
 }
 
+// Orden por defecto: pendientes arriba (es lo más accionable — desde ahí
+// el usuario concilia transacciones), insights primero como banner corto.
 const DEFAULT_MODULES: ModuleConfig[] = [
   { id: 'insights', label: 'Insights de Nico', visible: true, order: 0, pinned: false },
-  { id: 'mainMetrics', label: 'Métricas principales', visible: true, order: 1, pinned: false },
-  { id: 'invoiceTax', label: 'Facturación e impuestos', visible: true, order: 2, pinned: false },
+  { id: 'pendingTable', label: 'Transacciones pendientes', visible: true, order: 1, pinned: false },
+  { id: 'mainMetrics', label: 'Métricas principales', visible: true, order: 2, pinned: false },
   { id: 'operational', label: 'Top Clientes y Referencias', visible: true, order: 3, pinned: false },
-  { id: 'chartsCashflow', label: 'Saldo en el tiempo', visible: true, order: 4, pinned: false },
-  { id: 'chartsFlow', label: 'Gráficos de flujo', visible: true, order: 5, pinned: false },
-  { id: 'chartsBilling', label: 'Gráficos de facturación', visible: true, order: 6, pinned: false },
-  { id: 'pendingTable', label: 'Transacciones pendientes', visible: true, order: 7, pinned: false },
+  { id: 'invoiceTax', label: 'Facturación e impuestos', visible: true, order: 4, pinned: false },
+  { id: 'chartsCashflow', label: 'Saldo en el tiempo', visible: true, order: 5, pinned: false },
+  { id: 'chartsFlow', label: 'Gráficos de flujo', visible: true, order: 6, pinned: false },
+  { id: 'chartsBilling', label: 'Gráficos de facturación', visible: true, order: 7, pinned: false },
 ];
 
 const STORAGE_KEY = 'dashboard-customization';
+// Bump cuando cambia el orden por defecto. Si el storage tiene una version
+// distinta, lo descartamos y aplicamos los nuevos defaults (los users que
+// SÍ personalizaron antes pierden la personalización — trade-off aceptable
+// para que todos vean pendientes arriba sin tener que hacer "Personalizar").
+const VERSION_KEY = 'dashboard-customization-version';
+const CURRENT_VERSION = '2';
 
 function loadModules(): ModuleConfig[] {
   try {
+    const storedVersion = localStorage.getItem(VERSION_KEY);
+    if (storedVersion !== CURRENT_VERSION) {
+      localStorage.setItem(VERSION_KEY, CURRENT_VERSION);
+      return DEFAULT_MODULES;
+    }
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as ModuleConfig[];
