@@ -137,7 +137,7 @@ function IndicatorCard({ ind, onClick }: { ind: MacroIndicator; onClick: () => v
       type="button"
       onClick={onClick}
       aria-label={`Ver histórico de ${ind.label}`}
-      className="group relative flex flex-col gap-1.5 px-4 py-3 border-r border-white/[0.06] last:border-r-0 cursor-pointer transition-colors hover:bg-white/[0.04] focus:outline-none focus:bg-white/[0.04] text-left"
+      className="group relative flex flex-col gap-1.5 px-3 py-2.5 sm:px-4 sm:py-3 border-r border-b sm:border-b-0 border-white/[0.06] [&:nth-child(2)]:border-r-0 sm:[&:nth-child(2)]:border-r [&:nth-child(n+3)]:border-b-0 last:border-r-0 cursor-pointer transition-colors hover:bg-white/[0.04] focus:outline-none focus:bg-white/[0.04] text-left"
       style={{ minWidth: 0, background: 'transparent' }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -152,19 +152,19 @@ function IndicatorCard({ ind, onClick }: { ind: MacroIndicator; onClick: () => v
           )}
         </div>
         <span
-          className={`text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap ${
+          className={`hidden sm:inline text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap ${
             fresh.tone === 'fresh' ? 'text-emerald-400/80' : 'text-amber-400/80'
           }`}
         >
           {fresh.label}
         </span>
       </div>
-      <div className="flex items-baseline gap-2 font-mono tabular-nums">
-        <span className="text-lg font-bold text-white tracking-tight">
+      <div className="flex items-baseline gap-1.5 sm:gap-2 font-mono tabular-nums flex-wrap">
+        <span className="text-base sm:text-lg font-bold text-white tracking-tight">
           {formatValue(ind)}
         </span>
         {deltaTxt && (
-          <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${colorClass}`}>
+          <span className={`inline-flex items-center gap-0.5 text-[10px] sm:text-[11px] font-semibold ${colorClass}`}>
             <Icon className="h-3 w-3" />
             {deltaTxt}
           </span>
@@ -240,13 +240,8 @@ export default function MacroTicker() {
         </div>
       </div>
 
-      {/* Grid of indicators */}
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `repeat(${Math.min(sorted.length, 4)}, minmax(0, 1fr))`,
-        }}
-      >
+      {/* Grid of indicators — 2x2 en mobile, 4 columnas en sm+ */}
+      <div className="grid grid-cols-2 sm:grid-cols-4">
         {sorted.slice(0, 4).map(ind => (
           <IndicatorCard
             key={`${ind.type}-${ind.date}`}

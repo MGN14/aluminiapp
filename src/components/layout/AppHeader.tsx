@@ -142,13 +142,13 @@ export default function AppHeader() {
           minWidth: 0,
         }}
       >
-        {/* Nico search */}
+        {/* Nico search — oculto en mobile, ya hay FAB con la misma función */}
         <button
           onClick={openNico}
+          className="hidden md:flex"
           style={{
             flex: '0 1 480px',
             minWidth: 0,
-            display: 'flex',
             alignItems: 'center',
             gap: 10,
             height: 36,

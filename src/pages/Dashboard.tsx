@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, Wallet, Receipt, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles, Package } from 'lucide-react';
 import { useNico } from '@/hooks/useNicoContext';
 import { useModuleContext } from '@/hooks/useModuleContext';
-import nicoAvatar from '@/assets/nico-avatar.png';
+import NicoLogo from '@/components/nico/NicoLogo';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
@@ -829,18 +829,13 @@ function DashboardContent() {
         >
           <div className="flex items-center gap-3 md:gap-3.5">
             <div
-              className="w-9 h-9 md:w-11 md:h-11 rounded-[12px] md:rounded-[14px]"
+              className="w-9 h-9 md:w-11 md:h-11 rounded-[12px] md:rounded-[14px] flex items-center justify-center bg-success/10"
               style={{
-                overflow: 'hidden',
                 boxShadow: '0 0 0 2px oklch(0.43 0.14 155 / 0.22)',
                 flexShrink: 0,
               }}
             >
-              <img
-                src={nicoAvatar}
-                alt="Nico"
-                style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
-              />
+              <NicoLogo size={22} />
             </div>
             <div>
               <h1

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import nicoAvatar from '@/assets/nico-avatar.png';
+import NicoLogo from './NicoLogo';
 import NicoMessageContent from './NicoMessageContent';
 import type { NicoPageContext } from '@/hooks/useNicoContext';
 import { useSubmitNicoFeedback } from '@/hooks/useSubmitNicoFeedback';
@@ -262,8 +262,8 @@ export default function NicoAgentChat({
           return (
             <div key={msg.id ?? i} className={`flex ${isUser ? 'justify-end' : 'justify-start'} items-start gap-2`}>
               {!isUser && (
-                <div className="w-7 h-7 rounded-full overflow-hidden border border-border bg-muted flex-shrink-0 mt-0.5">
-                  <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+                <div className="w-7 h-7 rounded-full bg-success/10 flex-shrink-0 mt-0.5 flex items-center justify-center">
+                  <NicoLogo size={16} />
                 </div>
               )}
               <div className={`flex flex-col gap-1.5 max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
@@ -298,8 +298,8 @@ export default function NicoAgentChat({
 
         {isLoading && messages[messages.length - 1]?.role === 'user' && (
           <div className="flex items-start gap-2">
-            <div className="w-7 h-7 rounded-full overflow-hidden border border-border bg-muted flex-shrink-0 mt-0.5">
-              <img src={nicoAvatar} alt="Nico" className="w-full h-full object-cover object-top" />
+            <div className="w-7 h-7 rounded-full bg-success/10 flex-shrink-0 mt-0.5 flex items-center justify-center">
+              <NicoLogo size={16} />
             </div>
             <div className="bg-card border border-border rounded-2xl rounded-bl-sm px-4 py-3">
               <div className="flex gap-1.5 items-center h-4">

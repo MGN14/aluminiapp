@@ -40,7 +40,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar';
-import nicoAvatar from '@/assets/nico-avatar.png';
+import NicoLogo from '@/components/nico/NicoLogo';
 import PlanBadge from '@/components/subscription/PlanBadge';
 import { useModuleContext } from '@/hooks/useModuleContext';
 
@@ -441,22 +441,7 @@ export default function AppSidebar() {
                         : 'oklch(0.43 0.14 155 / 0.06)';
                     }}
                   >
-                    <div
-                      style={{
-                        width: 18,
-                        height: 18,
-                        borderRadius: 6,
-                        overflow: 'hidden',
-                        flexShrink: 0,
-                        boxShadow: `0 0 0 1px ${BRAND_BORDER}`,
-                      }}
-                    >
-                      <img
-                        src={nicoAvatar}
-                        alt="Nico"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
-                      />
-                    </div>
+                    <NicoLogo size={18} />
                     {!collapsed && <span>Nico IA</span>}
                   </NavLink>
                 </SidebarMenuButton>
