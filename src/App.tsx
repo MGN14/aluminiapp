@@ -36,6 +36,7 @@ const InvoicesCompra = lazy(() => import("./pages/InvoicesCompra"));
 const FinancialHealth = lazy(() => import("./pages/FinancialHealth"));
 const VisitaDIAN = lazy(() => import("./pages/VisitaDIAN"));
 const Inventory = lazy(() => import("./pages/Inventory"));
+const NicoPromptEvolution = lazy(() => import("./pages/NicoPromptEvolution"));
 const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
@@ -236,6 +237,10 @@ const App = () => (
               <Route
                 path="/cash-movements"
                 element={<AdminRoute><CashMovements /></AdminRoute>}
+              />
+              <Route
+                path="/nico/evolution"
+                element={<AdminRoute><NicoPromptEvolution /></AdminRoute>}
               />
               <Route
                 path="/coming-soon"

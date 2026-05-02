@@ -72,8 +72,30 @@ export default function NicoAgentChat({
     setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, feedback: value } : m)));
     try {
       await submitFeedback.mutateAsync({ messageId, feedback: value, feedbackText: text ?? null });
-      if (value === 1) toast.success('¡Gracias! Tu feedback ayuda a Nico a mejorar.');
-      else toast.success('Anotado. Vamos a revisarlo.');
+      if (value === 1) {
+        toast.success('¡Gracias! Tu feedback ayuda a Nico a mejorar.');
+        // Disparar ingest async (no bloquea UI). Convierte la respuesta en lección
+        // colectiva: Haiku condensa, Voyage genera embedding, insert en
+        // nico_lessons + nico_knowledge_chunks. Cualquier error solo loggea.
+        (async () => {
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return;
+            await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/nico-ingest-lesson`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({ assistant_message_id: messageId }),
+            });
+          } catch (err) {
+            console.warn('[nico] ingest-lesson failed:', err);
+          }
+        })();
+      } else {
+        toast.success('Anotado. Vamos a revisarlo.');
+      }
     } catch (err: any) {
       toast.error('No se pudo guardar el feedback', { description: err?.message });
       setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, feedback: null } : m)));

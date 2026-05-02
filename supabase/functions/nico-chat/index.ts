@@ -1866,7 +1866,83 @@ ${financialContext}${memoryBlock}${macroBlock}`;
       ? `\n\nCONTEXTO DE NAVEGACIÓN: El usuario está en "${pageContext.page}"${pageContext.filters ? `. Filtros activos: ${JSON.stringify(pageContext.filters)}` : ""}. Prioriza ese contexto si es relevante.`
       : "";
 
-    const finalSystemPrompt = systemPrompt + pageContextNote;
+    // ── BLOQUE DE APRENDIZAJE ──
+    // Lecciones aprendidas (top-N por agente) + RAG semántico (top-5 chunks
+    // más similares a la pregunta actual). Ambos van DENTRO del bloque
+    // cacheable para no romper el cache hit del prompt.
+    const VOYAGE_API_KEY = Deno.env.get("VOYAGE_API_KEY");
+    const lastUserContent = messages[messages.length - 1]?.content ?? "";
+    let learningBlock = "";
+
+    try {
+      // 1. Top 10 lecciones por agent + likes desc (sin embedding, query barata)
+      const { data: lessonsData } = await supabase
+        .from("nico_lessons" as never)
+        .select("question_summary, answer_summary, like_count")
+        .eq("agent_key", agent_key)
+        .order("like_count", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(10);
+      const lessons = (lessonsData ?? []) as Array<{ question_summary: string; answer_summary: string; like_count: number }>;
+
+      // 2. Top 5 chunks semánticos vía Voyage-3 embedding + similarity search
+      let chunks: Array<{ content: string; similarity: number }> = [];
+      if (VOYAGE_API_KEY && lastUserContent && lastUserContent.length > 5) {
+        const voyResp = await fetch("https://api.voyageai.com/v1/embeddings", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${VOYAGE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ input: [lastUserContent], model: "voyage-3", input_type: "query" }),
+        });
+        if (voyResp.ok) {
+          const voyJson = await voyResp.json();
+          const emb = voyJson?.data?.[0]?.embedding;
+          if (Array.isArray(emb) && emb.length === 1024) {
+            const { data: chunkData } = await supabase.rpc("search_nico_chunks" as never, {
+              query_embedding: emb,
+              target_agent_key: agent_key,
+              match_count: 5,
+            } as never);
+            chunks = (chunkData ?? []) as Array<{ content: string; similarity: number }>;
+            // Filtrar baja similitud — voyage-3 suele dar >0.7 para matches buenos
+            chunks = chunks.filter(c => Number(c.similarity) >= 0.65);
+          }
+        } else {
+          console.warn("[nico-chat] voyage embed failed", voyResp.status);
+        }
+      }
+
+      if (lessons.length > 0 || chunks.length > 0) {
+        const lessonsText = lessons.length > 0
+          ? `LECCIONES APRENDIDAS DE OTRAS CONVERSACIONES (úsalas si aplican al contexto actual):\n${lessons.map(l => `- ${l.question_summary} → ${l.answer_summary}`).join("\n")}`
+          : "";
+        const chunksText = chunks.length > 0
+          ? `CONTEXTO ESPECÍFICO RELEVANTE A LA PREGUNTA ACTUAL (más alta similitud arriba):\n${chunks.map((c, i) => `[${i + 1}] ${c.content}`).join("\n\n")}`
+          : "";
+        learningBlock = `\n\n${[lessonsText, chunksText].filter(Boolean).join("\n\n")}`;
+      }
+    } catch (err) {
+      console.warn("[nico-chat] learning block failed (continuando sin él):", err);
+    }
+
+    // Versión aprobada del system prompt (Opción C — evolutivo). Si no hay
+    // versión aprobada, usamos el systemPrompt hardcoded (default).
+    let activeBasePrompt = systemPrompt;
+    try {
+      const { data: latestVersion } = await supabase
+        .from("nico_prompt_versions" as never)
+        .select("base_prompt")
+        .eq("agent_key", agent_key)
+        .eq("status", "approved")
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const v = (latestVersion as { base_prompt?: string } | null)?.base_prompt;
+      if (v && v.length > 100) activeBasePrompt = v;
+    } catch (err) {
+      console.warn("[nico-chat] could not load prompt version (using default):", err);
+    }
+
+    const finalSystemPrompt = activeBasePrompt + learningBlock + pageContextNote;
 
     // Rolling window: use DB history (preferred) or fall back to what came in body
     const historyForModel = dbHistory.length > 0

@@ -282,7 +282,11 @@ serve(async (req) => {
   // 5. Build HTML
   const periodEnd = new Date();
   const periodStart = new Date(Date.now() - periodDays * 24 * 3600 * 1000);
-  const subject = `Nico IA — Reporte semanal ${periodEnd.toISOString().slice(0, 10)}`;
+  const COST_ALERT_THRESHOLD = parseFloat(Deno.env.get("NICO_COST_ALERT_THRESHOLD_USD") ?? "10");
+  const exceedsThreshold = totalCost > COST_ALERT_THRESHOLD;
+  const subject = exceedsThreshold
+    ? `⚠️ Nico IA — costo $${totalCost.toFixed(2)} pasó umbral $${COST_ALERT_THRESHOLD.toFixed(0)} (${periodEnd.toISOString().slice(0, 10)})`
+    : `Nico IA — Reporte semanal ${periodEnd.toISOString().slice(0, 10)}`;
 
   const topAgents = Object.entries(byAgent).sort((a, b) => b[1].count - a[1].count);
   const topModels = Object.entries(byModel).sort((a, b) => b[1].count - a[1].count);
@@ -291,7 +295,12 @@ serve(async (req) => {
   const peakDow = byDow.indexOf(Math.max(...byDow));
   const dowNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
+  const alertBanner = exceedsThreshold
+    ? `<div style="background:#fef2f2;border:2px solid #ef4444;border-radius:8px;padding:14px 18px;margin-bottom:20px"><div style="font-size:14px;font-weight:700;color:#b91c1c;margin-bottom:4px">⚠️ Costo de Nico IA superó el umbral</div><div style="font-size:13px;color:#7f1d1d">Esta semana Nico consumió <b>${fmtUsd(totalCost)}</b>, por encima del umbral configurado de <b>${fmtUsd(COST_ALERT_THRESHOLD)}</b>. Revisá el detalle abajo y considerá activar rate limit más agresivo o investigar usuarios outliers.</div></div>`
+    : "";
+
   const html = `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1d1d1f;max-width:680px;margin:0 auto;padding:24px;background:#fff">
+${alertBanner}
 <h1 style="font-size:20px;margin:0 0 4px">Nico IA — Reporte semanal</h1>
 <p style="color:#86868b;font-size:13px;margin:0 0 24px">${periodStart.toISOString().slice(0,10)} → ${periodEnd.toISOString().slice(0,10)} · ${periodDays} días</p>
 

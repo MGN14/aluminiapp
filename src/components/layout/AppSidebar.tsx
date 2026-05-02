@@ -25,6 +25,7 @@ import {
   ListChecks,
   Coins,
   CreditCard,
+  Sparkles,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -90,6 +91,7 @@ const reportItems: NavItem[] = [
 
 const reportItemsGerencial: NavItem[] = [
   { title: 'Cartera Operativa', url: '/reportes/cartera-operativa', icon: Coins, gerencial: true },
+  { title: 'Evolución de Nico IA', url: '/nico/evolution', icon: Sparkles, gerencial: true },
 ];
 
 const exportItems: NavItem[] = [
