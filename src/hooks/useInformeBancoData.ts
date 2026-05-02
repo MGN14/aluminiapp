@@ -106,7 +106,7 @@ export function useInformeBancoData() {
       const { start: yearStart, end: yearEnd } = getYearRange(thisYear);
       const { start: lastYearStart, end: lastYearEnd } = getYearRange(thisYear - 1);
 
-      const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes] = await Promise.all([
+      const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes, invoiceItemsRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('company_name, company_nit, company_city, company_address, company_phone, business_description, business_warehouse_location, business_employees_count, business_operation_days, business_logistics, business_main_suppliers')
@@ -133,7 +133,7 @@ export function useInformeBancoData() {
           .lte('date', lastYearEnd),
         supabase
           .from('inventory_products')
-          .select('stock_system, cost_per_unit')
+          .select('reference, stock_system, cost_per_unit')
           .eq('user_id', user!.id)
           .eq('active', true),
         supabase
@@ -155,6 +155,16 @@ export function useInformeBancoData() {
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
+        // Items facturados del año (para calcular rotación real con COGS)
+        supabase
+          .from('invoice_items')
+          .select('reference, quantity, invoices!inner(issue_date, type, status, user_id)')
+          .eq('user_id', user!.id)
+          .eq('invoices.user_id', user!.id)
+          .eq('invoices.type', 'venta')
+          .eq('invoices.status', 'confirmed')
+          .gte('invoices.issue_date', yearStart)
+          .lte('invoices.issue_date', yearEnd),
       ]);
 
       if (profileRes.error) throw profileRes.error;
@@ -165,12 +175,14 @@ export function useInformeBancoData() {
       if (cashRes.error) throw cashRes.error;
       if (respRes.error) throw respRes.error;
       if (lastTxRes.error) throw lastTxRes.error;
+      if (invoiceItemsRes.error) throw invoiceItemsRes.error;
 
       const profile = profileRes.data ?? {};
       const txs = txRes.data ?? [];
       const invs = (invRes.data ?? []) as Array<{ id: string; type: string; total_amount: number; issue_date: string; counterparty_name: string | null }>;
       const txsPrev = txPrevRes.data ?? [];
-      const products = (productsRes.data ?? []) as Array<{ stock_system: number; cost_per_unit: number }>;
+      const products = (productsRes.data ?? []) as Array<{ reference: string | null; stock_system: number; cost_per_unit: number }>;
+      const invoiceItems = (invoiceItemsRes.data ?? []) as Array<{ reference: string | null; quantity: number | null }>;
 
       // Ingresos / egresos del año (banco)
       const ingresosBancoAno = txs.reduce((s, t: { credit: number | null }) => s + (Number(t.credit) || 0), 0);
@@ -210,12 +222,35 @@ export function useInformeBancoData() {
 
       // Inventario
       const valorInventario = products.reduce((s, p) => s + (Number(p.stock_system) || 0) * (Number(p.cost_per_unit) || 0), 0);
-      // Rotación: cuántas veces el inventario "se vende" al año.
-      // Aproximamos con costos (egresos compras) sobre valor inv promedio.
-      // Si hay datos: rotación ≈ facturado_compra / valor_inventario
-      const rotacionInventario = valorInventario > 0
-        ? facturadoCompraAno / valorInventario
-        : 0;
+
+      // Rotación de inventario (lo que pregunta el banco):
+      // ratio = COGS_anual / valor_inventario_actual.
+      //
+      // COGS lo calculamos crossando invoice_items (ventas confirmadas del año)
+      // con inventory_products por reference: COGS = Σ(qty_vendida × costo_unitario).
+      // Esta es la fórmula contable correcta y es la que reportan los bancos.
+      //
+      // Fallback: si no hay invoice_items con match (ej: usuario sin items
+      // detallados en facturas), usamos facturado_compra como proxy.
+      const productCostByRef = new Map<string, number>();
+      for (const p of products) {
+        if (!p.reference) continue;
+        const k = p.reference.trim().toLowerCase();
+        productCostByRef.set(k, Number(p.cost_per_unit) || 0);
+      }
+      let cogsFromInvoices = 0;
+      let matchedItemsCount = 0;
+      for (const it of invoiceItems) {
+        if (!it.reference) continue;
+        const k = it.reference.trim().toLowerCase();
+        const cost = productCostByRef.get(k);
+        if (cost === undefined) continue;
+        cogsFromInvoices += Math.abs(Number(it.quantity) || 0) * cost;
+        matchedItemsCount += 1;
+      }
+
+      const cogsAnual = matchedItemsCount > 0 ? cogsFromInvoices : facturadoCompraAno;
+      const rotacionInventario = valorInventario > 0 ? cogsAnual / valorInventario : 0;
       const diasInventario = rotacionInventario > 0
         ? Math.round(365 / rotacionInventario)
         : null;
@@ -339,9 +374,11 @@ export function useInformeBancoData() {
           respuesta: rotacionInventario > 0
             ? `${rotacionInventario.toFixed(1)} veces al año`
             : 'Sin datos suficientes',
-          detalle: diasInventario !== null
-            ? `Aprox ${diasInventario} días promedio para rotar todo el inventario`
-            : 'Necesitás facturación de compra registrada e inventario activo.',
+          detalle: rotacionInventario > 0
+            ? matchedItemsCount > 0
+              ? `≈ ${diasInventario} días para rotar todo. COGS ${fmt(cogsAnual)} / inventario ${fmt(valorInventario)} (calculado desde ${matchedItemsCount} líneas de facturas de venta).`
+              : `≈ ${diasInventario} días para rotar todo. Aproximación con compras del año (sin items detallados en facturas).`
+            : 'Necesitás facturación de venta confirmada e inventario activo con costos.',
           valor: rotacionInventario,
           semaforo: rotacionInventario >= 4 ? 'green' : rotacionInventario >= 2 ? 'yellow' : 'red',
         },

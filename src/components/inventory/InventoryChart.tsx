@@ -8,7 +8,7 @@ const BRAND = 'oklch(0.43 0.14 155)';
 const DANGER = 'oklch(0.52 0.18 25)';
 const AXIS_COLOR = '#a1a1a6';
 
-type Mode = 'daily' | 'weekly';
+type Mode = 'daily' | 'weekly' | 'monthly';
 
 function startOfWeekLabel(d: Date): string {
   const monday = new Date(d);
@@ -18,6 +18,13 @@ function startOfWeekLabel(d: Date): string {
   return monday.toLocaleDateString('es-CO', { month: 'short', day: 'numeric' });
 }
 
+function monthKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function monthLabel(d: Date): string {
+  return d.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
+}
+
 export default function InventoryChart({ movements }: Props) {
   const [mode, setMode] = useState<Mode>('daily');
 
@@ -25,8 +32,10 @@ export default function InventoryChart({ movements }: Props) {
     if (!movements.length) return [];
 
     const now = new Date();
+    // Rango: 30d en daily, 35d en weekly (5 semanas), 90d en monthly (3 meses).
+    const rangeDays = mode === 'monthly' ? 90 : mode === 'weekly' ? 35 : 30;
     const cutoff = new Date(now);
-    cutoff.setDate(cutoff.getDate() - 30);
+    cutoff.setDate(cutoff.getDate() - rangeDays);
 
     const recent = movements.filter(m => {
       const d = new Date(m.movement_date);
@@ -36,7 +45,6 @@ export default function InventoryChart({ movements }: Props) {
     const buckets = new Map<string, { label: string; entradas: number; salidas: number; sortKey: string }>();
 
     if (mode === 'daily') {
-      // Seed last 30 days so empty days show as 0
       for (let i = 29; i >= 0; i--) {
         const d = new Date(now);
         d.setDate(d.getDate() - i);
@@ -55,8 +63,8 @@ export default function InventoryChart({ movements }: Props) {
         if (m.movement_type === 'entrada') b.entradas += m.quantity;
         else if (m.movement_type === 'salida') b.salidas += m.quantity;
       });
-    } else {
-      // Weekly buckets (Mon-Sun)
+    } else if (mode === 'weekly') {
+      // Weekly buckets (Mon-Sun) — últimas 5 semanas
       for (let i = 4; i >= 0; i--) {
         const d = new Date(now);
         d.setDate(d.getDate() - i * 7);
@@ -68,6 +76,21 @@ export default function InventoryChart({ movements }: Props) {
       recent.forEach(m => {
         const d = new Date(m.movement_date);
         const key = startOfWeekLabel(d);
+        const b = buckets.get(key);
+        if (!b) return;
+        if (m.movement_type === 'entrada') b.entradas += m.quantity;
+        else if (m.movement_type === 'salida') b.salidas += m.quantity;
+      });
+    } else {
+      // Monthly buckets — últimos 3 meses
+      for (let i = 2; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = monthKey(d);
+        buckets.set(key, { label: monthLabel(d), entradas: 0, salidas: 0, sortKey: key });
+      }
+      recent.forEach(m => {
+        const d = new Date(m.movement_date);
+        const key = monthKey(d);
         const b = buckets.get(key);
         if (!b) return;
         if (m.movement_type === 'entrada') b.entradas += m.quantity;
@@ -106,7 +129,7 @@ export default function InventoryChart({ movements }: Props) {
             Movimientos de inventario
           </div>
           <div style={{ fontSize: 11.5, color: '#a1a1a6', marginTop: 2 }}>
-            Entradas y salidas — últimos 30 días
+            Entradas y salidas — {mode === 'monthly' ? 'últimos 3 meses' : mode === 'weekly' ? 'últimas 5 semanas' : 'últimos 30 días'}
           </div>
         </div>
         <div
@@ -118,7 +141,7 @@ export default function InventoryChart({ movements }: Props) {
             gap: 1,
           }}
         >
-          {(['daily', 'weekly'] as Mode[]).map(m => (
+          {(['daily', 'weekly', 'monthly'] as Mode[]).map(m => (
             <button
               key={m}
               type="button"
@@ -137,7 +160,7 @@ export default function InventoryChart({ movements }: Props) {
                 transition: 'all 0.15s',
               }}
             >
-              {m === 'daily' ? 'Diario' : 'Semanal'}
+              {m === 'daily' ? 'Diario' : m === 'weekly' ? 'Semanal' : 'Mensual'}
             </button>
           ))}
         </div>

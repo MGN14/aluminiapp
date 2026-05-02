@@ -99,6 +99,13 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
     setLoading(true);
 
     try {
+      // Traemos eventos de venta de los últimos 90 días — el chart usa este
+      // rango para mostrar diario/semanal/mensual (90d cubre 3 meses).
+      // Los KPIs se calculan sobre los últimos 30 días filtrando este array.
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      const ninetyDaysAgoIso = ninetyDaysAgo.toISOString().split('T')[0];
+
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const thirtyDaysAgoIso = thirtyDaysAgo.toISOString().split('T')[0];
@@ -113,16 +120,67 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
       if (movRes.error) throw movRes.error;
 
       const rawProducts = (prodRes.data || []) as InventoryProduct[];
-      const rawMovements = (movRes.data || []) as InventoryMovement[];
-      setMovements(rawMovements);
+      const rawInventoryMovements = (movRes.data || []) as InventoryMovement[];
 
-      // 2. Ventas de los últimos 30 días según fuente del modo activo.
-      //    Devuelve Map<reference_normalizada, total_unidades>.
-      const recentSalesByRef = await loadRecentSalesByReference(
+      // 2. Ventas de los últimos 90 días según fuente del modo activo.
+      //    Devuelve eventos individuales (date, quantity, reference) para
+      //    poder construir el chart por bucket — no solo el agregado por ref.
+      const salesEvents = await loadRecentSalesEvents(
         user.id,
         dataSource,
-        thirtyDaysAgoIso,
+        ninetyDaysAgoIso,
       );
+
+      // Map ref → product_id para mapear eventos sintéticos a productos.
+      const productByRef = new Map<string, InventoryProduct>();
+      for (const p of rawProducts) {
+        const k = (p.reference ?? '').trim().toLowerCase();
+        if (k) productByRef.set(k, p);
+      }
+
+      // Construir movimientos sintéticos de SALIDA desde la fuente del modo.
+      // Esto reemplaza las salidas que antes venían de inventory_movements
+      // (que rara vez se popula en producción — las ventas reales están en
+      // facturas o remisiones, no en inventory_movements).
+      const syntheticSalidas: InventoryMovement[] = salesEvents
+        .map(ev => {
+          const k = ev.reference.trim().toLowerCase();
+          const product = productByRef.get(k);
+          if (!product) return null;
+          return {
+            id: `synthetic-${dataSource}-${ev.sourceId}-${ev.lineIndex}`,
+            product_id: product.id,
+            movement_type: 'salida',
+            quantity: Math.abs(ev.quantity),
+            unit_cost: product.cost_per_unit ?? 0,
+            total_cost: Math.abs(ev.quantity) * (product.cost_per_unit ?? 0),
+            invoice_id: dataSource === 'dian' ? ev.sourceId : null,
+            notes: dataSource === 'dian' ? '[Auto: factura]' : '[Auto: remisión]',
+            movement_date: ev.date,
+            created_at: ev.date,
+          } satisfies InventoryMovement;
+        })
+        .filter((m): m is InventoryMovement => m !== null);
+
+      // Movimientos para chart e historial: combinamos entradas/ajustes manuales
+      // del inventory_movements raw + salidas sintéticas de la fuente activa.
+      // Excluimos las salidas raw para no duplicar (las salidas oficiales son
+      // las facturas o remisiones según el modo).
+      const inventoryEntries = rawInventoryMovements.filter(
+        m => m.movement_type !== 'salida',
+      );
+      const combinedMovements = [...inventoryEntries, ...syntheticSalidas].sort(
+        (a, b) => new Date(b.movement_date).getTime() - new Date(a.movement_date).getTime(),
+      );
+      setMovements(combinedMovements);
+
+      // 3. Calcular agregado por reference SOLO para últimos 30 días (KPIs).
+      const recentSalesByRef = new Map<string, number>();
+      for (const ev of salesEvents) {
+        if (ev.date < thirtyDaysAgoIso) continue;
+        const k = ev.reference.trim().toLowerCase();
+        recentSalesByRef.set(k, (recentSalesByRef.get(k) ?? 0) + Math.abs(ev.quantity));
+      }
 
       const enriched: ProductWithMetrics[] = rawProducts.map(p => {
         const refKey = (p.reference ?? '').trim().toLowerCase();
@@ -183,7 +241,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
     } finally {
       setLoading(false);
     }
-  }, [user, toast]);
+  }, [user, toast, dataSource]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -275,37 +333,57 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
   };
 }
 
+interface SalesEvent {
+  date: string; // YYYY-MM-DD
+  quantity: number;
+  reference: string;
+  sourceId: string; // invoice_id o remision_id (para tracing)
+  lineIndex: number; // posición del item en su parent (para id sintético único)
+}
+
 /**
- * Carga ventas de los últimos N días según la fuente del modo activo.
+ * Carga eventos individuales de venta desde la fuente del modo activo.
  *
  * - DIAN: invoice_items de invoices type='venta' confirmadas en el período.
  *   Es lo que ve la DIAN y lo que reportan los bancos.
  * - Gerencial: remision_items de remisiones module_origin='gerencial' y
  *   remision_type='venta' en el período. Es el flujo operativo real.
  *
- * Devuelve Map<reference normalizada (lowercase + trim), total_unidades>.
+ * Devuelve eventos individuales para que el chart pueda agruparlos por
+ * bucket (día/semana/mes) y los KPIs pueden filtrar el rango que necesiten.
  */
-async function loadRecentSalesByReference(
+async function loadRecentSalesEvents(
   userId: string,
   source: InventoryDataSource,
   sinceIso: string,
-): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
+): Promise<SalesEvent[]> {
+  const out: SalesEvent[] = [];
 
   if (source === 'dian') {
-    // invoice_items <- invoices (type='venta', issue_date >= sinceIso)
     const { data, error } = await supabase
       .from('invoice_items')
-      .select('reference, quantity, invoices!inner(issue_date, type, user_id)')
+      .select('id, invoice_id, reference, quantity, invoices!inner(id, issue_date, type, user_id)')
       .eq('user_id', userId)
       .eq('invoices.user_id', userId)
       .eq('invoices.type', 'venta')
       .gte('invoices.issue_date', sinceIso);
     if (error) throw error;
-    for (const row of (data ?? []) as Array<{ reference: string | null; quantity: number | null }>) {
+    let i = 0;
+    for (const row of (data ?? []) as Array<{
+      id: string;
+      invoice_id: string;
+      reference: string | null;
+      quantity: number | null;
+      invoices: { issue_date: string };
+    }>) {
       if (!row.reference) continue;
-      const k = row.reference.trim().toLowerCase();
-      out.set(k, (out.get(k) ?? 0) + Math.abs(Number(row.quantity ?? 0)));
+      out.push({
+        date: row.invoices.issue_date,
+        quantity: Number(row.quantity ?? 0),
+        reference: row.reference,
+        sourceId: row.invoice_id ?? row.id,
+        lineIndex: i++,
+      });
     }
     return out;
   }
@@ -313,16 +391,28 @@ async function loadRecentSalesByReference(
   // gerencial
   const { data, error } = await supabase
     .from('remision_items')
-    .select('reference, units, remisiones!inner(date, module_origin, remision_type, user_id, status)')
+    .select('id, remision_id, reference, units, remisiones!inner(id, date, module_origin, remision_type, user_id)')
     .eq('remisiones.user_id', userId)
     .eq('remisiones.module_origin', 'gerencial')
     .eq('remisiones.remision_type', 'venta')
     .gte('remisiones.date', sinceIso);
   if (error) throw error;
-  for (const row of (data ?? []) as Array<{ reference: string | null; units: number | null }>) {
+  let i = 0;
+  for (const row of (data ?? []) as Array<{
+    id: string;
+    remision_id: string;
+    reference: string | null;
+    units: number | null;
+    remisiones: { date: string };
+  }>) {
     if (!row.reference) continue;
-    const k = row.reference.trim().toLowerCase();
-    out.set(k, (out.get(k) ?? 0) + Math.abs(Number(row.units ?? 0)));
+    out.push({
+      date: row.remisiones.date,
+      quantity: Number(row.units ?? 0),
+      reference: row.reference,
+      sourceId: row.remision_id ?? row.id,
+      lineIndex: i++,
+    });
   }
   return out;
 }
