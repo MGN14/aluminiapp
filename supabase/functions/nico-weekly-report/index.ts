@@ -184,6 +184,101 @@ serve(async (req) => {
     }
   }
 
+  // 4b. Feedback negativo de respuestas de Nico IA (período del reporte)
+  // Traemos los assistant messages con 👎 + el último user message previo (la pregunta).
+  const { data: rawNegFeedback } = await admin
+    .from("nico_messages" as never)
+    .select("id, content, agent_key, feedback, feedback_text, feedback_at, user_id, created_at")
+    .eq("role", "assistant")
+    .eq("feedback", -1)
+    .gte("feedback_at", sinceIso)
+    .order("feedback_at", { ascending: false })
+    .limit(20);
+  const negFeedback = (rawNegFeedback ?? []) as Array<{
+    id: string;
+    content: string;
+    agent_key: string;
+    feedback_text: string | null;
+    feedback_at: string;
+    user_id: string;
+    created_at: string;
+  }>;
+
+  // Para cada feedback negativo, buscar el último user message previo (la pregunta).
+  const negFeedbackEnriched: Array<{ question: string; answer: string; comment: string | null; agent: string; user_id: string }> = [];
+  for (const nf of negFeedback) {
+    const { data: prevQ } = await admin
+      .from("nico_messages" as never)
+      .select("content")
+      .eq("user_id", nf.user_id)
+      .eq("agent_key", nf.agent_key)
+      .eq("role", "user")
+      .lt("created_at", nf.created_at)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    negFeedbackEnriched.push({
+      question: ((prevQ as { content?: string } | null)?.content ?? "(pregunta no encontrada)").slice(0, 400),
+      answer: nf.content.slice(0, 400),
+      comment: nf.feedback_text,
+      agent: nf.agent_key,
+      user_id: nf.user_id,
+    });
+  }
+
+  // Tasa de feedback positivo vs negativo (período del reporte)
+  const { data: rawAllFeedback } = await admin
+    .from("nico_messages" as never)
+    .select("feedback")
+    .eq("role", "assistant")
+    .not("feedback", "is", null)
+    .gte("feedback_at", sinceIso);
+  const allFeedback = (rawAllFeedback ?? []) as Array<{ feedback: number }>;
+  const positiveCount = allFeedback.filter((f) => f.feedback === 1).length;
+  const negativeCount = allFeedback.filter((f) => f.feedback === -1).length;
+  const totalFeedback = positiveCount + negativeCount;
+  const positiveRate = totalFeedback > 0 ? positiveCount / totalFeedback : 0;
+
+  // 4c. Encuesta mensual de la app — siempre traemos últimos 30 días
+  // (independiente del period_days del reporte)
+  const monthAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  const { data: rawSurvey } = await admin
+    .from("app_feedback" as never)
+    .select("rating, wishlist, comments, submitted_at, user_id")
+    .gte("submitted_at", monthAgo)
+    .order("submitted_at", { ascending: false })
+    .limit(200);
+  const surveyResponses = (rawSurvey ?? []) as Array<{
+    rating: number;
+    wishlist: string | null;
+    comments: string | null;
+    submitted_at: string;
+    user_id: string;
+  }>;
+
+  const surveyAvg = surveyResponses.length > 0
+    ? surveyResponses.reduce((s, r) => s + r.rating, 0) / surveyResponses.length
+    : 0;
+  const surveyDist = [0, 0, 0, 0, 0]; // index 0 = 1 estrella ... 4 = 5 estrellas
+  for (const r of surveyResponses) {
+    if (r.rating >= 1 && r.rating <= 5) surveyDist[r.rating - 1] += 1;
+  }
+  const wishlistTexts = surveyResponses
+    .map((r) => r.wishlist?.trim())
+    .filter((t): t is string => !!t && t.length > 0);
+  const commentsTexts = surveyResponses
+    .map((r) => r.comments?.trim())
+    .filter((t): t is string => !!t && t.length > 0);
+
+  let wishlistCategories: Array<{ name: string; count: number; example: string }> = [];
+  if (ANTHROPIC_API_KEY && wishlistTexts.length >= 3) {
+    try {
+      wishlistCategories = await clusterQuestions(ANTHROPIC_API_KEY, wishlistTexts);
+    } catch (err) {
+      console.error("[nico-weekly-report] wishlist clustering failed:", err);
+    }
+  }
+
   // 5. Build HTML
   const periodEnd = new Date();
   const periodStart = new Date(Date.now() - periodDays * 24 * 3600 * 1000);
@@ -281,6 +376,59 @@ ${topUsers.map(([uid, v], i) => `
   </tr>`).join("")}
 </table>
 
+${totalFeedback > 0 ? `
+<h2 style="font-size:15px;margin:24px 0 8px">👍👎 Feedback de respuestas Nico IA</h2>
+<p style="font-size:13px;margin:0 0 8px"><b>${positiveCount}</b> 👍 · <b>${negativeCount}</b> 👎 · ${pct(positiveRate)} positivo (de ${totalFeedback} respuestas calificadas)</p>
+${negFeedbackEnriched.length > 0 ? `
+<p style="font-size:12px;color:#86868b;margin:8px 0 4px">Top ${Math.min(negFeedbackEnriched.length, 10)} respuestas con feedback negativo (revisalas para ajustar el system prompt):</p>
+${negFeedbackEnriched.slice(0, 10).map((f, i) => `
+<div style="padding:10px 12px;margin:8px 0;background:#fef2f2;border-left:3px solid #ef4444;border-radius:4px">
+  <div style="font-size:11px;color:#86868b;margin-bottom:4px">Agente: <b>${escapeHtml(f.agent)}</b> · Usuario: <code style="font-size:10px">${f.user_id.slice(0,8)}</code></div>
+  <div style="font-size:12px;margin:4px 0"><b>Pregunta:</b> ${escapeHtml(f.question)}</div>
+  <div style="font-size:12px;margin:4px 0;color:#444"><b>Respuesta de Nico:</b> ${escapeHtml(f.answer)}${f.answer.length >= 400 ? "…" : ""}</div>
+  ${f.comment ? `<div style="font-size:12px;margin:4px 0;color:#b91c1c"><b>Comentario del usuario:</b> "${escapeHtml(f.comment)}"</div>` : ""}
+</div>`).join("")}
+` : ""}
+` : `
+<h2 style="font-size:15px;margin:24px 0 8px">👍👎 Feedback de respuestas Nico IA</h2>
+<p style="font-size:12px;color:#86868b">Aún no hay calificaciones (👍/👎) en este período.</p>
+`}
+
+${surveyResponses.length > 0 ? `
+<h2 style="font-size:15px;margin:24px 0 8px">⭐ Encuesta mensual de la app (últimos 30 días)</h2>
+<p style="font-size:14px;margin:0 0 8px"><b>Calificación promedio: ${surveyAvg.toFixed(2)} / 5</b> · ${surveyResponses.length} respuesta${surveyResponses.length === 1 ? "" : "s"}</p>
+<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0">
+  <tr>
+    ${surveyDist.map((c, i) => `<td style="padding:6px 8px;text-align:center;background:#f5f5f7;width:20%">
+      <div style="font-size:14px;font-weight:600">${"⭐".repeat(i + 1)}</div>
+      <div style="font-size:11px;color:#86868b">${c} resp</div>
+    </td>`).join("")}
+  </tr>
+</table>
+
+${wishlistCategories.length > 0 ? `
+<p style="font-size:12px;color:#86868b;margin:12px 0 4px">Top categorías de wishlists:</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px">
+${wishlistCategories.map((c, i) => `
+  <tr style="${i % 2 === 0 ? "background:#f5f5f7" : ""}">
+    <td style="padding:6px 10px;width:35%"><b>${escapeHtml(c.name)}</b></td>
+    <td style="padding:6px 10px;width:10%;text-align:right">${c.count}</td>
+    <td style="padding:6px 10px;color:#86868b;font-style:italic">"${escapeHtml(c.example.slice(0,90))}${c.example.length > 90 ? "…" : ""}"</td>
+  </tr>`).join("")}
+</table>
+` : ""}
+
+${commentsTexts.length > 0 ? `
+<p style="font-size:12px;color:#86868b;margin:12px 0 4px">Comentarios libres recientes (${commentsTexts.length}):</p>
+${commentsTexts.slice(0, 6).map((t) => `
+<blockquote style="margin:6px 0;padding:8px 12px;background:#f5f5f7;border-left:3px solid #86868b;border-radius:4px;font-size:12px;font-style:italic;color:#444">${escapeHtml(t.slice(0, 300))}${t.length > 300 ? "…" : ""}</blockquote>
+`).join("")}
+` : ""}
+` : `
+<h2 style="font-size:15px;margin:24px 0 8px">⭐ Encuesta mensual de la app</h2>
+<p style="font-size:12px;color:#86868b">Aún no hay respuestas a la encuesta mensual.</p>
+`}
+
 <p style="font-size:11px;color:#86868b;margin:32px 0 0">Generado automáticamente por nico-weekly-report. Si querés ajustar qué incluye, decímelo.</p>
 </body></html>`;
 
@@ -294,6 +442,8 @@ ${topUsers.map(([uid, v], i) => `
         cacheHitRate,
         categories: categories.length,
         users: Object.keys(byUser).length,
+        nicoFeedback: { positive: positiveCount, negative: negativeCount, total: totalFeedback },
+        survey: { count: surveyResponses.length, avg: surveyAvg, wishlistCategories: wishlistCategories.length },
       },
     });
   }

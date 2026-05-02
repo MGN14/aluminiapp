@@ -6,6 +6,7 @@ import NicoDrawer from '@/components/nico/NicoDrawer';
 import NicoFAB from '@/components/nico/NicoFAB';
 import { NicoProvider, useNico } from '@/hooks/useNicoContext';
 import TrialBanner from '@/components/subscription/TrialBanner';
+import AppFeedbackPopupHost from '@/components/feedback/AppFeedbackPopupHost';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -53,6 +54,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           </div>
           <NicoDrawer />
           <NicoFAB />
+          <AppFeedbackPopupHost />
           <KeyboardShortcut />
         </SidebarProvider>
       </NicoProvider>
