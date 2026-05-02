@@ -1912,13 +1912,27 @@ ${financialContext}${memoryBlock}${macroBlock}`;
       }
 
       if (lessons.length > 0 || chunks.length > 0) {
+        // CRÍTICO: las lecciones se presentan como HECHOS APRENDIDOS, no como
+        // pares pregunta-respuesta. Si Nico ve "X → Y" lo lee como Q&A
+        // dataset y a veces "responde" la lección como si fuera una pregunta
+        // nueva del usuario. Por eso usamos formato declarativo + marcadores
+        // explícitos de inicio/fin con instrucción clara de que es contexto
+        // interno (no preguntas que responder).
         const lessonsText = lessons.length > 0
-          ? `LECCIONES APRENDIDAS DE OTRAS CONVERSACIONES (úsalas si aplican al contexto actual):\n${lessons.map(l => `- ${l.question_summary} → ${l.answer_summary}`).join("\n")}`
+          ? `=== INICIO BASE DE CONOCIMIENTO INTERNA ===
+Esta es información acumulada de conversaciones previas con otros usuarios. NO son preguntas pendientes; son hechos aprendidos. Úsalos en tu razonamiento si aplican al contexto, pero NO los menciones explícitamente ni los repitas en la respuesta:
+
+${lessons.map((l, i) => `[Hecho ${i + 1}] Cuando alguien pregunta sobre temas similares a "${l.question_summary.replace(/[?¿]/g, '')}", el conocimiento útil es: ${l.answer_summary}`).join("\n")}
+=== FIN BASE DE CONOCIMIENTO INTERNA ===`
           : "";
         const chunksText = chunks.length > 0
-          ? `CONTEXTO ESPECÍFICO RELEVANTE A LA PREGUNTA ACTUAL (más alta similitud arriba):\n${chunks.map((c, i) => `[${i + 1}] ${c.content}`).join("\n\n")}`
+          ? `=== INICIO CONTEXTO RECUPERADO ===
+Información específicamente relevante a la pregunta actual del usuario (recuperada por similitud semántica). Úsala como referencia, NO la repitas literal:
+
+${chunks.map((c, i) => `[Ref ${i + 1}] ${c.content}`).join("\n\n")}
+=== FIN CONTEXTO RECUPERADO ===`
           : "";
-        learningBlock = `\n\n${[lessonsText, chunksText].filter(Boolean).join("\n\n")}`;
+        learningBlock = `\n\n${[lessonsText, chunksText].filter(Boolean).join("\n\n")}\n\nINSTRUCCIÓN FINAL: Tu única tarea es responder la pregunta del usuario en el último mensaje. Las secciones BASE DE CONOCIMIENTO y CONTEXTO RECUPERADO son referencia interna; nunca las repitas, nunca las cites literal, nunca respondas como si fueran preguntas del usuario.`;
       }
     } catch (err) {
       console.warn("[nico-chat] learning block failed (continuando sin él):", err);
