@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
+// Cache module-level: el AppFeedbackPopupHost vive dentro de AppLayout y se
+// remonta en cada navegación. Sin este cache, la query a app_feedback se
+// dispara en cada cambio de página. El cache es por user.id (si cambia el
+// user, se re-evalúa).
+const checkedUsers = new Set<string>();
+
 const MIN_DAYS_USING_APP = 7;
 const DAYS_BETWEEN_PROMPTS = 30;
 
@@ -21,20 +27,34 @@ export function useAppFeedbackPopup(): PopupState & {
   dismissForNow: () => Promise<void>;
   markSubmitted: () => void;
 } {
-  const { user } = useAuth();
+  const { user, session, sessionExpired } = useAuth();
   const [shouldShow, setShouldShow] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
-      if (!user?.id) {
+      // Triple guard: requerimos user, session activa y NO expirada antes de
+      // tocar Supabase. Sin esto, en un re-mount muy temprano de AppLayout
+      // (o durante refresh de token) el cliente puede mandar la query SIN
+      // bearer token → la RLS evalúa auth.uid()=NULL y devuelve 403.
+      if (!user?.id || !session?.access_token || sessionExpired) {
         if (!cancelled) {
           setShouldShow(false);
           setLoading(false);
         }
         return;
       }
+      // Si ya chequeamos este user en esta sesión de browser, no repetir
+      // (evita 3+ queries en cada navegación de páginas con AppLayout).
+      if (checkedUsers.has(user.id)) {
+        if (!cancelled) {
+          setShouldShow(false);
+          setLoading(false);
+        }
+        return;
+      }
+      checkedUsers.add(user.id);
 
       // 1. Días de uso: usamos created_at del user de auth como proxy
       const createdAt = new Date(user.created_at);
@@ -93,7 +113,7 @@ export function useAppFeedbackPopup(): PopupState & {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, user?.created_at]);
+  }, [user?.id, user?.created_at, session?.access_token, sessionExpired]);
 
   const dismissForNow = async () => {
     if (!user?.id) return;
