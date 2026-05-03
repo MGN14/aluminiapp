@@ -49,6 +49,8 @@ interface SiigoInvoice {
   customer?: { identification?: string; name?: string | string[] };
   supplier?: { identification?: string; name?: string | string[] };
   total?: number;
+  /** Saldo pendiente según Siigo. Si la factura está totalmente pagada,
+   *  Siigo manda 0. Si no se ha cobrado nada, manda total_amount. */
   balance?: number;
   taxes?: Array<{ id?: number; name?: string; percentage?: number; value?: number }>;
   stamp?: { cufe?: string };
@@ -118,19 +120,29 @@ serve(async (req) => {
     }
     const { access_token } = await authRes.json() as { access_token: string };
 
-    // ── Carga de responsibles del usuario para resolver responsible_id ──
-    // Construimos 2 índices in-memory para hacer match O(1) por NIT (más
-    // confiable) o por nombre normalizado (fallback). Esto evita una query
-    // a Supabase por cada factura procesada.
-    const { data: respList } = await admin
-      .from("responsibles")
-      .select("id, name, nit")
-      .eq("user_id", userId)
-      .eq("active", true);
+    // ── Carga de responsibles + aliases para resolver responsible_id ──
+    // 3 índices in-memory:
+    //   - byNit: NIT normalizado (solo dígitos) → más confiable
+    //   - byName: nombre canónico del responsible (lower + trim)
+    //   - byAlias: cualquier alias asociado al responsible (lower + trim)
+    //
+    // Match prioriza NIT > byName > byAlias. Si nada matchea, auto-crea.
+    const [respListRes, aliasListRes] = await Promise.all([
+      admin
+        .from("responsibles")
+        .select("id, name, nit")
+        .eq("user_id", userId)
+        .eq("active", true),
+      admin
+        .from("responsible_aliases")
+        .select("responsible_id, alias")
+        .eq("user_id", userId),
+    ]);
 
     const respByNit = new Map<string, string>();
     const respByName = new Map<string, string>();
-    for (const r of (respList ?? []) as Array<{ id: string; name: string; nit: string | null }>) {
+    const respByAlias = new Map<string, string>();
+    for (const r of (respListRes.data ?? []) as Array<{ id: string; name: string; nit: string | null }>) {
       if (r.nit) {
         const norm = String(r.nit).replace(/[^0-9]/g, "");
         if (norm.length >= 6) respByNit.set(norm, r.id);
@@ -139,7 +151,13 @@ serve(async (req) => {
         respByName.set(r.name.trim().toLowerCase(), r.id);
       }
     }
+    for (const a of (aliasListRes.data ?? []) as Array<{ responsible_id: string; alias: string }>) {
+      if (a.alias) {
+        respByAlias.set(a.alias.trim().toLowerCase(), a.responsible_id);
+      }
+    }
     let respAutoCreated = 0;
+    let aliasesAutoCreated = 0;
 
     // Re-sync uses a 30-day rolling window instead of last_invoice_pulled_at:
     // Siigo filters by document date (not API creation), and users often create
@@ -249,7 +267,7 @@ serve(async (req) => {
             const counterparty = kind === "venta" ? inv.customer : inv.supplier;
             const counterpartyName = await resolveCustomerName(counterparty);
 
-            // 1) Resolver responsible_id (match por NIT > nombre > auto-crear)
+            // 1) Resolver responsible_id (match por NIT > nombre > alias > auto-crear)
             const resolved = await resolveOrCreateResponsible(
               admin,
               counterparty,
@@ -257,9 +275,11 @@ serve(async (req) => {
               userId,
               respByNit,
               respByName,
+              respByAlias,
             );
             const resolvedResponsibleId = resolved.id;
             if (resolved.autoCreated) respAutoCreated++;
+            if (resolved.aliasCreated) aliasesAutoCreated++;
 
             // 2) Preservar responsible_id manual: si la factura ya existe en BD
             //    con un responsible asignado, no sobre-escribir (puede ser una
@@ -330,6 +350,7 @@ serve(async (req) => {
       skipped,
       items_inserted: itemsInserted,
       responsibles_auto_created: respAutoCreated,
+      aliases_auto_created: aliasesAutoCreated,
       errors: errors.slice(0, 20),
       since,
       until,
@@ -357,26 +378,56 @@ async function resolveOrCreateResponsible(
   userId: string,
   byNit: Map<string, string>,
   byName: Map<string, string>,
-): Promise<{ id: string | null; autoCreated: boolean }> {
+  byAlias: Map<string, string>,
+): Promise<{ id: string | null; autoCreated: boolean; aliasCreated: boolean }> {
   const nit = counterparty?.identification ?? null;
   const name = (resolvedName ?? "").trim() || null;
-  if (!nit && !name) return { id: null, autoCreated: false };
+  const nameKey = name ? name.toLowerCase() : null;
+  if (!nit && !name) return { id: null, autoCreated: false, aliasCreated: false };
 
-  // 1) Match por NIT normalizado
+  // Helper: registrar el nombre Siigo como alias si difiere del canónico
+  const ensureAlias = async (responsibleId: string): Promise<boolean> => {
+    if (!nameKey) return false;
+    if (byName.get(nameKey) === responsibleId) return false; // ya es el canónico
+    if (byAlias.get(nameKey) === responsibleId) return false; // ya hay alias
+    // Crear alias auto desde Siigo
+    const { error } = await admin
+      .from("responsible_aliases")
+      .insert({
+        user_id: userId,
+        responsible_id: responsibleId,
+        alias: name!,
+        source: "siigo",
+      });
+    if (!error) {
+      byAlias.set(nameKey, responsibleId);
+      return true;
+    }
+    // Conflict (ya existía con otro responsible) — ignoramos silenciosamente
+    return false;
+  };
+
+  // 1) Match por NIT normalizado (más confiable)
   if (nit) {
     const norm = String(nit).replace(/[^0-9]/g, "");
     if (norm.length >= 6 && byNit.has(norm)) {
-      return { id: byNit.get(norm)!, autoCreated: false };
+      const id = byNit.get(norm)!;
+      const aliasCreated = await ensureAlias(id);
+      return { id, autoCreated: false, aliasCreated };
     }
   }
 
-  // 2) Match por nombre normalizado
-  if (name) {
-    const k = name.trim().toLowerCase();
-    if (byName.has(k)) return { id: byName.get(k)!, autoCreated: false };
+  // 2) Match por nombre canónico
+  if (nameKey && byName.has(nameKey)) {
+    return { id: byName.get(nameKey)!, autoCreated: false, aliasCreated: false };
   }
 
-  // 3) Auto-crear
+  // 3) Match por alias (un nombre alternativo previo)
+  if (nameKey && byAlias.has(nameKey)) {
+    return { id: byAlias.get(nameKey)!, autoCreated: false, aliasCreated: false };
+  }
+
+  // 4) Auto-crear responsible nuevo
   const insertName = name ?? `Cliente NIT ${nit}`;
   const { data: created, error } = await admin
     .from("responsibles")
@@ -385,13 +436,13 @@ async function resolveOrCreateResponsible(
       name: insertName,
       nit: nit ?? null,
       active: true,
-      responsible_type: "banking", // facturas / conciliación bancaria
+      responsible_type: "banking",
     })
     .select("id")
     .single();
   if (error || !created) {
     console.warn(`[siigo-sync-invoices] auto-create responsible failed`, error);
-    return { id: null, autoCreated: false };
+    return { id: null, autoCreated: false, aliasCreated: false };
   }
 
   // Actualizar caches in-memory
@@ -401,7 +452,20 @@ async function resolveOrCreateResponsible(
   }
   byName.set(insertName.trim().toLowerCase(), created.id);
 
-  return { id: created.id, autoCreated: true };
+  // Crear alias canónico (= mismo nombre) en aliases para consistencia
+  await admin
+    .from("responsible_aliases")
+    .insert({
+      user_id: userId,
+      responsible_id: created.id,
+      alias: insertName,
+      source: "siigo",
+    })
+    .then(({ error: aliasErr }) => {
+      if (!aliasErr) byAlias.set(insertName.trim().toLowerCase(), created.id);
+    });
+
+  return { id: created.id, autoCreated: true, aliasCreated: true };
 }
 
 function mapSiigoInvoice(
@@ -463,6 +527,9 @@ function mapSiigoInvoice(
     counterparty_name: resolvedCounterpartyName,
     counterparty_nit: counterparty?.identification ?? null,
     responsible_id: responsibleId,
+    // Saldo pendiente según Siigo — source of truth para "Lo que me deben".
+    // Si Siigo no manda balance, asumimos total (factura sin cobrar).
+    balance_pending: typeof inv.balance === "number" ? inv.balance : total,
     subtotal_base: subtotal,
     iva_rate: ivaRate,
     iva_amount: ivaAmount,

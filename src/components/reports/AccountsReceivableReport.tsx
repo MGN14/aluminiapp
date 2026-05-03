@@ -102,12 +102,13 @@ export default function AccountsReceivableReport() {
       const [invoicesRes, initialDetailsRes, anticiposClienteRes] = await Promise.all([
         supabase
           .from('invoices')
-          .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito')
+          .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito, balance_pending, source')
           .eq('user_id', user.id)
           .eq('type', 'venta')
           .gte('issue_date', startDate)
           .lte('issue_date', endDate)
-          .order('issue_date', { ascending: false }),
+          .order('issue_date', { ascending: false })
+          .returns<Array<Record<string, any>>>(),
         supabase
           .from('initial_state_details' as any)
           .select('*')
@@ -284,10 +285,19 @@ export default function AccountsReceivableReport() {
 
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
-        // No auto-paid shortcut: the "paid" amount must come from real
-        // conciliations, matches or advances. A newly issued invoice stays
-        // pendiente until bank reconciliation moves money against it.
-        const rawPaid = paymentsByInvoice.get(inv.id) || 0;
+        // ESTRATEGIA SOURCE OF TRUTH:
+        //   - Si la factura viene de Siigo y tiene balance_pending populado,
+        //     ese es el saldo real (lo que cobraste = total - balance_pending).
+        //     Esto es estable: no depende de matches manuales que se rompen en
+        //     cada re-sync de Siigo.
+        //   - Si NO hay balance_pending (factura manual pre-Siigo, o legacy),
+        //     fallback al cálculo desde conciliaciones manuales.
+        const total = Number(inv.total_amount ?? 0);
+        const siigoBalance = (inv as any).balance_pending;
+        const hasSiigoSource = siigoBalance != null && (inv as any).source === 'siigo';
+        const rawPaid = hasSiigoSource
+          ? Math.max(0, total - Number(siigoBalance))
+          : (paymentsByInvoice.get(inv.id) || 0);
         const paid = rawPaid;
         // Use the saved retefuente values from the invoice module directly
         // Only fall back to 2.5% if rate is null (never configured), not if explicitly 0
