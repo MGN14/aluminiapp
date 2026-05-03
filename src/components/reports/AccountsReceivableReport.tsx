@@ -285,19 +285,12 @@ export default function AccountsReceivableReport() {
 
       const today = new Date();
       const receivables: InvoiceWithPayments[] = invoices.map(inv => {
-        // ESTRATEGIA SOURCE OF TRUTH:
-        //   - Si la factura viene de Siigo y tiene balance_pending populado,
-        //     ese es el saldo real (lo que cobraste = total - balance_pending).
-        //     Esto es estable: no depende de matches manuales que se rompen en
-        //     cada re-sync de Siigo.
-        //   - Si NO hay balance_pending (factura manual pre-Siigo, o legacy),
-        //     fallback al cálculo desde conciliaciones manuales.
-        const total = Number(inv.total_amount ?? 0);
-        const siigoBalance = (inv as any).balance_pending;
-        const hasSiigoSource = siigoBalance != null && (inv as any).source === 'siigo';
-        const rawPaid = hasSiigoSource
-          ? Math.max(0, total - Number(siigoBalance))
-          : (paymentsByInvoice.get(inv.id) || 0);
+        // SOURCE OF TRUTH es la CONCILIACIÓN BANCARIA en AluminIA.
+        // El user reconcilia manualmente primero acá, después su contadora
+        // sube la info a Siigo. Por eso NO usamos invoices.balance_pending
+        // de Siigo — lo guardamos como info auxiliar pero el saldo real
+        // sigue calculándose desde transactions + invoice_transaction_matches.
+        const rawPaid = paymentsByInvoice.get(inv.id) || 0;
         const paid = rawPaid;
         // Use the saved retefuente values from the invoice module directly
         // Only fall back to 2.5% if rate is null (never configured), not if explicitly 0
