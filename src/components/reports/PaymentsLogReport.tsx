@@ -137,42 +137,54 @@ export default function PaymentsLogReport() {
     return `${year}-${String(month).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
   })();
 
-  // Lista de beneficiarios (responsibles) únicos del año — pero SOLO los
-  // que tienen al menos una transacción de venta/compra (operación comercial).
+  // Lista de clientes/proveedores únicos del año — fuentes:
+  //   A) transactions con responsible_id + categoría comercial (venta/compra)
+  //   B) invoices con responsible_id (cualquier factura del año)
+  //   C) invoices SIN responsible_id pero con counterparty_name que matchea
+  //      un alias de Conciliación Bancaria (resuelto al canonical name)
   //
-  // Identificación de categorías comerciales — DOS criterios combinados:
-  //   1. report_group SEMÁNTICO: 'ingresos' (ventas) o 'costos_operacionales'
-  //      (compras a proveedores). Esto es el discriminador correcto, no
-  //      depende del nombre de la categoría.
-  //   2. NOMBRE como fallback: ilike '%venta%', '%compra%', '%proveedor%',
-  //      '%cliente%'. Cubre cuando el report_group está en NULL o cuando el
-  //      usuario nombra "Proveedores" (que tiene report_group='costos_operacionales'
-  //      pero el nombre no contiene "compra").
-  //
-  // Lo que excluye: gastos_operativos (servicios, arriendo, nómina), impuestos
-  // (DIAN, retefuente), otros (intereses bancarios, etc).
+  // Antes solo se usaba (A), por eso si un cliente tenía facturas pero
+  // ningún pago bancario asignado a su responsible_id, no aparecía en la
+  // lista — caso real reportado: "Aluminios del Eje" tiene facturas pero
+  // no aparece, mientras que "Aluminios Jh" (legacy con tx vinculada) sí.
   const { data: counterpartyOptions } = useQuery({
-    queryKey: ['payments-log-counterparties-v4', user?.id, year],
+    queryKey: ['payments-log-counterparties-v5', user?.id, year],
     queryFn: async (): Promise<CounterpartyOption[]> => {
       if (!user) return [];
 
-      // 1. Traer todos los responsibles del usuario
-      const { data: resps } = await supabase
-        .from('responsibles')
-        .select('id, name')
-        .eq('user_id', user.id);
+      // 1. Traer todos los responsibles + sus aliases (Beneficiarios de
+      //    Conciliación Bancaria como fuente de verdad).
+      const [respRes, aliasRes, allCatsRes] = await Promise.all([
+        supabase
+          .from('responsibles')
+          .select('id, name')
+          .eq('user_id', user.id),
+        supabase
+          .from('responsible_aliases' as never)
+          .select('responsible_id, alias')
+          .eq('user_id', user.id),
+        supabase
+          .from('categories')
+          .select('id, name, report_group')
+          .eq('user_id', user.id),
+      ]);
+
       const respMap = new Map<string, string>();
-      (resps ?? []).forEach((r: any) => respMap.set(r.id, r.name));
+      ((respRes.data as Array<{ id: string; name: string }>) ?? []).forEach(r => respMap.set(r.id, r.name));
+
+      // Alias normalizado → name canónico (incluye el name del responsible
+      // como su propio alias).
+      const aliasToCanonical = new Map<string, string>();
+      respMap.forEach((name) => aliasToCanonical.set(normalizeName(name), name));
+      ((aliasRes as { data: Array<{ responsible_id: string; alias: string }> | null }).data ?? []).forEach(a => {
+        const canonical = respMap.get(a.responsible_id);
+        if (canonical) aliasToCanonical.set(normalizeName(a.alias), canonical);
+      });
 
       // 2. Identificar categorías comerciales (venta + compra) usando
       //    report_group SEMÁNTICO + sinónimos en el nombre.
-      const { data: allCats } = await supabase
-        .from('categories')
-        .select('id, name, report_group')
-        .eq('user_id', user.id);
-
       const validCatIds = new Set<string>();
-      (allCats ?? []).forEach((c: any) => {
+      ((allCatsRes.data as Array<{ id: string; name: string; report_group: string }> | null) ?? []).forEach(c => {
         const name = (c.name ?? '').toLowerCase();
         const group = (c.report_group ?? '').toLowerCase();
         const isIncome = group === 'ingresos' || /venta|cliente/.test(name);
@@ -181,31 +193,53 @@ export default function PaymentsLogReport() {
         if (isIncome || isCost) validCatIds.add(c.id);
       });
 
-      // Si no hay categorías de venta/compra todavía, devolvemos lista vacía.
-      if (validCatIds.size === 0) return [];
+      const usedNames = new Set<string>();
 
-      // 3. Transacciones del año con responsible y category válida.
-      const { data: txs } = await supabase
-        .from('transactions')
-        .select('responsible_id, category_id')
+      // 3A. Transacciones bancarias con responsible_id + categoría comercial.
+      if (validCatIds.size > 0) {
+        const { data: txs } = await supabase
+          .from('transactions')
+          .select('responsible_id, category_id')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .not('responsible_id', 'is', null)
+          .in('category_id', Array.from(validCatIds))
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`);
+        ((txs as Array<{ responsible_id: string | null }> | null) ?? []).forEach(t => {
+          if (!t.responsible_id) return;
+          const name = respMap.get(t.responsible_id);
+          if (name) usedNames.add(name);
+        });
+      }
+
+      // 3B. Facturas del año (cualquier tipo: venta/compra).
+      const { data: invs } = await supabase
+        .from('invoices')
+        .select('responsible_id, counterparty_name')
         .eq('user_id', user.id)
-        .is('deleted_at', null)
-        .not('responsible_id', 'is', null)
-        .in('category_id', Array.from(validCatIds))
-        .gte('date', `${year}-01-01`)
-        .lte('date', `${year}-12-31`);
-
-      const usedIds = new Set<string>();
-      (txs ?? []).forEach((t: any) => {
-        if (t.responsible_id) usedIds.add(t.responsible_id);
+        .gte('issue_date', `${year}-01-01`)
+        .lte('issue_date', `${year}-12-31`);
+      ((invs as Array<{ responsible_id: string | null; counterparty_name: string | null }> | null) ?? []).forEach(inv => {
+        // Caso 1: factura con responsible_id directo
+        if (inv.responsible_id) {
+          const name = respMap.get(inv.responsible_id);
+          if (name) {
+            usedNames.add(name);
+            return;
+          }
+        }
+        // Caso 2: sin responsible_id, intentar matchear counterparty_name
+        // contra los aliases. Si matchea → usar el canonical name.
+        // Si no matchea → usar el counterparty_name crudo (cliente sin
+        // beneficiario aún creado en Conciliación Bancaria).
+        const raw = (inv.counterparty_name ?? '').trim();
+        if (!raw) return;
+        const canonical = aliasToCanonical.get(normalizeName(raw));
+        usedNames.add(canonical ?? raw);
       });
 
-      const names = new Set<string>();
-      usedIds.forEach((id) => {
-        const name = respMap.get(id);
-        if (name) names.add(name);
-      });
-      return Array.from(names)
+      return Array.from(usedNames)
         .sort((a, b) => a.localeCompare(b, 'es'))
         .map(n => ({ name: n, slug: slugify(n) }));
     },
