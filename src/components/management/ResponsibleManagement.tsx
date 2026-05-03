@@ -20,7 +20,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Settings, Trash2, Loader2, Link2 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Plus, Settings, Trash2, Loader2, Link2, GitMerge, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface Props {
@@ -39,6 +43,9 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
   const [newName, setNewName] = useState('');
   const [linkToResponsibleId, setLinkToResponsibleId] = useState<string>(NO_LINK);
   const [adding, setAdding] = useState(false);
+  const [mergingFrom, setMergingFrom] = useState<Responsible | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState<string>('');
+  const [merging, setMerging] = useState(false);
 
   useEffect(() => {
     if (open) fetchResponsibles();
@@ -150,6 +157,32 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
     }
   };
 
+  const handleMerge = async () => {
+    if (!mergingFrom || !mergeTargetId || mergeTargetId === mergingFrom.id) return;
+    setMerging(true);
+    try {
+      const { error } = await supabase.rpc(
+        'merge_responsibles' as never,
+        { p_legacy_id: mergingFrom.id, p_canonical_id: mergeTargetId } as never,
+      );
+      if (error) {
+        toast({ title: 'Error al vincular', description: error.message, variant: 'destructive' });
+        return;
+      }
+      const target = responsibles.find(r => r.id === mergeTargetId);
+      toast({
+        title: 'Beneficiario absorbido',
+        description: `"${mergingFrom.name}" ahora es alias de "${target?.name ?? ''}". Todas sus referencias fueron reasignadas.`,
+      });
+      setMergingFrom(null);
+      setMergeTargetId('');
+      fetchResponsibles();
+      onUpdate?.();
+    } finally {
+      setMerging(false);
+    }
+  };
+
   const handleDeleteAlias = async (alias: string) => {
     if (!user) return;
     if (!confirm(`¿Eliminar el alias "${alias}"?`)) return;
@@ -245,6 +278,15 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => { setMergingFrom(r); setMergeTargetId(''); }}
+                          title="Vincular como alias de otro beneficiario (absorber)"
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <GitMerge className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleDelete(r.id)}
                           className="text-destructive hover:text-destructive"
                         >
@@ -282,6 +324,52 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
           )}
         </div>
       </DialogContent>
+
+      <AlertDialog open={!!mergingFrom} onOpenChange={(o) => { if (!o) { setMergingFrom(null); setMergeTargetId(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Vincular como alias de otro beneficiario</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <div className="text-sm">
+                  Vas a absorber <strong>"{mergingFrom?.name}"</strong> dentro de otro beneficiario.
+                  Todas sus facturas, transacciones, deudas, pagos y aliases se reasignarán al
+                  beneficiario que elijas, y este nombre quedará como un alias del otro.
+                </div>
+                <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 flex gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-700 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-900 dark:text-amber-100">
+                    Esta acción no se puede deshacer fácilmente. El beneficiario original se borra
+                    al final.
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="merge-target">Vincular dentro de:</Label>
+                  <Select value={mergeTargetId} onValueChange={setMergeTargetId}>
+                    <SelectTrigger id="merge-target">
+                      <SelectValue placeholder="Seleccioná el beneficiario canónico" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {responsibles
+                        .filter(r => r.id !== mergingFrom?.id && r.active)
+                        .map(r => (
+                          <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={merging}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleMerge} disabled={merging || !mergeTargetId}>
+              {merging && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Vincular y absorber
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
