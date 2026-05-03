@@ -467,8 +467,14 @@ export default function PaymentsLogReport() {
   // Detección por report_group + sinónimos en el nombre (mismo criterio que
   // en el dropdown de counterparties). Ej: "Proveedores" matchea via
   // report_group='costos_operacionales' aunque el nombre no diga "compra".
+  //
+  // CLIENTE REAL: si la tx está vinculada a una factura (invoice_id), el
+  // cliente real es el de la FACTURA (resuelto via responsibles + aliases),
+  // NO el responsible_id de la transacción. Esto cubre el caso donde una
+  // tx vieja tiene responsible_id legacy ("Aluminios Jh") pero la factura
+  // conciliada apunta al cliente correcto ("Aluminios del Eje").
   const { data, isLoading } = useQuery({
-    queryKey: ['payments-log-v3', user?.id, year, month, typeFilter, counterparty, isGerencial],
+    queryKey: ['payments-log-v4', user?.id, year, month, typeFilter, counterparty, isGerencial],
     queryFn: async (): Promise<PaymentRow[]> => {
       if (!user) return [];
 
@@ -486,11 +492,10 @@ export default function PaymentsLogReport() {
         if (isIncome || isCost) validCatIds.add(c.id);
       });
 
-      // Banco: TODAS las transactions del periodo. Sin joins implicitos
-      // (que estaban fallando silenciosamente y devolviendo array vacio).
-      // Traemos categories + responsibles + invoices por separado y cruzamos
-      // en JS. Mas robusto.
-      let txQuery = supabase
+      // Banco: TODAS las transactions del periodo. Sin filtro SQL por
+      // responsible_id — lo aplicamos en JS después de resolver el cliente
+      // real de cada tx (incluyendo las que vienen vinculadas a factura).
+      const txResult = await supabase
         .from('transactions')
         .select('id, date, description, type, amount, category_id, responsible_id, invoice_id')
         .eq('user_id', user.id)
@@ -499,21 +504,6 @@ export default function PaymentsLogReport() {
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: false });
-
-      // Si hay counterparty seleccionado, filtrar adicionalmente por su
-      // responsible_id (case-insensitive, tolera espacios extra).
-      if (counterparty !== 'all') {
-        const { data: respFilter } = await supabase
-          .from('responsibles')
-          .select('id')
-          .eq('user_id', user.id)
-          .ilike('name', counterparty.trim())
-          .maybeSingle();
-        if (respFilter?.id) {
-          txQuery = txQuery.eq('responsible_id', respFilter.id);
-        }
-      }
-      const txResult = await txQuery;
       if (txResult.error) throw txResult.error;
 
       const txs = (txResult.data ?? []) as Array<{
@@ -527,17 +517,43 @@ export default function PaymentsLogReport() {
         invoice_id: string | null;
       }>;
 
-      // Lookups en paralelo: categorias del usuario, responsibles del usuario,
-      // y solo las invoices vinculadas a las txs (por invoice_id).
-      const linkedInvoiceIds = Array.from(new Set(txs.map(t => t.invoice_id).filter((id): id is string => !!id)));
-      const [allRespsRes, linkedInvsRes] = await Promise.all([
+      // Lookups en paralelo: responsibles, aliases, invoices vinculadas
+      // (con counterparty + responsible_id de la factura), e invoice_transaction_matches
+      // que también vincula tx ↔ factura sin tocar invoice_id.
+      const linkedInvoiceIds = new Set<string>();
+      txs.forEach(t => { if (t.invoice_id) linkedInvoiceIds.add(t.invoice_id); });
+      const txIds = txs.map(t => t.id);
+
+      const [allRespsRes, aliasesRes, matchesRes] = await Promise.all([
         supabase.from('responsibles').select('id, name').eq('user_id', user.id),
-        linkedInvoiceIds.length > 0
-          ? supabase.from('invoices').select('id, invoice_number').in('id', linkedInvoiceIds)
+        supabase
+          .from('responsible_aliases' as never)
+          .select('responsible_id, alias')
+          .eq('user_id', user.id),
+        txIds.length > 0
+          ? supabase
+              .from('invoice_transaction_matches')
+              .select('invoice_id, transaction_id')
+              .eq('user_id', user.id)
+              .in('transaction_id', txIds)
           : Promise.resolve({ data: [], error: null }),
       ]);
 
       if (allRespsRes.error) throw allRespsRes.error;
+      // aliasesRes y matchesRes pueden fallar silenciosamente si la tabla
+      // no existe en el entorno actual — defensivo, no rompemos.
+
+      // Recolectar IDs de invoices: las directas (invoice_id) + las indirectas (matches)
+      ((matchesRes as { data: Array<{ invoice_id: string; transaction_id: string }> | null }).data ?? []).forEach(m => {
+        if (m.invoice_id) linkedInvoiceIds.add(m.invoice_id);
+      });
+
+      const linkedInvsRes = linkedInvoiceIds.size > 0
+        ? await supabase
+            .from('invoices')
+            .select('id, invoice_number, counterparty_name, responsible_id')
+            .in('id', Array.from(linkedInvoiceIds))
+        : { data: [], error: null };
       if (linkedInvsRes.error) throw linkedInvsRes.error;
 
       const catNameById = new Map<string, string>();
@@ -548,27 +564,74 @@ export default function PaymentsLogReport() {
       for (const r of (allRespsRes.data ?? []) as Array<{ id: string; name: string }>) {
         respNameById.set(r.id, r.name);
       }
+
+      // Alias normalizado → name canónico (incluye el name del responsible
+      // como su propio alias).
+      const aliasToCanonical = new Map<string, string>();
+      respNameById.forEach((name) => aliasToCanonical.set(normalizeName(name), name));
+      ((aliasesRes as { data: Array<{ responsible_id: string; alias: string }> | null }).data ?? []).forEach(a => {
+        const canonical = respNameById.get(a.responsible_id);
+        if (canonical) aliasToCanonical.set(normalizeName(a.alias), canonical);
+      });
+
+      // Resolver counterparty de una factura (responsible_id directo o via alias del counterparty_name)
+      const linkedInvoices = (linkedInvsRes.data ?? []) as Array<{
+        id: string; invoice_number: string; counterparty_name: string | null; responsible_id: string | null;
+      }>;
       const invoiceNumById = new Map<string, string>();
-      for (const i of (linkedInvsRes.data ?? []) as Array<{ id: string; invoice_number: string }>) {
-        invoiceNumById.set(i.id, i.invoice_number);
+      const invoiceCounterpartyById = new Map<string, string>();
+      for (const inv of linkedInvoices) {
+        invoiceNumById.set(inv.id, inv.invoice_number);
+        let resolved: string | null = null;
+        if (inv.responsible_id) {
+          resolved = respNameById.get(inv.responsible_id) ?? null;
+        }
+        if (!resolved && inv.counterparty_name) {
+          const canonical = aliasToCanonical.get(normalizeName(inv.counterparty_name));
+          resolved = canonical ?? inv.counterparty_name.trim();
+        }
+        if (resolved) invoiceCounterpartyById.set(inv.id, resolved);
       }
 
-      const bankRows: PaymentRow[] = txs.map((r) => {
+      // Mapeo tx_id → invoice_id (vía matches), para fallback cuando la tx
+      // no tiene invoice_id directo pero sí está conciliada via matches.
+      const invoiceIdByTxId = new Map<string, string>();
+      ((matchesRes as { data: Array<{ invoice_id: string; transaction_id: string }> | null }).data ?? []).forEach(m => {
+        if (m.transaction_id && m.invoice_id) invoiceIdByTxId.set(m.transaction_id, m.invoice_id);
+      });
+
+      // Filtro de categorías comerciales (venta/compra) — aplicado en JS para
+      // que las txs vinculadas a factura pasen aunque su category sea NULL.
+      const txPasesCommercialFilter = (catId: string | null, hasInvoiceLink: boolean): boolean => {
+        if (hasInvoiceLink) return true; // si está vinculada a factura, es comercial por definición
+        if (!catId) return false;
+        return validCatIds.has(catId);
+      };
+
+      const bankRows: PaymentRow[] = txs.flatMap((r) => {
+        const linkedInvoiceId = r.invoice_id ?? invoiceIdByTxId.get(r.id) ?? null;
+        const hasInvoiceLink = !!linkedInvoiceId;
+        if (!txPasesCommercialFilter(r.category_id, hasInvoiceLink)) return [];
+
         const respName = r.responsible_id ? respNameById.get(r.responsible_id) ?? null : null;
-        return {
+        // CLIENTE REAL: prioridad invoice → responsible_id de tx
+        const resolvedCounterparty = linkedInvoiceId
+          ? (invoiceCounterpartyById.get(linkedInvoiceId) ?? respName)
+          : respName;
+        return [{
           id: `bank-${r.id}`,
           rawTxId: r.id,
           date: r.date,
           description: r.description ?? 'Sin descripción',
           type: r.type as 'ingreso' | 'egreso',
           amount: Math.abs(Number(r.amount ?? 0)),
-          source: 'banco',
+          source: 'banco' as const,
           category: r.category_id ? catNameById.get(r.category_id) ?? null : null,
-          responsible: respName,
+          responsible: resolvedCounterparty,
           responsible_id: r.responsible_id ?? null,
-          invoice_ref: r.invoice_id ? invoiceNumById.get(r.invoice_id) ?? null : null,
-          counterparty: respName,
-        };
+          invoice_ref: linkedInvoiceId ? invoiceNumById.get(linkedInvoiceId) ?? null : null,
+          counterparty: resolvedCounterparty,
+        }];
       });
 
       // Efectivo solo en Gerencial — y solo si la categoría del cash_movement
