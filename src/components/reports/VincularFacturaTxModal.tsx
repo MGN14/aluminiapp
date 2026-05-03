@@ -36,6 +36,11 @@ interface InvoiceCandidate {
   total_amount: number;
   type: 'venta' | 'compra';
   responsible_id: string | null;
+  /** Saldo pendiente = total − ya conciliado (transactions con invoice_id +
+   *  invoice_transaction_matches manuales). Calculado al cargar candidatos. */
+  pending: number;
+  /** Cuánto ya está aplicado (info auxiliar para mostrar "X de Y"). */
+  applied: number;
 }
 
 interface TxToLink {
@@ -130,8 +135,46 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
           .gte('issue_date', cutoff)
           .order('issue_date', { ascending: false })
           .limit(200);
+
+        const rows = (data ?? []) as Array<Omit<InvoiceCandidate, 'pending' | 'applied'>>;
+
+        // Calcular saldo pendiente por factura: total − (transactions con
+        // invoice_id directo + invoice_transaction_matches manuales).
+        // Hacemos las 2 queries en paralelo y agregamos in-memory.
+        const invIds = rows.map(r => r.id);
+        let appliedById = new Map<string, number>();
+        if (invIds.length > 0) {
+          const [directRes, matchRes] = await Promise.all([
+            supabase
+              .from('transactions')
+              .select('invoice_id, amount')
+              .eq('user_id', user.id)
+              .is('deleted_at', null)
+              .in('invoice_id', invIds),
+            supabase
+              .from('invoice_transaction_matches')
+              .select('invoice_id, matched_amount')
+              .eq('user_id', user.id)
+              .in('invoice_id', invIds),
+          ]);
+          for (const t of (directRes.data ?? []) as Array<{ invoice_id: string; amount: number }>) {
+            const k = t.invoice_id;
+            appliedById.set(k, (appliedById.get(k) ?? 0) + Math.abs(Number(t.amount ?? 0)));
+          }
+          for (const m of (matchRes.data ?? []) as Array<{ invoice_id: string; matched_amount: number }>) {
+            const k = m.invoice_id;
+            appliedById.set(k, (appliedById.get(k) ?? 0) + Math.abs(Number(m.matched_amount ?? 0)));
+          }
+        }
+
+        const enriched: InvoiceCandidate[] = rows.map(r => {
+          const applied = appliedById.get(r.id) ?? 0;
+          const pending = Math.max(0, Number(r.total_amount ?? 0) - applied);
+          return { ...r, applied, pending };
+        });
+
         if (!cancelled) {
-          setInvoices((data ?? []) as any);
+          setInvoices(enriched);
         }
       } catch (err) {
         console.error('Error loading invoices:', err);
@@ -431,9 +474,23 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
                             </div>
                           </div>
                           <div className="text-right flex-shrink-0">
-                            <p className="text-sm font-bold tabular-nums">{formatCOP(Number(inv.total_amount))}</p>
+                            {/* Saldo pendiente (lo que falta cobrar). Es el dato
+                                principal para no vincular a ciegas. */}
+                            <p className={cn(
+                              'text-sm font-bold tabular-nums',
+                              inv.pending <= 0 ? 'text-success' : 'text-destructive',
+                            )}>
+                              {formatCOP(inv.pending)}
+                            </p>
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
-                              Total
+                              {inv.pending <= 0 ? 'Sin saldo' : 'Saldo pendiente'}
+                            </p>
+                            {/* Total + ya aplicado como info auxiliar */}
+                            <p className="text-[10px] text-muted-foreground mt-1 tabular-nums">
+                              de {formatCOP(Number(inv.total_amount))}
+                              {inv.applied > 0 && (
+                                <> · ya {formatCOP(inv.applied)}</>
+                              )}
                             </p>
                           </div>
                         </div>

@@ -114,7 +114,7 @@ export default function AdvancesReport() {
       }
 
       // Get user invoices for reconciliation
-      const { data: invoices } = await supabase
+      const { data: invoicesRaw } = await supabase
         .from('invoices')
         .select('id, invoice_number, counterparty_name, total_amount, issue_date')
         .eq('user_id', user.id)
@@ -122,11 +122,54 @@ export default function AdvancesReport() {
         .order('issue_date', { ascending: false })
         .limit(200);
 
+      // Calcular saldo pendiente por factura para mostrar en el dropdown.
+      // El user no debe vincular anticipos a ciegas — necesita ver cuánto
+      // falta cobrar de cada factura candidata.
+      const invIds = (invoicesRaw ?? []).map((i: any) => i.id);
+      const appliedById = new Map<string, number>();
+      if (invIds.length > 0) {
+        const [directRes, matchRes, advRes] = await Promise.all([
+          supabase
+            .from('transactions')
+            .select('invoice_id, amount')
+            .eq('user_id', user.id)
+            .is('deleted_at', null)
+            .in('invoice_id', invIds),
+          supabase
+            .from('invoice_transaction_matches')
+            .select('invoice_id, matched_amount')
+            .eq('user_id', user.id)
+            .in('invoice_id', invIds),
+          supabase
+            .from('initial_state_details' as any)
+            .select('invoice_id, amount')
+            .eq('user_id', user.id)
+            .eq('field_type', 'anticipos_de_clientes')
+            .in('invoice_id', invIds),
+        ]);
+        for (const t of ((directRes.data ?? []) as any[])) {
+          if (!t.invoice_id) continue;
+          appliedById.set(t.invoice_id, (appliedById.get(t.invoice_id) ?? 0) + Math.abs(Number(t.amount ?? 0)));
+        }
+        for (const m of ((matchRes.data ?? []) as any[])) {
+          appliedById.set(m.invoice_id, (appliedById.get(m.invoice_id) ?? 0) + Math.abs(Number(m.matched_amount ?? 0)));
+        }
+        for (const a of ((advRes.data ?? []) as any[])) {
+          if (!a.invoice_id) continue;
+          appliedById.set(a.invoice_id, (appliedById.get(a.invoice_id) ?? 0) + Math.abs(Number(a.amount ?? 0)));
+        }
+      }
+      const invoicesWithPending = (invoicesRaw ?? []).map((i: any) => {
+        const applied = appliedById.get(i.id) ?? 0;
+        const pending = Math.max(0, Number(i.total_amount ?? 0) - applied);
+        return { ...i, applied, pending };
+      });
+
       return {
         transactions: filtered,
         statementsMap,
         respMap,
-        invoices: invoices || [],
+        invoices: invoicesWithPending,
         initialDetails,
         initialAnticipo: initialState?.anticipos_de_clientes ?? 0,
         fechaInicio: initialState?.fecha_inicio,
@@ -323,13 +366,29 @@ export default function AdvancesReport() {
                               <SelectValue placeholder="Seleccionar factura" />
                             </SelectTrigger>
                             <SelectContent>
-                              {(data?.invoices || []).map((inv: any) => (
-                                <SelectItem key={inv.id} value={inv.id}>
-                                  <span className="text-xs">
-                                    {inv.invoice_number} — {inv.counterparty_name || 'Sin nombre'} ({formatCurrency(inv.total_amount)})
-                                  </span>
-                                </SelectItem>
-                              ))}
+                              {/* Mostrar SALDO PENDIENTE como dato principal —
+                                  el user pidió no vincular a ciegas. Total y
+                                  ya aplicado quedan como info auxiliar. */}
+                              {(data?.invoices || []).map((inv: any) => {
+                                const pending = Number(inv.pending ?? inv.total_amount ?? 0);
+                                const total = Number(inv.total_amount ?? 0);
+                                const isPaid = pending <= 0;
+                                return (
+                                  <SelectItem key={inv.id} value={inv.id} disabled={isPaid}>
+                                    <span className="text-xs flex flex-col gap-0.5">
+                                      <span className="font-medium">
+                                        {inv.invoice_number} — {inv.counterparty_name || 'Sin nombre'}
+                                      </span>
+                                      <span className={isPaid ? 'text-success' : 'text-destructive'}>
+                                        {isPaid ? 'Sin saldo (ya pagada)' : `Saldo: ${formatCurrency(pending)}`}
+                                        {!isPaid && total !== pending && (
+                                          <span className="text-muted-foreground"> · de {formatCurrency(total)}</span>
+                                        )}
+                                      </span>
+                                    </span>
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                         ) : (
