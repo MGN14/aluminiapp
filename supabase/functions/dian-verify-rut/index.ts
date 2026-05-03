@@ -47,72 +47,82 @@ export default async ({ page, context }) => {
   try {
     result.stage = 'goto_login';
     await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-    await sleep(3000); // MUISCA es JSF lento, dar tiempo al render
+    await sleep(3000);
+
+    // Detectar y cerrar modal "Está intentando ingresar de manera incorrecta"
+    result.stage = 'dismiss_warning_modal';
+    const dismissed = await page.evaluate(() => {
+      const dialog = document.querySelector('.container-dialog, .cdk-overlay-pane');
+      if (!dialog) return { hadModal: false };
+      const closeBtn = dialog.querySelector('button.mat-icon-button, [aria-label="close" i], button');
+      if (closeBtn) {
+        closeBtn.click();
+        return { hadModal: true, closed: true };
+      }
+      return { hadModal: true, closed: false };
+    });
+    result.meta.modalDismissed = dismissed;
+    if (dismissed.hadModal) await sleep(1500);
 
     result.stage = 'capture_state';
     result.meta.url = page.url();
     result.meta.title = await page.title();
 
-    // Enumerar todos los frames (iframe loops) y su URL
-    result.meta.frames = page.frames().map(f => ({
-      url: f.url(),
-      name: f.name() || null,
-    }));
-
-    // En el frame principal, dump de elementos potencialmente clickeables con texto
-    const mainDump = await page.evaluate(() => {
-      const all = document.querySelectorAll('button, a, [role="tab"], [role="button"], div, span, li');
-      const out = [];
-      for (const el of all) {
-        const txt = (el.textContent || '').trim();
-        if (!txt || txt.length > 80) continue;
-        if (!el.offsetParent) continue; // solo visibles
-        out.push({
+    // Captura COMPLETA de inputs/selects/buttons — sin filtrar por textContent
+    // (los <input> reales no tienen texto, mi filtro anterior los perdió)
+    result.meta.formFields = await page.evaluate(() => {
+      const fields = [...document.querySelectorAll('input, select, textarea, mat-select, mat-checkbox, [role="combobox"], [role="checkbox"]')];
+      return fields.map(el => {
+        const rect = el.getBoundingClientRect();
+        // Buscar label asociado: por for, ariadescribedby, o el label más cercano arriba
+        let nearbyLabel = null;
+        if (el.id) {
+          const lbl = document.querySelector('label[for="' + el.id + '"]');
+          if (lbl) nearbyLabel = (lbl.textContent || '').trim().slice(0, 80);
+        }
+        if (!nearbyLabel) {
+          let p = el.parentElement;
+          for (let i = 0; i < 5 && p; i++) {
+            const lbl = p.querySelector('label, mat-label, .mat-form-field-label');
+            if (lbl) { nearbyLabel = (lbl.textContent || '').trim().slice(0, 80); break; }
+            p = p.parentElement;
+          }
+        }
+        return {
           tag: el.tagName,
-          role: el.getAttribute('role') || null,
+          type: el.type || null,
+          name: el.name || null,
           id: el.id || null,
-          cls: (el.className || '').toString().slice(0, 80),
-          text: txt.slice(0, 80),
-        });
-      }
-      return out.slice(0, 60);
+          placeholder: el.placeholder || null,
+          ariaLabel: el.getAttribute('aria-label') || null,
+          formControlName: el.getAttribute('formcontrolname') || null,
+          ngReflectName: el.getAttribute('ng-reflect-name') || null,
+          cls: (el.className || '').toString().slice(0, 100),
+          label: nearbyLabel,
+          visible: rect.width > 0 && rect.height > 0,
+          x: Math.round(rect.x),
+          y: Math.round(rect.y),
+        };
+      });
     });
-    result.meta.mainElements = mainDump;
-    result.meta.mainElementCount = mainDump.length;
 
-    // En cada frame extra, listar sus inputs y botones por si la UI vive ahí
-    const frameDumps = [];
-    for (const frame of page.frames()) {
-      if (frame === page.mainFrame()) continue;
-      try {
-        const dump = await frame.evaluate(() => {
-          return {
-            url: location.href,
-            title: document.title,
-            inputs: [...document.querySelectorAll('input, select, button')].slice(0, 30).map(el => ({
-              tag: el.tagName,
-              type: el.type || null,
-              name: el.name || null,
-              id: el.id || null,
-              placeholder: el.placeholder || null,
-              text: (el.textContent || '').trim().slice(0, 60),
-            })),
-          };
-        });
-        frameDumps.push(dump);
-      } catch (e) {
-        frameDumps.push({ error: e.message });
-      }
-    }
-    result.meta.frameDumps = frameDumps;
+    // Buttons y mat-select-triggers visibles
+    result.meta.buttons = await page.evaluate(() => {
+      return [...document.querySelectorAll('button, .mat-select-trigger, [role="button"]')].map(el => {
+        const rect = el.getBoundingClientRect();
+        return {
+          tag: el.tagName,
+          id: el.id || null,
+          cls: (el.className || '').toString().slice(0, 100),
+          ariaLabel: el.getAttribute('aria-label') || null,
+          text: (el.textContent || '').trim().slice(0, 60),
+          visible: rect.width > 0 && rect.height > 0,
+        };
+      }).filter(b => b.visible);
+    });
 
-    // HTML completo (truncado) por si necesitamos mirarlo entero
-    const html = await page.content();
-    result.meta.htmlLen = html.length;
-    result.meta.htmlHead = html.slice(0, 2000);
-
-    result.stage = 'DIAGNOSTIC_DUMP';
-    result.meta.note = 'Diagnóstico expandido. Revisar mainElements + frameDumps para mapear selectores.';
+    result.stage = 'DIAGNOSTIC_DUMP_V2';
+    result.meta.note = 'V2: modal cerrado + inputs sin filtrar por texto + labels asociadas.';
     return { data: result, type: 'application/json' };
   } catch (err) {
     result.error = err && err.message ? err.message : String(err);
@@ -255,7 +265,11 @@ serve(async (req) => {
     const scrapeError = (scrapedRaw as { error?: string })?.error;
 
     let verifyResult: VerifyResult;
-    if (stage === "CALIBRATION_PENDING" || stage === "DIAGNOSTIC_DUMP") {
+    if (
+      stage === "CALIBRATION_PENDING" ||
+      stage === "DIAGNOSTIC_DUMP" ||
+      stage === "DIAGNOSTIC_DUMP_V2"
+    ) {
       verifyResult = {
         status: "warning",
         raw_data: scrapedRaw,
