@@ -39,72 +39,57 @@ const MUISCA_LOGIN_URL = "https://muisca.dian.gov.co/WebIdentidadLogin/";
 // trusting results. Any mismatch returns { ok:false, stage:'<step>' } so we
 // know exactly where the script broke.
 const BROWSERLESS_SCRIPT = `
-module.exports = async ({ page, context }) => {
+export default async ({ page, context }) => {
   const { nit, rlDocType, rlDocNumber, password, loginUrl } = context;
   const result = { ok: false, stage: 'init', meta: {} };
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   try {
     result.stage = 'goto_login';
     await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 45000 });
+    await sleep(500);
 
-    // Click "A nombre de un tercero" tab
+    // Click "A nombre de un tercero" tab — usar evaluate por texto (no hay text= en puppeteer)
     result.stage = 'click_tercero_tab';
-    const terceroSelectors = [
-      'text=A nombre de un tercero',
-      '[aria-label="A nombre de un tercero"]',
-    ];
-    let clicked = false;
-    for (const sel of terceroSelectors) {
-      try { await page.click(sel, { timeout: 4000 }); clicked = true; break; } catch (_) {}
-    }
-    if (!clicked) throw new Error('No pude clickear pestaña "A nombre de un tercero"');
+    const tabClicked = await page.evaluate(() => {
+      const candidates = document.querySelectorAll('button, a, div, span, [role="tab"]');
+      for (const el of candidates) {
+        const txt = (el.textContent || '').trim();
+        if (txt === 'A nombre de un tercero' || txt.includes('A nombre de un tercero')) {
+          el.click();
+          return true;
+        }
+      }
+      return false;
+    });
+    if (!tabClicked) throw new Error('No pude clickear pestaña "A nombre de un tercero"');
+    await sleep(1000);
 
-    await page.waitForTimeout(800);
+    // Capture screenshot of the form so we can calibrate selectors offline
+    result.stage = 'snapshot_form';
+    const html = await page.content();
+    result.meta.htmlLen = html.length;
+    result.meta.url = page.url();
+    // Extract input fields visible on page for selector calibration
+    result.meta.inputs = await page.evaluate(() => {
+      return [...document.querySelectorAll('input, select, textarea, button')].map(el => ({
+        tag: el.tagName,
+        type: el.type || null,
+        name: el.name || null,
+        id: el.id || null,
+        placeholder: el.placeholder || null,
+        ariaLabel: el.getAttribute('aria-label') || null,
+        text: (el.textContent || '').trim().slice(0, 60),
+        visible: !!(el.offsetParent),
+      })).filter(x => x.visible);
+    });
 
-    // Fill NIT
-    result.stage = 'fill_nit';
-    await page.waitForSelector('input[placeholder*="solo números" i], input[name*="nit" i]', { timeout: 10000 });
-    await page.type('input[placeholder*="solo números" i], input[name*="nit" i]', nit, { delay: 30 });
-
-    // Select tipo de documento
-    result.stage = 'select_doc_type';
-    // MUISCA usa un Select custom — ajustar selector tras recon manual
-    // Placeholder: click the select trigger then click option matching rlDocType
-    // await page.click('[role="combobox"]'); // ← AJUSTAR
-    // await page.click(\`[role="option"]:has-text("\${rlDocType}")\`); // ← AJUSTAR
-
-    // Fill número documento
-    result.stage = 'fill_doc_number';
-    // Ajustar selector tras recon
-    // await page.type('input[name*="documento" i]', rlDocNumber, { delay: 30 });
-
-    // Fill password
-    result.stage = 'fill_password';
-    // await page.type('input[type="password"]', password, { delay: 30 });
-
-    // Check consent box
-    result.stage = 'check_consent';
-    // await page.click('input[type="checkbox"]');
-
-    // Click Ingresar
-    result.stage = 'click_submit';
-    // await page.click('button:has-text("Ingresar")');
-
-    // Wait for navigation post-login
-    result.stage = 'wait_post_login';
-    // await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
-
-    // TODO: navigate to RUT consultation page and scrape it
-    // const rutUrl = 'https://muisca.dian.gov.co/WebRutMuisca/DefConsultaEstadoRUT.faces';
-    // await page.goto(rutUrl, { waitUntil: 'networkidle2' });
-
-    // Scrape RUT data
-    result.stage = 'scrape_rut';
-    // const rutData = await page.evaluate(() => ({ /* extract fields */ }));
-
+    // === SELECTOR CALIBRATION PENDING ===
+    // Once we see result.meta.inputs from a real run, we map each step below
+    // to the real selectors and remove this short-circuit.
     result.ok = false;
     result.stage = 'CALIBRATION_PENDING';
-    result.meta.note = 'Selectors need to be mapped against real MUISCA UI before this returns real data.';
+    result.meta.note = 'Form reached. meta.inputs lists every input/select/button visible — use it to map selectors.';
     return { data: result, type: 'application/json' };
   } catch (err) {
     result.error = err && err.message ? err.message : String(err);
