@@ -23,6 +23,7 @@ export type AppEventType =
   // Activación
   | 'extracto_uploaded'
   | 'siigo_connected'
+  | 'dian_connected'
   | 'invoice_uploaded'
   | 'first_value_action'
   // Uso de Nico IA

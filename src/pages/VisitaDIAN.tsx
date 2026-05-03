@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import CalendarioMensual from '@/components/dian/CalendarioMensual';
 import ConfigurarObligacionesNegocio from '@/components/dian/ConfigurarObligacionesNegocio';
+import DIANConnectionCard from '@/components/dian/DIANConnectionCard';
 import CFOInsights from '@/components/dashboard/CFOInsights';
 import { PeriodSelection } from '@/components/dashboard/UnifiedPeriodFilter';
 import { Card, CardContent } from '@/components/ui/card';
@@ -289,6 +290,9 @@ export default function VisitaDIAN() {
             </CardContent>
           </Card>
         )}
+
+        {/* Verificación contra DIAN — consulta MUISCA para confirmar lo que el contador declaró */}
+        <DIANConnectionCard />
 
         {/* Score salud financiera */}
         {scores && risk && nicoMsg && (
