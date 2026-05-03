@@ -40,56 +40,79 @@ const MUISCA_LOGIN_URL = "https://muisca.dian.gov.co/WebIdentidadLogin/";
 // know exactly where the script broke.
 const BROWSERLESS_SCRIPT = `
 export default async ({ page, context }) => {
-  const { nit, rlDocType, rlDocNumber, password, loginUrl } = context;
+  const { loginUrl } = context;
   const result = { ok: false, stage: 'init', meta: {} };
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   try {
     result.stage = 'goto_login';
-    await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 45000 });
-    await sleep(500);
+    await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+    await sleep(3000); // MUISCA es JSF lento, dar tiempo al render
 
-    // Click "A nombre de un tercero" tab — usar evaluate por texto (no hay text= en puppeteer)
-    result.stage = 'click_tercero_tab';
-    const tabClicked = await page.evaluate(() => {
-      const candidates = document.querySelectorAll('button, a, div, span, [role="tab"]');
-      for (const el of candidates) {
+    result.stage = 'capture_state';
+    result.meta.url = page.url();
+    result.meta.title = await page.title();
+
+    // Enumerar todos los frames (iframe loops) y su URL
+    result.meta.frames = page.frames().map(f => ({
+      url: f.url(),
+      name: f.name() || null,
+    }));
+
+    // En el frame principal, dump de elementos potencialmente clickeables con texto
+    const mainDump = await page.evaluate(() => {
+      const all = document.querySelectorAll('button, a, [role="tab"], [role="button"], div, span, li');
+      const out = [];
+      for (const el of all) {
         const txt = (el.textContent || '').trim();
-        if (txt === 'A nombre de un tercero' || txt.includes('A nombre de un tercero')) {
-          el.click();
-          return true;
-        }
+        if (!txt || txt.length > 80) continue;
+        if (!el.offsetParent) continue; // solo visibles
+        out.push({
+          tag: el.tagName,
+          role: el.getAttribute('role') || null,
+          id: el.id || null,
+          cls: (el.className || '').toString().slice(0, 80),
+          text: txt.slice(0, 80),
+        });
       }
-      return false;
+      return out.slice(0, 60);
     });
-    if (!tabClicked) throw new Error('No pude clickear pestaña "A nombre de un tercero"');
-    await sleep(1000);
+    result.meta.mainElements = mainDump;
+    result.meta.mainElementCount = mainDump.length;
 
-    // Capture screenshot of the form so we can calibrate selectors offline
-    result.stage = 'snapshot_form';
+    // En cada frame extra, listar sus inputs y botones por si la UI vive ahí
+    const frameDumps = [];
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      try {
+        const dump = await frame.evaluate(() => {
+          return {
+            url: location.href,
+            title: document.title,
+            inputs: [...document.querySelectorAll('input, select, button')].slice(0, 30).map(el => ({
+              tag: el.tagName,
+              type: el.type || null,
+              name: el.name || null,
+              id: el.id || null,
+              placeholder: el.placeholder || null,
+              text: (el.textContent || '').trim().slice(0, 60),
+            })),
+          };
+        });
+        frameDumps.push(dump);
+      } catch (e) {
+        frameDumps.push({ error: e.message });
+      }
+    }
+    result.meta.frameDumps = frameDumps;
+
+    // HTML completo (truncado) por si necesitamos mirarlo entero
     const html = await page.content();
     result.meta.htmlLen = html.length;
-    result.meta.url = page.url();
-    // Extract input fields visible on page for selector calibration
-    result.meta.inputs = await page.evaluate(() => {
-      return [...document.querySelectorAll('input, select, textarea, button')].map(el => ({
-        tag: el.tagName,
-        type: el.type || null,
-        name: el.name || null,
-        id: el.id || null,
-        placeholder: el.placeholder || null,
-        ariaLabel: el.getAttribute('aria-label') || null,
-        text: (el.textContent || '').trim().slice(0, 60),
-        visible: !!(el.offsetParent),
-      })).filter(x => x.visible);
-    });
+    result.meta.htmlHead = html.slice(0, 2000);
 
-    // === SELECTOR CALIBRATION PENDING ===
-    // Once we see result.meta.inputs from a real run, we map each step below
-    // to the real selectors and remove this short-circuit.
-    result.ok = false;
-    result.stage = 'CALIBRATION_PENDING';
-    result.meta.note = 'Form reached. meta.inputs lists every input/select/button visible — use it to map selectors.';
+    result.stage = 'DIAGNOSTIC_DUMP';
+    result.meta.note = 'Diagnóstico expandido. Revisar mainElements + frameDumps para mapear selectores.';
     return { data: result, type: 'application/json' };
   } catch (err) {
     result.error = err && err.message ? err.message : String(err);
@@ -232,18 +255,21 @@ serve(async (req) => {
     const scrapeError = (scrapedRaw as { error?: string })?.error;
 
     let verifyResult: VerifyResult;
-    if (stage === "CALIBRATION_PENDING") {
+    if (stage === "CALIBRATION_PENDING" || stage === "DIAGNOSTIC_DUMP") {
       verifyResult = {
-        status: "error",
+        status: "warning",
         raw_data: scrapedRaw,
         summary: {
-          headline: "Verificación pendiente de calibración",
+          headline:
+            stage === "DIAGNOSTIC_DUMP"
+              ? "Diagnóstico capturado — listo para calibrar"
+              : "Verificación pendiente de calibración",
           details:
-            "El scraper llegó al portal pero faltan calibrar los selectores con un login real. Coordinar sesión guiada con datos sandbox (MGN Globaltrade).",
+            "El scraper llegó al portal y capturó la estructura del DOM. Pegar raw_data->meta para mapear selectores reales.",
           recommended_action:
-            "Revisar dian-verify-rut/index.ts → BROWSERLESS_SCRIPT y mapear cada selector marcado como AJUSTAR.",
+            "Mirar raw_data->meta->mainElements y raw_data->meta->frameDumps en Supabase Studio.",
         },
-        error_detail: "selectors_not_calibrated",
+        error_detail: "diagnostic_dump",
       };
     } else if (scrapeError) {
       verifyResult = {
