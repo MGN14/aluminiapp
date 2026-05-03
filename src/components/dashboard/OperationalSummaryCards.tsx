@@ -64,7 +64,7 @@ export function useOperationalData(year: number): OperationalData {
 
       const comprasPromise = supabase
         .from('invoices')
-        .select('counterparty_name, subtotal_base')
+        .select('counterparty_name, subtotal_base, responsible_id')
         .eq('type', 'venta')
         .eq('status', 'confirmed')
         .gte('issue_date', startDate)
@@ -151,13 +151,33 @@ export function useOperationalData(year: number): OperationalData {
       }
 
       // --- Top 3 Compradores ---
+      // Agrupamos por responsible.name (el beneficiario vinculado del banco)
+      // para consolidar las distintas variantes de nombre que aparezcan en
+      // facturas. counterparty_name es solo fallback si la factura todavía
+      // no fue vinculada a un responsible.
       if (comprasRes.data && comprasRes.data.length > 0) {
+        const respIds = [...new Set(
+          (comprasRes.data as any[])
+            .map(i => i.responsible_id)
+            .filter((id): id is string => Boolean(id))
+        )];
+        const respNameById = new Map<string, string>();
+        if (respIds.length > 0) {
+          const { data: resps } = await supabase
+            .from('responsibles')
+            .select('id, name')
+            .in('id', respIds);
+          (resps || []).forEach(r => respNameById.set(r.id, r.name));
+        }
+
         const bySupplier = new Map<string, number>();
         let totalBase = 0;
-        comprasRes.data.forEach(inv => {
-          const name = inv.counterparty_name || 'Sin nombre';
-          bySupplier.set(name, (bySupplier.get(name) || 0) + inv.subtotal_base);
-          totalBase += inv.subtotal_base;
+        (comprasRes.data as any[]).forEach(inv => {
+          // Prioridad: responsible.name (vinculado al banco) → counterparty_name (Siigo)
+          const respName = inv.responsible_id ? respNameById.get(inv.responsible_id) : null;
+          const name = respName ?? inv.counterparty_name ?? 'Sin nombre';
+          bySupplier.set(name, (bySupplier.get(name) || 0) + Number(inv.subtotal_base ?? 0));
+          totalBase += Number(inv.subtotal_base ?? 0);
         });
         const sorted = Array.from(bySupplier.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3) as [string, number][];
         setTopBuyers(sorted);
