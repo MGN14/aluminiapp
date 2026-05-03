@@ -118,6 +118,29 @@ serve(async (req) => {
     }
     const { access_token } = await authRes.json() as { access_token: string };
 
+    // ── Carga de responsibles del usuario para resolver responsible_id ──
+    // Construimos 2 índices in-memory para hacer match O(1) por NIT (más
+    // confiable) o por nombre normalizado (fallback). Esto evita una query
+    // a Supabase por cada factura procesada.
+    const { data: respList } = await admin
+      .from("responsibles")
+      .select("id, name, nit")
+      .eq("user_id", userId)
+      .eq("active", true);
+
+    const respByNit = new Map<string, string>();
+    const respByName = new Map<string, string>();
+    for (const r of (respList ?? []) as Array<{ id: string; name: string; nit: string | null }>) {
+      if (r.nit) {
+        const norm = String(r.nit).replace(/[^0-9]/g, "");
+        if (norm.length >= 6) respByNit.set(norm, r.id);
+      }
+      if (r.name) {
+        respByName.set(r.name.trim().toLowerCase(), r.id);
+      }
+    }
+    let respAutoCreated = 0;
+
     // Re-sync uses a 30-day rolling window instead of last_invoice_pulled_at:
     // Siigo filters by document date (not API creation), and users often create
     // invoices backdated a day or two. Using the exact pulled_at timestamp
@@ -225,7 +248,33 @@ serve(async (req) => {
 
             const counterparty = kind === "venta" ? inv.customer : inv.supplier;
             const counterpartyName = await resolveCustomerName(counterparty);
-            const row = mapSiigoInvoice(inv, kind, userId, items, counterpartyName);
+
+            // 1) Resolver responsible_id (match por NIT > nombre > auto-crear)
+            const resolved = await resolveOrCreateResponsible(
+              admin,
+              counterparty,
+              counterpartyName,
+              userId,
+              respByNit,
+              respByName,
+            );
+            const resolvedResponsibleId = resolved.id;
+            if (resolved.autoCreated) respAutoCreated++;
+
+            // 2) Preservar responsible_id manual: si la factura ya existe en BD
+            //    con un responsible asignado, no sobre-escribir (puede ser una
+            //    corrección manual del usuario que no queremos perder).
+            const { data: existingInv } = await admin
+              .from("invoices")
+              .select("responsible_id")
+              .eq("user_id", userId)
+              .eq("siigo_id", inv.id)
+              .maybeSingle();
+            const finalResponsibleId =
+              (existingInv as { responsible_id: string | null } | null)?.responsible_id
+              ?? resolvedResponsibleId;
+
+            const row = mapSiigoInvoice(inv, kind, userId, items, counterpartyName, finalResponsibleId);
             const { data: upserted, error } = await admin
               .from("invoices")
               .upsert(row, { onConflict: "user_id,siigo_id" })
@@ -280,6 +329,7 @@ serve(async (req) => {
       updated,
       skipped,
       items_inserted: itemsInserted,
+      responsibles_auto_created: respAutoCreated,
       errors: errors.slice(0, 20),
       since,
       until,
@@ -291,12 +341,76 @@ serve(async (req) => {
   }
 });
 
+/**
+ * Resuelve el responsible_id para una factura Siigo. Estrategia:
+ *   1) Match por NIT normalizado (solo dígitos, sin DV) — más confiable
+ *   2) Match por nombre normalizado (lower + trim)
+ *   3) Auto-crear si no existe (decisión del usuario)
+ *
+ * Mantiene los maps in-memory actualizados para que próximas facturas del
+ * mismo cliente en el mismo batch resuelvan rápido.
+ */
+async function resolveOrCreateResponsible(
+  admin: ReturnType<typeof createClient>,
+  counterparty: { identification?: string; name?: string | string[] } | undefined,
+  resolvedName: string | null,
+  userId: string,
+  byNit: Map<string, string>,
+  byName: Map<string, string>,
+): Promise<{ id: string | null; autoCreated: boolean }> {
+  const nit = counterparty?.identification ?? null;
+  const name = (resolvedName ?? "").trim() || null;
+  if (!nit && !name) return { id: null, autoCreated: false };
+
+  // 1) Match por NIT normalizado
+  if (nit) {
+    const norm = String(nit).replace(/[^0-9]/g, "");
+    if (norm.length >= 6 && byNit.has(norm)) {
+      return { id: byNit.get(norm)!, autoCreated: false };
+    }
+  }
+
+  // 2) Match por nombre normalizado
+  if (name) {
+    const k = name.trim().toLowerCase();
+    if (byName.has(k)) return { id: byName.get(k)!, autoCreated: false };
+  }
+
+  // 3) Auto-crear
+  const insertName = name ?? `Cliente NIT ${nit}`;
+  const { data: created, error } = await admin
+    .from("responsibles")
+    .insert({
+      user_id: userId,
+      name: insertName,
+      nit: nit ?? null,
+      active: true,
+      responsible_type: "banking", // facturas / conciliación bancaria
+    })
+    .select("id")
+    .single();
+  if (error || !created) {
+    console.warn(`[siigo-sync-invoices] auto-create responsible failed`, error);
+    return { id: null, autoCreated: false };
+  }
+
+  // Actualizar caches in-memory
+  if (nit) {
+    const norm = String(nit).replace(/[^0-9]/g, "");
+    if (norm.length >= 6) byNit.set(norm, created.id);
+  }
+  byName.set(insertName.trim().toLowerCase(), created.id);
+
+  return { id: created.id, autoCreated: true };
+}
+
 function mapSiigoInvoice(
   inv: SiigoInvoice,
   kind: Kind,
   userId: string,
   items: SiigoLine[],
   resolvedCounterpartyName: string | null,
+  responsibleId: string | null,
 ) {
   const counterparty = kind === "venta" ? inv.customer : inv.supplier;
 
@@ -348,6 +462,7 @@ function mapSiigoInvoice(
     due_date: inv.due_date ?? null,
     counterparty_name: resolvedCounterpartyName,
     counterparty_nit: counterparty?.identification ?? null,
+    responsible_id: responsibleId,
     subtotal_base: subtotal,
     iva_rate: ivaRate,
     iva_amount: ivaAmount,
