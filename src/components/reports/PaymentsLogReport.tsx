@@ -255,56 +255,65 @@ export default function PaymentsLogReport() {
   // ser el mismo nombre — pero a veces difieren (ej: la factura dice "PROVIDENCE
   // GROUP S.A.S" y el banco "PROVIDENCE GROUP"). Hacemos match flexible.
   const { data: counterpartySummary } = useQuery({
-    queryKey: ['payments-log-counterparty-summary-v5', user?.id, counterparty, year],
+    queryKey: ['payments-log-counterparty-summary-v6', user?.id, counterparty, year],
     queryFn: async () => {
       if (!user || counterparty === 'all') return null;
 
-      // 1. Sumar movimientos bancarios del responsible
+      // 0. Resolver respId del responsible canónico (si existe)
       const { data: resp } = await supabase
         .from('responsibles')
         .select('id')
         .eq('user_id', user.id)
         .ilike('name', counterparty.trim())
         .maybeSingle();
-      let movIngresos = 0;
-      let movEgresos = 0;
-      let movCount = 0;
       const respId: string | null = resp?.id ?? null;
+
+      // 1. Buscar TODAS las facturas del cliente.
+      //   a) responsible_id = respId (vínculo exacto)
+      //   b) sin responsible_id pero counterparty_name matchea (legacy)
+      //   c) responsible_id apunta a un responsible cuyo alias = canonical
+      //      (cubre casos donde el responsible_id de la factura es legacy)
+      // Para (c) cargamos los aliases del responsible canónico y buscamos
+      // facturas con cualquiera de esos responsibles.
+      let aliasRespIds: string[] = [];
       if (respId) {
-        const { data: txs } = await supabase
-          .from('transactions')
-          .select('amount, type')
+        const aliasRes = await supabase
+          .from('responsible_aliases' as never)
+          .select('alias')
           .eq('user_id', user.id)
-          .is('deleted_at', null)
-          .eq('responsible_id', respId)
-          .gte('date', `${year}-01-01`)
-          .lte('date', `${year}-12-31`);
-        (txs ?? []).forEach((t: any) => {
-          const amt = Math.abs(Number(t.amount ?? 0));
-          if (t.type === 'ingreso') movIngresos += amt;
-          else if (t.type === 'egreso') movEgresos += amt;
-          movCount++;
+          .eq('responsible_id', respId);
+        const aliasRows = (aliasRes.data as unknown as Array<{ alias: string }> | null) ?? [];
+        const aliasNames = new Set<string>(aliasRows.map(a => normalizeName(a.alias)));
+        aliasNames.add(normalizeName(counterparty));
+        // Buscar responsibles cuyo nombre normalizado coincida con algún alias
+        // (cubre legacy responsibles que ya no existen pero que tenían nombres
+        // similares — ej: si "Aluminios Jh" fue absorbido como alias de del Eje)
+        const { data: allResps } = await supabase
+          .from('responsibles')
+          .select('id, name')
+          .eq('user_id', user.id);
+        ((allResps as Array<{ id: string; name: string }> | null) ?? []).forEach(r => {
+          if (aliasNames.has(normalizeName(r.name))) aliasRespIds.push(r.id);
         });
       }
+      const allRespIdsForClient = Array.from(new Set([
+        ...(respId ? [respId] : []),
+        ...aliasRespIds,
+      ]));
 
-      // 2. Buscar facturas vinculadas a este responsible.
-      //   - Primero: invoices con responsible_id = respId (vínculo EXACTO,
-      //     hecho desde el formulario de edición de factura).
-      //   - Después: fallback a ilike por counterparty_name para facturas
-      //     viejas que aún no fueron vinculadas. Hacemos UNION en JS,
-      //     deduplicando por id.
-      let invs: any[] = [];
-      if (respId) {
+      const invsCollected = new Map<string, any>();
+      // (a)+(c) facturas con responsible_id en la lista del cliente
+      if (allRespIdsForClient.length > 0) {
         const { data: linkedInvs } = await supabase
           .from('invoices')
           .select('id, type, total_amount, counterparty_name, responsible_id')
           .eq('user_id', user.id)
-          .eq('responsible_id', respId)
+          .in('responsible_id', allRespIdsForClient)
           .gte('issue_date', `${year}-01-01`)
           .lte('issue_date', `${year}-12-31`);
-        invs = linkedInvs ?? [];
+        (linkedInvs ?? []).forEach((i: any) => invsCollected.set(i.id, i));
       }
-      // Fallback ilike (solo facturas SIN responsible_id, para no duplicar)
+      // (b) Fallback ilike (facturas SIN responsible_id que matcheen por nombre)
       const { data: fallbackInvs } = await supabase
         .from('invoices')
         .select('id, type, total_amount, counterparty_name, responsible_id')
@@ -313,22 +322,79 @@ export default function PaymentsLogReport() {
         .ilike('counterparty_name', `%${counterparty.split(' ').slice(0, 2).join(' ')}%`)
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
-      const seenIds = new Set(invs.map((i: any) => i.id));
       (fallbackInvs ?? []).forEach((i: any) => {
-        if (!seenIds.has(i.id)) {
-          invs.push(i);
-          seenIds.add(i.id);
-        }
+        if (!invsCollected.has(i.id)) invsCollected.set(i.id, i);
       });
 
-      const invsVenta = (invs ?? []).filter((i: any) => i.type === 'venta');
-      const invsCompra = (invs ?? []).filter((i: any) => i.type === 'compra');
+      const invs = Array.from(invsCollected.values());
+      const invsVenta = invs.filter((i: any) => i.type === 'venta');
+      const invsCompra = invs.filter((i: any) => i.type === 'compra');
       const facturadoVenta = invsVenta.reduce((s: number, i: any) => s + Number(i.total_amount ?? 0), 0);
       const facturadoCompra = invsCompra.reduce((s: number, i: any) => s + Number(i.total_amount ?? 0), 0);
       const facturado = facturadoVenta + facturadoCompra;
-      const invIds = (invs ?? []).map((i: any) => i.id);
+      const invIds = invs.map((i: any) => i.id);
 
-      // 3. Pagos vinculados a esas facturas (transactions + matches)
+      // 2. Encontrar TODAS las txs del cliente — vía 3 caminos:
+      //   (a) responsible_id IN (allRespIdsForClient)
+      //   (b) invoice_id IN (invIds) — vínculo directo
+      //   (c) invoice_transaction_matches.invoice_id IN (invIds) — match manual
+      //
+      // Esto cubre el caso reportado: tx con responsible_id legacy ("Jh") pero
+      // conciliada con factura del cliente real ("del Eje"). Antes solo
+      // buscábamos por (a) y los pagos no aparecían.
+      const txIdsForClient = new Set<string>();
+      if (allRespIdsForClient.length > 0) {
+        const { data: byResp } = await supabase
+          .from('transactions')
+          .select('id')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .in('responsible_id', allRespIdsForClient)
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`);
+        (byResp ?? []).forEach((t: { id: string }) => txIdsForClient.add(t.id));
+      }
+      if (invIds.length > 0) {
+        const [byInvoiceId, byMatches] = await Promise.all([
+          supabase
+            .from('transactions')
+            .select('id')
+            .eq('user_id', user.id)
+            .is('deleted_at', null)
+            .in('invoice_id', invIds),
+          supabase
+            .from('invoice_transaction_matches')
+            .select('transaction_id')
+            .eq('user_id', user.id)
+            .in('invoice_id', invIds),
+        ]);
+        (byInvoiceId.data ?? []).forEach((t: { id: string }) => txIdsForClient.add(t.id));
+        (byMatches.data ?? []).forEach((m: { transaction_id: string }) => txIdsForClient.add(m.transaction_id));
+      }
+
+      // Traer todas esas txs (filtradas por año) y sumar
+      let movIngresos = 0;
+      let movEgresos = 0;
+      let movCount = 0;
+      if (txIdsForClient.size > 0) {
+        const { data: clientTxs } = await supabase
+          .from('transactions')
+          .select('amount, type, date')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .in('id', Array.from(txIdsForClient))
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`);
+        (clientTxs ?? []).forEach((t: any) => {
+          const amt = Math.abs(Number(t.amount ?? 0));
+          if (t.type === 'ingreso') movIngresos += amt;
+          else if (t.type === 'egreso') movEgresos += amt;
+          movCount++;
+        });
+      }
+
+      // 3. cobrado vinculado por factura (subset de movIngresos, sirve para mostrar
+      //    "Cobrado vía conciliación con factura" si lo necesitamos en otro lado)
       let cobrado = 0;
       if (invIds.length > 0) {
         const { data: txs } = await supabase

@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Wallet, Info, Coins, TrendingUp, Users, AlertCircle, Landmark, ArrowRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Wallet, Info, Coins, TrendingUp, Users, AlertCircle, Landmark, ArrowRight, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useOperativeReceivables } from '@/hooks/useOperativeReceivables';
 import RegistrarDeudaModal from '@/components/cartera-operativa/RegistrarDeudaModal';
 import BankPaymentsSection from '@/components/cartera-operativa/BankPaymentsSection';
+import EditarDeudasClienteModal from '@/components/cartera-operativa/EditarDeudasClienteModal';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -22,6 +25,7 @@ export default function CarteraOperativa() {
   const { isGerencial, setMode } = useModuleContext();
   const { data, isLoading, error } = useOperativeReceivables();
   const navigate = useNavigate();
+  const [editingClient, setEditingClient] = useState<{ id: string; name: string; saldo: number } | null>(null);
 
   if (!isGerencial) {
     return <Navigate to="/dashboard" replace />;
@@ -144,6 +148,7 @@ export default function CarteraOperativa() {
                       <TableHead className="text-right">Pagos en efectivo</TableHead>
                       <TableHead className="text-right">Pagos en banco</TableHead>
                       <TableHead className="text-right">Saldo</TableHead>
+                      <TableHead className="w-[60px] text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -173,6 +178,22 @@ export default function CarteraOperativa() {
                               saldo a favor
                             </span>
                           )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Editar deudas registradas"
+                            onClick={() => setEditingClient({
+                              id: r.responsible_id,
+                              name: r.responsible_name,
+                              saldo: r.saldo,
+                            })}
+                            disabled={r.total_deuda === 0}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -204,6 +225,16 @@ export default function CarteraOperativa() {
           <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform flex-shrink-0" />
         </button>
       </div>
+
+      {editingClient && (
+        <EditarDeudasClienteModal
+          open={!!editingClient}
+          onOpenChange={(next) => { if (!next) setEditingClient(null); }}
+          responsibleId={editingClient.id}
+          responsibleName={editingClient.name}
+          saldo={editingClient.saldo}
+        />
+      )}
     </AppLayout>
   );
 }
