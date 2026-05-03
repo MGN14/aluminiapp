@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useReconciliationRules } from '@/hooks/useReconciliationRules';
 import CrearReglaModal, { ReglaPatronSugerido } from './CrearReglaModal';
 import { MONTH_LABELS_SHORT } from '@/lib/constants';
+import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 
 interface Patron {
   id: string;
@@ -49,6 +50,7 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
   const MESES = MONTH_LABELS_SHORT;
   const { rules } = useReconciliationRules();
   const [reglaModal, setReglaModal] = useState<{ open: boolean; patron?: ReglaPatronSugerido }>({ open: false });
+  const counterpartyResolver = useCounterpartyResolver();
 
   // Patrones guardados por Nico en DB
   const { data: nicoPatterns = [] } = useQuery({
@@ -90,7 +92,7 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       if (!user?.id) return [];
       const { data } = await supabase
         .from('invoices')
-        .select('id, invoice_number, issue_date, total_amount, counterparty_name, status, type')
+        .select('id, invoice_number, issue_date, total_amount, counterparty_name, status, type, responsible_id')
         .eq('user_id', user.id)
         .eq('type', 'venta')
         .gte('issue_date', `${currentYear - 1}-01-01`);
@@ -260,10 +262,13 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       }
     }
 
-    // 5. Clientes recurrentes (desde facturas)
+    // 5. Clientes recurrentes (desde facturas) — resuelto via Beneficiarios
     const clienteMap: Record<string, number> = {};
     invoices.forEach((inv: any) => {
-      if (inv.counterparty_name) clienteMap[inv.counterparty_name] = (clienteMap[inv.counterparty_name] || 0) + (inv.total_amount || 0);
+      const name = resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver);
+      if (name && name !== 'Sin identificar') {
+        clienteMap[name] = (clienteMap[name] || 0) + (inv.total_amount || 0);
+      }
     });
     const topClientes = Object.entries(clienteMap).sort((a, b) => b[1] - a[1]).slice(0, 3);
     const totalFacturado = Object.values(clienteMap).reduce((a, b) => a + b, 0);
@@ -368,7 +373,7 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
     // Ordenar: alert primero, luego warning, luego info; y por confianza
     const orden = { alert: 0, warning: 1, info: 2 };
     return filtrado.sort((a, b) => orden[a.severidad] - orden[b.severidad] || b.confianza - a.confianza);
-  }, [transactions, invoices, inventory, nicoPatterns, currentYear]);
+  }, [transactions, invoices, inventory, nicoPatterns, currentYear, counterpartyResolver]);
 
   const tipos = Object.keys(TIPO_CONFIG) as (keyof typeof TIPO_CONFIG)[];
 

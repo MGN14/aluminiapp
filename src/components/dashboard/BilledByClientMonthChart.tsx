@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { INVOICE_SERIES_COLORS } from '@/lib/chartColors';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { MONTH_NAMES } from '@/types/transaction';
+import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 import {
   ChartFilterBar, useChartFilterParam, type FilterControlSpec,
 } from '@/components/dashboard/ChartFilterBar';
@@ -15,6 +16,7 @@ interface SalesInvoiceLite {
   issue_date: string;
   total_amount: number;
   counterparty_name: string | null;
+  responsible_id: string | null;
 }
 
 interface BilledByClientMonthChartProps {
@@ -37,12 +39,15 @@ export function BilledByClientMonthChart({ salesInvoices, year }: BilledByClient
   const navigate = useNavigate();
   const [topN, setTopN] = useChartFilterParam<TopN>(CHART_ID, 'topN', '5', ['3', '5', '10']);
   const [layout, setLayout] = useChartFilterParam<Layout>(CHART_ID, 'layout', 'stacked', ['stacked', 'grouped']);
+  const counterpartyResolver = useCounterpartyResolver();
 
   const { data, clientKeys } = useMemo(() => {
     const n = Number(topN);
+    const nameOf = (inv: SalesInvoiceLite) =>
+      resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver);
     const totalsByClient = new Map<string, number>();
     salesInvoices.forEach(inv => {
-      const c = inv.counterparty_name?.trim() || 'Sin nombre';
+      const c = nameOf(inv);
       totalsByClient.set(c, (totalsByClient.get(c) || 0) + (inv.total_amount || 0));
     });
     const topClients = Array.from(totalsByClient.entries())
@@ -61,7 +66,7 @@ export function BilledByClientMonthChart({ salesInvoices, year }: BilledByClient
     salesInvoices.forEach(inv => {
       const mi = parseLocalDate(inv.issue_date).getMonth();
       if (mi < 0 || mi > 11) return;
-      const c = inv.counterparty_name?.trim() || 'Sin nombre';
+      const c = nameOf(inv);
       const isTop = topClients.includes(c);
       const key = isTop ? c : 'Otros';
       if (!isTop) hasOthers = true;
@@ -70,7 +75,7 @@ export function BilledByClientMonthChart({ salesInvoices, year }: BilledByClient
       rows[mi].__total = (Number(rows[mi].__total) || 0) + amount;
     });
     return { data: rows, clientKeys: hasOthers ? [...topClients, 'Otros'] : topClients };
-  }, [salesInvoices, topN, year]);
+  }, [salesInvoices, topN, year, counterpartyResolver]);
 
   const controls: FilterControlSpec[] = [
     {

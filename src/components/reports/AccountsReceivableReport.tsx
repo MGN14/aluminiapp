@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
+import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -41,6 +42,7 @@ interface InvoiceWithPayments {
   id: string;
   invoice_number: string;
   counterparty_name: string | null;
+  responsible_id: string | null;
   issue_date: string;
   total_amount: number;
   paid_amount: number;
@@ -81,6 +83,7 @@ export default function AccountsReceivableReport() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [vincularInvoice, setVincularInvoice] = useState<InvoiceWithPayments | null>(null);
   const [vincularSaldoInicial, setVincularSaldoInicial] = useState<VincularSaldoInicialTarget | null>(null);
+  const counterpartyResolver = useCounterpartyResolver();
 
   const toggleRow = (id: string) => {
     setExpandedRows(prev => {
@@ -102,7 +105,7 @@ export default function AccountsReceivableReport() {
       const [invoicesRes, initialDetailsRes, anticiposClienteRes] = await Promise.all([
         supabase
           .from('invoices')
-          .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito, balance_pending, source')
+          .select('id, invoice_number, counterparty_name, responsible_id, issue_date, due_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito, balance_pending, source')
           .eq('user_id', user.id)
           .eq('type', 'venta')
           .gte('issue_date', startDate)
@@ -324,6 +327,7 @@ export default function AccountsReceivableReport() {
           id: inv.id,
           invoice_number: inv.invoice_number,
           counterparty_name: inv.counterparty_name,
+          responsible_id: inv.responsible_id ?? null,
           issue_date: inv.issue_date,
           total_amount: inv.total_amount,
           paid_amount: totalDeducted,
@@ -792,7 +796,7 @@ export default function AccountsReceivableReport() {
                               }
                             </TableCell>
                             <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
-                            <TableCell className="text-sm">{inv.counterparty_name || 'Sin nombre'}</TableCell>
+                            <TableCell className="text-sm">{resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver)}</TableCell>
                             <TableCell className="text-sm whitespace-nowrap">
                               {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
                             </TableCell>
@@ -960,7 +964,7 @@ export default function AccountsReceivableReport() {
                                 )}
                               </TableCell>
                               <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
-                              <TableCell className="text-sm">{inv.counterparty_name || 'Sin nombre'}</TableCell>
+                              <TableCell className="text-sm">{resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver)}</TableCell>
                               <TableCell className="text-sm whitespace-nowrap">
                                 {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
                               </TableCell>

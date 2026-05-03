@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -29,6 +30,7 @@ interface InvoiceWithAging {
   id: string;
   invoice_number: string;
   counterparty_name: string | null;
+  responsible_id: string | null;
   issue_date: string;
   due_date: string;
   total_amount: number;
@@ -61,6 +63,7 @@ export default function AccountsPayableReport() {
   const [year, setYear] = useState(currentYear);
   const [searchQuery, setSearchQuery] = useState('');
   const [bucketFilter, setBucketFilter] = useState<string>('all');
+  const counterpartyResolver = useCounterpartyResolver();
 
   const { data, isLoading } = useQuery({
     queryKey: ['accounts-payable', user?.id, year],
@@ -72,7 +75,7 @@ export default function AccountsPayableReport() {
 
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
-        .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, status, type, dias_credito')
+        .select('id, invoice_number, counterparty_name, responsible_id, issue_date, due_date, total_amount, status, type, dias_credito')
         .eq('user_id', user.id)
         .eq('type', 'compra')
         .gte('issue_date', startDate)
@@ -129,6 +132,7 @@ export default function AccountsPayableReport() {
           id: inv.id,
           invoice_number: inv.invoice_number,
           counterparty_name: inv.counterparty_name,
+          responsible_id: (inv as { responsible_id?: string | null }).responsible_id ?? null,
           issue_date: inv.issue_date,
           due_date: dueDate,
           total_amount: inv.total_amount,
@@ -368,7 +372,7 @@ export default function AccountsPayableReport() {
                       return (
                         <TableRow key={inv.id}>
                           <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
-                          <TableCell className="text-sm">{inv.counterparty_name || 'Sin nombre'}</TableCell>
+                          <TableCell className="text-sm">{resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver)}</TableCell>
                           <TableCell className="text-sm whitespace-nowrap">
                             {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
                           </TableCell>

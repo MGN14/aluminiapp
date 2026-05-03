@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
 import { parseLocalDate, getYearRange } from '@/lib/dateUtils';
+import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/components/dashboard/UnifiedPeriodFilter';
 import { PendingTransactionsTable } from '@/components/dashboard/PendingTransactionsTable';
 import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChart';
@@ -80,9 +81,11 @@ interface ReteicaConfig {
 }
 
 interface SalesInvoiceData {
+  id: string;
   issue_date: string;
   total_amount: number;
   counterparty_name: string | null;
+  responsible_id: string | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────
@@ -128,6 +131,7 @@ function DashboardContent() {
   // factura vinculada). Solo se carga en modo gerencial. Ver useEffect abajo.
   const [previousPeriodAdvances, setPreviousPeriodAdvances] = useState<number>(0);
   const customization = useDashboardCustomization();
+  const counterpartyResolver = useCounterpartyResolver();
   
 
   const now = new Date();
@@ -171,7 +175,7 @@ function DashboardContent() {
   const fetchSalesInvoices = useCallback(async () => {
     try {
       const { start: yearStart, end: yearEnd } = getYearRange(periodSelection.year);
-      const { data, error } = await supabase.from('invoices').select('issue_date, total_amount, counterparty_name').eq('status', 'confirmed').eq('type', 'venta').gte('issue_date', yearStart).lte('issue_date', yearEnd).order('issue_date', { ascending: true });
+      const { data, error } = await supabase.from('invoices').select('id, issue_date, total_amount, counterparty_name, responsible_id').eq('status', 'confirmed').eq('type', 'venta').gte('issue_date', yearStart).lte('issue_date', yearEnd).order('issue_date', { ascending: true });
       if (error) throw error;
       setSalesInvoices((data as SalesInvoiceData[]) || []);
     } catch (error) { console.error('Error fetching sales invoices:', error); setSalesInvoices([]); }
@@ -719,7 +723,7 @@ function DashboardContent() {
                           <div key={inv.id ?? index} className="flex items-start gap-3">
                             <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm text-foreground truncate">{inv.counterparty_name || 'Sin nombre'}</p>
+                              <p className="text-sm text-foreground truncate">{resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver)}</p>
                               <p className="text-[10px] text-muted-foreground">
                                 {parseLocalDate(inv.issue_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                               </p>

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { getYearRange } from '@/lib/dateUtils';
+import { normalizeCompanyName } from '@/lib/stringUtils';
 
 export type SemaforoColor = 'green' | 'yellow' | 'red';
 
@@ -106,7 +107,7 @@ export function useInformeBancoData() {
       const { start: yearStart, end: yearEnd } = getYearRange(thisYear);
       const { start: lastYearStart, end: lastYearEnd } = getYearRange(thisYear - 1);
 
-      const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes, invoiceItemsRes] = await Promise.all([
+      const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes, invoiceItemsRes, aliasRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('company_name, company_nit, company_city, company_address, company_phone, business_description, business_warehouse_location, business_employees_count, business_operation_days, business_logistics, business_main_suppliers')
@@ -144,7 +145,7 @@ export function useInformeBancoData() {
           .lte('date', yearEnd),
         supabase
           .from('responsibles')
-          .select('id, ciudad')
+          .select('id, name, ciudad')
           .eq('user_id', user!.id),
         supabase
           .from('transactions')
@@ -165,6 +166,11 @@ export function useInformeBancoData() {
           .eq('invoices.status', 'confirmed')
           .gte('invoices.issue_date', yearStart)
           .lte('invoices.issue_date', yearEnd),
+        // Aliases de Beneficiarios para resolver nombres canónicos
+        supabase
+          .from('responsible_aliases' as never)
+          .select('responsible_id, alias')
+          .eq('user_id', user!.id),
       ]);
 
       if (profileRes.error) throw profileRes.error;
@@ -179,8 +185,30 @@ export function useInformeBancoData() {
 
       const profile = profileRes.data ?? {};
       const txs = txRes.data ?? [];
-      const invs = (invRes.data ?? []) as Array<{ id: string; type: string; total_amount: number; issue_date: string; counterparty_name: string | null }>;
+      const invs = (invRes.data ?? []) as Array<{ id: string; type: string; total_amount: number; issue_date: string; counterparty_name: string | null; responsible_id: string | null }>;
       const txsPrev = txPrevRes.data ?? [];
+
+      // Resolver de Beneficiarios (Conciliación Bancaria) — fuente única de
+      // verdad para nombres canónicos de cliente/proveedor.
+      const respByIdName = new Map<string, string>();
+      const aliasToCanonical = new Map<string, string>();
+      for (const r of (respRes.data ?? []) as Array<{ id: string; name: string }>) {
+        respByIdName.set(r.id, r.name);
+        aliasToCanonical.set(normalizeCompanyName(r.name), r.name);
+      }
+      for (const a of ((aliasRes as { data: Array<{ responsible_id: string; alias: string }> | null }).data ?? [])) {
+        const canonical = respByIdName.get(a.responsible_id);
+        if (canonical) aliasToCanonical.set(normalizeCompanyName(a.alias), canonical);
+      }
+      const resolveName = (raw: string | null | undefined, respId: string | null | undefined): string => {
+        if (respId) {
+          const n = respByIdName.get(respId);
+          if (n) return n;
+        }
+        const trimmed = (raw ?? '').trim();
+        if (!trimmed) return 'Sin identificar';
+        return aliasToCanonical.get(normalizeCompanyName(trimmed)) ?? trimmed;
+      };
       const products = (productsRes.data ?? []) as Array<{ reference: string | null; stock_system: number; cost_per_unit: number }>;
       const invoiceItems = (invoiceItemsRes.data ?? []) as Array<{ reference: string | null; quantity: number | null }>;
 
@@ -208,10 +236,10 @@ export function useInformeBancoData() {
         ? Math.round((carteraPendiente / facturadoVentaAno) * 365)
         : null;
 
-      // Top clientes por facturación venta del año
+      // Top clientes por facturación venta del año (resuelto via Beneficiarios)
       const byClient = new Map<string, number>();
       for (const i of invThisYear.filter(i => i.type === 'venta')) {
-        const name = i.counterparty_name || 'Sin identificar';
+        const name = resolveName(i.counterparty_name, i.responsible_id);
         byClient.set(name, (byClient.get(name) ?? 0) + Number(i.total_amount || 0));
       }
       const topClientes = Array.from(byClient.entries())

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Invoice } from '@/types/invoice';
 import { parseLocalDate } from '@/lib/dateUtils';
+import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -109,6 +110,7 @@ export default function InvoiceListPage({ type }: Props) {
   const [bulkDeletingErrors, setBulkDeletingErrors] = useState(false);
   const [siigoSyncing, setSiigoSyncing] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  const counterpartyResolver = useCounterpartyResolver();
 
   const isEmpresarial = plan === 'empresarial' || plan === 'pro' || plan === 'admin' || isTrialing;
 
@@ -156,15 +158,14 @@ export default function InvoiceListPage({ type }: Props) {
 
   // Ranking de facturación agrupada por contraparte (cliente para 'venta',
   // proveedor para 'compra'), ordenado de mayor a menor.
-  // Normaliza por name.toLowerCase() para unificar duplicados por casing/espacios.
+  // Usa el resolver para unificar variantes via responsible_id + aliases
+  // de Conciliación Bancaria.
   const counterpartyRanking = useMemo(() => {
     const confirmed = yearScoped.filter(i => i.status === 'confirmed');
     const map = new Map<string, { name: string; total: number; count: number }>();
     for (const i of confirmed) {
-      const rawName = (i.counterparty_name
-        || (type === 'venta' ? i.buyer_name : i.seller_name)
-        || '').trim();
-      const displayName = rawName || 'Sin identificar';
+      const raw = i.counterparty_name || (type === 'venta' ? i.buyer_name : i.seller_name);
+      const displayName = resolveCounterpartyName(raw, i.responsible_id, counterpartyResolver);
       const key = displayName.toLowerCase();
       const prev = map.get(key);
       if (prev) {
@@ -175,7 +176,7 @@ export default function InvoiceListPage({ type }: Props) {
       }
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [yearScoped, type]);
+  }, [yearScoped, type, counterpartyResolver]);
 
   const summaryLabel1 = type === 'venta' ? 'Total facturado' : 'Total comprado';
   const summaryLabel2 = type === 'venta' ? 'IVA generado' : 'IVA descontable';
@@ -749,7 +750,11 @@ export default function InvoiceListPage({ type }: Props) {
                           <TableCell className="font-medium text-sm max-w-[260px]">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="truncate">
-                                {inv.counterparty_name || (type === 'venta' ? inv.buyer_name : inv.seller_name) || '—'}
+                                {resolveCounterpartyName(
+                                  inv.counterparty_name || (type === 'venta' ? inv.buyer_name : inv.seller_name),
+                                  inv.responsible_id,
+                                  counterpartyResolver,
+                                )}
                               </span>
                               {inv.source === 'siigo' && (
                                 <Badge variant="secondary" className="h-4 px-1.5 text-[10px] gap-0.5 flex-shrink-0" title="Importada desde Siigo">

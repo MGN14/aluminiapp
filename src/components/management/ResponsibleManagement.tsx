@@ -134,7 +134,16 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from('responsibles').delete().eq('id', id);
     if (error) {
-      toast({ title: 'No se puede eliminar', description: 'Este beneficiario está en uso.', variant: 'destructive' });
+      // Las FK a `responsibles` son ON DELETE SET NULL en todas las tablas
+      // (invoices, transactions, cash_movements, etc.), así que un error
+      // genuino de "en uso" no debería pasar. Mostramos el mensaje real para
+      // poder diagnosticar (RLS, constraint, lo que sea).
+      console.error('Delete responsible error:', error);
+      toast({
+        title: 'No se pudo eliminar',
+        description: error.message || 'Error desconocido. Revisa la consola.',
+        variant: 'destructive',
+      });
     } else {
       fetchResponsibles();
       onUpdate?.();
