@@ -447,26 +447,46 @@ export default function PaymentsLogReport() {
 
       // Para CLIENTES (lado venta):
       //   - cuentas_por_cobrar: lo que ya nos debían al inicio → SUMA al facturado
-      //   - anticipos_de_clientes (sin invoice_id): nos pagaron antes,
-      //     NO atribuido a una factura específica → RESTA del pendiente
+      //   - anticipos_de_clientes:
+      //       sin invoice_id  → unlinked (saldo a favor general)
+      //       con invoice_id de factura del cliente → linked (descuento de factura puntual)
+      //     AMBOS deben restarse del saldo total — son plata que el cliente
+      //     ya nos pagó, sea atribuida o no a factura específica.
       const cxcInicialRows = matchByRespIdOrName(all.filter(r => r.field_type === 'cuentas_por_cobrar'));
+      const anticiposClienteAllRows = all.filter(r => r.field_type === 'anticipos_de_clientes');
       const anticiposClienteUnlinkedRows = matchByRespIdOrName(
-        all.filter(r => r.field_type === 'anticipos_de_clientes' && !r.invoice_id),
+        anticiposClienteAllRows.filter(r => !r.invoice_id),
+      );
+      // Anticipos LINKED: los que tienen invoice_id y la factura es del cliente.
+      const invIdSet = new Set(invIds);
+      const anticiposClienteLinkedRows = anticiposClienteAllRows.filter(
+        r => r.invoice_id && invIdSet.has(r.invoice_id),
       );
       const cxcInicial = cxcInicialRows.reduce((s, r) => s + Math.abs(Number(r.amount ?? 0)), 0);
       const anticiposClienteUnlinked = anticiposClienteUnlinkedRows.reduce(
         (s, r) => s + Math.abs(Number(r.amount ?? 0)), 0);
+      const anticiposClienteLinked = anticiposClienteLinkedRows.reduce(
+        (s, r) => s + Math.abs(Number(r.amount ?? 0)), 0);
+      const anticiposClienteTotal = anticiposClienteUnlinked + anticiposClienteLinked;
 
       // Para PROVEEDORES (lado compra):
       //   - cuentas_por_pagar: lo que ya les debíamos al inicio → SUMA al facturado compra
       //   - anticipos_a_proveedores: les pagamos antes → RESTA del pendiente
+      //     (incluye linked + unlinked, mismo razonamiento que arriba)
       const cxpInicialRows = matchByRespIdOrName(all.filter(r => r.field_type === 'cuentas_por_pagar'));
+      const anticiposProvAllRows = all.filter(r => r.field_type === 'anticipos_a_proveedores');
       const anticiposProvUnlinkedRows = matchByRespIdOrName(
-        all.filter(r => r.field_type === 'anticipos_a_proveedores' && !r.invoice_id),
+        anticiposProvAllRows.filter(r => !r.invoice_id),
+      );
+      const anticiposProvLinkedRows = anticiposProvAllRows.filter(
+        r => r.invoice_id && invIdSet.has(r.invoice_id),
       );
       const cxpInicial = cxpInicialRows.reduce((s, r) => s + Math.abs(Number(r.amount ?? 0)), 0);
       const anticiposProvUnlinked = anticiposProvUnlinkedRows.reduce(
         (s, r) => s + Math.abs(Number(r.amount ?? 0)), 0);
+      const anticiposProvLinked = anticiposProvLinkedRows.reduce(
+        (s, r) => s + Math.abs(Number(r.amount ?? 0)), 0);
+      const anticiposProvTotal = anticiposProvUnlinked + anticiposProvLinked;
 
       // Saldo real — modelo nuevo:
       //   Total a cobrar venta = facturadoVenta + cxcInicial
@@ -483,7 +503,7 @@ export default function PaymentsLogReport() {
       // Permitimos saldo negativo: significa que recibiste más plata de lo
       // que facturaste — les tenés que emitir facturas (anticipos vivos).
       const totalACobrar = facturadoVenta + cxcInicial;
-      const totalRecibidoVenta = movIngresos + anticiposClienteUnlinked;
+      const totalRecibidoVenta = movIngresos + anticiposClienteTotal;
       const saldoNetoVenta = totalACobrar - totalRecibidoVenta;
       // Para retrocompatibilidad mantenemos "pendienteVenta" pero ahora
       // representa el saldo neto (puede ser negativo).
@@ -492,8 +512,8 @@ export default function PaymentsLogReport() {
 
       const totalAPagar = facturadoCompra + cxpInicial;
       // En el lado compra: el "total entregado" son los egresos al proveedor
-      // por banco + los anticipos a proveedores del saldo inicial.
-      const totalEntregadoCompra = movEgresos + anticiposProvUnlinked;
+      // por banco + los anticipos a proveedores del saldo inicial (linked + unlinked).
+      const totalEntregadoCompra = movEgresos + anticiposProvTotal;
       const saldoNetoCompra = totalAPagar - totalEntregadoCompra;
       const pendienteCompra = saldoNetoCompra;
       // Si pagaste más de lo facturado, son anticipos a ellos (les pagaste de más)
@@ -515,7 +535,11 @@ export default function PaymentsLogReport() {
         cxcInicial,
         cxpInicial,
         anticiposClienteUnlinked,
+        anticiposClienteLinked,
+        anticiposClienteTotal,
         anticiposProvUnlinked,
+        anticiposProvLinked,
+        anticiposProvTotal,
         invoiceCount: (invs ?? []).length,
         invoiceCountVenta: invsVenta.length,
         invoiceCountCompra: invsCompra.length,
@@ -881,7 +905,7 @@ export default function PaymentsLogReport() {
       saldoPorCobrar: counterparty !== 'all' && counterpartySummary && counterpartySummary.hasInvoices
         ? {
             facturado: counterpartySummary.facturado,
-            saldoInicial: counterpartySummary.anticiposClienteUnlinked,
+            saldoInicial: counterpartySummary.anticiposClienteTotal,
             pagosIdentificados: counterpartySummary.movIngresos,
             saldoPendiente: counterpartySummary.pendienteVenta,
           }
@@ -924,8 +948,8 @@ export default function PaymentsLogReport() {
         if (counterpartySummary.hasInvoices) {
           lines.push(`Facturado: ${formatCurrency(counterpartySummary.facturado)}`);
           lines.push(`Pagos identificados: ${formatCurrency(counterpartySummary.movIngresos)}`);
-          if (counterpartySummary.anticiposClienteUnlinked > 0) {
-            lines.push(`Anticipos previos: ${formatCurrency(counterpartySummary.anticiposClienteUnlinked)}`);
+          if (counterpartySummary.anticiposClienteTotal > 0) {
+            lines.push(`Anticipos del cliente: ${formatCurrency(counterpartySummary.anticiposClienteTotal)}`);
           }
           const saldo = counterpartySummary.pendienteVenta;
           if (saldo > 0) {
@@ -1255,9 +1279,9 @@ export default function PaymentsLogReport() {
             const recibido = isVenta ? counterpartySummary!.movIngresos : counterpartySummary!.movEgresos;
             const facturadoLado = isVenta ? counterpartySummary!.facturadoVenta : counterpartySummary!.facturadoCompra;
             const inicialLado = isVenta ? counterpartySummary!.cxcInicial : counterpartySummary!.cxpInicial;
-            const anticiposLado = isVenta ? counterpartySummary!.anticiposClienteUnlinked : counterpartySummary!.anticiposProvUnlinked;
+            const anticiposLado = isVenta ? counterpartySummary!.anticiposClienteTotal : counterpartySummary!.anticiposProvTotal;
             const recibidoLabel = isVenta ? 'Pagos identificados (banco)' : 'Pagos hechos (banco)';
-            const anticiposLabel = isVenta ? 'Anticipos previos (de saldo inicial)' : 'Anticipos pagados (de saldo inicial)';
+            const anticiposLabel = isVenta ? 'Anticipos del cliente' : 'Anticipos a proveedor';
 
             return (
               <Card className={colorClasses.card}>
@@ -1583,7 +1607,11 @@ interface CounterpartySummary {
   cxcInicial: number;
   cxpInicial: number;
   anticiposClienteUnlinked: number;
+  anticiposClienteLinked: number;
+  anticiposClienteTotal: number;
   anticiposProvUnlinked: number;
+  anticiposProvLinked: number;
+  anticiposProvTotal: number;
   invoiceCount: number;
   invoiceCountVenta: number;
   invoiceCountCompra: number;
