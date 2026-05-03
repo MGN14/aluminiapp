@@ -24,7 +24,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Settings, Trash2, Loader2, Link2, GitMerge, AlertTriangle } from 'lucide-react';
+import { Plus, Settings, EyeOff, Loader2, Link2, GitMerge, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface Props {
@@ -138,20 +138,27 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
     onUpdate?.();
   };
 
+  // Soft delete: NO borra el responsible, solo lo desactiva (active=false).
+  // El usuario puede reactivarlo después con el switch. Esto evita perder
+  // datos por click accidental — borrar permanentemente requiere SQL.
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from('responsibles').delete().eq('id', id);
+    const target = responsibles.find(r => r.id === id);
+    const { error } = await supabase
+      .from('responsibles')
+      .update({ active: false })
+      .eq('id', id);
     if (error) {
-      // Las FK a `responsibles` son ON DELETE SET NULL en todas las tablas
-      // (invoices, transactions, cash_movements, etc.), así que un error
-      // genuino de "en uso" no debería pasar. Mostramos el mensaje real para
-      // poder diagnosticar (RLS, constraint, lo que sea).
-      console.error('Delete responsible error:', error);
+      console.error('Soft delete responsible error:', error);
       toast({
-        title: 'No se pudo eliminar',
-        description: error.message || 'Error desconocido. Revisa la consola.',
+        title: 'No se pudo desactivar',
+        description: error.message || 'Error desconocido.',
         variant: 'destructive',
       });
     } else {
+      toast({
+        title: 'Sacado de la lista activa',
+        description: `"${target?.name ?? 'El beneficiario'}" sigue en la base, pero no aparecerá en selectores. Reactivalo con el switch cuando quieras.`,
+      });
       fetchResponsibles();
       onUpdate?.();
     }
@@ -288,9 +295,11 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDelete(r.id)}
-                          className="text-destructive hover:text-destructive"
+                          title="Sacar de la lista activa (no se elimina, solo se desactiva)"
+                          className="text-muted-foreground hover:text-foreground"
+                          disabled={!r.active}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <EyeOff className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
