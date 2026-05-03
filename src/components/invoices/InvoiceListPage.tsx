@@ -18,7 +18,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, Package, RefreshCw, CheckCircle2, Plug } from 'lucide-react';
+import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, RefreshCw, Plug, ArrowDownNarrowWide, ArrowUpNarrowWide } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
@@ -105,14 +105,10 @@ export default function InvoiceListPage({ type }: Props) {
   const [resumeDraft, setResumeDraft] = useState<Invoice | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [reExtractingId, setReExtractingId] = useState<string | null>(null);
-  const [bulkReExtracting, setBulkReExtracting] = useState(false);
   const [confirmBulkDeleteErrors, setConfirmBulkDeleteErrors] = useState(false);
   const [bulkDeletingErrors, setBulkDeletingErrors] = useState(false);
   const [siigoSyncing, setSiigoSyncing] = useState(false);
-  // Progreso visible mientras corre la re-extracción (single o bulk).
-  // current=1/total=1 para single; current=k/total=N para bulk.
-  const [reExtractProgress, setReExtractProgress] = useState<{ current: number; total: number; name: string } | null>(null);
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const isEmpresarial = plan === 'empresarial' || plan === 'pro' || plan === 'admin' || isTrialing;
 
@@ -223,8 +219,13 @@ export default function InvoiceListPage({ type }: Props) {
         (i.invoice_number || '').toLowerCase().includes(q)
       );
     }
-    return result;
-  }, [yearScoped, statusFilter, searchQuery]);
+    const sorted = [...result].sort((a, b) => {
+      const da = a.issue_date || a.created_at || '';
+      const db = b.issue_date || b.created_at || '';
+      return sortOrder === 'desc' ? db.localeCompare(da) : da.localeCompare(db);
+    });
+    return sorted;
+  }, [yearScoped, statusFilter, searchQuery, sortOrder]);
 
   const handleViewPDF = useCallback(async (storagePath: string | null) => {
     if (!storagePath) {
@@ -270,106 +271,6 @@ export default function InvoiceListPage({ type }: Props) {
       setDeleteId(null);
     }
   }, [deleteId, invoices, toast]);
-
-  const reExtractItems = useCallback(async (invoiceId: string): Promise<{ ok: boolean; count?: number; reextractedAt?: string; error?: string }> => {
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      const resp = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/start-invoice-processing`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoice_id: invoiceId, only_items: true }),
-        }
-      );
-      const payload = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        if (payload?.details) console.error('re-extract AI details:', payload.details);
-        return { ok: false, error: payload?.error || `Error ${resp.status}` };
-      }
-      // If items_count is missing, the edge function wasn't redeployed (old version still live).
-      if (typeof payload?.items_count !== 'number') {
-        return {
-          ok: false,
-          error: 'La edge function no se actualizó. Pídele a Lovable que despliegue las funciones (start-invoice-processing).',
-        };
-      }
-      return {
-        ok: true,
-        count: payload.items_count,
-        reextractedAt: typeof payload?.items_reextracted_at === 'string' ? payload.items_reextracted_at : undefined,
-      };
-    } catch (err: any) {
-      return { ok: false, error: err?.message || 'Error inesperado' };
-    }
-  }, []);
-
-  // Merge optimista del marker items_reextracted_at en la factura local, para
-  // evitar un refetch completo tras cada re-extracción.
-  const markReextractedLocally = useCallback((invoiceId: string, reextractedAt: string) => {
-    setInvoices(prev => prev.map(i => {
-      if (i.id !== invoiceId) return i;
-      // Marker optimist — si no había extracted_data, lo dejamos como null
-      // (el merge no aplica). Si había, agregamos el flag.
-      if (!i.extracted_data) return i;
-      const nextExtractedData = { ...i.extracted_data, items_reextracted_at: reextractedAt };
-      return { ...i, extracted_data: nextExtractedData };
-    }));
-  }, []);
-
-  const handleReExtractItems = useCallback(async (inv: Invoice) => {
-    const displayName = inv.invoice_number || inv.display_name || inv.original_filename || 'la factura';
-    setReExtractingId(inv.id);
-    setReExtractProgress({ current: 1, total: 1, name: displayName });
-    const res = await reExtractItems(inv.id);
-    setReExtractingId(null);
-    setReExtractProgress(null);
-    if (res.ok) {
-      // Fallback: si la edge function vieja no devuelve items_reextracted_at,
-      // igual marcamos con timestamp local para que el check verde aparezca
-      // inmediatamente en esta sesión. El refetch/recarga la perdería, pero
-      // una vez que Lovable despliegue la nueva versión quedará persistida en DB.
-      const stamp = res.reextractedAt || new Date().toISOString();
-      markReextractedLocally(inv.id, stamp);
-      toast({ title: 'Ítems re-extraídos', description: `${res.count} líneas guardadas para ${displayName}.` });
-    } else {
-      toast({ title: 'No se pudo re-extraer', description: res.error, variant: 'destructive' });
-    }
-  }, [reExtractItems, toast, markReextractedLocally]);
-
-  const handleBulkReExtract = useCallback(async () => {
-    const targets = invoices.filter(i => i.status === 'confirmed' && (i.storage_path || i.pdf_path));
-    if (targets.length === 0) {
-      toast({ title: 'No hay facturas confirmadas para procesar' });
-      return;
-    }
-    setBulkReExtracting(true);
-    let ok = 0, fail = 0, totalItems = 0;
-    for (let idx = 0; idx < targets.length; idx++) {
-      const inv = targets[idx];
-      const displayName = inv.invoice_number || inv.display_name || inv.original_filename || 'factura';
-      setReExtractingId(inv.id);
-      setReExtractProgress({ current: idx + 1, total: targets.length, name: displayName });
-      const res = await reExtractItems(inv.id);
-      if (res.ok) {
-        ok++;
-        totalItems += res.count ?? 0;
-        const stamp = res.reextractedAt || new Date().toISOString();
-        markReextractedLocally(inv.id, stamp);
-      } else {
-        fail++;
-      }
-    }
-    setReExtractingId(null);
-    setReExtractProgress(null);
-    setBulkReExtracting(false);
-    toast({
-      title: 'Re-extracción masiva completa',
-      description: `${ok} facturas OK · ${totalItems} ítems · ${fail} errores`,
-      variant: fail > 0 && ok === 0 ? 'destructive' : 'default',
-    });
-  }, [invoices, reExtractItems, toast, markReextractedLocally]);
 
   // Bulk-delete every invoice in status 'error'. Useful to clean up rows that
   // accumulated when Gemini was rate-limited or parsing failed repeatedly.
@@ -523,38 +424,31 @@ export default function InvoiceListPage({ type }: Props) {
                 Limpiar errores ({errorCount})
               </Button>
             )}
-            {type === 'venta' && (
-              <Button
-                variant="outline"
-                onClick={handleBulkReExtract}
-                disabled={bulkReExtracting}
-                className="gap-2"
-                title="Re-extrae los ítems de todas las facturas confirmadas (para poblar el Top 3 Referencias)"
-              >
-                {bulkReExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
-                Re-extraer ítems
-              </Button>
-            )}
             <Button
               variant="outline"
               onClick={() => handleSiigoSync(false)}
               disabled={siigoSyncing}
-              className="gap-2"
-              title={`Importar ${type === 'venta' ? 'facturas de venta' : 'facturas de compra'} desde Siigo (últimos 30 días)`}
+              className="gap-2 h-auto py-2 flex-col items-start"
+              title={`Importar ${type === 'venta' ? 'facturas de venta' : 'facturas de compra'} desde Siigo (últimos 30 días). Rápido — usalo a diario.`}
             >
-              {siigoSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
-              Traer de Siigo
+              <span className="flex items-center gap-2">
+                {siigoSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
+                Traer de Siigo
+              </span>
+              <span className="text-[10px] text-muted-foreground font-normal leading-none">Últimos 30 días · uso diario</span>
             </Button>
             <Button
-              variant="ghost"
-              size="sm"
+              variant="outline"
               onClick={() => handleSiigoSync(true)}
               disabled={siigoSyncing}
-              className="gap-1.5 text-xs"
-              title="Re-importar TODO desde 1 ene del año actual. Útil cuando borraste una factura y necesitás recuperarla, o tras cambios estructurales."
+              className="gap-2 h-auto py-2 flex-col items-start"
+              title={`Re-importa TODO desde el 1 de enero del ${currentYear}. Más lento. Usalo solo si borraste una factura y necesitás recuperarla.`}
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Sincronización completa
+              <span className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Sincronización completa
+              </span>
+              <span className="text-[10px] text-muted-foreground font-normal leading-none">Año {currentYear} completo · si borraste algo</span>
             </Button>
             <Button onClick={handleOpenUpload} className="gap-2">
               <Upload className="h-4 w-4" />
@@ -562,29 +456,6 @@ export default function InvoiceListPage({ type }: Props) {
             </Button>
           </div>
         </div>
-
-        {/* Banner de progreso de re-extracción (visible durante single o bulk) */}
-        {reExtractProgress && (
-          <div
-            style={{
-              background: 'oklch(0.52 0.16 240 / 0.06)',
-              border: '1.5px solid oklch(0.52 0.16 240 / 0.18)',
-              borderRadius: 12,
-              padding: '12px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-            }}
-          >
-            <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'oklch(0.52 0.16 240)', flexShrink: 0 }} />
-            <div style={{ fontSize: 13, color: '#1d1d1f' }}>
-              <span style={{ fontWeight: 600 }}>
-                Re-extrayendo {reExtractProgress.total > 1 ? `${reExtractProgress.current} de ${reExtractProgress.total}` : 'factura'}:
-              </span>{' '}
-              <span style={{ color: '#6e6e73' }}>{reExtractProgress.name}</span>
-            </div>
-          </div>
-        )}
 
         {/* Micro summary */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -807,6 +678,26 @@ export default function InvoiceListPage({ type }: Props) {
               </SelectContent>
             </Select>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Fecha:</span>
+            <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as 'desc' | 'asc')}>
+              <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="desc">
+                  <span className="flex items-center gap-2">
+                    <ArrowDownNarrowWide className="h-3.5 w-3.5" />
+                    Más nuevas primero
+                  </span>
+                </SelectItem>
+                <SelectItem value="asc">
+                  <span className="flex items-center gap-2">
+                    <ArrowUpNarrowWide className="h-3.5 w-3.5" />
+                    Más antiguas primero
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Table */}
@@ -850,17 +741,6 @@ export default function InvoiceListPage({ type }: Props) {
                       const s = statusLabel[inv.status] || statusLabel.draft;
                       const displayDate = inv.issue_date || inv.created_at;
                       const isDraftOrError = ['draft', 'error', 'uploading', 'processing', 'ready'].includes(inv.status);
-                      const reextractedAtRaw = (inv.extracted_data as { items_reextracted_at?: unknown } | null)?.items_reextracted_at;
-                      const reextractedAt = typeof reextractedAtRaw === 'string' ? reextractedAtRaw : null;
-                      const reextractedLabel = reextractedAt
-                        ? (() => {
-                            try {
-                              return format(new Date(reextractedAt), "d MMM yy HH:mm", { locale: es });
-                            } catch {
-                              return null;
-                            }
-                          })()
-                        : null;
                       return (
                         <TableRow key={inv.id} className={isDraftOrError ? 'bg-warning/5' : ''}>
                           <TableCell className="text-sm">
@@ -876,13 +756,6 @@ export default function InvoiceListPage({ type }: Props) {
                                   <Plug className="h-2.5 w-2.5" />
                                   Siigo
                                 </Badge>
-                              )}
-                              {reextractedAt && (
-                                <CheckCircle2
-                                  className="h-3.5 w-3.5 flex-shrink-0"
-                                  style={{ color: 'oklch(0.43 0.14 155)' }}
-                                  aria-label="Ítems re-extraídos"
-                                />
                               )}
                             </div>
                           </TableCell>
@@ -909,32 +782,6 @@ export default function InvoiceListPage({ type }: Props) {
                                 <Button variant="ghost" size="icon" className="h-8 w-8" title="Ver PDF" onClick={() => handleViewPDF(inv.storage_path || inv.pdf_path)}>
                                   <Eye className="h-4 w-4" />
                                 </Button>
-                              )}
-                              {inv.status === 'confirmed' && (inv.storage_path || inv.pdf_path) && (
-                                <div className="flex items-center gap-1">
-                                  {reextractedLabel && (
-                                    <span
-                                      className="text-[10px] text-muted-foreground whitespace-nowrap"
-                                      title={`Última re-extracción: ${reextractedLabel}`}
-                                    >
-                                      re-ext. {reextractedLabel}
-                                    </span>
-                                  )}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    title={reextractedLabel
-                                      ? `Re-extraer ítems de línea (última: ${reextractedLabel})`
-                                      : 'Re-extraer ítems de línea'}
-                                    onClick={() => handleReExtractItems(inv)}
-                                    disabled={reExtractingId === inv.id || bulkReExtracting}
-                                  >
-                                    {reExtractingId === inv.id
-                                      ? <Loader2 className="h-4 w-4 animate-spin" />
-                                      : <RefreshCw className="h-4 w-4" />}
-                                  </Button>
-                                </div>
                               )}
                               <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Eliminar" onClick={() => setDeleteId(inv.id)}>
                                 <Trash2 className="h-4 w-4" />
