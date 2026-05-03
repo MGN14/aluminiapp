@@ -17,6 +17,7 @@ import PaymentMethodCard from '@/components/subscription/PaymentMethodCard';
 import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import SiigoConnectionCard from '@/components/settings/SiigoConnectionCard';
+import DIANConnectionCard from '@/components/dian/DIANConnectionCard';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mail, Building2, Shield, LogOut, Key, Save, ClipboardList, Pencil, Crown, Sparkles, Rocket, ArrowUpRight, Zap, Clock } from 'lucide-react';
 
@@ -380,29 +381,30 @@ export default function Settings() {
         <CategoriesDeductibleSettings />
         <InitialFinancialStateCard />
 
-        {/* Siigo + Seguridad en grid */}
-        <div className="grid lg:grid-cols-2 gap-6">
-          <SiigoConnectionCard />
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Shield className="h-5 w-5 text-muted-foreground" />
-                Seguridad
-              </CardTitle>
-              <CardDescription>Contraseña y sesión</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button variant="outline" onClick={handleChangePassword}>
-                  <Key className="h-4 w-4 mr-2" />Cambiar contraseña
-                </Button>
-                <Button variant="destructive" onClick={handleSignOut}>
-                  <LogOut className="h-4 w-4 mr-2" />Cerrar sesión
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Conexiones contables/fiscales — full width c/u */}
+        <SiigoConnectionCard />
+        <DIANConnectionCard />
+
+        {/* Seguridad */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Shield className="h-5 w-5 text-muted-foreground" />
+              Seguridad
+            </CardTitle>
+            <CardDescription>Contraseña y sesión</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button variant="outline" onClick={handleChangePassword}>
+                <Key className="h-4 w-4 mr-2" />Cambiar contraseña
+              </Button>
+              <Button variant="destructive" onClick={handleSignOut}>
+                <LogOut className="h-4 w-4 mr-2" />Cerrar sesión
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </AppLayout>
   );
