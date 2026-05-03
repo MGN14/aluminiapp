@@ -291,30 +291,44 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
         </div>
       </div>
 
-      {/* Counterparty */}
+      {/* Counterparty
+          El campo "Cliente"/"Proveedor" libre se eliminó para evitar duplicación.
+          counterparty_name se auto-sincroniza con el name del responsible
+          seleccionado (debajo). Si la factura viene de Siigo/PDF, el
+          counterparty_name original queda como dato auxiliar (visible en NIT).
+       */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 rounded-md border border-border">
-        <div>
-          <Label>{form.type === 'venta' ? 'Cliente' : 'Proveedor'}</Label>
-          <Input value={form.counterparty_name} onChange={e => update('counterparty_name', e.target.value)} />
-        </div>
         <div>
           <Label>NIT</Label>
           <Input value={form.counterparty_nit} onChange={e => update('counterparty_nit', e.target.value)} />
         </div>
-        {/* Vinculación con beneficiario del banco — atado a tabla responsibles.
-            Permite cruzar la factura con movimientos bancarios por FK exacta
-            en vez de matching por nombre. */}
+        <div>
+          <Label className="text-xs text-muted-foreground">{form.type === 'venta' ? 'Cliente actual' : 'Proveedor actual'}</Label>
+          <p className="text-sm py-2 px-3 bg-muted/40 rounded-md min-h-[36px]">
+            {form.counterparty_name || <span className="text-muted-foreground italic">Sin definir — vincula un beneficiario abajo</span>}
+          </p>
+        </div>
+        {/* Vinculación con beneficiario del banco — fuente única de verdad. */}
         <div className="sm:col-span-2">
           <Label className="flex items-center gap-2">
-            Vincular con beneficiario del banco
+            {form.type === 'venta' ? 'Cliente / Beneficiario del banco' : 'Proveedor / Beneficiario del banco'}
             <span className="text-[11px] font-normal text-muted-foreground">
-              (opcional pero muy recomendado para reportes precisos)
+              (importante para reportes y conciliación)
             </span>
           </Label>
           <div className="flex gap-2 mt-1">
             <Select
               value={form.responsible_id ?? '__none__'}
-              onValueChange={(v) => update('responsible_id', v === '__none__' ? null : v)}
+              onValueChange={(v) => {
+                const newRespId = v === '__none__' ? null : v;
+                update('responsible_id', newRespId);
+                // Auto-sync counterparty_name con el nombre del responsible
+                // seleccionado para que reportes y filtros queden consistentes.
+                if (newRespId) {
+                  const r = responsibles.find(x => x.id === newRespId);
+                  if (r) update('counterparty_name', r.name);
+                }
+              }}
             >
               <SelectTrigger className="flex-1">
                 <SelectValue placeholder="Sin vincular" />

@@ -438,17 +438,21 @@ export default function InvoiceListPage({ type }: Props) {
     setUploadOpen(true);
   }, []);
 
-  const handleSiigoSync = useCallback(async () => {
+  const handleSiigoSync = useCallback(async (full = false) => {
     setSiigoSyncing(true);
     try {
+      // full=true ignora last_invoice_pulled_at y trae desde 1 ene del año
+      // actual. Se usa cuando el user borró una factura y necesita re-traerla
+      // (típicamente facturas anteriores a 30 días que el sync regular no
+      // re-importa) o tras cambios estructurales.
       const { data, error } = await supabase.functions.invoke('siigo-sync-invoices', {
-        body: { kinds: [type] },
+        body: { kinds: [type], full },
       });
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || 'No se pudo sincronizar');
       toast({
-        title: 'Siigo sincronizado',
-        description: `${data.synced ?? 0} facturas procesadas${data.skipped ? `, ${data.skipped} omitidas` : ''}.`,
+        title: full ? 'Sincronización completa terminada' : 'Siigo sincronizado',
+        description: `${data.synced ?? 0} facturas procesadas${data.skipped ? `, ${data.skipped} omitidas` : ''}${full ? ' (desde 1 ene del año)' : ''}.`,
       });
       await fetchInvoices();
     } catch (e: any) {
@@ -533,13 +537,24 @@ export default function InvoiceListPage({ type }: Props) {
             )}
             <Button
               variant="outline"
-              onClick={handleSiigoSync}
+              onClick={() => handleSiigoSync(false)}
               disabled={siigoSyncing}
               className="gap-2"
-              title={`Importar ${type === 'venta' ? 'facturas de venta' : 'facturas de compra'} desde Siigo`}
+              title={`Importar ${type === 'venta' ? 'facturas de venta' : 'facturas de compra'} desde Siigo (últimos 30 días)`}
             >
               {siigoSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
               Traer de Siigo
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleSiigoSync(true)}
+              disabled={siigoSyncing}
+              className="gap-1.5 text-xs"
+              title="Re-importar TODO desde 1 ene del año actual. Útil cuando borraste una factura y necesitás recuperarla, o tras cambios estructurales."
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Sincronización completa
             </Button>
             <Button onClick={handleOpenUpload} className="gap-2">
               <Upload className="h-4 w-4" />

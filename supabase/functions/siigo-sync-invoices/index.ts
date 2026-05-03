@@ -85,6 +85,10 @@ serve(async (req) => {
       since?: string;
       until?: string;
       kinds?: Kind[];
+      /** Sincronización completa: ignora last_invoice_pulled_at y trae
+       *  desde 1 ene del año actual. Útil para recuperar facturas borradas
+       *  o forzar re-import tras cambios estructurales. */
+      full?: boolean;
     };
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -163,8 +167,14 @@ serve(async (req) => {
     // Siigo filters by document date (not API creation), and users often create
     // invoices backdated a day or two. Using the exact pulled_at timestamp
     // silently drops invoices with issue_date < pulled_at. First sync uses 90d.
-    const since = body.since
-      ?? (creds.last_invoice_pulled_at ? daysAgo(30) : daysAgo(90));
+    //
+    // body.full=true → ignora todo y trae desde 1 ene del año actual (caso
+    // típico: el user borró una factura y necesita re-traerla, o quiere
+    // re-importar todo después de cambios estructurales).
+    const since = body.full
+      ? `${new Date().getFullYear()}-01-01`
+      : (body.since
+          ?? (creds.last_invoice_pulled_at ? daysAgo(30) : daysAgo(90)));
     const until = body.until ?? today();
     const kinds: Kind[] = body.kinds && body.kinds.length > 0
       ? body.kinds
