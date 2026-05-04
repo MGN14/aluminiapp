@@ -64,6 +64,68 @@ export default async ({ page, context }) => {
     result.meta.modalDismissed = dismissed;
     if (dismissed.hadModal) await sleep(1500);
 
+    // Click pestaña "A nombre de un tercero" — búsqueda permisiva
+    result.stage = 'click_tercero_tab';
+    const tabClicked = await page.evaluate(() => {
+      const target = 'A nombre de un tercero';
+      // Buscar elemento cuyo TEXTO PROPIO (no incluyendo descendants) coincida
+      const all = document.querySelectorAll('*');
+      const candidates = [];
+      for (const el of all) {
+        let ownText = '';
+        for (const node of el.childNodes) {
+          if (node.nodeType === 3) ownText += node.textContent;
+        }
+        ownText = ownText.trim();
+        if (ownText === target || ownText.startsWith(target)) {
+          candidates.push(el);
+        }
+      }
+      if (candidates.length === 0) {
+        // Fallback: textContent contains, length reasonable
+        for (const el of all) {
+          const txt = (el.textContent || '').trim();
+          if (txt.includes(target) && txt.length < 60) {
+            candidates.push(el);
+            break;
+          }
+        }
+      }
+      if (candidates.length === 0) return { found: false };
+
+      // Para cada candidato, subir hasta encontrar ancestro clickeable
+      for (const cand of candidates) {
+        let cur = cand;
+        for (let i = 0; i < 6 && cur; i++) {
+          const tag = cur.tagName;
+          const role = cur.getAttribute('role');
+          const cursor = (typeof getComputedStyle === 'function')
+            ? getComputedStyle(cur).cursor : 'auto';
+          if (tag === 'A' || tag === 'BUTTON' || role === 'tab' || role === 'button' || cursor === 'pointer') {
+            cur.click();
+            return {
+              found: true,
+              clickedTag: tag,
+              clickedCls: (cur.className || '').toString().slice(0, 100),
+              clickedRole: role,
+            };
+          }
+          cur = cur.parentElement;
+        }
+      }
+      // Último recurso: click el primer candidato directo
+      candidates[0].click();
+      return {
+        found: true,
+        fallback: true,
+        clickedTag: candidates[0].tagName,
+        clickedCls: (candidates[0].className || '').toString().slice(0, 100),
+      };
+    });
+    result.meta.tabClicked = tabClicked;
+    if (!tabClicked.found) throw new Error('No encontré la pestaña "A nombre de un tercero" en el DOM');
+    await sleep(2500);
+
     result.stage = 'capture_state';
     result.meta.url = page.url();
     result.meta.title = await page.title();
@@ -121,8 +183,8 @@ export default async ({ page, context }) => {
       }).filter(b => b.visible);
     });
 
-    result.stage = 'DIAGNOSTIC_DUMP_V2';
-    result.meta.note = 'V2: modal cerrado + inputs sin filtrar por texto + labels asociadas.';
+    result.stage = 'DIAGNOSTIC_DUMP_V3';
+    result.meta.note = 'V3: modal cerrado + tab "tercero" clickeado + form completo capturado.';
     return { data: result, type: 'application/json' };
   } catch (err) {
     result.error = err && err.message ? err.message : String(err);
@@ -268,7 +330,8 @@ serve(async (req) => {
     if (
       stage === "CALIBRATION_PENDING" ||
       stage === "DIAGNOSTIC_DUMP" ||
-      stage === "DIAGNOSTIC_DUMP_V2"
+      stage === "DIAGNOSTIC_DUMP_V2" ||
+      stage === "DIAGNOSTIC_DUMP_V3"
     ) {
       verifyResult = {
         status: "warning",
