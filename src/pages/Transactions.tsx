@@ -34,6 +34,57 @@ import { FileText, Loader2, AlertCircle, Users, ArrowUp, ArrowDown, ArrowUpDown 
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
 
+// ─── Persistencia de filtros en sessionStorage ───
+// Chrome/Safari pueden "discard" pestañas inactivas para liberar memoria.
+// Cuando el user vuelve, el componente se re-monta desde cero y los useState
+// pierden su valor. Persistir en sessionStorage hace que los filtros, año y
+// extracto seleccionados sobrevivan ese ciclo y no se sienta como "se reseteó".
+// sessionStorage (no localStorage) → persiste por pestaña, se limpia al cerrar.
+const FILTERS_STORAGE_KEY = 'aluminia_transactions_filters_v1';
+const YEAR_STORAGE_KEY = 'aluminia_transactions_selected_year_v1';
+const STATEMENT_STORAGE_KEY = 'aluminia_transactions_selected_statement_v1';
+
+function loadFilters(): TransactionFilterState {
+  try {
+    const raw = sessionStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw) return defaultFilters;
+    const parsed = JSON.parse(raw) as Omit<TransactionFilterState, 'dateFrom' | 'dateTo'> & {
+      dateFrom?: string | null;
+      dateTo?: string | null;
+    };
+    return {
+      ...defaultFilters,
+      ...parsed,
+      dateFrom: parsed.dateFrom ? new Date(parsed.dateFrom) : undefined,
+      dateTo: parsed.dateTo ? new Date(parsed.dateTo) : undefined,
+    };
+  } catch {
+    return defaultFilters;
+  }
+}
+
+function saveFilters(filters: TransactionFilterState) {
+  try {
+    sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify({
+      ...filters,
+      dateFrom: filters.dateFrom ? filters.dateFrom.toISOString() : null,
+      dateTo: filters.dateTo ? filters.dateTo.toISOString() : null,
+    }));
+  } catch { /* private mode / quota */ }
+}
+
+function loadStringFromStorage(key: string, fallback: string): string {
+  try {
+    return sessionStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveStringToStorage(key: string, value: string) {
+  try { sessionStorage.setItem(key, value); } catch { /* ignore */ }
+}
+
 interface Statement {
   id: string;
   file_name: string;
@@ -65,13 +116,14 @@ export default function Transactions() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
   const [statements, setStatements] = useState<Statement[]>([]);
-  const [selectedYear, setSelectedYear] = useState<string>(String(currentYear));
+  // Inicializamos desde sessionStorage para sobrevivir tab discard / re-mounts.
+  const [selectedYear, setSelectedYear] = useState<string>(() => loadStringFromStorage(YEAR_STORAGE_KEY, String(currentYear)));
   const [availableYears, setAvailableYears] = useState<number[]>([]);
-  const [selectedStatement, setSelectedStatement] = useState<string>('all');
+  const [selectedStatement, setSelectedStatement] = useState<string>(() => loadStringFromStorage(STATEMENT_STORAGE_KEY, 'all'));
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_rate: 0 });
-  const [filters, setFilters] = useState<TransactionFilterState>(defaultFilters);
+  const [filters, setFilters] = useState<TransactionFilterState>(() => loadFilters());
   // Track IDs that were pending when the "Pendientes" filter was activated,
   // so they stay visible even after receiving a beneficiario mid-session.
   const [pinnedPendingIds, setPinnedPendingIds] = useState<Set<string>>(new Set());
@@ -94,6 +146,12 @@ export default function Transactions() {
     fetchResponsibles();
     fetchReteicaConfig();
   }, []);
+
+  // Persistir filtros, año y extracto cada vez que cambian (sobrevive a
+  // re-mounts por tab discard).
+  useEffect(() => { saveFilters(filters); }, [filters]);
+  useEffect(() => { saveStringToStorage(YEAR_STORAGE_KEY, selectedYear); }, [selectedYear]);
+  useEffect(() => { saveStringToStorage(STATEMENT_STORAGE_KEY, selectedStatement); }, [selectedStatement]);
 
   const fetchReteicaConfig = async () => {
     const { data: { user } } = await supabase.auth.getUser();
