@@ -370,15 +370,16 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     : ['na'];
 
   return (
-    <div className={cn('flex flex-wrap items-center gap-1', className)}>
-      {/* Selected invoice chip */}
+    <div className={cn('flex flex-nowrap items-center gap-1 min-w-0', className)}>
+      {/* Selected invoice chip — verde primario para destacar conciliación exitosa */}
       {selectedInvoice && (
-        <span className="inline-flex items-center gap-1 text-xs bg-muted rounded px-1.5 py-0.5 max-w-[120px]">
+        <span className="inline-flex items-center gap-1 text-xs rounded-md px-1.5 py-0.5 min-w-0 flex-1 bg-primary/10 text-primary border border-primary/20 font-medium">
           <FileText className="h-3 w-3 shrink-0" />
-          <span className="truncate">{selectedInvoice.invoice_number}</span>
+          <span className="truncate" title={selectedInvoice.invoice_number}>{selectedInvoice.invoice_number}</span>
           <button
-            className="shrink-0 hover:text-destructive"
+            className="shrink-0 hover:text-destructive opacity-60 hover:opacity-100"
             onClick={(e) => { e.stopPropagation(); clearInvoice(); }}
+            aria-label="Quitar factura"
           >
             <X className="h-3 w-3" />
           </button>
@@ -392,7 +393,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
         return (
           <span
             key={tag}
-            className={cn('inline-flex items-center gap-1 text-xs bg-muted rounded px-1.5 py-0.5', config.colorClass)}
+            className={cn('inline-flex items-center gap-1 text-xs bg-muted rounded px-1.5 py-0.5 shrink-0', config.colorClass)}
           >
             <Icon className="h-3 w-3 shrink-0" />
             <span>{config.label}</span>

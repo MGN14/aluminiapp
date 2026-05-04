@@ -494,11 +494,11 @@ export default function Transactions() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <Table>
+                  <Table className="table-fixed w-full">
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead
-                          className="w-[80px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
+                          className="w-[72px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
                           onClick={() => setFilters({ ...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
                           title="Click para invertir orden por fecha"
                         >
@@ -509,9 +509,9 @@ export default function Transactions() {
                               : <ArrowDown className="h-3 w-3 text-primary" />}
                           </span>
                         </TableHead>
-                        <TableHead className="min-w-[300px]">Descripción</TableHead>
+                        <TableHead>Descripción</TableHead>
                         <TableHead
-                          className="text-right w-[110px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
+                          className="text-right w-[100px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
                           onClick={() => {
                             const next = filters.amountSortOrder === null
                               ? 'desc'
@@ -529,10 +529,10 @@ export default function Transactions() {
                             {filters.amountSortOrder === null && <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />}
                           </span>
                         </TableHead>
-                        <TableHead className="w-[110px]">Tipo</TableHead>
-                        <TableHead className="w-[140px]">Categoría</TableHead>
-                        <TableHead className="w-[140px]">Beneficiario</TableHead>
-                        <TableHead className="w-[160px]">#Factura</TableHead>
+                        <TableHead className="w-[80px]">Tipo</TableHead>
+                        <TableHead className="w-[120px]">Categoría</TableHead>
+                        <TableHead className="w-[120px]">Beneficiario</TableHead>
+                        <TableHead className="w-[140px]">#Factura</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

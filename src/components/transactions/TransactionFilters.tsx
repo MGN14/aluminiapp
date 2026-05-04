@@ -125,12 +125,10 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
             onClick={() => update({ estado: 'pendientes' })}
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
-              display:'inline-flex', alignItems:'center', gap:4,
               background: filters.estado === 'pendientes' ? 'oklch(0.65 0.15 65)' : 'transparent',
               color: filters.estado === 'pendientes' ? '#fff' : '#6e6e73',
             }}
           >
-            <Circle className="h-3 w-3" />
             Pendientes ({counts.pendientes})
           </button>
           <button
@@ -138,12 +136,10 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
             onClick={() => update({ estado: 'conciliadas' })}
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
-              display:'inline-flex', alignItems:'center', gap:4,
               background: filters.estado === 'conciliadas' ? 'oklch(0.43 0.14 155)' : 'transparent',
               color: filters.estado === 'conciliadas' ? '#fff' : '#6e6e73',
             }}
           >
-            <CheckCircle2 className="h-3 w-3" />
             Conciliadas ({counts.conciliadas})
           </button>
         </div>
@@ -194,7 +190,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
                 <SelectValue placeholder="Categoría" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="_all">Todas las categorías</SelectItem>
+                <SelectItem value="_all">Categorías</SelectItem>
                 {activeCategories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name}
@@ -220,7 +216,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
                 <SelectValue placeholder="Beneficiario" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="_all">Todos los beneficiarios</SelectItem>
+                <SelectItem value="_all">Beneficiarios</SelectItem>
                 {activeResponsibles.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
                     {r.name}

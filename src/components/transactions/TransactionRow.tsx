@@ -241,14 +241,14 @@ export default function TransactionRow({
         background: 'oklch(0.65 0.15 65 / 0.03)',
       } : {}}
     >
-      <TableCell className="font-medium text-sm w-[80px]">
+      <TableCell className="font-medium text-sm w-[72px]">
         {format(parseLocalDate(localTransaction.date), 'dd MMM', { locale: es })}
       </TableCell>
-      
-      <TableCell className="min-w-[300px] max-w-[450px]">
+
+      <TableCell>
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <span className="text-sm truncate flex-1 cursor-help">
                 {localTransaction.description}
               </span>
@@ -267,13 +267,13 @@ export default function TransactionRow({
           </TooltipContent>
         </Tooltip>
       </TableCell>
-      
-      <TableCell className={`text-right font-bold text-sm w-[110px] ${amountColor}`}>
+
+      <TableCell className={`text-right font-bold text-sm w-[100px] ${amountColor}`}>
         {formatCurrency(localTransaction.amount)}
       </TableCell>
-      
+
       {/* Simplified Type Selector */}
-      <TableCell className="w-[110px]">
+      <TableCell className="w-[80px]">
         <Select
           value={localTransaction.type || 'egreso'}
           onValueChange={(value) => handleTypeChange(value as SimpleTransactionType)}
@@ -290,9 +290,9 @@ export default function TransactionRow({
           </SelectContent>
         </Select>
       </TableCell>
-      
+
       {/* Category */}
-      <TableCell className="w-[140px]">
+      <TableCell className="w-[120px]">
         <SearchableSelect
           options={categoryOptions}
           value={localTransaction.category_id}
@@ -304,9 +304,9 @@ export default function TransactionRow({
           triggerClassName="w-full"
         />
       </TableCell>
-      
+
       {/* Responsible */}
-      <TableCell className="w-[140px]">
+      <TableCell className="w-[120px]">
         <div className="flex items-center gap-1">
           <SearchableSelect
             options={responsibleOptions}
@@ -332,7 +332,7 @@ export default function TransactionRow({
       </TableCell>
       
       {/* #Factura - Invoice Selector */}
-      <TableCell className="w-[160px]">
+      <TableCell className="w-[140px]">
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <div style={{flex:1,minWidth:0}}>
             <InvoiceSelector
