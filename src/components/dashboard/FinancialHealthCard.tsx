@@ -18,7 +18,6 @@ const ACTION_MESSAGES: Record<ScoreVariableKey, string> = {
   facturacion: 'Emití facturas DIAN de los ingresos que todavía no están respaldados.',
   impuestos: 'Revisá descuadres entre inventario Siigo y el conteo físico.',
   cartera: 'Cobrá lo que te deben o asociá facturas a los anticipos pendientes.',
-  clasificacion: 'Completá categoría y responsable en las transacciones pendientes.',
 };
 
 export default function FinancialHealthCard({ year, month }: Props) {

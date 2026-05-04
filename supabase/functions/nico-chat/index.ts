@@ -125,6 +125,7 @@ serve(async (req) => {
       { data: businessMemory },
       { data: businessPatterns },
       { data: cashMovements },
+      { data: businessObligations },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -211,6 +212,16 @@ serve(async (req) => {
         .eq("user_id", user.id)
         .gte("date", yearStart)
         .lte("date", yearEnd),
+      // Obligaciones del negocio (calendario tributario + créditos + custom).
+      // Trae monto_estimado y fecha para que Nico pueda responder cuánto se
+      // debe en cada obligación y cuándo vence.
+      supabase
+        .from("business_obligations")
+        .select("id, tipo, nombre, monto_estimado, fecha, periodo")
+        .eq("user_id", user.id)
+        .gte("fecha", yearStart)
+        .order("fecha", { ascending: true })
+        .limit(120),
     ]);
 
     // Indicadores macro (TRM + futuros). Tabla compartida read-only.
@@ -747,7 +758,7 @@ serve(async (req) => {
     const scoreTotalCalc = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion) * 10) / 10;
 
     const healthScoreCtx = `Score total: ${scoreTotalCalc}/100 (${monthNames[thisMonth - 1]} ${thisYear})
-Conciliación: ${scoreConciliacion}/20, Facturación soportada: ${scoreFacturacion}/20, Control de Inventario: ${scoreImpuestos}/20 (descuadre Siigo vs físico en costo — ratio ${(ratioDescuadreInv * 100).toFixed(1)}%), Cartera y anticipos: ${scoreCartera}/20, Pulmón financiero: ${scoreClasificacion}/20`;
+Conciliación: ${scoreConciliacion}/25, Facturación soportada: ${scoreFacturacion}/25, Control de Inventario: ${scoreImpuestos}/25 (descuadre Siigo vs físico en costo — ratio ${(ratioDescuadreInv * 100).toFixed(1)}%), Cartera y anticipos: ${scoreCartera}/25`;
 
     // =============================================
     // MODULE 8: INVENTARIO OPERATIVO
@@ -928,6 +939,18 @@ Saldo al corte del cuatrimestre actual (neto = compras - ventas): ${fmt(-ivaNeto
 Saldo a favor ARRASTRADO del cuatrimestre anterior: ${fmt(ivaSaldoFavorAnterior)}
 IVA neto a pagar (después de aplicar saldo arrastrado): ${fmt(ivaNeto)}
 ${ivaSaldoFavorAnterior > 0 ? `NOTA: El saldo arrastrado de ${fmt(ivaSaldoFavorAnterior)} proviene del cuatrimestre anterior donde las compras generaron más IVA descontable que el IVA de ventas.` : ""}
+
+OBLIGACIONES PRÓXIMAS (con monto estimado cuando el negocio lo configuró):
+${(() => {
+  const obs = (businessObligations ?? []) as Array<{ id: string; tipo: string | null; nombre: string | null; monto_estimado: number | null; fecha: string; periodo: string | null }>;
+  const todayIso = new Date().toISOString().split("T")[0];
+  const upcoming = obs.filter(o => o.fecha >= todayIso).slice(0, 15);
+  if (upcoming.length === 0) return "Sin obligaciones próximas registradas (el calendario DIAN se calcula desde el último dígito del NIT — los montos solo aparecen cuando el user los configura manualmente).";
+  return upcoming.map((o, i) => {
+    const monto = o.monto_estimado != null && o.monto_estimado > 0 ? fmt(o.monto_estimado) : "monto sin configurar";
+    return `${i + 1}. ${o.fecha} — ${o.nombre ?? o.tipo ?? "Obligación"}${o.periodo ? ` (${o.periodo})` : ""}: ${monto}`;
+  }).join("\n");
+})()}
 
 ═══════════════════════════════════════════
 MÓDULO 4 — CONCILIACIÓN Y CARTERA
@@ -1460,7 +1483,7 @@ ${inventoryCtx}
       },
       visita_dian: {
         role: `Eres Nico Visita DIAN, el auditor interno de ${empresa}. Piensas como un funcionario DIAN revisando la empresa. Tu trabajo es detectar inconsistencias ANTES de que la DIAN lo haga y prevenir sanciones.`,
-        focus: "Score de salud fiscal (5 factores × 20 pts: conciliación, facturación soportada, Control de Inventario — descuadre Siigo vs físico en costo —, cartera/anticipos, Pulmón financiero — meses de operación con la plata disponible). Inconsistencias entre facturación y banco. Descuadre de inventario como señal fiscal (posibles ventas sin factura). Caja Menor (MÓDULO 13): cuentas de cobro y comprobantes de pago como soporte de gastos. Si el ratio deducible/no-deducible es muy bajo, hay riesgo de pérdida fiscal innecesaria. Si hay muchas cuentas de cobro a un mismo prestador, sugiere que probablemente debería formalizarse como proveedor con factura. Riesgos de sanción. Cómo subir el score.",
+        focus: "Score de salud fiscal (4 factores × 25 pts: conciliación, facturación soportada, Control de Inventario — descuadre Siigo vs físico en costo —, cartera/anticipos). Inconsistencias entre facturación y banco. Descuadre de inventario como señal fiscal (posibles ventas sin factura). Caja Menor (MÓDULO 13): cuentas de cobro y comprobantes de pago como soporte de gastos. Si el ratio deducible/no-deducible es muy bajo, hay riesgo de pérdida fiscal innecesaria. Si hay muchas cuentas de cobro a un mismo prestador, sugiere que probablemente debería formalizarse como proveedor con factura. Riesgos de sanción. Cómo subir el score.",
         modules: "MÓDULO 5 (Alertas), MÓDULO 7 (Salud/Score), MÓDULO 3 (Obligaciones Fiscales), MÓDULO 8 (Inventario), MÓDULO 13 (Caja Menor — soporte de gastos deducibles).",
       },
       tesoreria: {
@@ -1723,7 +1746,7 @@ Tienes acceso a diez fuentes de datos distintas y debes diferenciarlas siempre:
 
 6. ESTADO INICIAL FINANCIERO: Saldos de apertura del negocio que se suman a los acumulados.
 
-7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 5 factores sobre 100 puntos: (1) conciliación bancaria; (2) facturación soportada; (3) CONTROL DE INVENTARIO — descuadre Siigo vs físico en costo, campo interno "impuestos" por compat DB; (4) cartera/anticipos; (5) PULMÓN FINANCIERO — Cash Runway: cuántos meses de operación cubre la plata disponible al ritmo actual de gastos (saldoBancos + ingresos − egresos) / gastoNetoMensualPromedio3meses. 12+ meses = 20pts; 0 = 0pts; lineal entre medio. Si el negocio genera plata (gasto neto ≤ 0), score 20 automático. Campo interno "clasificacion" por compat DB. Cada factor vale 20 puntos.
+7. SALUD FINANCIERA (Score Visita DIAN): Evaluación integral de 4 factores sobre 100 puntos: (1) conciliación bancaria; (2) facturación soportada; (3) CONTROL DE INVENTARIO — descuadre Siigo vs físico en costo, campo interno "impuestos" por compat DB; (4) cartera/anticipos. Cada factor vale 25 puntos. Pulmón financiero (Cash Runway) fue removido del score el 2026-05-04. Las obligaciones próximas con monto las tenés en MÓDULO 3 (sección "OBLIGACIONES PRÓXIMAS").
 
 8. INVENTARIO OPERATIVO: Cruce entre inventario contable (Siigo) e inventario físico (bodega). Permite detectar diferencias operativas como ventas sin factura, robos, pérdidas, errores de conteo, o compras no registradas. IMPORTANTE: el valor total del inventario (Siigo × costo) y la diferencia en costo (Σ|Siigo − físico| × costo) alimentan directamente el factor "Control de Inventario" del Score de Visita DIAN (ver módulo 7). Si el usuario pregunta por qué bajó/subió el score, el descuadre de inventario es una de las palancas.
 

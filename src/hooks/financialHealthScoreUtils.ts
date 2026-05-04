@@ -52,7 +52,10 @@ export interface HealthInventoryProduct {
 // (FinancialHealth, VisitaDIAN, dashboards). Si cambian nombres o colores, solo acá.
 // Nota: el campo `key: 'impuestos'` se mantiene por compatibilidad con la DB y el tipo
 // ScoreBreakdown; hoy representa "Control de Inventario" (descuadre Siigo vs físico en costo).
-export type ScoreVariableKey = 'conciliacion' | 'facturacion' | 'impuestos' | 'cartera' | 'clasificacion';
+// 'clasificacion' fue removido del modelo (Pulmón financiero) el 2026-05-04.
+// El field sigue existiendo en ScoreBreakdown por compat DB pero no es una
+// variable visible — por eso no aparece en este union ni en SCORE_VARIABLES.
+export type ScoreVariableKey = 'conciliacion' | 'facturacion' | 'impuestos' | 'cartera';
 
 export interface ScoreVariableMeta {
   key: ScoreVariableKey;
@@ -90,13 +93,6 @@ export const SCORE_VARIABLES: readonly ScoreVariableMeta[] = [
     shortLabel: 'Cartera',
     color: 'hsl(280, 84%, 60%)',
     hint: 'Qué % de tu facturación está pendiente de cobro o en anticipos sin factura asociada.',
-  },
-  {
-    key: 'clasificacion',
-    label: 'Pulmón financiero',
-    shortLabel: 'Pulmón',
-    color: 'hsl(173, 58%, 39%)',
-    hint: 'Cuántos meses puede operar tu negocio con la plata disponible al ritmo actual de gastos.',
   },
 ] as const;
 
@@ -145,14 +141,16 @@ function safePct(part: number, total: number): number {
   return clampPct(part / total);
 }
 
-// Linear score: pct * 20, rounded to 1 decimal
+// Linear score: pct * 25, rounded to 1 decimal
+// Cada una de las 4 variables (Conciliación, Facturación, Inventario, Cartera)
+// pesa 25 puntos del score total /100. Pulmón fue removido del modelo.
 function linearScore(pct: number): number {
-  return Math.round(clampPct(pct) * 20 * 10) / 10;
+  return Math.round(clampPct(pct) * 25 * 10) / 10;
 }
 
 // Cartera risk: inverted linear (lower risk = higher score)
 function carteraLinearScore(riesgo: number): number {
-  return Math.round(clampPct(1 - riesgo) * 20 * 10) / 10;
+  return Math.round(clampPct(1 - riesgo) * 25 * 10) / 10;
 }
 
 export function getScoreInterpretation(score: number): { level: string; message: string; color: string } {
@@ -180,11 +178,11 @@ export function getScoreInterpretation(score: number): { level: string; message:
 
 export function getRecommendations(scores: ScoreBreakdown): string[] {
   const recs: string[] = [];
-  if (scores.conciliacion < 18) recs.push('Existen movimientos bancarios sin soporte. Revisa y vincula facturas, asigna responsables o clasifícalos correctamente.');
-  if (scores.facturacion < 18) recs.push('Hay ingresos sin factura asociada ni marcados como anticipo. Esto puede generar inconsistencias frente a la DIAN.');
-  if (scores.impuestos < 16) recs.push('Hay descuadre entre inventario Siigo y conteo físico. Revisa faltantes para descartar ventas sin factura, pérdidas o errores de registro.');
-  if (scores.cartera < 18) recs.push('Una parte importante de tu facturación no ha sido cobrada o tienes anticipos sin factura asociada.');
-  if (scores.clasificacion < 18) recs.push('Tu pulmón financiero está justo: la plata disponible alcanza para pocos meses al ritmo de gastos actual. Revisá si hay egresos recortables o aceleración de cobros.');
+  // Umbrales escalados al nuevo techo /25: ~88% del max gatilla la rec.
+  if (scores.conciliacion < 22) recs.push('Existen movimientos bancarios sin soporte. Revisa y vincula facturas, asigna responsables o clasifícalos correctamente.');
+  if (scores.facturacion < 22) recs.push('Hay ingresos sin factura asociada ni marcados como anticipo. Esto puede generar inconsistencias frente a la DIAN.');
+  if (scores.impuestos < 20) recs.push('Hay descuadre entre inventario Siigo y conteo físico. Revisa faltantes para descartar ventas sin factura, pérdidas o errores de registro.');
+  if (scores.cartera < 22) recs.push('Una parte importante de tu facturación no ha sido cobrada o tienes anticipos sin factura asociada.');
   return recs;
 }
 
@@ -278,51 +276,20 @@ export function calculateFinancialHealthMetrics(
   const riesgoTotal = hasAnyCarteraData ? (pctCartera + pctAnticipos) / 2 : 0;
   const scoreCartera = hasAnyCarteraData ? carteraLinearScore(riesgoTotal) : 0;
 
-  // ========== 5. PULMÓN FINANCIERO (legacy key: clasificacion) ==========
-  // Cuántos meses puede operar el negocio con la plata disponible al ritmo
-  // actual de gastos. Métrica clásica de CFO (Cash Runway).
-  //
-  //   saldoActual = saldo_bancos inicial + Σ(ingresos hasta hoy) − Σ(egresos hasta hoy)
-  //   gastoNetoMensual = promedio (egresos − ingresos) últimos 3 meses cerrados
-  //   runway = saldoActual / gastoNetoMensual   (en meses)
-  //
-  // Score:
-  //   - Si gastoNetoMensual ≤ 0 → estás generando plata, no quemando: 20pts
-  //   - 12+ meses de runway → 20pts (zona verde, holgura)
-  //   - 0 meses → 0pts
-  //   - Lineal entre 0 y 12 meses
-  const saldoInicial = initialState?.saldo_bancos ?? 0;
-  const sumaIngresos = transactions
-    .filter(t => (t.amount ?? 0) > 0)
-    .reduce((s, t) => s + (t.amount ?? 0), 0);
-  const sumaEgresos = transactions
-    .filter(t => (t.amount ?? 0) < 0)
-    .reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
-  const saldoActual = saldoInicial + sumaIngresos - sumaEgresos;
+  // ========== 5. PULMÓN FINANCIERO — REMOVIDO ==========
+  // El factor "Pulmón financiero" (cash runway) fue removido del modelo el
+  // 2026-05-04. El total ahora se reparte en 4 variables × 25 = 100pts.
+  // El field `clasificacion` se mantiene en ScoreBreakdown/ScoreDetails
+  // por compatibilidad con la columna `score_clasificacion` de la tabla
+  // `financial_health_scores` y con históricos guardados, pero su valor
+  // es siempre 0 y NO suma al total.
+  const scoreClasificacion = 0;
+  const runwayMeses: number | null = null;
+  const pctClasificado = 0;
+  const saldoActual = 0;
+  const gastoNeto = 0;
 
-  const gastoNeto = gastoNetoMensual ?? 0;
-  let scoreClasificacion = 0;
-  let runwayMeses: number | null = null;
-  let pctClasificado = 0;
-
-  if (gastoNeto <= 0) {
-    // Generando plata, runway "infinito" → score máximo
-    scoreClasificacion = 20;
-    runwayMeses = null;
-    pctClasificado = 1;
-  } else if (saldoActual <= 0) {
-    // En rojo, sin plata
-    scoreClasificacion = 0;
-    runwayMeses = 0;
-    pctClasificado = 0;
-  } else {
-    runwayMeses = saldoActual / gastoNeto;
-    // Lineal: 12+ meses = 20, 0 meses = 0
-    pctClasificado = clampPct(runwayMeses / 12);
-    scoreClasificacion = linearScore(pctClasificado);
-  }
-
-  const total = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera + scoreClasificacion) * 10) / 10;
+  const total = Math.round((scoreConciliacion + scoreFacturacion + scoreImpuestos + scoreCartera) * 10) / 10;
 
   const scores: ScoreBreakdown = {
     conciliacion: scoreConciliacion,

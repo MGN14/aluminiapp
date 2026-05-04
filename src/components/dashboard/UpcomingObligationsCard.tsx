@@ -138,6 +138,16 @@ export default function UpcomingObligationsCard() {
                   <span className={`text-[10px] font-semibold shrink-0 ${urgencyColor(dias)}`}>
                     {dias === 0 ? '¡Hoy!' : dias === 1 ? 'Mañana' : `${dias}d`}
                   </span>
+                  <span className="text-[10px] font-medium tabular-nums shrink-0 text-muted-foreground min-w-[58px] text-right">
+                    {ev.monto != null && ev.monto > 0
+                      ? new Intl.NumberFormat('es-CO', {
+                          style: 'currency',
+                          currency: 'COP',
+                          maximumFractionDigits: 0,
+                          notation: 'compact',
+                        }).format(ev.monto)
+                      : '—'}
+                  </span>
                 </div>
               );
             })}
