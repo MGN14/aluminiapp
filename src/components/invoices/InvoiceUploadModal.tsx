@@ -359,6 +359,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
   const handleSave = useCallback(async (data: ExtractedInvoiceData & { autoretefuente_rate: number; autoretefuente_amount: number; reteica_rate: number; reteica_amount: number; retefuente_cliente_rate: number; retefuente_cliente_amount: number; status: string; display_name: string; dias_credito: number }) => {
     if (!user) return;
     setSaving(true);
+    let savedInvoiceId: string | null = draftId;
     try {
       if (draftId) {
         const { error: invError } = await supabase
@@ -459,6 +460,7 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           .select('id')
           .single();
         if (invError) throw invError;
+        savedInvoiceId = inv.id;
 
         if (data.items.length > 0) {
           const items = data.items.map(item => ({
@@ -477,6 +479,14 @@ export default function InvoiceUploadModal({ open, onClose, onInvoiceSaved, resu
           const { error: itemsError } = await supabase.from('invoice_items').insert(items);
           if (itemsError) throw itemsError;
         }
+      }
+
+      // Auto-validar contra DIAN si la factura tiene CUFE.
+      // Fire-and-forget: errores de la API DIAN no rompen el save.
+      if (savedInvoiceId && data.cufe && data.status === 'confirmed') {
+        void supabase.functions
+          .invoke('validate-cufe', { body: { invoice_id: savedInvoiceId } })
+          .catch(() => { /* swallow — el badge mostrará "no validada" */ });
       }
 
       // Telemetría: factura guardada (sólo cuando se confirma, no borradores)

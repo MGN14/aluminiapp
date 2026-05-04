@@ -29,6 +29,13 @@ export interface Invoice {
   reteica_rate: number;
   reteica_amount: number;
   cufe: string | null;
+  /**
+   * Estado de validación contra el catálogo público DIAN (vía /validate-cufe).
+   * NULL = nunca verificado. Para facturas sin CUFE queda NULL siempre.
+   */
+  dian_validation_status?: 'validated' | 'not_found' | 'error' | 'pending' | null;
+  dian_validated_at?: string | null;
+  dian_response?: unknown;
   payment_method: string | null;
   notes: string | null;
   status: 'draft' | 'confirmed' | 'error' | 'uploading' | 'processing' | 'ready';

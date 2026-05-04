@@ -19,7 +19,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, RefreshCw, Plug, ArrowDownNarrowWide, ArrowUpNarrowWide } from 'lucide-react';
+import { FileText, Upload, Loader2, Crown, Lock, Search, Eye, Trash2, PlayCircle, Pencil, RefreshCw, Plug, ArrowDownNarrowWide, ArrowUpNarrowWide, ShieldCheck, ShieldX, ShieldAlert } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
@@ -109,6 +109,7 @@ export default function InvoiceListPage({ type }: Props) {
   const [confirmBulkDeleteErrors, setConfirmBulkDeleteErrors] = useState(false);
   const [bulkDeletingErrors, setBulkDeletingErrors] = useState(false);
   const [siigoSyncing, setSiigoSyncing] = useState(false);
+  const [dianValidating, setDianValidating] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const counterpartyResolver = useCounterpartyResolver();
 
@@ -451,6 +452,38 @@ export default function InvoiceListPage({ type }: Props) {
               </span>
               <span className="text-[10px] text-muted-foreground font-normal leading-none">Año {currentYear} completo · si borraste algo</span>
             </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                setDianValidating(true);
+                try {
+                  const { data, error } = await supabase.functions.invoke('validate-cufe', {
+                    body: { batch: true },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error || 'No se pudo validar');
+                  await fetchInvoices();
+                  toast({
+                    title: 'Validación contra DIAN',
+                    description: `${data.validated ?? 0} validadas, ${data.not_found ?? 0} no encontradas, ${data.errors ?? 0} con error (de ${data.count ?? 0}).`,
+                  });
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : 'Intentá de nuevo';
+                  toast({ title: 'Error validando contra DIAN', description: msg, variant: 'destructive' });
+                } finally {
+                  setDianValidating(false);
+                }
+              }}
+              disabled={dianValidating}
+              className="gap-2 h-auto py-2 flex-col items-start"
+              title="Consulta el catálogo público DIAN para confirmar que cada CUFE existe y está validado. Procesa hasta 50 facturas pendientes por click."
+            >
+              <span className="flex items-center gap-2">
+                {dianValidating ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                Validar contra DIAN
+              </span>
+              <span className="text-[10px] text-muted-foreground font-normal leading-none">Verifica CUFE en el catálogo oficial</span>
+            </Button>
             <Button onClick={handleOpenUpload} className="gap-2">
               <Upload className="h-4 w-4" />
               Subir factura PDF
@@ -760,6 +793,24 @@ export default function InvoiceListPage({ type }: Props) {
                                 <Badge variant="secondary" className="h-4 px-1.5 text-[10px] gap-0.5 flex-shrink-0" title="Importada desde Siigo">
                                   <Plug className="h-2.5 w-2.5" />
                                   Siigo
+                                </Badge>
+                              )}
+                              {inv.dian_validation_status === 'validated' && (
+                                <Badge className="h-4 px-1.5 text-[10px] gap-0.5 flex-shrink-0 bg-success/15 text-success border-success/30" title="DIAN confirma que esta factura está registrada y validada">
+                                  <ShieldCheck className="h-2.5 w-2.5" />
+                                  DIAN ✓
+                                </Badge>
+                              )}
+                              {inv.dian_validation_status === 'not_found' && (
+                                <Badge variant="destructive" className="h-4 px-1.5 text-[10px] gap-0.5 flex-shrink-0" title="DIAN no encontró este CUFE — revisá con el proveedor">
+                                  <ShieldX className="h-2.5 w-2.5" />
+                                  No en DIAN
+                                </Badge>
+                              )}
+                              {inv.dian_validation_status === 'error' && (
+                                <Badge variant="outline" className="h-4 px-1.5 text-[10px] gap-0.5 flex-shrink-0 border-warning text-warning" title="No se pudo validar contra DIAN — sin CUFE o error de red">
+                                  <ShieldAlert className="h-2.5 w-2.5" />
+                                  DIAN ?
                                 </Badge>
                               )}
                             </div>

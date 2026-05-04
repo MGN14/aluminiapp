@@ -17,7 +17,6 @@ import PaymentMethodCard from '@/components/subscription/PaymentMethodCard';
 import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import SiigoConnectionCard from '@/components/settings/SiigoConnectionCard';
-import DIANConnectionCard from '@/components/dian/DIANConnectionCard';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mail, Building2, Shield, LogOut, Key, Save, ClipboardList, Pencil, Crown, Sparkles, Rocket, ArrowUpRight, Zap, Clock } from 'lucide-react';
 
@@ -381,9 +380,8 @@ export default function Settings() {
         <CategoriesDeductibleSettings />
         <InitialFinancialStateCard />
 
-        {/* Conexiones contables/fiscales — full width c/u */}
+        {/* Conexiones contables/fiscales */}
         <SiigoConnectionCard />
-        <DIANConnectionCard />
 
         {/* Seguridad */}
         <Card>
