@@ -64,66 +64,62 @@ export default async ({ page, context }) => {
     result.meta.modalDismissed = dismissed;
     if (dismissed.hadModal) await sleep(1500);
 
-    // Click pestaña "A nombre de un tercero" — búsqueda permisiva
+    // Click pestaña "A nombre de un tercero" — match permisivo (whitespace + case-insensitive)
     result.stage = 'click_tercero_tab';
     const tabClicked = await page.evaluate(() => {
-      const target = 'A nombre de un tercero';
-      // Buscar elemento cuyo TEXTO PROPIO (no incluyendo descendants) coincida
+      const norm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const targetNorm = 'a nombre de un tercero';
       const all = document.querySelectorAll('*');
-      const candidates = [];
-      for (const el of all) {
-        let ownText = '';
-        for (const node of el.childNodes) {
-          if (node.nodeType === 3) ownText += node.textContent;
-        }
-        ownText = ownText.trim();
-        if (ownText === target || ownText.startsWith(target)) {
-          candidates.push(el);
-        }
-      }
-      if (candidates.length === 0) {
-        // Fallback: textContent contains, length reasonable
-        for (const el of all) {
-          const txt = (el.textContent || '').trim();
-          if (txt.includes(target) && txt.length < 60) {
-            candidates.push(el);
-            break;
-          }
-        }
-      }
-      if (candidates.length === 0) return { found: false };
 
-      // Para cada candidato, subir hasta encontrar ancestro clickeable
-      for (const cand of candidates) {
-        let cur = cand;
-        for (let i = 0; i < 6 && cur; i++) {
-          const tag = cur.tagName;
-          const role = cur.getAttribute('role');
-          const cursor = (typeof getComputedStyle === 'function')
-            ? getComputedStyle(cur).cursor : 'auto';
-          if (tag === 'A' || tag === 'BUTTON' || role === 'tab' || role === 'button' || cursor === 'pointer') {
-            cur.click();
-            return {
-              found: true,
-              clickedTag: tag,
-              clickedCls: (cur.className || '').toString().slice(0, 100),
-              clickedRole: role,
-            };
-          }
-          cur = cur.parentElement;
+      // Pase 1: match exacto normalizado
+      let matched = null;
+      for (const el of all) {
+        const txt = norm(el.textContent);
+        if (txt === targetNorm) { matched = el; break; }
+      }
+      // Pase 2: includes con longitud razonable
+      if (!matched) {
+        for (const el of all) {
+          const txt = norm(el.textContent);
+          if (txt.includes(targetNorm) && txt.length < 100) { matched = el; break; }
         }
       }
-      // Último recurso: click el primer candidato directo
-      candidates[0].click();
-      return {
-        found: true,
-        fallback: true,
-        clickedTag: candidates[0].tagName,
-        clickedCls: (candidates[0].className || '').toString().slice(0, 100),
-      };
+
+      if (!matched) {
+        // Devolver candidatos parciales para debug — todo lo que tenga "nombre" o "tercero"
+        const partial = [];
+        for (const el of all) {
+          const raw = (el.textContent || '');
+          const t = raw.toLowerCase();
+          if ((t.includes('nombre') || t.includes('tercero')) && raw.length < 200) {
+            partial.push({
+              tag: el.tagName,
+              cls: (el.className || '').toString().slice(0, 80),
+              text: raw.replace(/\s+/g, ' ').trim().slice(0, 100),
+            });
+            if (partial.length >= 25) break;
+          }
+        }
+        return { found: false, partial };
+      }
+
+      // Subir hasta ancestro clickeable
+      let cur = matched;
+      for (let i = 0; i < 6 && cur; i++) {
+        const tag = cur.tagName;
+        const role = cur.getAttribute('role');
+        const cursor = (typeof getComputedStyle === 'function') ? getComputedStyle(cur).cursor : '';
+        if (tag === 'A' || tag === 'BUTTON' || role === 'tab' || role === 'button' || cursor === 'pointer') {
+          cur.click();
+          return { found: true, tag, role, cls: (cur.className || '').toString().slice(0, 100) };
+        }
+        cur = cur.parentElement;
+      }
+      matched.click();
+      return { found: true, fallback: true, tag: matched.tagName, cls: (matched.className || '').toString().slice(0, 100) };
     });
     result.meta.tabClicked = tabClicked;
-    if (!tabClicked.found) throw new Error('No encontré la pestaña "A nombre de un tercero" en el DOM');
+    // NO lanzar error — seguir al dump así sabemos qué hay aunque no se haya clickeado
     await sleep(2500);
 
     result.stage = 'capture_state';
@@ -183,8 +179,8 @@ export default async ({ page, context }) => {
       }).filter(b => b.visible);
     });
 
-    result.stage = 'DIAGNOSTIC_DUMP_V3';
-    result.meta.note = 'V3: modal cerrado + tab "tercero" clickeado + form completo capturado.';
+    result.stage = 'DIAGNOSTIC_DUMP_V4';
+    result.meta.note = 'V4: tab match permisivo + partials para debug + dump del estado.';
     return { data: result, type: 'application/json' };
   } catch (err) {
     result.error = err && err.message ? err.message : String(err);
@@ -331,7 +327,8 @@ serve(async (req) => {
       stage === "CALIBRATION_PENDING" ||
       stage === "DIAGNOSTIC_DUMP" ||
       stage === "DIAGNOSTIC_DUMP_V2" ||
-      stage === "DIAGNOSTIC_DUMP_V3"
+      stage === "DIAGNOSTIC_DUMP_V3" ||
+      stage === "DIAGNOSTIC_DUMP_V4"
     ) {
       verifyResult = {
         status: "warning",
