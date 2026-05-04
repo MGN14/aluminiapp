@@ -188,7 +188,6 @@ serve(async (req) => {
         .eq("user_id", userId)
         .not("cufe", "is", null)
         .or("dian_validation_status.is.null,dian_validation_status.eq.error,dian_validation_status.eq.pending")
-        .is("deleted_at", null)
         .limit(50);
 
       if (pendingErr) {
