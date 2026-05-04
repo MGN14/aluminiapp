@@ -45,9 +45,25 @@ export default async ({ page, context }) => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   try {
+    // Forzar viewport desktop + UA realista — MUISCA en mobile oculta las tabs
+    result.stage = 'setup_viewport';
+    await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1 });
+    await page.setUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
+    });
+
     result.stage = 'goto_login';
     await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 60000 });
     await sleep(3000);
+    result.meta.viewport = await page.evaluate(() => ({
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      docWidth: document.documentElement.clientWidth,
+      bodyText: (document.body.innerText || '').slice(0, 800),
+    }));
 
     // Detectar y cerrar modal "Está intentando ingresar de manera incorrecta"
     result.stage = 'dismiss_warning_modal';
@@ -179,8 +195,8 @@ export default async ({ page, context }) => {
       }).filter(b => b.visible);
     });
 
-    result.stage = 'DIAGNOSTIC_DUMP_V4';
-    result.meta.note = 'V4: tab match permisivo + partials para debug + dump del estado.';
+    result.stage = 'DIAGNOSTIC_DUMP_V5';
+    result.meta.note = 'V5: viewport desktop + UA realista + bodyText snapshot.';
     return { data: result, type: 'application/json' };
   } catch (err) {
     result.error = err && err.message ? err.message : String(err);
@@ -328,7 +344,8 @@ serve(async (req) => {
       stage === "DIAGNOSTIC_DUMP" ||
       stage === "DIAGNOSTIC_DUMP_V2" ||
       stage === "DIAGNOSTIC_DUMP_V3" ||
-      stage === "DIAGNOSTIC_DUMP_V4"
+      stage === "DIAGNOSTIC_DUMP_V4" ||
+      stage === "DIAGNOSTIC_DUMP_V5"
     ) {
       verifyResult = {
         status: "warning",
