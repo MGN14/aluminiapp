@@ -367,75 +367,48 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
 
   if (phase === "idle" || phase === "parsing") {
     return (
-      <Card>
-        <CardContent style={{ padding: 24 }}>
+      <Card className="border-2 border-dashed border-border hover:border-accent transition-colors">
+        <CardContent className="p-8">
           <div
             {...getRootProps()}
-            style={{
-              border: isDragActive
-                ? "2px dashed hsl(var(--primary))"
-                : "2px dashed hsl(var(--border))",
-              borderRadius: 8,
-              padding: 32,
-              textAlign: "center",
-              cursor: phase === "parsing" ? "not-allowed" : "pointer",
-              backgroundColor: isDragActive
-                ? "hsl(var(--primary) / 0.05)"
-                : "transparent",
-              transition: "all 0.2s",
-            }}
+            className={`cursor-pointer text-center ${isDragActive ? 'opacity-75' : ''}`}
           >
             <input {...getInputProps()} />
-            <FileSpreadsheet
-              size={40}
-              style={{
-                margin: "0 auto 12px",
-                color: "hsl(var(--muted-foreground))",
-              }}
-            />
-            {phase === "parsing" ? (
-              <>
-                <Loader2
-                  size={20}
-                  style={{
-                    margin: "0 auto 8px",
-                    animation: "spin 1s linear infinite",
-                  }}
-                />
-                <p style={{ fontSize: 14, color: "hsl(var(--muted-foreground))" }}>
-                  Leyendo archivo…
-                </p>
-              </>
-            ) : (
-              <>
-                <p style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>
-                  Subir movimientos semanales
-                </p>
-                <p style={{ fontSize: 13, color: "hsl(var(--muted-foreground))" }}>
-                  Arrastrá el <strong>ZIP</strong> o <strong>CSV</strong> de
-                  Bancolombia
-                </p>
-                <Button variant="outline" size="sm" style={{ marginTop: 12 }} type="button">
-                  Seleccionar archivo
-                </Button>
-              </>
-            )}
+
+            <div className="flex flex-col items-center gap-4">
+              {phase === "parsing" ? (
+                <>
+                  <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 text-accent animate-spin" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">Leyendo archivo…</p>
+                    <p className="text-sm text-muted-foreground">Por favor espera</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center">
+                    <FileSpreadsheet className="h-8 w-8 text-accent" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">
+                      {isDragActive ? 'Suelta el archivo aquí' : 'Subir movimientos semanales'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Arrastrá el <strong>ZIP</strong> o <strong>CSV</strong> de Bancolombia
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" className="mt-2" type="button">
+                    Seleccionar archivo
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
           {errorMsg && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: 12,
-                borderRadius: 6,
-                backgroundColor: "hsl(var(--destructive) / 0.1)",
-                color: "hsl(var(--destructive))",
-                fontSize: 13,
-                display: "flex",
-                gap: 8,
-                alignItems: "flex-start",
-              }}
-            >
-              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div className="mt-3 p-3 rounded-md bg-destructive/10 text-destructive text-sm flex gap-2 items-start">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
               <span>{errorMsg}</span>
             </div>
           )}
