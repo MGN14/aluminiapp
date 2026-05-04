@@ -45,6 +45,8 @@ import NicoLogo from '@/components/nico/NicoLogo';
 import PlanBadge from '@/components/subscription/PlanBadge';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useSubscription } from '@/hooks/useSubscription';
+import { usePermissions } from '@/hooks/usePermissions';
+import type { ModuleKey } from '@/hooks/useCollaborators';
 
 interface NavItem {
   title: string;
@@ -63,21 +65,24 @@ interface NavItem {
    *  bloquea acceso a otros admins igual, pero esconderlo del menú evita
    *  confusión. */
   founderOnly?: boolean;
+  /** Key del permiso de colaborador. Si está seteado y el user es colaborador
+   *  sin acceso al módulo, el ítem se oculta del sidebar. Admin bypassea. */
+  permKey?: ModuleKey;
 }
 
 const documentItems: NavItem[] = [
-  { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true },
-  { title: 'Facturas de Venta', url: '/invoices/venta', icon: FileText },
-  { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown },
+  { title: 'Extractos Bancarios', url: '/statement-upload', icon: FileUp, highlight: true, permKey: 'extractos' },
+  { title: 'Facturas de Venta', url: '/invoices/venta', icon: FileText, permKey: 'facturas_venta' },
+  { title: 'Facturas de Compra', url: '/invoices/compra', icon: FileDown, permKey: 'facturas_compra' },
 ];
 
 const documentItemsGerencial: NavItem[] = [];
 
 const movementItems: NavItem[] = [
-  { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true },
-  { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true },
-  { title: 'Inventarios', url: '/inventarios', icon: Package },
-  { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true },
+  { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true, permKey: 'conciliacion' },
+  { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true, permKey: 'caja_menor' },
+  { title: 'Inventarios', url: '/inventarios', icon: Package, permKey: 'inventarios' },
+  { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },
 ];
 
 const movementItemsGerencial: NavItem[] = [
@@ -85,13 +90,13 @@ const movementItemsGerencial: NavItem[] = [
 ];
 
 const reportItems: NavItem[] = [
-  { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3, hasGerencialVariant: true },
-  { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt },
-  { title: 'Lo que me deben', url: '/reportes/cuentas-por-cobrar', icon: Users, hideInGerencial: true },
-  { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins },
-  { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet },
-  { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks },
-  { title: 'Informe para Banco', url: '/informe-banco', icon: Building2, highlight: true },
+  { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3, hasGerencialVariant: true, permKey: 'estado_resultados' },
+  { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt, permKey: 'anticipos' },
+  { title: 'Lo que me deben', url: '/reportes/cuentas-por-cobrar', icon: Users, hideInGerencial: true, permKey: 'cuentas_por_cobrar' },
+  { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins, permKey: 'cuentas_por_pagar' },
+  { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet, permKey: 'flujo_caja' },
+  { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks, permKey: 'relacion_pagos' },
+  { title: 'Informe para Banco', url: '/informe-banco', icon: Building2, highlight: true, permKey: 'informe_banco' },
 ];
 
 const reportItemsGerencial: NavItem[] = [
@@ -100,8 +105,8 @@ const reportItemsGerencial: NavItem[] = [
 ];
 
 const exportItems: NavItem[] = [
-  { title: 'Exportar movimientos', url: '/export', icon: Download },
-  { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true },
+  { title: 'Exportar movimientos', url: '/export', icon: Download, permKey: 'exportar' },
+  { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true, permKey: 'informe_dian' },
 ];
 
 const logisticaItemsGerencial: NavItem[] = [];
@@ -292,6 +297,7 @@ interface SectionProps {
   currentSearch: string;
   isGerencial: boolean;
   isFounder: boolean;
+  hasModule: (key: ModuleKey) => boolean;
 }
 
 function SidebarSection({
@@ -303,10 +309,15 @@ function SidebarSection({
   currentSearch,
   isGerencial,
   isFounder,
+  hasModule,
 }: SectionProps) {
   const baseItems = isGerencial ? items.filter((item) => !item.hideInGerencial) : items;
   const merged = isGerencial && gerencialItems ? [...baseItems, ...gerencialItems] : baseItems;
-  const allItems = merged.filter((item) => !item.founderOnly || isFounder);
+  const allItems = merged
+    .filter((item) => !item.founderOnly || isFounder)
+    .filter((item) => !item.permKey || hasModule(item.permKey));
+
+  if (allItems.length === 0) return null;
 
   return (
     <SidebarGroup>
@@ -349,6 +360,7 @@ export default function AppSidebar() {
   const currentSearch = location.search;
   const { isGerencial } = useModuleContext();
   const { isAdmin, isFounder } = useSubscription();
+  const { hasModule } = usePermissions();
 
   // Auto-abrir el sidebar SOLO cuando se entra a Modo Gerencial (transición
   // false→true). Antes este effect tenía `state` en deps, lo que causaba que
@@ -433,6 +445,7 @@ export default function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
+              {hasModule('nico_ia') && (
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={nicoActive}>
                   <NavLink
@@ -464,7 +477,9 @@ export default function AppSidebar() {
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              )}
 
+              {hasModule('dashboard') && (
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={currentPath === '/dashboard'}>
                   <NavLink
@@ -485,6 +500,7 @@ export default function AppSidebar() {
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -500,6 +516,7 @@ export default function AppSidebar() {
           currentSearch={currentSearch}
           isGerencial={isGerencial}
           isFounder={isFounder}
+          hasModule={hasModule}
         />
         <SidebarSection
           label="Movimientos"
@@ -510,6 +527,7 @@ export default function AppSidebar() {
           currentSearch={currentSearch}
           isGerencial={isGerencial}
           isFounder={isFounder}
+          hasModule={hasModule}
         />
         <SidebarSection
           label="Reportes"
@@ -520,6 +538,7 @@ export default function AppSidebar() {
           currentSearch={currentSearch}
           isGerencial={isGerencial}
           isFounder={isFounder}
+          hasModule={hasModule}
         />
         <SidebarSection
           label="Exportar"
@@ -529,6 +548,7 @@ export default function AppSidebar() {
           currentSearch={currentSearch}
           isGerencial={isGerencial}
           isFounder={isFounder}
+          hasModule={hasModule}
         />
 
         {isGerencial && (
@@ -541,6 +561,7 @@ export default function AppSidebar() {
             currentSearch={currentSearch}
             isGerencial={isGerencial}
             isFounder={isFounder}
+            hasModule={hasModule}
           />
         )}
 
@@ -549,19 +570,21 @@ export default function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={currentPath === '/creditos'}>
-                  <NavLink
-                    to="/creditos"
-                    style={navItemStyle(currentPath === '/creditos')}
-                    onMouseEnter={handleHoverEnter(currentPath === '/creditos')}
-                    onMouseLeave={handleHoverLeave(currentPath === '/creditos')}
-                  >
-                    <CreditCard style={{ width: 15, height: 15, flexShrink: 0 }} />
-                    {!collapsed && <span>Créditos</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {hasModule('creditos') && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={currentPath === '/creditos'}>
+                    <NavLink
+                      to="/creditos"
+                      style={navItemStyle(currentPath === '/creditos')}
+                      onMouseEnter={handleHoverEnter(currentPath === '/creditos')}
+                      onMouseLeave={handleHoverLeave(currentPath === '/creditos')}
+                    >
+                      <CreditCard style={{ width: 15, height: 15, flexShrink: 0 }} />
+                      {!collapsed && <span>Créditos</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               {isAdmin && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild isActive={currentPath === '/colaboradores'}>

@@ -9,6 +9,7 @@ import { SubscriptionProvider } from "@/hooks/useSubscription";
 import { ModuleProvider, useModuleContext } from "@/hooks/useModuleContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
+import RequireModule from "@/components/RequireModule";
 import RouteErrorBoundary from "@/components/RouteErrorBoundary";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
@@ -133,19 +134,19 @@ const App = () => (
               />
               <Route
                 path="/upload"
-                element={<ProtectedRoute><StatementUpload /></ProtectedRoute>}
+                element={<RequireModule moduleKey="extractos"><StatementUpload /></RequireModule>}
               />
               <Route
                 path="/statement-upload"
-                element={<ProtectedRoute><StatementUpload /></ProtectedRoute>}
+                element={<RequireModule moduleKey="extractos"><StatementUpload /></RequireModule>}
               />
               <Route
                 path="/transactions"
-                element={<ProtectedRoute><Transactions /></ProtectedRoute>}
+                element={<RequireModule moduleKey="conciliacion"><Transactions /></RequireModule>}
               />
               <Route
                 path="/export"
-                element={<ProtectedRoute><Export /></ProtectedRoute>}
+                element={<RequireModule moduleKey="exportar"><Export /></RequireModule>}
               />
               <Route
                 path="/settings"
@@ -158,43 +159,43 @@ const App = () => (
               />
               <Route
                 path="/reportes/estado-resultados"
-                element={<ProtectedRoute><Reports tab="pyg" /></ProtectedRoute>}
+                element={<RequireModule moduleKey="estado_resultados"><Reports tab="pyg" /></RequireModule>}
               />
               <Route
                 path="/reportes/anticipos"
-                element={<ProtectedRoute><Reports tab="anticipos" /></ProtectedRoute>}
+                element={<RequireModule moduleKey="anticipos"><Reports tab="anticipos" /></RequireModule>}
               />
               <Route
                 path="/reportes/cuentas-por-cobrar"
-                element={<ProtectedRoute><CuentasPorCobrarGuard /></ProtectedRoute>}
+                element={<RequireModule moduleKey="cuentas_por_cobrar"><CuentasPorCobrarGuard /></RequireModule>}
               />
               <Route
                 path="/reportes/cuentas-por-pagar"
-                element={<ProtectedRoute><Reports tab="cxp" /></ProtectedRoute>}
+                element={<RequireModule moduleKey="cuentas_por_pagar"><Reports tab="cxp" /></RequireModule>}
               />
               <Route
                 path="/reportes/flujo-caja"
-                element={<ProtectedRoute><Reports tab="caja" /></ProtectedRoute>}
+                element={<RequireModule moduleKey="flujo_caja"><Reports tab="caja" /></RequireModule>}
               />
               <Route
                 path="/reportes/relacion-pagos"
-                element={<ProtectedRoute><Reports tab="pagos" /></ProtectedRoute>}
+                element={<RequireModule moduleKey="relacion_pagos"><Reports tab="pagos" /></RequireModule>}
               />
               <Route
                 path="/reportes/cartera-operativa"
-                element={<ProtectedRoute><CarteraOperativa /></ProtectedRoute>}
+                element={<AdminRoute><CarteraOperativa /></AdminRoute>}
               />
               <Route
                 path="/caja-menor"
-                element={<ProtectedRoute><CajaMenor /></ProtectedRoute>}
+                element={<RequireModule moduleKey="caja_menor"><CajaMenor /></RequireModule>}
               />
               <Route
                 path="/informe-banco"
-                element={<ProtectedRoute><InformeBanco /></ProtectedRoute>}
+                element={<RequireModule moduleKey="informe_banco"><InformeBanco /></RequireModule>}
               />
               <Route
                 path="/creditos"
-                element={<ProtectedRoute><Creditos /></ProtectedRoute>}
+                element={<RequireModule moduleKey="creditos"><Creditos /></RequireModule>}
               />
               {/* Legacy redirect */}
               <Route
@@ -203,19 +204,19 @@ const App = () => (
               />
               <Route
                 path="/nico"
-                element={<ProtectedRoute><Nico /></ProtectedRoute>}
+                element={<RequireModule moduleKey="nico_ia"><Nico /></RequireModule>}
               />
               <Route
                 path="/nico/reglas"
-                element={<ProtectedRoute><Nico /></ProtectedRoute>}
+                element={<RequireModule moduleKey="nico_ia"><Nico /></RequireModule>}
               />
               <Route
                 path="/invoices/venta"
-                element={<ProtectedRoute><InvoicesVenta /></ProtectedRoute>}
+                element={<RequireModule moduleKey="facturas_venta"><InvoicesVenta /></RequireModule>}
               />
               <Route
                 path="/invoices/compra"
-                element={<ProtectedRoute><InvoicesCompra /></ProtectedRoute>}
+                element={<RequireModule moduleKey="facturas_compra"><InvoicesCompra /></RequireModule>}
               />
               {/* Legacy redirect */}
               <Route
@@ -224,19 +225,19 @@ const App = () => (
               />
               <Route
                 path="/financial-health"
-                element={<ProtectedRoute><VisitaDIAN /></ProtectedRoute>}
+                element={<RequireModule moduleKey="informe_dian"><VisitaDIAN /></RequireModule>}
               />
               <Route
                 path="/visita-dian"
-                element={<ProtectedRoute><VisitaDIAN /></ProtectedRoute>}
+                element={<RequireModule moduleKey="informe_dian"><VisitaDIAN /></RequireModule>}
               />
               <Route
                 path="/financial-health-legacy"
-                element={<ProtectedRoute><FinancialHealth /></ProtectedRoute>}
+                element={<RequireModule moduleKey="informe_dian"><FinancialHealth /></RequireModule>}
               />
               <Route
                 path="/inventarios"
-                element={<ProtectedRoute><Inventory /></ProtectedRoute>}
+                element={<RequireModule moduleKey="inventarios"><Inventory /></RequireModule>}
               />
               <Route
                 path="/colaboradores"
@@ -259,7 +260,7 @@ const App = () => (
               />
               <Route
                 path="/remisiones"
-                element={<ProtectedRoute><Remisiones /></ProtectedRoute>}
+                element={<RequireModule moduleKey="remisiones"><Remisiones /></RequireModule>}
               />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
