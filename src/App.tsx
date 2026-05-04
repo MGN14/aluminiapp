@@ -149,7 +149,7 @@ const App = () => (
               />
               <Route
                 path="/settings"
-                element={<ProtectedRoute><Settings /></ProtectedRoute>}
+                element={<AdminRoute><Settings /></AdminRoute>}
               />
               {/* Report routes */}
               <Route
@@ -240,7 +240,7 @@ const App = () => (
               />
               <Route
                 path="/colaboradores"
-                element={<ProtectedRoute><Collaborators /></ProtectedRoute>}
+                element={<AdminRoute><Collaborators /></AdminRoute>}
               />
               <Route
                 path="/cash-movements"

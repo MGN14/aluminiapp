@@ -348,7 +348,7 @@ export default function AppSidebar() {
   const currentPath = location.pathname;
   const currentSearch = location.search;
   const { isGerencial } = useModuleContext();
-  const { isFounder } = useSubscription();
+  const { isAdmin, isFounder } = useSubscription();
 
   // Auto-abrir el sidebar SOLO cuando se entra a Modo Gerencial (transición
   // false→true). Antes este effect tenía `state` en deps, lo que causaba que
@@ -562,19 +562,21 @@ export default function AppSidebar() {
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={currentPath === '/colaboradores'}>
-                  <NavLink
-                    to="/colaboradores"
-                    style={navItemStyle(currentPath === '/colaboradores')}
-                    onMouseEnter={handleHoverEnter(currentPath === '/colaboradores')}
-                    onMouseLeave={handleHoverLeave(currentPath === '/colaboradores')}
-                  >
-                    <UsersRound style={{ width: 15, height: 15, flexShrink: 0 }} />
-                    {!collapsed && <span>Colaboradores</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={currentPath === '/colaboradores'}>
+                    <NavLink
+                      to="/colaboradores"
+                      style={navItemStyle(currentPath === '/colaboradores')}
+                      onMouseEnter={handleHoverEnter(currentPath === '/colaboradores')}
+                      onMouseLeave={handleHoverLeave(currentPath === '/colaboradores')}
+                    >
+                      <UsersRound style={{ width: 15, height: 15, flexShrink: 0 }} />
+                      {!collapsed && <span>Colaboradores</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -586,21 +588,23 @@ export default function AppSidebar() {
           borderTop: '1px solid rgba(0,0,0,0.07)',
         }}
       >
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={currentPath === '/settings'}>
-              <NavLink
-                to="/settings"
-                style={navItemStyle(currentPath === '/settings')}
-                onMouseEnter={handleHoverEnter(currentPath === '/settings')}
-                onMouseLeave={handleHoverLeave(currentPath === '/settings')}
-              >
-                <Settings style={{ width: 15, height: 15, flexShrink: 0 }} />
-                {!collapsed && <span>Ajustes</span>}
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {isAdmin && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive={currentPath === '/settings'}>
+                <NavLink
+                  to="/settings"
+                  style={navItemStyle(currentPath === '/settings')}
+                  onMouseEnter={handleHoverEnter(currentPath === '/settings')}
+                  onMouseLeave={handleHoverLeave(currentPath === '/settings')}
+                >
+                  <Settings style={{ width: 15, height: 15, flexShrink: 0 }} />
+                  {!collapsed && <span>Ajustes</span>}
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
         {!collapsed && (
           <Link
             to="/pricing"
