@@ -44,8 +44,6 @@ export default defineConfig(() => ({
       output: {
         manualChunks: {
           "react-vendor": ["react", "react-dom", "react-router-dom"],
-          "sentry": ["@sentry/react"],
-          "charts": ["recharts"],
           "icons": ["lucide-react"],
           "radix": [
             "@radix-ui/react-accordion",
