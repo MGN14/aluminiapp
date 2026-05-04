@@ -76,7 +76,6 @@ export default function AccountsPayableReport() {
       const { data: invoices, error: invErr } = await supabase
         .from('invoices')
         .select('id, invoice_number, counterparty_name, responsible_id, issue_date, due_date, total_amount, status, type, dias_credito')
-        .eq('user_id', user.id)
         .eq('type', 'compra')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate)
@@ -90,14 +89,12 @@ export default function AccountsPayableReport() {
       const { data: directPayments } = await supabase
         .from('transactions')
         .select('id, invoice_id, amount')
-        .eq('user_id', user.id)
         .is('deleted_at', null)
         .in('invoice_id', invoiceIds);
 
       const { data: matchPayments } = await supabase
         .from('invoice_transaction_matches')
         .select('invoice_id, matched_amount')
-        .eq('user_id', user.id)
         .in('invoice_id', invoiceIds);
 
       const paymentsByInvoice = new Map<string, number>();

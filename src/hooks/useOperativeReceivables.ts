@@ -40,25 +40,21 @@ export function useOperativeReceivables() {
       const [debtsRes, cashRes, bankRes, responsiblesRes] = await Promise.all([
         supabase
           .from('operative_receivables')
-          .select('responsible_id, amount')
-          .eq('user_id', user.id),
+          .select('responsible_id, amount'),
         supabase
           .from('cash_movements')
           .select('responsible_id, amount')
-          .eq('user_id', user.id)
           .eq('type', 'ingreso')
           .not('responsible_id', 'is', null),
         supabase
           .from('transactions')
           .select('operative_responsible_id, credit')
-          .eq('user_id', user.id)
           .eq('operative_receivable_assigned', true)
           .not('operative_responsible_id', 'is', null)
           .is('deleted_at', null),
         supabase
           .from('responsibles')
-          .select('id, name')
-          .eq('user_id', user.id),
+          .select('id, name'),
       ]);
 
       if (debtsRes.error) throw debtsRes.error;

@@ -87,7 +87,6 @@ function useBankFlow(userId: string | undefined, year: number) {
       const { data, error } = await supabase
         .from('transactions')
         .select('date, type, amount')
-        .eq('user_id', userId)
         .is('deleted_at', null)
         .lte('date', `${year}-12-31`)
         .in('type', ['ingreso', 'egreso']);
@@ -117,7 +116,6 @@ function useCashFlow(userId: string | undefined, year: number, isGerencial: bool
       const { data, error } = await supabase
         .from('cash_movements')
         .select('date, type, amount')
-        .eq('user_id', userId)
         .lte('date', `${year}-12-31`);
       if (error) throw error;
       return (data ?? []).map((r): FlowRow => ({
@@ -147,7 +145,6 @@ function useInvoiceSummary(userId: string | undefined, year: number) {
       const { data, error } = await supabase
         .from('invoices')
         .select('type, total_amount, issue_date, status')
-        .eq('user_id', userId)
         .eq('status', 'confirmed')
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);

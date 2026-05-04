@@ -106,7 +106,6 @@ export default function AccountsReceivableReport() {
         supabase
           .from('invoices')
           .select('id, invoice_number, counterparty_name, responsible_id, issue_date, due_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito, balance_pending, source')
-          .eq('user_id', user.id)
           .eq('type', 'venta')
           .gte('issue_date', startDate)
           .lte('issue_date', endDate)
@@ -115,7 +114,6 @@ export default function AccountsReceivableReport() {
         supabase
           .from('initial_state_details' as any)
           .select('*')
-          .eq('user_id', user.id)
           .eq('field_type', 'cuentas_por_cobrar'),
         // FIX BUG (reportado por Nico): los anticipos de clientes que NO
         // están vinculados a una factura específica deben restarse del
@@ -125,7 +123,6 @@ export default function AccountsReceivableReport() {
         supabase
           .from('initial_state_details' as any)
           .select('amount, responsible_name, responsible_id')
-          .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes')
           .is('invoice_id', null),
       ]);
@@ -147,7 +144,6 @@ export default function AccountsReceivableReport() {
         const { data: iniMatchRes } = await supabase
           .from('initial_balance_matches' as any)
           .select('initial_state_detail_id, transaction_id, matched_amount')
-          .eq('user_id', user.id)
           .in('initial_state_detail_id', initialIds);
         iniMatches = (iniMatchRes as any[]) || [];
         iniMatches.forEach((m: any) => iniMatchTxIds.add(m.transaction_id));
@@ -203,24 +199,20 @@ export default function AccountsReceivableReport() {
         supabase
           .from('transactions')
           .select('id, invoice_id, amount, description, date')
-          .eq('user_id', user.id)
           .is('deleted_at', null)
           .in('invoice_id', invoiceIds),
         supabase
           .from('invoice_transaction_matches')
           .select('invoice_id, matched_amount, transaction_id')
-          .eq('user_id', user.id)
           .in('invoice_id', invoiceIds),
         supabase
           .from('initial_state_details')
           .select('invoice_id, amount, responsible_name')
-          .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes')
           .in('invoice_id', invoiceIds),
         supabase
           .from('transactions')
           .select('id, amount, description, owner, responsible_id, date')
-          .eq('user_id', user.id)
           .eq('type', 'ingreso')
           .is('invoice_id', null)
           .is('deleted_at', null)
@@ -403,7 +395,6 @@ export default function AccountsReceivableReport() {
       const { data, error } = await supabase
         .from('cash_movements')
         .select('amount')
-        .eq('user_id', user.id)
         .eq('type', 'ingreso')
         .gte('date', `${year}-01-01`)
         .lte('date', `${year}-12-31`);

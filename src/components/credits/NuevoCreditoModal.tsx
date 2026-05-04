@@ -50,8 +50,8 @@ export default function NuevoCreditoModal() {
     let cancelled = false;
     (async () => {
       const [catRes, respRes] = await Promise.all([
-        supabase.from('categories').select('id, name').eq('user_id', user.id).order('name'),
-        supabase.from('responsibles').select('id, name').eq('user_id', user.id).order('name'),
+        supabase.from('categories').select('id, name').order('name'),
+        supabase.from('responsibles').select('id, name').order('name'),
       ]);
       if (cancelled) return;
       setCategories((catRes.data ?? []) as CategoryOpt[]);

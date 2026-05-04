@@ -196,7 +196,6 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
     const { error } = await supabase
       .from('responsible_aliases' as never)
       .delete()
-      .eq('user_id', user.id)
       .eq('alias', alias);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });

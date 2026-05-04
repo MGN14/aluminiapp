@@ -102,7 +102,6 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
     const { data: existing } = await supabase
       .from('inventory_products')
       .select('id, reference, stock_system, name')
-      .eq('user_id', user.id)
       .eq('active', true);
 
     const crossed = crossReferenceWithInventory(withDups, (existing || []) as ExistingProduct[]);
@@ -135,8 +134,7 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
         const { error } = await supabase
           .from('inventory_products')
           .update({ stock_physical: r.unidades_fisicas, last_count_date: new Date().toISOString() })
-          .eq('id', r.existingProductId!)
-          .eq('user_id', user.id);
+          .eq('id', r.existingProductId!);
         if (error) errors++;
         else updated++;
       }

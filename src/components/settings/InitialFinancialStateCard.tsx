@@ -267,7 +267,6 @@ export default function InitialFinancialStateCard() {
     supabase
       .from('responsibles')
       .select('id, name')
-      .eq('user_id', user.id)
       .order('name')
       .then(({ data }) => {
         if (data) setResponsibles(data as any);

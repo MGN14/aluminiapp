@@ -43,7 +43,6 @@ export default function AdvancesReport() {
         supabase
           .from('transactions')
           .select('id, date, description, amount, owner, responsible_id, notes, statement_id, category, category_id, invoice_id, categories!transactions_category_id_fkey(name)')
-          .eq('user_id', user.id)
           .eq('type', 'ingreso')
           .is('deleted_at', null)
           .gte('date', startDate)
@@ -52,12 +51,10 @@ export default function AdvancesReport() {
         supabase
           .from('initial_state_details' as any)
           .select('*')
-          .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes'),
         supabase
           .from('initial_financial_state' as any)
           .select('anticipos_de_clientes, fecha_inicio')
-          .eq('user_id', user.id)
           .maybeSingle(),
       ]);
 
@@ -117,7 +114,6 @@ export default function AdvancesReport() {
       const { data: invoicesRaw } = await supabase
         .from('invoices')
         .select('id, invoice_number, counterparty_name, total_amount, issue_date')
-        .eq('user_id', user.id)
         .eq('type', 'venta')
         .order('issue_date', { ascending: false })
         .limit(200);
@@ -132,18 +128,15 @@ export default function AdvancesReport() {
           supabase
             .from('transactions')
             .select('invoice_id, amount')
-            .eq('user_id', user.id)
             .is('deleted_at', null)
             .in('invoice_id', invIds),
           supabase
             .from('invoice_transaction_matches')
             .select('invoice_id, matched_amount')
-            .eq('user_id', user.id)
             .in('invoice_id', invIds),
           supabase
             .from('initial_state_details' as any)
             .select('invoice_id, amount')
-            .eq('user_id', user.id)
             .eq('field_type', 'anticipos_de_clientes')
             .in('invoice_id', invIds),
         ]);
@@ -184,8 +177,7 @@ export default function AdvancesReport() {
       const { error } = await supabase
         .from('initial_state_details' as any)
         .update({ invoice_id: invoiceId } as any)
-        .eq('id', detailId)
-        .eq('user_id', user.id);
+        .eq('id', detailId);
       if (error) throw error;
       toast.success('Anticipo de periodo anterior vinculado a factura');
       queryClient.invalidateQueries({ queryKey: ['advances-report'] });
@@ -202,8 +194,7 @@ export default function AdvancesReport() {
       const { error } = await supabase
         .from('initial_state_details' as any)
         .update({ invoice_id: null } as any)
-        .eq('id', detailId)
-        .eq('user_id', user.id);
+        .eq('id', detailId);
       if (error) throw error;
       toast.success('Anticipo desvinculado');
       queryClient.invalidateQueries({ queryKey: ['advances-report'] });

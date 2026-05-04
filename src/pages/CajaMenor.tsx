@@ -19,6 +19,7 @@ import { usePettyCashMovements, type PettyCashRow } from '@/hooks/usePettyCashMo
 import { usePettyCashClosings, useReopenPettyCashClosing, type PettyCashClosing } from '@/hooks/usePettyCashClosings';
 import { usePromotePettyCashMovement } from '@/hooks/usePromotePettyCashMovement';
 import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
+import RegistrarIngresoModal from '@/components/caja-menor/RegistrarIngresoModal';
 import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
 import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
 import { generatePettyCashClosingPdf } from '@/lib/pettyCashClosingPdf';
@@ -172,6 +173,7 @@ export default function CajaMenor() {
               <Lock className="h-4 w-4 mr-1.5" />
               Cerrar caja
             </Button>
+            <RegistrarIngresoModal />
             <RegistrarGastoModal />
           </div>
         </div>

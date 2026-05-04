@@ -107,7 +107,6 @@ export default function ReteicaSettings() {
       const { data: transactions, error: fetchError } = await supabase
         .from('transactions')
         .select('id, amount')
-        .eq('user_id', user.id)
         .eq('has_reteica', true)
         .gt('amount', 0)
         .is('deleted_at', null);

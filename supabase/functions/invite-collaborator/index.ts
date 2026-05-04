@@ -82,21 +82,45 @@ Deno.serve(async (req) => {
 
     let userId: string | null = existingUser?.id ?? null;
 
+    let inviteActionLink: string | null = null;
+
     if (!existingUser) {
-      // New user: send magic link invite via Supabase (no Resend needed)
-      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
-        normalizedEmail,
-        {
-          redirectTo: `${origin}/login`,
+      // Generate the magic invite link but DON'T let Supabase send the email.
+      // We send a custom Spanish email via Resend with a prominent CTA.
+      // redirectTo apunta a /change-password porque profiles.force_password_change
+      // estará en true para forzar al colaborador a setear su contraseña antes
+      // de entrar a la app.
+      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+        type: "invite",
+        email: normalizedEmail,
+        options: {
+          redirectTo: `${origin}/change-password`,
           data: {
             full_name: name.trim(),
             invited_by: caller.id,
             collaborator_role: role,
           },
-        }
-      );
-      if (inviteError) throw inviteError;
-      userId = inviteData?.user?.id ?? null;
+        },
+      });
+      if (linkError) throw linkError;
+      userId = linkData?.user?.id ?? null;
+      inviteActionLink = (linkData as any)?.properties?.action_link ?? null;
+
+      // Pre-crear el profile del colaborador con flags que lo guían al
+      // flow correcto: skip onboarding (la empresa ya está configurada por
+      // el owner) y force_password_change (debe setear su clave al entrar).
+      if (userId) {
+        await adminClient
+          .from("profiles" as any)
+          .upsert(
+            {
+              user_id: userId,
+              onboarding_completed: true,
+              force_password_change: true,
+            },
+            { onConflict: "user_id" },
+          );
+      }
     }
 
     // Insert collaborator record
@@ -126,10 +150,27 @@ Deno.serve(async (req) => {
       .insert(permRows);
     if (permError) throw permError;
 
-    // If user already exists, send a notification email via Resend (optional)
+    // Send custom Spanish email via Resend. Para usuarios nuevos: con el
+    // magic link de Supabase. Para usuarios existentes: solo notificación
+    // con link a /login.
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    if (existingUser && resendApiKey) {
-      const loginUrl = `${origin}/login`;
+    if (resendApiKey) {
+      const ownerEmail = caller.email || "el administrador";
+      const isNew = !existingUser;
+      const ctaUrl = isNew && inviteActionLink ? inviteActionLink : `${origin}/login`;
+      const ctaLabel = isNew ? "Aceptar invitación" : "Iniciar sesión";
+      const subject = isNew
+        ? `${name.trim()}, te invitaron a AluminIA`
+        : "Te dieron acceso a AluminIA";
+
+      const intro = isNew
+        ? `<strong>${ownerEmail}</strong> te invitó a colaborar en su cuenta de <strong>AluminIA</strong> como <strong>${role}</strong>.`
+        : `<strong>${ownerEmail}</strong> te dio acceso como <strong>${role}</strong> en su cuenta de <strong>AluminIA</strong>.`;
+
+      const nextStep = isNew
+        ? `Hacé click en el botón para aceptar la invitación, crear tu contraseña y entrar directo a los datos de la empresa.`
+        : `Iniciá sesión con tu cuenta existente para acceder.`;
+
       await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -139,20 +180,56 @@ Deno.serve(async (req) => {
         body: JSON.stringify({
           from: `AluminIA <${RESEND_FROM}>`,
           to: [normalizedEmail],
-          subject: "Te agregaron a AluminIA",
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-              <h1 style="color: #1a1a2e;">Acceso a AluminIA</h1>
-              <p>Hola <strong>${name.trim()}</strong>,</p>
-              <p>Te han dado acceso como <strong>${role}</strong> en AluminIA.</p>
-              <p>Ya podés iniciar sesión con tu cuenta existente:</p>
-              <a href="${loginUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:16px;margin-top:16px;">
-                Iniciar sesión
-              </a>
-            </div>
-          `,
+          subject,
+          html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f7;padding:40px 20px;">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+        <tr><td style="padding:32px 32px 0 32px;">
+          <div style="display:inline-flex;align-items:center;gap:10px;">
+            <div style="width:36px;height:36px;border-radius:9px;background:oklch(0.43 0.14 155);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;">A</div>
+            <span style="font-size:18px;font-weight:700;color:#1d1d1f;letter-spacing:-0.3px;">AluminIA</span>
+          </div>
+        </td></tr>
+        <tr><td style="padding:24px 32px 8px 32px;">
+          <h1 style="margin:0 0 16px;font-size:26px;font-weight:700;color:#1d1d1f;letter-spacing:-0.5px;line-height:1.2;">
+            Hola ${name.trim()},
+          </h1>
+          <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#3a3a3c;">
+            ${intro}
+          </p>
+          <p style="margin:0 0 28px;font-size:16px;line-height:1.6;color:#3a3a3c;">
+            ${nextStep}
+          </p>
+        </td></tr>
+        <tr><td align="center" style="padding:0 32px 32px 32px;">
+          <a href="${ctaUrl}"
+             style="display:inline-block;background:oklch(0.43 0.14 155);color:#ffffff;padding:16px 40px;border-radius:999px;text-decoration:none;font-size:16px;font-weight:600;letter-spacing:-0.2px;box-shadow:0 4px 12px rgba(36,209,100,0.25);">
+            ${ctaLabel} →
+          </a>
+          <p style="margin:16px 0 0;font-size:13px;color:#86868b;">
+            ${isNew ? "Si el botón no funciona, copiá este link en tu navegador:" : ""}
+          </p>
+          ${isNew ? `<p style="margin:8px 0 0;font-size:12px;color:#86868b;word-break:break-all;">${ctaUrl}</p>` : ""}
+        </td></tr>
+        <tr><td style="padding:24px 32px;border-top:1px solid #e5e5e7;background:#fafafa;">
+          <p style="margin:0;font-size:12px;line-height:1.5;color:#86868b;">
+            Si no esperabas esta invitación, podés ignorar este correo.
+            Solo el administrador puede agregarte como colaborador.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
         }),
-      }).catch(() => {}); // Silent fail — user already has access
+      }).catch((err) => {
+        console.error("[invite-collaborator] resend send failed:", err);
+      });
     }
 
     return new Response(JSON.stringify({

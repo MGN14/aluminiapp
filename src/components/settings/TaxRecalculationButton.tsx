@@ -55,7 +55,6 @@ export default function TaxRecalculationButton({ onComplete }: TaxRecalculationB
       const { data: transactions, error: fetchError } = await supabase
         .from('transactions')
         .select('id, category_id, amount, type')
-        .eq('user_id', user.id)
         .is('deleted_at', null);
 
       if (fetchError) throw fetchError;

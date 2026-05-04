@@ -55,7 +55,6 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
       const { data } = await supabase
         .from('invoices')
         .select('id, invoice_number, issue_date, total_amount, counterparty_name, display_name, responsible_id')
-        .eq('user_id', user.id)
         .eq('type', 'venta')
         .order('issue_date', { ascending: false });
       return data || [];

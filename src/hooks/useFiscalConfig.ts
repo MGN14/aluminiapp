@@ -60,7 +60,6 @@ export function useFiscalConfig() {
       const { data, error } = await (supabase as any)
         .from('fiscal_config')
         .select('*')
-        .eq('user_id', user.id)
         .maybeSingle();
       // If DB table is missing or read fails, fall back to localStorage
       if (error || !data) {

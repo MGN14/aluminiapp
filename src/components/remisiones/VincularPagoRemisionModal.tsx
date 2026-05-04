@@ -67,7 +67,6 @@ export default function VincularPagoRemisionModal({
         supabase
           .from('transactions')
           .select('id, date, description, credit, responsible_id')
-          .eq('user_id', user.id)
           .is('deleted_at', null)
           .gt('credit', 0)
           .order('date', { ascending: false })
@@ -75,7 +74,6 @@ export default function VincularPagoRemisionModal({
         supabase
           .from('cash_movements')
           .select('id, date, amount, description, responsible_id, type')
-          .eq('user_id', user.id)
           .eq('type', 'ingreso')
           .order('date', { ascending: false })
           .limit(200),

@@ -44,7 +44,6 @@ export default function MaestroProductos() {
       const { data } = await supabase
         .from('inventory_products')
         .select('reference, name, unit')
-        .eq('user_id', user.id)
         .eq('active', true)
         .order('reference');
       return data || [];
@@ -127,7 +126,6 @@ export default function MaestroProductos() {
       const { data, error } = await (supabase
         .from('product_master') as any)
         .select('*')
-        .eq('user_id', user.id)
         .eq('active', true)
         .order('ref_siigo');
       if (error) throw error;

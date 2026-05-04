@@ -131,8 +131,7 @@ export default function AdvancesTable({
       const { error } = await supabase
         .from('transactions')
         .update({ invoice_id: invoiceId })
-        .eq('id', txId)
-        .eq('user_id', user.id);
+        .eq('id', txId);
 
       if (error) throw error;
       toast.success('Anticipo conciliado con factura');

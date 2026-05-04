@@ -43,7 +43,6 @@ export default function AutoRulesButton() {
       const { data: transactions, error: fetchError } = await supabase
         .from('transactions')
         .select('id, description, amount, type, category_id, responsible_id, has_iva, has_retefuente, has_reteica')
-        .eq('user_id', user.id)
         .is('deleted_at', null);
 
       if (fetchError) throw fetchError;
@@ -219,7 +218,6 @@ async function getOrCreateCategories(userId: string): Promise<Record<string, str
     const { data: existing } = await supabase
       .from('categories')
       .select('id')
-      .eq('user_id', userId)
       .ilike('name', name)
       .maybeSingle();
 
@@ -250,7 +248,6 @@ async function getOrCreateResponsibles(userId: string): Promise<Record<string, s
     const { data: existing } = await supabase
       .from('responsibles')
       .select('id')
-      .eq('user_id', userId)
       .ilike('name', name)
       .maybeSingle();
 

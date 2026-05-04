@@ -63,7 +63,6 @@ export default function EditarDeudasClienteModal({
     supabase
       .from('operative_receivables')
       .select('id, amount, date, description')
-      .eq('user_id', user.id)
       .eq('responsible_id', responsibleId)
       .order('date', { ascending: false })
       .then(({ data, error }) => {
@@ -133,7 +132,6 @@ export default function EditarDeudasClienteModal({
     const { error } = await supabase
       .from('operative_receivables')
       .delete()
-      .eq('user_id', user.id)
       .eq('responsible_id', responsibleId);
     setBulkDeleting(false);
     setConfirmDeleteAll(false);

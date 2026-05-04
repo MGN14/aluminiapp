@@ -52,7 +52,6 @@ export default function NicoPronosticos() {
       const { data } = await supabase
         .from('transactions')
         .select('date, amount, type, description, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
-        .eq('user_id', user.id)
         .is('deleted_at', null)
         .gte('date', `${currentYear - 1}-01-01`)
         .order('date', { ascending: true });

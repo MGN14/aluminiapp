@@ -58,7 +58,6 @@ export function useBusinessObligations() {
       const { data, error } = await (supabase as any)
         .from('business_obligations')
         .select('*')
-        .eq('user_id', user.id)
         .order('dia_mes', { ascending: true });
       if (error) throw error;
       return (data || []) as unknown as BusinessObligation[];

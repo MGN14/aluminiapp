@@ -41,7 +41,6 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
       const { data: existingAccounts } = await supabase
         .from('bank_statements')
         .select('account_number')
-        .eq('user_id', user.id)
         .is('deleted_at', null)
         .not('account_number', 'is', null);
 

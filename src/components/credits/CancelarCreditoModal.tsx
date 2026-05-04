@@ -52,8 +52,7 @@ export default function CancelarCreditoModal({ open, credit, currentBalance, onC
           cancellation_reason: fullReason,
           cancelled_at: new Date().toISOString(),
         })
-        .eq('id', credit.id)
-        .eq('user_id', user.id);
+        .eq('id', credit.id);
       if (error) throw error;
     },
     onSuccess: () => {

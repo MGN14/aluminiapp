@@ -143,8 +143,8 @@ export default function FinancialHealth() {
         if (!user) return;
 
         const [latestTx, latestInvoice] = await Promise.all([
-          supabase.from('transactions').select('date').eq('user_id', user.id).is('deleted_at', null).order('date', { ascending: false }).limit(1),
-          supabase.from('invoices').select('issue_date').eq('user_id', user.id).eq('status', 'confirmed').order('issue_date', { ascending: false }).limit(1),
+          supabase.from('transactions').select('date').is('deleted_at', null).order('date', { ascending: false }).limit(1),
+          supabase.from('invoices').select('issue_date').eq('status', 'confirmed').order('issue_date', { ascending: false }).limit(1),
         ]);
 
         if (latestTx.error) throw latestTx.error;

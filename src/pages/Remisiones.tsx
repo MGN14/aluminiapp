@@ -128,7 +128,6 @@ export default function Remisiones() {
         .select(`id, date, number, beneficiary, notes, status, created_at, total_manual, module_origin, remision_type,
           remision_items(id, reference, product_name, units, unit_cost, total_cost),
           remision_invoices(invoice_id, invoices(id, invoice_number, total_amount, invoice_items(quantity, reference, item_code, line_total)))`)
-        .eq('user_id', user.id)
         .eq('module_origin', moduleOrigin)
         .order('date', { ascending: false });
       if (error) throw error;

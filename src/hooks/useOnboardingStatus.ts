@@ -34,6 +34,17 @@ export function useOnboardingStatus() {
     queryFn: async () => {
       if (!user?.id) return null;
 
+      // Si el user es colaborador activo, saltear onboarding completamente.
+      // El onboarding configura la empresa del owner — un colaborador entra
+      // a una empresa ya configurada y debe ir directo al dashboard.
+      const { data: collab } = await supabase
+        .from('collaborators')
+        .select('id')
+        .eq('collaborator_user_id', user.id)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (collab) return { onboarding_completed: true };
+
       const { data, error } = await (supabase as any)
         .from('profiles')
         .select('onboarding_completed')

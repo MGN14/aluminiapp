@@ -214,7 +214,6 @@ async function computeChecklist(userId: string): Promise<ChecklistState> {
     supabase
       .from('bank_statements')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
       .eq('processed', true)
       .is('deleted_at', null)
       .limit(1),
@@ -222,21 +221,18 @@ async function computeChecklist(userId: string): Promise<ChecklistState> {
     supabase
       .from('invoices')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
       .eq('type', 'venta')
       .limit(1),
     // 3. Factura de compra
     supabase
       .from('invoices')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
       .eq('type', 'compra')
       .limit(1),
     // 4. Transacción vinculada a factura
     supabase
       .from('transactions')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
       .is('deleted_at', null)
       .not('invoice_id', 'is', null)
       .limit(1),
@@ -250,7 +246,6 @@ async function computeChecklist(userId: string): Promise<ChecklistState> {
     supabase
       .from('initial_state_details' as any)
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
       .limit(1),
     // 7. ReteICA configurado (rate > 0)
     supabase
@@ -262,7 +257,6 @@ async function computeChecklist(userId: string): Promise<ChecklistState> {
     supabase
       .from('transactions')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
       .is('deleted_at', null)
       .not('category_id', 'is', null),
     // 9. Colaborador agregado

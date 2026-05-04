@@ -112,7 +112,7 @@ export default function BulkUploadModal({ open, onOpenChange, onComplete }: Prop
 
       // Check if user has existing products
       if (user) {
-        const { count } = await supabase.from('inventory_products').select('id', { count: 'exact', head: true }).eq('user_id', user.id);
+        const { count } = await supabase.from('inventory_products').select('id', { count: 'exact', head: true });
         setHasExistingProducts((count ?? 0) > 0);
       }
 
@@ -150,12 +150,12 @@ export default function BulkUploadModal({ open, onOpenChange, onComplete }: Prop
       // Handle import modes
       if (importMode === 'replace') {
         // Delete existing products first
-        await supabase.from('inventory_products').delete().eq('user_id', user.id);
+        await supabase.from('inventory_products').delete().not('id', 'is', null); // RLS filtra por dueño
       }
 
       if (importMode === 'adjust') {
         // Fetch existing products to adjust
-        const { data: existing } = await supabase.from('inventory_products').select('id, reference, stock_system').eq('user_id', user.id);
+        const { data: existing } = await supabase.from('inventory_products').select('id, reference, stock_system');
         const existingMap = new Map((existing || []).map(p => [p.reference.toLowerCase(), p]));
 
         for (let i = 0; i < validProducts.length; i += 50) {

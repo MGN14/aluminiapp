@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
-export type PettyCashKind = 'gasto_efectivo' | 'cuenta_de_cobro';
+export type PettyCashKind = 'gasto_efectivo' | 'cuenta_de_cobro' | 'ingreso_efectivo';
 
 export interface PettyCashRow {
   id: string;
@@ -52,21 +52,20 @@ export function usePettyCashMovements() {
       };
       if (!user?.id) return empty;
 
+      // RLS filtra automáticamente por current_data_owner() — no agregar
+      // .eq('user_id', user.id) que rompe para colaboradores.
       const [movementsRes, categoriesRes, responsiblesRes] = await Promise.all([
         supabase
           .from('petty_cash_movements')
           .select('*')
-          .eq('user_id', user.id)
           .order('date', { ascending: false })
           .order('created_at', { ascending: false }),
         supabase
           .from('categories')
-          .select('id, name, is_tax_deductible')
-          .eq('user_id', user.id),
+          .select('id, name, is_tax_deductible'),
         supabase
           .from('responsibles')
-          .select('id, name')
-          .eq('user_id', user.id),
+          .select('id, name'),
       ]);
 
       if (movementsRes.error) throw movementsRes.error;
@@ -105,8 +104,10 @@ export function usePettyCashMovements() {
 
       const monthStart = startOfMonth();
       const mesActual = rows.filter((r) => r.date >= monthStart);
-      const total_mes_actual = mesActual.reduce((s, r) => s + r.amount, 0);
-      const total_deducible_mes_actual = mesActual
+      // Los totales de egreso excluyen ingresos para no inflar números.
+      const egresosMes = mesActual.filter((r) => r.kind !== 'ingreso_efectivo');
+      const total_mes_actual = egresosMes.reduce((s, r) => s + r.amount, 0);
+      const total_deducible_mes_actual = egresosMes
         .filter((r) => r.category_is_tax_deductible)
         .reduce((s, r) => s + r.amount, 0);
       const total_no_deducible_mes_actual = total_mes_actual - total_deducible_mes_actual;

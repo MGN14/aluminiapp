@@ -47,7 +47,6 @@ export function useRemisionPaymentStatus(remisiones: any[], year: number) {
       const { data: paymentsData } = await supabase
         .from('remision_payments' as never)
         .select('remision_id, amount_assigned')
-        .eq('user_id', user.id)
         .in('remision_id', remisionIds);
 
       const paid = new Map<string, { total: number; count: number }>();
@@ -101,7 +100,6 @@ export function useRemisionPaymentStatus(remisiones: any[], year: number) {
       const { data: dianInvs } = await supabase
         .from('invoices')
         .select('total_amount')
-        .eq('user_id', user.id)
         .eq('type', 'venta')
         .eq('status', 'confirmed')
         .gte('issue_date', `${year}-01-01`)

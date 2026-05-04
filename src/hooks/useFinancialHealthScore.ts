@@ -99,49 +99,40 @@ export function useFinancialHealthScore(year: number, _month?: number) {
         supabase
           .from('transactions')
           .select('id, date, responsible_id, invoice_id, notes, category_id, amount, type')
-          .eq('user_id', user.id)
           .is('deleted_at', null)
           .gte('date', yearStart)
           .lt('date', nextYearStart),
         supabase
           .from('invoices')
           .select('id, type, status, issue_date, total_amount, retefuente_cliente_amount')
-          .eq('user_id', user.id)
           .eq('status', 'confirmed')
           .gte('issue_date', yearStart)
           .lt('issue_date', nextYearStart),
         supabase
           .from('invoice_transaction_matches')
-          .select('invoice_id, matched_amount, transaction_id')
-          .eq('user_id', user.id),
+          .select('invoice_id, matched_amount, transaction_id'),
         supabase
           .from('initial_financial_state' as any)
           .select('cuentas_por_cobrar, anticipos_de_clientes, saldo_bancos')
-          .eq('user_id', user.id)
           .maybeSingle(),
         supabase
           .from('initial_state_details')
           .select('invoice_id, amount')
-          .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes')
           .not('invoice_id', 'is', null),
         supabase
           .from('categories')
-          .select('id, name')
-          .eq('user_id', user.id),
+          .select('id, name'),
         supabase
           .from('responsibles')
-          .select('id, name')
-          .eq('user_id', user.id),
+          .select('id, name'),
         supabase
           .from('initial_state_details')
           .select('id, invoice_id, amount, responsible_name')
-          .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes'),
         supabase
           .from('inventory_products')
           .select('stock_system, stock_physical, cost_per_unit, active')
-          .eq('user_id', user.id)
           .eq('active', true),
       ]);
 
@@ -196,7 +187,6 @@ export function useFinancialHealthScore(year: number, _month?: number) {
         const { data: matchTransactions, error: matchTransactionsError } = await supabase
           .from('transactions')
           .select('id, date')
-          .eq('user_id', user.id)
           .is('deleted_at', null)
           .in('id', matchTransactionIds);
 

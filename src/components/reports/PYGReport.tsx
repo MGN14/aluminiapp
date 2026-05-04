@@ -73,34 +73,28 @@ function useYearData(userId: string | undefined, year: number) {
         supabase
           .from('transactions')
           .select('date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
-          .eq('user_id', userId)
           .is('deleted_at', null)
           .gte('date', `${year}-01-01`)
           .lte('date', `${year}-12-31`),
         supabase
           .from('categories')
-          .select('id, name, report_group')
-          .eq('user_id', userId),
+          .select('id, name, report_group'),
         supabase
           .from('responsibles')
-          .select('id, name')
-          .eq('user_id', userId),
+          .select('id, name'),
         supabase
           .from('petty_cash_movements')
           .select('date, amount, category_id, responsible_id')
-          .eq('user_id', userId)
           .gte('date', `${year}-01-01`)
           .lte('date', `${year}-12-31`),
         // Pagos de créditos del año — sólo el componente interés (gasto financiero)
         (supabase.from('credit_payments' as never) as any)
           .select('payment_date, interest_paid, credit_id')
-          .eq('user_id', userId)
           .gte('payment_date', `${year}-01-01`)
           .lte('payment_date', `${year}-12-31`),
         // Créditos para mostrar nombre como "beneficiario" en el desglose
         (supabase.from('credits' as never) as any)
-          .select('id, name')
-          .eq('user_id', userId),
+          .select('id, name'),
       ]);
 
       if (txRes.error) throw txRes.error;
@@ -214,13 +208,11 @@ function useFiscalExposure(userId: string | undefined, year: number) {
         supabase
           .from('petty_cash_movements')
           .select('amount, category_id')
-          .eq('user_id', userId)
           .gte('date', `${year}-01-01`)
           .lte('date', `${year}-12-31`),
         supabase
           .from('categories')
-          .select('id, name, is_tax_deductible')
-          .eq('user_id', userId),
+          .select('id, name, is_tax_deductible'),
       ]);
 
       const catMap = new Map<string, { name: string; deductible: boolean }>();
@@ -360,7 +352,6 @@ export default function PYGReport() {
       const { data } = await supabase
         .from('cash_movements')
         .select('date, type, amount')
-        .eq('user_id', user.id)
         .gte('date', `${year}-01-01`)
         .lte('date', `${year}-12-31`);
       return data || [];
@@ -377,7 +368,6 @@ export default function PYGReport() {
       const { data } = await supabase
         .from('invoices')
         .select('issue_date, total_amount')
-        .eq('user_id', user.id)
         .eq('type', 'venta')
         .eq('status', 'confirmed')
         .gte('issue_date', `${year}-01-01`)

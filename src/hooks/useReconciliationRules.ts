@@ -240,7 +240,6 @@ export function useReconciliationRules() {
     const { data: txs, error } = await supabase
       .from('transactions')
       .select('id, description, amount, date, category_id')
-      .eq('user_id', user.id)
       .is('deleted_at', null)
       .is('category_id', null); // only touch uncategorized — never overwrite
 

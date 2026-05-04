@@ -115,7 +115,6 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, saldoIn
       const { data: raw, error } = await supabase
         .from('transactions')
         .select('id, date, amount, description, owner, responsible_id')
-        .eq('user_id', user.id)
         .eq('type', 'ingreso')
         .is('invoice_id', null)
         .is('deleted_at', null)
@@ -133,12 +132,10 @@ export default function VincularPagoModal({ open, onOpenChange, invoice, saldoIn
             supabase
               .from('invoice_transaction_matches')
               .select('transaction_id, matched_amount')
-              .eq('user_id', user.id)
               .in('transaction_id', txIds),
             supabase
               .from('initial_balance_matches' as any)
               .select('transaction_id, matched_amount')
-              .eq('user_id', user.id)
               .in('transaction_id', txIds),
           ])
         : [{ data: [] as any[] }, { data: [] as any[] }];

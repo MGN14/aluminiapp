@@ -112,8 +112,8 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
 
       // 1. Catálogo + historial completo de movimientos (para auditoría y compatibilidad)
       const [prodRes, movRes] = await Promise.all([
-        supabase.from('inventory_products').select('*').eq('user_id', user.id).eq('active', true).order('reference'),
-        supabase.from('inventory_movements').select('*').eq('user_id', user.id).order('movement_date', { ascending: false }),
+        supabase.from('inventory_products').select('*').eq('active', true).order('reference'),
+        supabase.from('inventory_movements').select('*').order('movement_date', { ascending: false }),
       ]);
 
       if (prodRes.error) throw prodRes.error;
@@ -258,7 +258,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
 
   const updateProduct = async (id: string, updates: Partial<InventoryProduct>) => {
     if (!user) return;
-    const { error } = await supabase.from('inventory_products').update(updates).eq('id', id).eq('user_id', user.id);
+    const { error } = await supabase.from('inventory_products').update(updates).eq('id', id);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
       return false;
@@ -308,7 +308,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
       await supabase.from('inventory_products')
         .update({ stock_system: newStock })
         .eq('id', movement.product_id)
-        .eq('user_id', user.id);
+        ;
     }
 
     await fetchData();
@@ -317,7 +317,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
 
   const deleteProduct = async (id: string) => {
     if (!user) return;
-    const { error } = await supabase.from('inventory_products').update({ active: false }).eq('id', id).eq('user_id', user.id);
+    const { error } = await supabase.from('inventory_products').update({ active: false }).eq('id', id);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
       return false;

@@ -157,16 +157,13 @@ export default function PaymentsLogReport() {
       const [respRes, aliasRes, allCatsRes] = await Promise.all([
         supabase
           .from('responsibles')
-          .select('id, name')
-          .eq('user_id', user.id),
+          .select('id, name'),
         supabase
           .from('responsible_aliases' as never)
-          .select('responsible_id, alias')
-          .eq('user_id', user.id),
+          .select('responsible_id, alias'),
         supabase
           .from('categories')
-          .select('id, name, report_group')
-          .eq('user_id', user.id),
+          .select('id, name, report_group'),
       ]);
 
       const respMap = new Map<string, string>();
@@ -200,7 +197,6 @@ export default function PaymentsLogReport() {
         const { data: txs } = await supabase
           .from('transactions')
           .select('responsible_id, category_id')
-          .eq('user_id', user.id)
           .is('deleted_at', null)
           .not('responsible_id', 'is', null)
           .in('category_id', Array.from(validCatIds))
@@ -217,7 +213,6 @@ export default function PaymentsLogReport() {
       const { data: invs } = await supabase
         .from('invoices')
         .select('responsible_id, counterparty_name')
-        .eq('user_id', user.id)
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
       ((invs as Array<{ responsible_id: string | null; counterparty_name: string | null }> | null) ?? []).forEach(inv => {
@@ -263,7 +258,6 @@ export default function PaymentsLogReport() {
       const { data: resp } = await supabase
         .from('responsibles')
         .select('id')
-        .eq('user_id', user.id)
         .ilike('name', counterparty.trim())
         .maybeSingle();
       const respId: string | null = resp?.id ?? null;
@@ -280,7 +274,6 @@ export default function PaymentsLogReport() {
         const aliasRes = await supabase
           .from('responsible_aliases' as never)
           .select('alias')
-          .eq('user_id', user.id)
           .eq('responsible_id', respId);
         const aliasRows = (aliasRes.data as unknown as Array<{ alias: string }> | null) ?? [];
         const aliasNames = new Set<string>(aliasRows.map(a => normalizeName(a.alias)));
@@ -290,8 +283,7 @@ export default function PaymentsLogReport() {
         // similares — ej: si "Aluminios Jh" fue absorbido como alias de del Eje)
         const { data: allResps } = await supabase
           .from('responsibles')
-          .select('id, name')
-          .eq('user_id', user.id);
+          .select('id, name');
         ((allResps as Array<{ id: string; name: string }> | null) ?? []).forEach(r => {
           if (aliasNames.has(normalizeName(r.name))) aliasRespIds.push(r.id);
         });
@@ -307,7 +299,6 @@ export default function PaymentsLogReport() {
         const { data: linkedInvs } = await supabase
           .from('invoices')
           .select('id, type, total_amount, counterparty_name, responsible_id')
-          .eq('user_id', user.id)
           .in('responsible_id', allRespIdsForClient)
           .gte('issue_date', `${year}-01-01`)
           .lte('issue_date', `${year}-12-31`);
@@ -317,7 +308,6 @@ export default function PaymentsLogReport() {
       const { data: fallbackInvs } = await supabase
         .from('invoices')
         .select('id, type, total_amount, counterparty_name, responsible_id')
-        .eq('user_id', user.id)
         .is('responsible_id', null)
         .ilike('counterparty_name', `%${counterparty.split(' ').slice(0, 2).join(' ')}%`)
         .gte('issue_date', `${year}-01-01`)
@@ -347,7 +337,6 @@ export default function PaymentsLogReport() {
         const { data: byResp } = await supabase
           .from('transactions')
           .select('id')
-          .eq('user_id', user.id)
           .is('deleted_at', null)
           .in('responsible_id', allRespIdsForClient)
           .gte('date', `${year}-01-01`)
@@ -359,13 +348,11 @@ export default function PaymentsLogReport() {
           supabase
             .from('transactions')
             .select('id')
-            .eq('user_id', user.id)
             .is('deleted_at', null)
             .in('invoice_id', invIds),
           supabase
             .from('invoice_transaction_matches')
             .select('transaction_id')
-            .eq('user_id', user.id)
             .in('invoice_id', invIds),
         ]);
         (byInvoiceId.data ?? []).forEach((t: { id: string }) => txIdsForClient.add(t.id));
@@ -380,7 +367,6 @@ export default function PaymentsLogReport() {
         const { data: clientTxs } = await supabase
           .from('transactions')
           .select('amount, type, date')
-          .eq('user_id', user.id)
           .is('deleted_at', null)
           .in('id', Array.from(txIdsForClient))
           .gte('date', `${year}-01-01`)
@@ -400,14 +386,12 @@ export default function PaymentsLogReport() {
         const { data: txs } = await supabase
           .from('transactions')
           .select('amount')
-          .eq('user_id', user.id)
           .is('deleted_at', null)
           .in('invoice_id', invIds);
         cobrado += (txs ?? []).reduce((s: number, t: any) => s + Math.abs(Number(t.amount ?? 0)), 0);
         const { data: matches } = await supabase
           .from('invoice_transaction_matches')
           .select('matched_amount')
-          .eq('user_id', user.id)
           .in('invoice_id', invIds);
         cobrado += (matches ?? []).reduce((s: number, m: any) => s + Math.abs(Number(m.matched_amount ?? 0)), 0);
       }
@@ -440,8 +424,7 @@ export default function PaymentsLogReport() {
 
       const { data: allInitialDetails } = await supabase
         .from('initial_state_details')
-        .select('field_type, amount, invoice_id, responsible_id, responsible_name')
-        .eq('user_id', user.id);
+        .select('field_type, amount, invoice_id, responsible_id, responsible_name');
 
       const all = (allInitialDetails ?? []) as any[];
 
@@ -570,8 +553,7 @@ export default function PaymentsLogReport() {
 
       const { data: allCats } = await supabase
         .from('categories')
-        .select('id, name, report_group')
-        .eq('user_id', user.id);
+        .select('id, name, report_group');
 
       const validCatIds = new Set<string>();
       (allCats ?? []).forEach((c: any) => {
@@ -588,7 +570,6 @@ export default function PaymentsLogReport() {
       const txResult = await supabase
         .from('transactions')
         .select('id, date, description, type, amount, category_id, responsible_id, invoice_id')
-        .eq('user_id', user.id)
         .is('deleted_at', null)
         .in('type', ['ingreso', 'egreso'])
         .gte('date', startDate)
@@ -615,16 +596,14 @@ export default function PaymentsLogReport() {
       const txIds = txs.map(t => t.id);
 
       const [allRespsRes, aliasesRes, matchesRes] = await Promise.all([
-        supabase.from('responsibles').select('id, name').eq('user_id', user.id),
+        supabase.from('responsibles').select('id, name'),
         supabase
           .from('responsible_aliases' as never)
-          .select('responsible_id, alias')
-          .eq('user_id', user.id),
+          .select('responsible_id, alias'),
         txIds.length > 0
           ? supabase
               .from('invoice_transaction_matches')
               .select('invoice_id, transaction_id')
-              .eq('user_id', user.id)
               .in('transaction_id', txIds)
           : Promise.resolve({ data: [], error: null }),
       ]);
@@ -732,7 +711,6 @@ export default function PaymentsLogReport() {
         const cashRes = await supabase
           .from('cash_movements')
           .select('id, date, type, amount, category, notes')
-          .eq('user_id', user.id)
           .gte('date', startDate)
           .lte('date', endDate)
           .order('date', { ascending: false });
@@ -793,7 +771,6 @@ export default function PaymentsLogReport() {
       const { data: invs } = await supabase
         .from('invoices')
         .select('type, total_amount, status')
-        .eq('user_id', user.id)
         .eq('status', 'confirmed')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);

@@ -60,7 +60,6 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       const { data } = await supabase
         .from('business_patterns')
         .select('*')
-        .eq('user_id', user.id)
         .eq('status', 'active')
         .order('confidence', { ascending: false });
       return data || [];
@@ -76,7 +75,6 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       const { data } = await supabase
         .from('transactions')
         .select('date, amount, description, category_id, type, categories!transactions_category_id_fkey(name, report_group)')
-        .eq('user_id', user.id)
         .is('deleted_at', null)
         .gte('date', `${currentYear - 1}-01-01`)
         .order('date', { ascending: true });
@@ -93,7 +91,6 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       const { data } = await supabase
         .from('invoices')
         .select('id, invoice_number, issue_date, total_amount, counterparty_name, status, type, responsible_id')
-        .eq('user_id', user.id)
         .eq('type', 'venta')
         .gte('issue_date', `${currentYear - 1}-01-01`);
       return data || [];
@@ -109,7 +106,6 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       const { data } = await supabase
         .from('inventory_products')
         .select('id, name, reference, stock_system, stock_physical, cost_per_unit, min_stock, last_count_date')
-        .eq('user_id', user.id)
         .eq('active', true);
       return data || [];
     },

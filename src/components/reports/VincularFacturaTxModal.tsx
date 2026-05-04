@@ -129,7 +129,6 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
         const { data } = await supabase
           .from('invoices')
           .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, type, responsible_id')
-          .eq('user_id', user.id)
           .eq('type', targetType)
           .eq('status', 'confirmed')
           .gte('issue_date', cutoff)
@@ -148,13 +147,11 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
             supabase
               .from('transactions')
               .select('invoice_id, amount')
-              .eq('user_id', user.id)
               .is('deleted_at', null)
               .in('invoice_id', invIds),
             supabase
               .from('invoice_transaction_matches')
               .select('invoice_id, matched_amount')
-              .eq('user_id', user.id)
               .in('invoice_id', invIds),
           ]);
           for (const t of (directRes.data ?? []) as Array<{ invoice_id: string; amount: number }>) {
@@ -195,11 +192,9 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
         const [credRes, paymentsRes] = await Promise.all([
           (supabase.from('credits' as never) as any)
             .select('id, name, bank_name, principal, interest_rate_monthly, term_months, first_payment_date, amortization_type, default_category_id, default_responsible_id, additional_costs_pct, additional_costs_label')
-            .eq('user_id', user.id)
             .eq('status', 'active'),
           (supabase.from('credit_payments' as never) as any)
-            .select('credit_id, payment_date, amount_paid, principal_paid, interest_paid, is_extra')
-            .eq('user_id', user.id),
+            .select('credit_id, payment_date, amount_paid, principal_paid, interest_paid, is_extra'),
         ]);
 
         if (cancelled) return;
@@ -289,8 +284,7 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
         const { error } = await supabase
           .from('transactions')
           .update({ invoice_id: selectedInvoiceId })
-          .eq('id', tx.id)
-          .eq('user_id', user.id);
+          .eq('id', tx.id);
         if (error) throw error;
         const inv = invoices.find(i => i.id === selectedInvoiceId);
         toast.success(`Vinculado a factura #${inv?.invoice_number ?? ''}`);
@@ -343,8 +337,7 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
         const { error: txErr } = await supabase
           .from('transactions')
           .update(txUpdate)
-          .eq('id', tx.id)
-          .eq('user_id', user.id);
+          .eq('id', tx.id);
         if (txErr) throw txErr;
       }
 

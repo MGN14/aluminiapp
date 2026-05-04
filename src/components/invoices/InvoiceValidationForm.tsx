@@ -87,7 +87,6 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
     supabase
       .from('responsibles')
       .select('id, name')
-      .eq('user_id', user.id)
       .eq('active', true)
       .order('name')
       .then(({ data: rows }) => {
@@ -151,7 +150,6 @@ export default function InvoiceValidationForm({ data, originalFilename, onSave, 
         const { data: settings } = await supabase
           .from('tax_settings')
           .select('autoretefuente_rate, reteica_rate, retefuente_compra_rate')
-          .eq('user_id', user.id)
           .maybeSingle();
 
         if (settings) {

@@ -42,7 +42,6 @@ export default function TaxSettingsCard() {
       const { data, error } = await supabase
         .from('tax_settings')
         .select('*')
-        .eq('user_id', user!.id)
         .maybeSingle();
 
       if (error) throw error;

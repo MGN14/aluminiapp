@@ -228,12 +228,10 @@ function DashboardContent() {
         supabase
           .from('initial_financial_state' as never)
           .select('anticipos_de_clientes')
-          .eq('user_id', user.id)
           .maybeSingle(),
         supabase
           .from('initial_state_details' as never)
           .select('amount, invoice_id')
-          .eq('user_id', user.id)
           .eq('field_type', 'anticipos_de_clientes'),
       ]);
       if (stateRes.error) throw stateRes.error;

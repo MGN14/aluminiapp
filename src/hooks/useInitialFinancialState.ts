@@ -109,12 +109,10 @@ export function useInitialFinancialState() {
         supabase
           .from('initial_financial_state' as any)
           .select('*')
-          .eq('user_id', user.id)
           .maybeSingle(),
         supabase
           .from('initial_state_details' as any)
           .select('*')
-          .eq('user_id', user.id)
           .order('created_at'),
       ]);
 
@@ -170,14 +168,13 @@ export function useInitialFinancialState() {
       const { data: existing } = await supabase
         .from('initial_financial_state' as any)
         .select('id')
-        .eq('user_id', user.id)
         .maybeSingle();
 
       if (existing) {
         const { error } = await supabase
           .from('initial_financial_state' as any)
           .update(payload as any)
-          .eq('user_id', user.id);
+          ;
         if (error) throw error;
       } else {
         const { error } = await supabase
@@ -190,7 +187,7 @@ export function useInitialFinancialState() {
       await supabase
         .from('initial_state_details' as any)
         .delete()
-        .eq('user_id', user.id);
+        ;
 
       const validDetails = newDetails.filter(d => d.responsible_name.trim() || d.amount > 0);
       if (validDetails.length > 0) {
