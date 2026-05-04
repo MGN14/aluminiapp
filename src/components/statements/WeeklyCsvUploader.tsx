@@ -303,6 +303,14 @@ export default function WeeklyCsvUploader({ onUploadComplete }: Props) {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        // ROLLBACK: si el edge function falla, soft-delete del bank_statement
+        // recién creado. Sin esto la row queda zombie y bloquea futuros uploads
+        // del mismo período por el unique constraint
+        // idx_bank_statements_unique_period_v2.
+        await supabase
+          .from("bank_statements")
+          .update({ deleted_at: new Date().toISOString() } as never)
+          .eq("id", stmt.id);
         throw new Error(
           errData.error ||
             `Edge function falló con status ${res.status}`
