@@ -177,7 +177,7 @@ export default function HeroSection() {
             flexWrap: 'wrap',
             gap: 12,
             justifyContent: 'center',
-            marginBottom: 56,
+            marginBottom: 12,
           }}
         >
           <Link to="/signup" style={{ textDecoration: 'none' }}>
@@ -200,7 +200,7 @@ export default function HeroSection() {
                 transition: 'transform 0.2s ease',
               }}
             >
-              Probar ahora
+              Empieza gratis 14 días
               <ArrowRight style={{ width: 18, height: 18 }} />
             </button>
           </Link>
@@ -226,6 +226,17 @@ export default function HeroSection() {
             </button>
           </a>
         </div>
+
+        {/* CTA microcopy */}
+        <p
+          style={{
+            fontSize: 13,
+            color: 'rgba(255,255,255,0.5)',
+            margin: '0 0 56px',
+          }}
+        >
+          Sin tarjeta de crédito · Configura en 5 minutos · Cancela cuando quieras
+        </p>
 
         {/* Metrics strip */}
         <div

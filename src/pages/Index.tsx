@@ -3,12 +3,15 @@ import { FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import MobileNav from '@/components/layout/MobileNav';
 import Footer from '@/components/layout/Footer';
+import AnnouncementBar from './landing/AnnouncementBar';
 import HeroSection from './landing/HeroSection';
+import SocialProofStrip from './landing/SocialProofStrip';
 import NicoCoachSection from './landing/NicoCoachSection';
 import PYGSection from './landing/PYGSection';
 import DIANSection from './landing/DIANSection';
 import HowItWorksSection from './landing/HowItWorksSection';
 import ForEntrepreneursSection from './landing/ForEntrepreneursSection';
+import FAQSection from './landing/FAQSection';
 import ClosingCTA from './landing/ClosingCTA';
 
 export default function Index() {
@@ -20,9 +23,12 @@ export default function Index() {
   }
   return (
     <div className="min-h-screen bg-background flex flex-col" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif" }}>
+      {/* Announcement bar */}
+      <AnnouncementBar />
+
       {/* Navigation */}
       <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+        position: 'fixed', top: 36, left: 0, right: 0, zIndex: 100,
         height: 60,
         background: 'rgba(255,255,255,0.72)',
         backdropFilter: 'blur(20px) saturate(180%)',
@@ -85,13 +91,15 @@ export default function Index() {
       </nav>
 
       {/* Page sections */}
-      <main className="flex-1" style={{ paddingTop: 60 }}>
+      <main className="flex-1" style={{ paddingTop: 96 }}>
         <HeroSection />
+        <SocialProofStrip />
         <NicoCoachSection />
         <PYGSection />
         <DIANSection />
         <HowItWorksSection />
         <ForEntrepreneursSection />
+        <FAQSection />
         <ClosingCTA />
       </main>
 
