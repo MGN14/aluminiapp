@@ -27,7 +27,7 @@ const PRESETS: Record<string, { label: string; description: string; build: () =>
     description: 'Puede subir/editar facturas y extractos, ver reportes',
     build: () => {
       const editKeys: ModuleKey[] = ['extractos', 'facturas_venta', 'facturas_compra', 'conciliacion'];
-      const viewKeys: ModuleKey[] = ['dashboard', 'caja_menor', 'reportes', 'informe_dian', 'exportar', 'nico_ia'];
+      const viewKeys: ModuleKey[] = ['dashboard', 'caja_menor', 'estado_resultados', 'anticipos', 'cuentas_por_cobrar', 'cuentas_por_pagar', 'flujo_caja', 'relacion_pagos', 'informe_dian', 'exportar', 'nico_ia'];
       const result = Object.fromEntries(MODULE_KEYS.map(m => [m.key, 'none'])) as Record<ModuleKey, AccessLevel>;
       editKeys.forEach(k => { result[k] = 'edit'; });
       viewKeys.forEach(k => { result[k] = 'view'; });
