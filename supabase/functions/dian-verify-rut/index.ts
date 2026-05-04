@@ -45,7 +45,7 @@ export default async ({ page, context }) => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   try {
-    // Forzar viewport desktop + UA realista — MUISCA en mobile oculta las tabs
+    // Setup anti-detection: viewport desktop + UA realista + override webdriver
     result.stage = 'setup_viewport';
     await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1 });
     await page.setUserAgent(
@@ -55,14 +55,32 @@ export default async ({ page, context }) => {
       'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
     });
 
+    // Hide automation signals BEFORE any page script runs
+    if (page.evaluateOnNewDocument) {
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'languages', { get: () => ['es-CO', 'es', 'en'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      });
+    }
+
     result.stage = 'goto_login';
     await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-    await sleep(3000);
+    await sleep(5000); // dar tiempo a renders lazy
+
+    // Forzar scroll para activar IntersectionObservers / lazy loads
+    await page.evaluate(() => {
+      window.scrollTo(0, 200);
+      window.scrollTo(0, 0);
+    });
+    await sleep(1500);
+
     result.meta.viewport = await page.evaluate(() => ({
       innerWidth: window.innerWidth,
       innerHeight: window.innerHeight,
       docWidth: document.documentElement.clientWidth,
-      bodyText: (document.body.innerText || '').slice(0, 800),
+      webdriver: navigator.webdriver,
+      bodyText: (document.body.innerText || '').slice(0, 1500),
     }));
 
     // Detectar y cerrar modal "Está intentando ingresar de manera incorrecta"
@@ -195,8 +213,8 @@ export default async ({ page, context }) => {
       }).filter(b => b.visible);
     });
 
-    result.stage = 'DIAGNOSTIC_DUMP_V5';
-    result.meta.note = 'V5: viewport desktop + UA realista + bodyText snapshot.';
+    result.stage = 'DIAGNOSTIC_DUMP_V6';
+    result.meta.note = 'V6: stealth=true + override webdriver/languages/plugins + scroll forzado.';
     return { data: result, type: 'application/json' };
   } catch (err) {
     result.error = err && err.message ? err.message : String(err);
@@ -298,8 +316,12 @@ serve(async (req) => {
     }
 
     // Call Browserless /function endpoint
+    // stealth=true: Browserless aplica puppeteer-extra-plugin-stealth (oculta
+    // navigator.webdriver, fixes UA/plugins/languages — necesario para MUISCA
+    // que detecta headless y sirve versión recortada sin las tabs).
+    // blockAds=true: drops trackers que ralentizan render.
     const browserlessUrl =
-      `${BROWSERLESS_ENDPOINT}/function?token=${encodeURIComponent(BROWSERLESS_API_KEY)}`;
+      `${BROWSERLESS_ENDPOINT}/function?token=${encodeURIComponent(BROWSERLESS_API_KEY)}&stealth=true&blockAds=true`;
     const browserlessResp = await fetch(browserlessUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -345,7 +367,8 @@ serve(async (req) => {
       stage === "DIAGNOSTIC_DUMP_V2" ||
       stage === "DIAGNOSTIC_DUMP_V3" ||
       stage === "DIAGNOSTIC_DUMP_V4" ||
-      stage === "DIAGNOSTIC_DUMP_V5"
+      stage === "DIAGNOSTIC_DUMP_V5" ||
+      stage === "DIAGNOSTIC_DUMP_V6"
     ) {
       verifyResult = {
         status: "warning",
