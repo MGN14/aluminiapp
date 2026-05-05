@@ -373,12 +373,22 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
 
   const tipos = Object.keys(TIPO_CONFIG) as (keyof typeof TIPO_CONFIG)[];
 
-  // Helper: check if a pattern already has a saved rule (by pattern_ref or keyword)
+  // Helper: check if a pattern already has a saved rule. Antes el match por
+  // keyword era strict equality; si el usuario editaba la palabra clave al
+  // guardar, el patrón seguía apareciendo como sugerencia "nueva". Ahora
+  // matcheamos por:
+  //   1. pattern_ref exacto (la regla referencia el patrón)
+  //   2. titulo del patrón vs nombre de la regla (substring, case-insensitive)
+  //   3. keyword del patrón contenido en el keyword de la regla (o viceversa)
   const hasExistingRule = (p: Patron) => {
     const sugKw = p.suggestedKeyword?.trim().toLowerCase();
+    const titulo = p.titulo?.trim().toLowerCase() ?? '';
     return rules.some(r => {
       if (r.pattern_ref && r.pattern_ref === p.id) return true;
-      if (sugKw && r.keyword && r.keyword.trim().toLowerCase() === sugKw) return true;
+      const ruleKw = r.keyword?.trim().toLowerCase() ?? '';
+      if (sugKw && ruleKw && (ruleKw.includes(sugKw) || sugKw.includes(ruleKw))) return true;
+      const ruleName = r.name?.trim().toLowerCase() ?? '';
+      if (titulo && ruleName && (ruleName.includes(titulo) || titulo.includes(ruleName))) return true;
       return false;
     });
   };
@@ -475,7 +485,9 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       </div>
 
       {tipos.map(tipo => {
-        const patronesTipo = patrones.filter(p => p.tipo === tipo && !sugerenciasIds.has(p.id));
+        // Excluir tanto los que están arriba como los que ya tienen regla
+        // creada — esos viven en el módulo Reglas, no en Patrones.
+        const patronesTipo = patrones.filter(p => p.tipo === tipo && !sugerenciasIds.has(p.id) && !hasExistingRule(p));
         if (patronesTipo.length === 0) return null;
         const cfg = TIPO_CONFIG[tipo];
         const Icon = cfg.icon;

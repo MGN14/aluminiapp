@@ -20,6 +20,10 @@ interface StatementOption {
   bank_name: string;
   statement_month: number | null;
   statement_year: number | null;
+  file_name: string | null;
+  period_type: string | null;
+  uploaded_at: string | null;
+  transaction_count: number | null;
 }
 
 export default function Export() {
@@ -89,11 +93,19 @@ export default function Export() {
   const fetchStatements = async () => {
     const { data } = await supabase
       .from('bank_statements')
-      .select('id, display_name, bank_name, statement_month, statement_year')
+      .select('id, display_name, bank_name, statement_month, statement_year, file_name, period_type, uploaded_at, transaction_count')
       .is('deleted_at', null)
-      .order('statement_year', { ascending: false })
-      .order('statement_month', { ascending: false });
-    setStatements((data as StatementOption[]) || []);
+      .order('uploaded_at', { ascending: false });
+    const list = (data as StatementOption[]) || [];
+    setStatements(list);
+    // Default = último archivo subido (no "todos") la primera vez que carga.
+    if (list.length > 0) {
+      setSelectedIds((prev) => {
+        // Si ya hay selección distinta al default __all__, respetarla.
+        if (!(prev.size === 1 && prev.has('__all__'))) return prev;
+        return new Set([list[0].id]);
+      });
+    }
   };
 
   const fetchCategories = async () => {
@@ -430,20 +442,47 @@ export default function Export() {
                       <Checkbox checked={selectedIds.has('__all__')} className="pointer-events-none" />
                       <span className="font-medium">Todos los extractos</span>
                     </button>
-                    {statements.map(stmt => {
-                      const checked = selectedIds.has('__all__') || selectedIds.has(stmt.id);
+                    {(() => {
+                      const monthly = statements.filter(s => !s.period_type || s.period_type === 'monthly_close');
+                      const weekly = statements.filter(s => s.period_type === 'weekly');
+                      const renderItem = (stmt: StatementOption) => {
+                        const checked = selectedIds.has('__all__') || selectedIds.has(stmt.id);
+                        return (
+                          <button
+                            key={stmt.id}
+                            type="button"
+                            onClick={() => toggleStatement(stmt.id)}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted"
+                          >
+                            <Checkbox checked={checked} className="pointer-events-none" />
+                            <span className="truncate">
+                              {getStatementLabel(stmt)}
+                              {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
+                            </span>
+                          </button>
+                        );
+                      };
                       return (
-                        <button
-                          key={stmt.id}
-                          type="button"
-                          onClick={() => toggleStatement(stmt.id)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted"
-                        >
-                          <Checkbox checked={checked} className="pointer-events-none" />
-                          <span className="truncate">{getStatementLabel(stmt)}</span>
-                        </button>
+                        <>
+                          {monthly.length > 0 && (
+                            <>
+                              <div className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40">
+                                📋 Cierres mensuales
+                              </div>
+                              {monthly.map(renderItem)}
+                            </>
+                          )}
+                          {weekly.length > 0 && (
+                            <>
+                              <div className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40">
+                                📊 Movimientos semanales
+                              </div>
+                              {weekly.map(renderItem)}
+                            </>
+                          )}
+                        </>
                       );
-                    })}
+                    })()}
                   </div>
                 </PopoverContent>
               </Popover>

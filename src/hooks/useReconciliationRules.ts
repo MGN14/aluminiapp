@@ -75,9 +75,9 @@ export function useReconciliationRules() {
   const { data: rules = [], isLoading } = useQuery({
     queryKey: ['reconciliation-rules', user?.id],
     queryFn: async () => {
+      // RLS filtra por owner; sin .eq('user_id', user.id) que rompía a colaboradores.
       const { data, error } = await rulesTable
         .select('*')
-        .eq('user_id', user!.id)
         .order('created_at', { ascending: false });
       if (error) throw error;
       return (data || []) as unknown as ReconciliationRule[];
@@ -157,34 +157,42 @@ export function useReconciliationRules() {
    */
   const applyRulesToStatement = async (statementId: string): Promise<number> => {
     if (!rules.length || !statementId) return 0;
-    const activeRules = rules.filter(r => r.active && r.category_id);
+    // Aceptar reglas que aporten al menos category_id O responsible_id —
+    // antes filtrábamos por category_id obligatorio y descartábamos las
+    // reglas que solo asignaban beneficiario.
+    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id));
     if (!activeRules.length) return 0;
 
     const { data: txs, error } = await supabase
       .from('transactions')
-      .select('id, description, amount, date, category_id')
+      .select('id, description, amount, date, category_id, responsible_id')
       .eq('statement_id', statementId)
       .is('deleted_at', null);
 
     if (error || !txs?.length) return 0;
 
-    // Only process uncategorized transactions
-    const uncategorized = txs.filter((tx: any) => !tx.category_id);
-    if (!uncategorized.length) return 0;
+    // No tocar lo que ya está conciliado: si la tx ya tiene categoría O
+    // beneficiario, la regla no debe pisar. El usuario decidió manualmente
+    // y no queremos desconciliar lo trabajado de la semana anterior.
+    const candidates = txs.filter((tx: any) => !tx.category_id && !tx.responsible_id);
+    if (!candidates.length) return 0;
 
-    // Group tx ids by category_id to enable bulk updates (1 UPDATE per category
-    // instead of 1 per transaction). For N tx and C distinct categories matched,
-    // queries drop from N+1 to C+1.
-    const matchedByCategory = new Map<string, string[]>();
+    type Update = { category_id?: string; responsible_id?: string };
+    // Agrupar por la combinación exacta de campos a setear, para hacer 1 UPDATE
+    // por combinación distinta en lugar de 1 por transacción.
+    const updateBuckets = new Map<string, { update: Update; ids: string[] }>();
     const ruleHits: Record<string, number> = {};
 
-    for (const tx of uncategorized) {
+    for (const tx of candidates) {
       for (const rule of activeRules) {
         if (matchesRule(rule, tx as any)) {
-          const catId = rule.category_id as string;
-          const list = matchedByCategory.get(catId) ?? [];
-          list.push((tx as any).id);
-          matchedByCategory.set(catId, list);
+          const update: Update = {};
+          if (rule.category_id) update.category_id = rule.category_id;
+          if (rule.responsible_id) update.responsible_id = rule.responsible_id;
+          const key = `${update.category_id ?? ''}__${update.responsible_id ?? ''}`;
+          const bucket = updateBuckets.get(key) ?? { update, ids: [] };
+          bucket.ids.push((tx as any).id);
+          updateBuckets.set(key, bucket);
           ruleHits[rule.id] = (ruleHits[rule.id] ?? 0) + 1;
           break; // first matching rule wins
         }
@@ -192,12 +200,12 @@ export function useReconciliationRules() {
     }
 
     let applied = 0;
-    for (const [categoryId, txIds] of matchedByCategory.entries()) {
+    for (const { update, ids } of updateBuckets.values()) {
       const { error: updErr } = await supabase
         .from('transactions')
-        .update({ category_id: categoryId })
-        .in('id', txIds);
-      if (!updErr) applied += txIds.length;
+        .update(update)
+        .in('id', ids);
+      if (!updErr) applied += ids.length;
     }
 
     // Update rule match counts in parallel
@@ -234,14 +242,16 @@ export function useReconciliationRules() {
     onProgress?: (current: number, total: number) => void,
   ): Promise<{ total: number; categorized: number; skipped: number; errors: number }> => {
     if (!user?.id) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
-    const activeRules = rules.filter(r => r.active && r.category_id);
+    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id));
     if (!activeRules.length) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
 
+    // Solo tocar tx sin categoría Y sin beneficiario — no pisar trabajo manual.
     const { data: txs, error } = await supabase
       .from('transactions')
-      .select('id, description, amount, date, category_id')
+      .select('id, description, amount, date, category_id, responsible_id')
       .is('deleted_at', null)
-      .is('category_id', null); // only touch uncategorized — never overwrite
+      .is('category_id', null)
+      .is('responsible_id', null);
 
     if (error || !txs?.length) {
       return { total: 0, categorized: 0, skipped: 0, errors: 0 };
@@ -258,9 +268,12 @@ export function useReconciliationRules() {
       let matched = false;
       for (const rule of activeRules) {
         if (matchesRule(rule, tx)) {
+          const update: { category_id?: string; responsible_id?: string } = {};
+          if (rule.category_id) update.category_id = rule.category_id;
+          if (rule.responsible_id) update.responsible_id = rule.responsible_id;
           const { error: updErr } = await supabase
             .from('transactions')
-            .update({ category_id: rule.category_id })
+            .update(update)
             .eq('id', tx.id);
           if (updErr) {
             errors++;
@@ -301,27 +314,31 @@ export function useReconciliationRules() {
    */
   const applyRulesToTransactions = async (transactionIds: string[]): Promise<number> => {
     if (!rules.length || !transactionIds.length) return 0;
-    const activeRules = rules.filter(r => r.active && r.category_id);
+    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id));
     if (!activeRules.length) return 0;
 
     const { data: txs } = await supabase
       .from('transactions')
-      .select('id, description, amount, date, category_id')
+      .select('id, description, amount, date, category_id, responsible_id')
       .in('id', transactionIds)
       .is('deleted_at', null);
 
     if (!txs?.length) return 0;
 
-    const uncategorized = txs.filter((tx: any) => !tx.category_id);
-    if (!uncategorized.length) return 0;
+    // No tocar tx ya conciliada (categoría O beneficiario).
+    const candidates = txs.filter((tx: any) => !tx.category_id && !tx.responsible_id);
+    if (!candidates.length) return 0;
 
     let applied = 0;
-    for (const tx of uncategorized) {
+    for (const tx of candidates) {
       for (const rule of activeRules) {
         if (matchesRule(rule, tx as any)) {
+          const update: { category_id?: string; responsible_id?: string } = {};
+          if (rule.category_id) update.category_id = rule.category_id;
+          if (rule.responsible_id) update.responsible_id = rule.responsible_id;
           const { error } = await supabase
             .from('transactions')
-            .update({ category_id: rule.category_id })
+            .update(update)
             .eq('id', (tx as any).id);
           if (!error) applied++;
           break;
