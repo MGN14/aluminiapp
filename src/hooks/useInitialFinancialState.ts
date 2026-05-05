@@ -51,13 +51,16 @@ export interface InitialStateDetail {
   amount: number;
 }
 
-// formData ahora solo tiene los campos que NO se calculan desde details.
-// saldo_bancos y prestamos pasaron a calcularse desde sus detalles.
+// formData solo tiene los campos editables desde la UI. saldo_bancos y
+// prestamos se calculan desde details (saldo_cuentas, deudas).
+//
+// inventario / otros_activos / impuestos_por_pagar quedaron en el schema
+// de DB como legacy del rework de abril 2026 — no tienen UI editable.
+// Se mantienen las columnas por compat (algunos reportes podrían leerlas),
+// pero NO se suman a totales y NO se hidratan al form: cualquier valor
+// huérfano que haya quedado de versiones viejas se ignora.
 export type InitialStateFormData = {
   fecha_inicio: string;
-  inventario: number;
-  otros_activos: number;
-  impuestos_por_pagar: number;
   iva_a_favor: number;
 };
 
@@ -70,16 +73,13 @@ export function sumDetailsByType(details: InitialStateDetail[], type: string): n
 export function getTotalActivos(form: InitialStateFormData, details: InitialStateDetail[]): number {
   return sumDetailsByType(details, 'saldo_cuentas')
     + sumDetailsByType(details, 'cuentas_por_cobrar')
-    + form.inventario
     + sumDetailsByType(details, 'anticipos_a_proveedores')
-    + (form.iva_a_favor || 0)
-    + form.otros_activos;
+    + (form.iva_a_favor || 0);
 }
 
-export function getTotalPasivos(form: InitialStateFormData, details: InitialStateDetail[]): number {
+export function getTotalPasivos(_form: InitialStateFormData, details: InitialStateDetail[]): number {
   return sumDetailsByType(details, 'cuentas_por_pagar')
     + sumDetailsByType(details, 'anticipos_de_clientes')
-    + form.impuestos_por_pagar
     + sumDetailsByType(details, 'deudas');
 }
 
@@ -158,8 +158,13 @@ export function useInitialFinancialState() {
       // pasaron de ser campos de form a calcularse desde sus respectivos
       // details (saldo_cuentas, deudas) — la columna de DB se mantiene
       // por compatibilidad con código que ya la lee.
+      // inventario / otros_activos / impuestos_por_pagar son legacy del schema
+      // viejo (no tienen UI). Si la fila tenía valores huérfanos de versiones
+      // anteriores, los reseteamos a 0 acá para evitar que sumen al total
+      // sin contraparte editable.
       const payload = {
-        ...formData,
+        fecha_inicio: formData.fecha_inicio,
+        iva_a_favor: formData.iva_a_favor,
         user_id: user.id,
         updated_at: new Date().toISOString(),
         saldo_bancos: sumDetailsByType(newDetails, 'saldo_cuentas'),
@@ -168,6 +173,9 @@ export function useInitialFinancialState() {
         anticipos_a_proveedores: sumDetailsByType(newDetails, 'anticipos_a_proveedores'),
         cuentas_por_pagar: sumDetailsByType(newDetails, 'cuentas_por_pagar'),
         anticipos_de_clientes: sumDetailsByType(newDetails, 'anticipos_de_clientes'),
+        inventario: 0,
+        otros_activos: 0,
+        impuestos_por_pagar: 0,
         iva_por_pagar: 0,
         retefuente_por_pagar: 0,
         ica_por_pagar: 0,

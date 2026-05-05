@@ -231,9 +231,6 @@ export default function InitialFinancialStateCard() {
 
   const [form, setForm] = useState<InitialStateFormData>({
     fecha_inicio: new Date().toISOString().slice(0, 10),
-    inventario: 0,
-    otros_activos: 0,
-    impuestos_por_pagar: 0,
     iva_a_favor: 0,
   });
   const [details, setDetails] = useState<InitialStateDetail[]>([]);
@@ -253,9 +250,6 @@ export default function InitialFinancialStateCard() {
     if (initialData) {
       setForm({
         fecha_inicio: initialData.fecha_inicio?.slice(0, 10) || new Date().toISOString().slice(0, 10),
-        inventario: initialData.inventario || 0,
-        otros_activos: initialData.otros_activos || 0,
-        impuestos_por_pagar: initialData.impuestos_por_pagar || 0,
         iva_a_favor: initialData.iva_a_favor || 0,
       });
     }
