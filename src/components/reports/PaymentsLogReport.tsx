@@ -1543,9 +1543,12 @@ export default function PaymentsLogReport() {
           responsibleId: linkingTx.responsible_id,
         } : null}
         onSuccess={() => {
-          // Invalidar queries del reporte para refrescar la fila y el saldo
-          queryClient.invalidateQueries({ queryKey: ['payments-log-v2'] });
-          queryClient.invalidateQueries({ queryKey: ['payments-log-counterparty-summary-v4'] });
+          // Invalidar queries del reporte para refrescar la fila y el saldo.
+          // Las keys versionadas (v4 / v6) cambian cuando se hace bump del
+          // schema; mantener acá las MISMAS strings que en useQuery — si no,
+          // la fila vinculada no aparece sin refresh manual.
+          queryClient.invalidateQueries({ queryKey: ['payments-log-v4'] });
+          queryClient.invalidateQueries({ queryKey: ['payments-log-counterparty-summary-v6'] });
           queryClient.invalidateQueries({ queryKey: ['payments-log-invoice-totals'] });
         }}
       />
