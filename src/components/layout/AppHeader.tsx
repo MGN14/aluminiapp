@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { LogOut, Settings, Sparkles, Moon, Sun } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import {
   DropdownMenu,
@@ -52,7 +52,11 @@ export default function AppHeader() {
   const { mode, setMode } = useModuleContext();
   const { isAdmin } = useSubscription();
   const [companyInitial, setCompanyInitial] = useState<string | null>(null);
-  const [placeholder, setPlaceholder] = useState(PAGE_PLACEHOLDERS.default);
+  const location = useLocation();
+  // Antes: setInterval(500ms) re-rendereaba el header constantemente para
+  // detectar cambio de ruta. useLocation solo dispara cuando la ruta cambia
+  // de verdad — eliminamos el polling y los re-renders ociosos.
+  const placeholder = useMemo(() => getPlaceholder(location.pathname), [location.pathname]);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
   const toggleTheme = () => {
@@ -71,19 +75,6 @@ export default function AppHeader() {
       document.documentElement.classList.remove('dark');
       setIsDark(false);
     }
-  }, []);
-
-  useEffect(() => {
-    const updatePlaceholder = () => {
-      setPlaceholder(getPlaceholder(window.location.pathname));
-    };
-    updatePlaceholder();
-    window.addEventListener('popstate', updatePlaceholder);
-    const interval = setInterval(updatePlaceholder, 500);
-    return () => {
-      window.removeEventListener('popstate', updatePlaceholder);
-      clearInterval(interval);
-    };
   }, []);
 
   useEffect(() => {

@@ -62,17 +62,20 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 //     después de un rato, NO refrescamos las queries. Antes esto causaba
 //     que se reseteara la UI (filtros que se "perdían" visualmente, parpadeos).
 //     Los filtros locales (useState) se mantienen intactos.
-//   - staleTime: 60s → la data se considera fresca por 1 minuto. Evita
-//     refetches innecesarios al navegar entre páginas.
-//   - gcTime: 5min → mantenemos el cache 5 min después de unmount, así si
-//     volvés a la página, los datos aparecen instantáneos.
+//   - staleTime: 5min → la data se considera fresca por 5 minutos. Mientras
+//     esté fresca, useQuery NO refetchea al remount — cambiar de tab y
+//     volver no dispara spinners ni parpadeos. Las mutaciones que cambian
+//     algo invalidan explícitamente las queries afectadas, así que el
+//     usuario ve sus cambios al instante después de actuar.
+//   - gcTime: 30min → mantenemos el cache 30 min después de unmount. Si
+//     volvés de hablar conmigo o de otra pestaña, los datos están listos.
 //   - retry: 1 → un solo reintento ante fallo de red, en vez de 3 (default).
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      staleTime: 60_000,
-      gcTime: 5 * 60_000,
+      staleTime: 5 * 60_000,
+      gcTime: 30 * 60_000,
       retry: 1,
     },
   },
