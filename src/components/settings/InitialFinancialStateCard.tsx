@@ -63,14 +63,16 @@ function formatCOP(n: number): string {
   }).format(Math.round(n || 0));
 }
 
+// es-CO: "." es separador de miles (siempre) y "," es decimal. Como el input
+// se re-formatea en cada keystroke con Intl es-CO, los puntos que vea el
+// parser son SIEMPRE miles. Antes había una heurística "si el último grupo
+// no tiene 3 dígitos, es decimal" que rompía mid-tipeo: al pasar de 1.525
+// a 15.259, en el medio veía "1.5259" y lo parseaba como 1.5259 → quedaba
+// trabado en 1.525.
 function parseAmount(v: string): number {
-  const cleaned = v.replace(/[^\d,.-]/g, '');
-  if (cleaned.includes(',') && cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
-    return Number(cleaned.replace(/\./g, '').replace(',', '.')) || 0;
-  }
-  const parts = cleaned.split('.');
-  if (parts.length > 1 && parts[parts.length - 1].length === 3) {
-    return Number(parts.join('')) || 0;
+  const cleaned = v.replace(/[^\d,-]/g, '');
+  if (cleaned.includes(',')) {
+    return Number(cleaned.replace(',', '.')) || 0;
   }
   return Number(cleaned) || 0;
 }
