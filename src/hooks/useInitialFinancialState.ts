@@ -139,8 +139,16 @@ export function useInitialFinancialState() {
     };
   }, []);
 
-  const persistNow = useCallback(async (formData: InitialStateFormData, newDetails: InitialStateDetail[]) => {
-    if (!user) return;
+  // Devuelve un mapping tmp-id → uuid real para los detalles recién insertados.
+  // El componente lo aplica quirúrgicamente sobre su state local SIN
+  // sobrescribir cambios concurrentes (ej: un cliente recién seleccionado
+  // mientras el save estaba en vuelo).
+  const persistNow = useCallback(async (
+    formData: InitialStateFormData,
+    newDetails: InitialStateDetail[]
+  ): Promise<Map<string, string>> => {
+    const idMap = new Map<string, string>();
+    if (!user) return idMap;
 
     setSaveStatus('saving');
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
@@ -218,7 +226,6 @@ export function useInitialFinancialState() {
         if (upErr) throw upErr;
       }
 
-      let insertedRows: any[] = [];
       if (toInsert.length > 0) {
         const insertPayloads = toInsert.map(d => ({
           user_id: user.id,
@@ -232,54 +239,62 @@ export function useInitialFinancialState() {
           .insert(insertPayloads as any)
           .select();
         if (insErr) throw insErr;
-        insertedRows = (data as any[]) || [];
+        const insertedRows = (data as any[]) || [];
+        // Mapping tmp-id → uuid real, en orden (insert preserva orden).
+        toInsert.forEach((d, i) => {
+          if (d.id && insertedRows[i]?.id) {
+            idMap.set(d.id, insertedRows[i].id);
+          }
+        });
       }
 
-      // Sync interno con IDs reales — evita refetch (que dispararía un loop
-      // de autosave vía useEffect[initialDetails] en el componente).
+      // Solo seteamos initialData (snapshot del row maestro). NO seteamos
+      // initialDetails para evitar el loop de autosave: el componente sync-ea
+      // los IDs nuevos vía idMap, sin sobrescribir cambios concurrentes.
       setInitialData(stateRow as any);
-      setInitialDetails([
-        ...toUpdate.map(d => ({ ...d, user_id: user.id })),
-        ...insertedRows.map(r => ({
-          id: r.id,
-          user_id: r.user_id,
-          field_type: r.field_type,
-          responsible_id: r.responsible_id,
-          responsible_name: r.responsible_name,
-          amount: Number(r.amount),
-        })),
-      ]);
-
       setIsConfigured(true);
       setSaveStatus('saved');
       savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2500);
+      return idMap;
     } catch (e) {
       console.error('Auto-save error:', e);
       setSaveStatus('error');
       savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 4000);
+      return idMap;
     }
   }, [user]);
 
+  // onIdsResolved se llama tras un autosave/save que insertó filas nuevas, con
+  // un map tmp-id → uuid real. El componente lo aplica sobre su state local
+  // sin perder cambios concurrentes (ej: cliente seleccionado durante el save).
+  const onIdsResolvedRef = useRef<((idMap: Map<string, string>) => void) | null>(null);
+  const setOnIdsResolved = useCallback((cb: ((idMap: Map<string, string>) => void) | null) => {
+    onIdsResolvedRef.current = cb;
+  }, []);
+
   const autoSave = useCallback((formData: InitialStateFormData, newDetails: InitialStateDetail[]) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      persistNow(formData, newDetails);
+    debounceRef.current = setTimeout(async () => {
+      const idMap = await persistNow(formData, newDetails);
+      if (idMap.size > 0) onIdsResolvedRef.current?.(idMap);
     }, AUTOSAVE_DELAY_MS);
   }, [persistNow]);
 
   const save = useCallback(async (formData: InitialStateFormData, newDetails: InitialStateDetail[]) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    await persistNow(formData, newDetails);
+    const idMap = await persistNow(formData, newDetails);
+    if (idMap.size > 0) onIdsResolvedRef.current?.(idMap);
   }, [persistNow]);
 
-  return { 
-    initialData, 
-    initialDetails, 
-    loading, 
-    isConfigured, 
-    save, 
-    autoSave, 
-    saveStatus, 
+  return {
+    initialData,
+    initialDetails,
+    loading,
+    isConfigured,
+    save,
+    autoSave,
+    saveStatus,
     refetch: fetchData,
+    setOnIdsResolved,
   };
 }

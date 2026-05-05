@@ -219,7 +219,15 @@ function DetailRow({ detail, index, responsibles, hints, namePlaceholder, onUpda
 
 export default function InitialFinancialStateCard() {
   const { user } = useAuth();
-  const { initialData, initialDetails, loading, save, autoSave, saveStatus } = useInitialFinancialState();
+  const {
+    initialData,
+    initialDetails,
+    loading,
+    save,
+    autoSave,
+    saveStatus,
+    setOnIdsResolved,
+  } = useInitialFinancialState();
 
   const [form, setForm] = useState<InitialStateFormData>({
     fecha_inicio: new Date().toISOString().slice(0, 10),
@@ -232,7 +240,16 @@ export default function InitialFinancialStateCard() {
   const [responsibles, setResponsibles] = useState<ResponsibleOption[]>([]);
   const [openSections, setOpenSections] = useState<Set<string>>(new Set());
 
+  // Hidratación one-shot: copiamos initialData/initialDetails al state local
+  // SOLO la primera vez. Si re-sincronizáramos en cada cambio de
+  // initialDetails (que el hook actualiza tras un save), sobreescribiríamos
+  // cambios concurrentes — ej: el usuario selecciona un cliente mientras
+  // un autosave anterior está en vuelo y la respuesta lo borra.
+  const hydratedRef = useRef(false);
   useEffect(() => {
+    if (loading) return;
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
     if (initialData) {
       setForm({
         fecha_inicio: initialData.fecha_inicio?.slice(0, 10) || new Date().toISOString().slice(0, 10),
@@ -242,27 +259,27 @@ export default function InitialFinancialStateCard() {
         iva_a_favor: initialData.iva_a_favor || 0,
       });
     }
-  }, [initialData]);
-
-  useEffect(() => {
     setDetails(initialDetails);
-  }, [initialDetails]);
+  }, [loading, initialData, initialDetails]);
 
-  // Autosave defensivo: si el usuario edita y se olvida de hacer click en
-  // "Guardar", se guarda solo después de 1.2s sin cambios. Bug real
-  // reportado: usuario cargó saldos en la UI pero no clickeó guardar →
-  // los datos no persistieron y el reporte quedó descalibrado.
-  // hydratedRef garantiza que NO disparamos autosave durante la hidratación
-  // inicial (cuando initialData/initialDetails llegan desde la DB).
-  const hydratedRef = useRef(false);
+  // Aplica el mapping tmp-id → uuid real tras un autosave/save exitoso.
+  // Solo muta el campo `id` — preserva cualquier cambio en otros campos
+  // hecho durante el save en vuelo (ej: cliente recién seleccionado).
   useEffect(() => {
-    if (loading) return;
-    if (!hydratedRef.current) {
-      hydratedRef.current = true;
-      return;
-    }
+    setOnIdsResolved((idMap) => {
+      setDetails(prev => prev.map(d =>
+        d.id && idMap.has(d.id) ? { ...d, id: idMap.get(d.id)! } : d
+      ));
+    });
+    return () => setOnIdsResolved(null);
+  }, [setOnIdsResolved]);
+
+  // Autosave: 1.2s sin cambios → persiste. Bug real reportado: usuario
+  // cargaba saldos sin clickear "Guardar" → datos no persistían.
+  useEffect(() => {
+    if (!hydratedRef.current) return;
     autoSave(form, details);
-  }, [form, details, loading, autoSave]);
+  }, [form, details, autoSave]);
 
   useEffect(() => {
     if (!user) return;
