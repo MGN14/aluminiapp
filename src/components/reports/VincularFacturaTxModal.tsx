@@ -138,12 +138,15 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
         const rows = (data ?? []) as Array<Omit<InvoiceCandidate, 'pending' | 'applied'>>;
 
         // Calcular saldo pendiente por factura: total − (transactions con
-        // invoice_id directo + invoice_transaction_matches manuales).
-        // Hacemos las 2 queries en paralelo y agregamos in-memory.
+        // invoice_id directo + invoice_transaction_matches manuales +
+        // anticipos del estado financiero inicial vinculados a la factura).
+        // Sin la 3ra fuente, las facturas con anticipos pre-cargados (ej:
+        // FT 278 de Todoalum: total 112M, anticipo 77M, pendiente real 35M)
+        // mostraban el total entero como saldo.
         const invIds = rows.map(r => r.id);
         let appliedById = new Map<string, number>();
         if (invIds.length > 0) {
-          const [directRes, matchRes] = await Promise.all([
+          const [directRes, matchRes, advanceRes] = await Promise.all([
             supabase
               .from('transactions')
               .select('invoice_id, amount')
@@ -153,6 +156,11 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
               .from('invoice_transaction_matches')
               .select('invoice_id, matched_amount')
               .in('invoice_id', invIds),
+            supabase
+              .from('initial_state_details')
+              .select('invoice_id, amount, field_type')
+              .in('field_type', ['anticipos_de_clientes', 'anticipos_a_proveedores'])
+              .in('invoice_id', invIds),
           ]);
           for (const t of (directRes.data ?? []) as Array<{ invoice_id: string; amount: number }>) {
             const k = t.invoice_id;
@@ -161,6 +169,10 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
           for (const m of (matchRes.data ?? []) as Array<{ invoice_id: string; matched_amount: number }>) {
             const k = m.invoice_id;
             appliedById.set(k, (appliedById.get(k) ?? 0) + Math.abs(Number(m.matched_amount ?? 0)));
+          }
+          for (const a of ((advanceRes.data ?? []) as Array<{ invoice_id: string | null; amount: number }>)) {
+            if (!a.invoice_id) continue;
+            appliedById.set(a.invoice_id, (appliedById.get(a.invoice_id) ?? 0) + Math.abs(Number(a.amount ?? 0)));
           }
         }
 

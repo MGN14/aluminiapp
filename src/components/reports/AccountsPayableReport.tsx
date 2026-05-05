@@ -86,27 +86,42 @@ export default function AccountsPayableReport() {
 
       const invoiceIds = invoices.map(i => i.id);
 
-      const { data: directPayments } = await supabase
-        .from('transactions')
-        .select('id, invoice_id, amount')
-        .is('deleted_at', null)
-        .in('invoice_id', invoiceIds);
-
-      const { data: matchPayments } = await supabase
-        .from('invoice_transaction_matches')
-        .select('invoice_id, matched_amount')
-        .in('invoice_id', invoiceIds);
+      // Lo aplicado a una factura = transacciones directas + matches manuales +
+      // anticipos a proveedores del estado financiero inicial vinculados a la
+      // factura. Sin la 3ra fuente, una factura con anticipo pre-cargado
+      // muestra saldo pendiente inflado.
+      const [directRes, matchRes, advanceRes] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('id, invoice_id, amount')
+          .is('deleted_at', null)
+          .in('invoice_id', invoiceIds),
+        supabase
+          .from('invoice_transaction_matches')
+          .select('invoice_id, matched_amount')
+          .in('invoice_id', invoiceIds),
+        supabase
+          .from('initial_state_details')
+          .select('invoice_id, amount')
+          .eq('field_type', 'anticipos_a_proveedores')
+          .in('invoice_id', invoiceIds),
+      ]);
 
       const paymentsByInvoice = new Map<string, number>();
-      (directPayments || []).forEach(p => {
+      (directRes.data || []).forEach(p => {
         if (p.invoice_id) {
           const current = paymentsByInvoice.get(p.invoice_id) || 0;
           paymentsByInvoice.set(p.invoice_id, current + Math.abs(p.amount ?? 0));
         }
       });
-      (matchPayments || []).forEach(p => {
+      (matchRes.data || []).forEach(p => {
         const current = paymentsByInvoice.get(p.invoice_id) || 0;
         paymentsByInvoice.set(p.invoice_id, current + Math.abs(p.matched_amount));
+      });
+      ((advanceRes.data || []) as Array<{ invoice_id: string | null; amount: number }>).forEach(a => {
+        if (!a.invoice_id) return;
+        const current = paymentsByInvoice.get(a.invoice_id) || 0;
+        paymentsByInvoice.set(a.invoice_id, current + Math.abs(Number(a.amount ?? 0)));
       });
 
       const today = new Date();
