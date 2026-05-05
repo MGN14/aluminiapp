@@ -292,7 +292,7 @@ export default function TransactionRow({
       </TableCell>
 
       {/* Category */}
-      <TableCell className="w-[120px]">
+      <TableCell className="w-[170px]">
         <SearchableSelect
           options={categoryOptions}
           value={localTransaction.category_id}
@@ -306,7 +306,7 @@ export default function TransactionRow({
       </TableCell>
 
       {/* Responsible */}
-      <TableCell className="w-[120px]">
+      <TableCell className="w-[170px]">
         <div className="flex items-center gap-1">
           <SearchableSelect
             options={responsibleOptions}

@@ -588,8 +588,8 @@ export default function Transactions() {
                           </span>
                         </TableHead>
                         <TableHead className="w-[80px]">Tipo</TableHead>
-                        <TableHead className="w-[120px]">Categoría</TableHead>
-                        <TableHead className="w-[120px]">Beneficiario</TableHead>
+                        <TableHead className="w-[170px]">Categoría</TableHead>
+                        <TableHead className="w-[170px]">Beneficiario</TableHead>
                         <TableHead className="w-[140px]">#Factura</TableHead>
                       </TableRow>
                     </TableHeader>
