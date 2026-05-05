@@ -86,10 +86,10 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
   const { data: categories = [] } = useQuery({
     queryKey: ['categories-for-rules', user?.id],
     queryFn: async () => {
+      // RLS filtra por owner; sin .eq('user_id', user.id) que rompía a colaboradores.
       const { data } = await supabase
         .from('categories')
         .select('id, name')
-        .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
       return (data || []) as unknown as { id: string; name: string }[];
@@ -103,7 +103,6 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
       const { data } = await supabase
         .from('responsibles')
         .select('id, name')
-        .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
       return (data || []) as unknown as { id: string; name: string }[];

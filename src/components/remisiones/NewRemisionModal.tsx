@@ -77,10 +77,12 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
     queryKey: ['responsibles-remisiones', user?.id],
     enabled: !!user?.id && open,
     queryFn: async () => {
+      // Sin .eq('user_id', user!.id): RLS ya filtra por current_data_owner(),
+      // y para colaboradores user.id ≠ current_data_owner() — el filtro extra
+      // les ocultaba todos los responsibles del owner.
       const { data, error } = await supabase
         .from('responsibles')
         .select('id, name, responsible_type')
-        .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
       if (error) throw error;

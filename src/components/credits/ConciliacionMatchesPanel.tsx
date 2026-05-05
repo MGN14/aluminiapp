@@ -57,10 +57,10 @@ export default function ConciliacionMatchesPanel({ credit }: Props) {
       const fromIso = minDate.toISOString().slice(0, 10);
       const toIso = maxDate.toISOString().slice(0, 10);
 
+      // RLS filtra por owner; sin .eq('user_id', user.id) que rompía a colaboradores.
       const { data, error } = await supabase
         .from('transactions')
         .select('id, date, amount, description, type, category_id')
-        .eq('user_id', user!.id)
         .is('deleted_at', null)
         .eq('type', 'egreso')
         .gte('date', fromIso)

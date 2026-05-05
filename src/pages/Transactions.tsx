@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSubscription } from '@/hooks/useSubscription';
 import AppLayout from '@/components/layout/AppLayout';
@@ -140,6 +140,21 @@ export default function Transactions() {
     setFilters(newFilters);
   }, [filters.estado, transactions]);
 
+  // Snapshot inicial: si la página carga con filters.estado='pendientes'
+  // (filtro persistido en localStorage), handleFiltersChange nunca se
+  // dispara y pinnedPendingIds queda vacío — por eso al asignar un
+  // responsable la fila salía del filtro al instante. Snapshotear acá
+  // cuando lleguen las transactions resuelve el caso.
+  const didInitialSnapshotRef = useRef(false);
+  useEffect(() => {
+    if (didInitialSnapshotRef.current) return;
+    if (filters.estado !== 'pendientes') return;
+    if (transactions.length === 0) return;
+    didInitialSnapshotRef.current = true;
+    const ids = new Set(transactions.filter(tx => !tx.responsible_id).map(tx => tx.id));
+    setPinnedPendingIds(ids);
+  }, [transactions, filters.estado]);
+
   useEffect(() => {
     fetchStatements();
     fetchCategories();
@@ -202,10 +217,12 @@ export default function Transactions() {
   };
 
   const fetchCategories = async () => {
+    // Orden alfabético: el sort_order existe pero los selectores quieren
+    // alfabético para que el colaborador encuentre rápido.
     const { data } = await supabase
       .from('categories')
       .select('*')
-      .order('sort_order');
+      .order('name');
     setCategories((data as Category[]) || []);
   };
 

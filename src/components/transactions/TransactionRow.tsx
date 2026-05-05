@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/tooltip';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Eye, Check } from 'lucide-react';
+import { Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTransactionEdit } from '@/hooks/useTransactionEdit';
 import { SearchableSelect } from './SearchableSelect';
@@ -333,32 +333,15 @@ export default function TransactionRow({
       
       {/* #Factura - Invoice Selector */}
       <TableCell className="w-[140px]">
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <div style={{flex:1,minWidth:0}}>
-            <InvoiceSelector
-              invoiceId={derivedInvoiceId}
-              tags={derivedTags}
-              transactionType={localTransaction.type || 'egreso'}
-              transactionAmount={localTransaction.amount}
-              transactionDate={localTransaction.date}
-              transactionId={localTransaction.id}
-              onChange={handleInvoiceChange}
-            />
-          </div>
-          <div
-            aria-label={isReconciled ? 'Conciliada' : 'Pendiente'}
-            style={{
-              width:20, height:20, borderRadius:'50%',
-              background: isReconciled ? 'oklch(0.43 0.14 155 / 0.10)' : 'oklch(0.65 0.15 65 / 0.10)',
-              display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
-            }}
-          >
-            {isReconciled
-              ? <Check style={{width:10,height:10,color:'oklch(0.43 0.14 155)'}}/>
-              : <span style={{fontSize:8,fontWeight:800,color:'oklch(0.65 0.15 65)'}}>!</span>
-            }
-          </div>
-        </div>
+        <InvoiceSelector
+          invoiceId={derivedInvoiceId}
+          tags={derivedTags}
+          transactionType={localTransaction.type || 'egreso'}
+          transactionAmount={localTransaction.amount}
+          transactionDate={localTransaction.date}
+          transactionId={localTransaction.id}
+          onChange={handleInvoiceChange}
+        />
       </TableCell>
     </TableRow>
   );

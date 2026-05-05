@@ -220,6 +220,28 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     setLoaded(false);
   }, [transactionId, invoiceId]);
 
+  // Pre-cargar la factura específica si la tx ya está vinculada — sin esto,
+  // hasta que el usuario no abra el popover el chip aparece como "Pendiente"
+  // aunque la tx tenga invoice_id en DB.
+  useEffect(() => {
+    if (!invoiceId) return;
+    if (invoices.some(inv => inv.id === invoiceId)) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, type, counterparty_name, issue_date, total_amount')
+        .eq('id', invoiceId)
+        .maybeSingle();
+      if (cancelled || error || !data) return;
+      setInvoices(prev => {
+        if (prev.some(inv => inv.id === data.id)) return prev;
+        return [...prev, { ...data, outstanding: 0 } as InvoiceOption];
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [invoiceId, invoices]);
+
   const filtered = useMemo(() => {
     let result = invoices;
     if (invoiceTypeFilter) {

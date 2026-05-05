@@ -2,6 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useForcePasswordChange } from '@/hooks/useForcePasswordChange';
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { Loader2 } from 'lucide-react';
 
 const isDev = import.meta.env.MODE === 'development';
@@ -14,6 +15,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, session, loading, sessionExpired } = useAuth();
   const { loading: forceLoading, required: forcePasswordChange } = useForcePasswordChange();
   const { isLoading: onboardingLoading, completed: onboardingCompleted } = useOnboardingStatus();
+  const { isCollaborator, loading: collabLoading } = useDataOwner();
   const location = useLocation();
 
   if (isDev) {
@@ -85,12 +87,15 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   // Fail-open in the hook (onboardingCompleted === true on error) means DB hiccups
   // won't lock anyone out. Exceptions: /onboarding itself, /change-password, /settings
   // (user may legitimately need to adjust something there before finishing).
+  // Colaboradores entran a una cuenta ya configurada por el owner — no pasan
+  // por onboarding propio.
   const onboardingExempt =
     location.pathname === '/onboarding' ||
     location.pathname === '/change-password' ||
-    location.pathname === '/settings';
+    location.pathname === '/settings' ||
+    isCollaborator;
 
-  if (!onboardingLoading && !onboardingCompleted && !onboardingExempt) {
+  if (!collabLoading && !onboardingLoading && !onboardingCompleted && !onboardingExempt) {
     return <Navigate to="/onboarding" replace />;
   }
 

@@ -53,10 +53,10 @@ export default function AsignarPagoBancarioModal({ payment, open, onOpenChange }
     queryKey: ['responsibles-asignar-pago', user?.id],
     enabled: !!user?.id && open,
     queryFn: async () => {
+      // RLS filtra por owner; sin .eq('user_id', user.id) que rompía a colaboradores.
       const { data, error } = await supabase
         .from('responsibles')
         .select('id, name')
-        .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
       if (error) throw error;

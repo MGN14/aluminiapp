@@ -64,10 +64,10 @@ export default function RegistrarGastoModal() {
     queryKey: ['responsibles-caja-menor', user?.id],
     enabled: !!user?.id && open,
     queryFn: async () => {
+      // RLS filtra por owner; sin .eq('user_id', user.id) que rompía a colaboradores.
       const { data, error } = await supabase
         .from('responsibles')
         .select('id, name, responsible_type')
-        .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
       if (error) throw error;
@@ -85,7 +85,6 @@ export default function RegistrarGastoModal() {
       const { data, error } = await supabase
         .from('categories')
         .select('id, name, is_tax_deductible')
-        .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
       if (error) throw error;

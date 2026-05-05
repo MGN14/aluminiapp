@@ -72,10 +72,11 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange }: 
     queryKey: ['responsibles-remision-detail', user?.id],
     enabled: !!user?.id && editing,
     queryFn: async () => {
+      // RLS filtra por owner — sin .eq('user_id', user.id) que rompía a
+      // colaboradores (user.id ≠ current_data_owner()).
       const { data, error } = await supabase
         .from('responsibles')
         .select('id, name, responsible_type')
-        .eq('user_id', user!.id)
         .eq('active', true)
         .order('name');
       if (error) throw error;

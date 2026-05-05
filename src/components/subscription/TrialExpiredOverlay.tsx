@@ -1,4 +1,5 @@
 import { useSubscription } from '@/hooks/useSubscription';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { Button } from '@/components/ui/button';
 import { Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -16,6 +17,10 @@ export default function TrialExpiredOverlay({
   message = 'Tu prueba gratuita terminó. Activa tu plan para continuar editando tu información.'
 }: TrialExpiredOverlayProps) {
   const { trialExpired, loading, isAdmin, isFounder } = useSubscription();
+  const { isCollaborator, loading: collabLoading } = useDataOwner();
+
+  // Colaboradores no tienen prueba propia — usan el plan del owner.
+  if (collabLoading || isCollaborator) return <>{children}</>;
 
   // Don't block for admins, founders, or while loading
   if (loading || isAdmin || isFounder || !trialExpired) {

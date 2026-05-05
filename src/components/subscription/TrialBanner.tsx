@@ -1,10 +1,15 @@
 import { useSubscription } from '@/hooks/useSubscription';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { Button } from '@/components/ui/button';
 import { Clock, Zap, AlertTriangle, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function TrialBanner() {
   const { isTrialing, trialExpired, trialDaysLeft, loading, isAdmin, isFounder, plan } = useSubscription();
+  const { isCollaborator, loading: collabLoading } = useDataOwner();
+
+  // Colaboradores no pagan — ya están incluidos en el plan del owner.
+  if (collabLoading || isCollaborator) return null;
 
   // Don't show for admins, founders, paid plans, or while loading
   if (loading || isAdmin || isFounder || (plan !== 'demo')) return null;
