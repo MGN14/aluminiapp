@@ -165,44 +165,90 @@ export function useInitialFinancialState() {
         ica_por_pagar: 0,
       };
 
-      const { data: existing } = await supabase
+      // initial_financial_state.user_id es UNIQUE → upsert atómico.
+      const { data: stateRow, error: stateError } = await supabase
         .from('initial_financial_state' as any)
-        .select('id')
-        .maybeSingle();
+        .upsert(payload as any, { onConflict: 'user_id' })
+        .select()
+        .single();
+      if (stateError) throw stateError;
 
-      if (existing) {
-        const { error } = await supabase
-          .from('initial_financial_state' as any)
-          .update(payload as any)
-          ;
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('initial_financial_state' as any)
-          .insert(payload as any);
-        if (error) throw error;
+      // CRÍTICO — diff-based update de initial_state_details.
+      // initial_balance_matches tiene FK a initial_state_details(id) ON DELETE
+      // CASCADE: un "delete all + insert all" borraba todos los matches de
+      // pagos vinculados manualmente desde VincularPagoModal. También
+      // preservamos invoice_id (vincula anticipos a facturas) — solo se
+      // mantiene si UPDATE no toca esa columna.
+      const validDetails = newDetails.filter(d => d.responsible_name.trim() || d.amount > 0);
+
+      const isRealId = (id: string | undefined) => !!id && !id.startsWith('tmp-');
+      const toUpdate = validDetails.filter(d => isRealId(d.id));
+      const toInsert = validDetails.filter(d => !isRealId(d.id));
+      const keepIds = new Set(toUpdate.map(d => d.id));
+
+      // IDs en DB que el usuario removió de la UI — solo esos se borran.
+      const { data: dbDetails, error: fetchErr } = await supabase
+        .from('initial_state_details' as any)
+        .select('id');
+      if (fetchErr) throw fetchErr;
+
+      const toDeleteIds = ((dbDetails as any[]) || [])
+        .map(d => d.id as string)
+        .filter(id => !keepIds.has(id));
+
+      if (toDeleteIds.length > 0) {
+        const { error: delErr } = await supabase
+          .from('initial_state_details' as any)
+          .delete()
+          .in('id', toDeleteIds);
+        if (delErr) throw delErr;
       }
 
-      // Replace all details
-      await supabase
-        .from('initial_state_details' as any)
-        .delete()
-        ;
+      // UPDATE por id — preserva invoice_id y otros campos no incluidos.
+      for (const d of toUpdate) {
+        const { error: upErr } = await supabase
+          .from('initial_state_details' as any)
+          .update({
+            field_type: d.field_type,
+            responsible_id: d.responsible_id,
+            responsible_name: d.responsible_name,
+            amount: d.amount,
+          } as any)
+          .eq('id', d.id!);
+        if (upErr) throw upErr;
+      }
 
-      const validDetails = newDetails.filter(d => d.responsible_name.trim() || d.amount > 0);
-      if (validDetails.length > 0) {
-        const detailPayloads = validDetails.map(d => ({
+      let insertedRows: any[] = [];
+      if (toInsert.length > 0) {
+        const insertPayloads = toInsert.map(d => ({
           user_id: user.id,
           field_type: d.field_type,
           responsible_id: d.responsible_id,
           responsible_name: d.responsible_name,
           amount: d.amount,
         }));
-        const { error } = await supabase
+        const { data, error: insErr } = await supabase
           .from('initial_state_details' as any)
-          .insert(detailPayloads as any);
-        if (error) throw error;
+          .insert(insertPayloads as any)
+          .select();
+        if (insErr) throw insErr;
+        insertedRows = (data as any[]) || [];
       }
+
+      // Sync interno con IDs reales — evita refetch (que dispararía un loop
+      // de autosave vía useEffect[initialDetails] en el componente).
+      setInitialData(stateRow as any);
+      setInitialDetails([
+        ...toUpdate.map(d => ({ ...d, user_id: user.id })),
+        ...insertedRows.map(r => ({
+          id: r.id,
+          user_id: r.user_id,
+          field_type: r.field_type,
+          responsible_id: r.responsible_id,
+          responsible_name: r.responsible_name,
+          amount: Number(r.amount),
+        })),
+      ]);
 
       setIsConfigured(true);
       setSaveStatus('saved');
