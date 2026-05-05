@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Transaction, IVA_RATE, RETEFUENTE_RATE } from '@/types/transaction';
 
@@ -46,11 +47,12 @@ export function useTransactionEdit(
   options: UseTransactionEditOptions = {}
 ): UseTransactionEditReturn {
   const { debounceMs = 600, onError, reteicaRate = 0 } = options;
-  
+  const queryClient = useQueryClient();
+
   const [localTransaction, setLocalTransaction] = useState<Transaction>(initialTransaction);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  
+
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const pendingUpdatesRef = useRef<Partial<Transaction>>({});
   const savedTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -71,7 +73,15 @@ export function useTransactionEdit(
         .eq('id', localTransaction.id);
 
       if (error) throw error;
-      
+
+      // Invalidar queries que derivan de transactions. El staleTime global
+      // de 60s hace que sin esto, "Relación de pagos" sirva cache viejo
+      // si el usuario navega ahí dentro de ese minuto.
+      queryClient.invalidateQueries({ queryKey: ['payments-log-v4'] });
+      queryClient.invalidateQueries({ queryKey: ['payments-log-counterparty-summary-v6'] });
+      queryClient.invalidateQueries({ queryKey: ['payments-log-counterparties-v5'] });
+      queryClient.invalidateQueries({ queryKey: ['payments-log-invoice-totals'] });
+
       setStatus('saved');
       pendingUpdatesRef.current = {};
       
@@ -89,7 +99,7 @@ export function useTransactionEdit(
       setErrorMessage(error instanceof Error ? error.message : 'Error al guardar');
       onError?.(error instanceof Error ? error : new Error('Unknown error'));
     }
-  }, [localTransaction.id, onError]);
+  }, [localTransaction.id, onError, queryClient]);
 
   const updateField = useCallback((updates: Partial<Transaction>) => {
     let computedUpdates: Partial<Transaction> = { ...updates };
@@ -167,11 +177,23 @@ export function useTransactionEdit(
     }, debounceMs);
   }, [debounceMs, saveToDatabase]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — flush pending updates antes de salir.
+  // Bug real: si el usuario cambia un campo y navega antes del debounce
+  // (600ms), el cambio se perdía. El pendingUpdatesRef tenía los cambios
+  // pero el clearTimeout cancelaba el save y nunca se persistía.
+  // El fetch en supabase-js sobrevive a un unmount SPA (no se cancela
+  // hasta que se cierre la pestaña), así que fire-and-forget es seguro.
+  const saveRef = useRef(saveToDatabase);
+  useEffect(() => { saveRef.current = saveToDatabase; }, [saveToDatabase]);
   useEffect(() => {
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
+        const pending = pendingUpdatesRef.current;
+        if (Object.keys(pending).length > 0) {
+          saveRef.current(pending);
+          pendingUpdatesRef.current = {};
+        }
       }
       if (savedTimeoutRef.current) {
         clearTimeout(savedTimeoutRef.current);
