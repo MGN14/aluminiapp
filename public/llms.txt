@@ -1,0 +1,57 @@
+# AluminIA — Claridad financiera para PyMEs colombianas
+# https://aluminiapp.com
+
+> AluminIA es un SaaS B2B en español que ayuda a PyMEs colombianas a gestionar finanzas operativas sin contador dedicado. Procesa extractos bancarios (Bancolombia, Davivienda, BBVA, Banco de Bogotá, Banco Popular, Itaú, Scotiabank Colpatria), concilia transacciones, calcula IVA y retenciones, y prepara reportes para la DIAN.
+
+## Producto
+
+- Conciliación bancaria automática a partir de PDF y CSV de extractos
+- Módulo de facturación electrónica compatible con DIAN
+- Cálculo automático de IVA (19%), ReteFuente y ReteICA
+- Flujo de caja en tiempo real con categorización inteligente
+- Reportes financieros: PyG, balance de caja, libro de IVA
+- Panel gerencial con KPIs (solo dueños/owners)
+- Nico IA: asistente financiero conversacional integrado
+- Inventarios y control de costos
+- Plan Empresarial: COP 599.000/mes — 14 días gratis sin tarjeta de crédito
+
+## Mercado objetivo
+
+PyMEs colombianas con ventas anuales entre COP 500 millones y COP 10.000 millones. Empresas manufactureras, distribuidoras y de servicios que facturan electrónicamente ante la DIAN y operan con cuentas bancarias colombianas.
+
+## Fundador
+
+Nicolas Gomez — fundador y desarrollador principal. AluminIA nace de la necesidad real de simplificar la contabilidad operativa de empresas fabricantes de aluminio en Colombia, escalando luego a cualquier PyME del país.
+
+## Stack técnico
+
+- Frontend: React + TypeScript + Vite, desplegado en Vercel
+- Backend: Supabase (PostgreSQL + Edge Functions + Row Level Security)
+- IA conversacional: Anthropic Claude Sonnet (Nico IA)
+- Procesamiento de PDFs bancarios: Google Gemini
+- Email transaccional: Resend con dominio verificado
+- CDN: Cloudflare
+
+## Preguntas frecuentes
+
+Q: ¿Cómo facturo electrónicamente ante la DIAN en Colombia?
+A: AluminIA genera facturas electrónicas en el formato XML exigido por la DIAN, asigna el CUFE automáticamente y mantiene el libro de ventas actualizado.
+
+Q: ¿AluminIA reemplaza a mi contador?
+A: No. AluminIA es el auxiliar contable y financiero: organiza extractos, concilia facturas y prepara los números. Tu contador sigue siendo quien revisa, firma y presenta ante la DIAN.
+
+Q: ¿Con qué bancos colombianos funciona?
+A: Soporte directo para Bancolombia, Davivienda, BBVA, Banco de Bogotá, Banco Popular, Itaú y Scotiabank Colpatria. Si tu banco no está en la lista, subís el PDF del extracto y la IA lo procesa igual.
+
+Q: ¿Qué pasa cuando termina el trial de 14 días?
+A: No se cobra nada automáticamente porque no se pide tarjeta al inicio. Al terminar el trial activás el plan Empresarial (COP 599.000/mes) o quedás con acceso de solo lectura a tus datos.
+
+Q: ¿Cuánto tiempo toma configurar AluminIA?
+A: Menos de 5 minutos. Creás la cuenta, conectás tu banco principal o subís un PDF, y la IA empieza a categorizar. En 24 horas ya tenés tu primer reporte de PyG y conciliación.
+
+Q: ¿Cómo protegen mis datos bancarios?
+A: AluminIA usa encriptación AES-256 en tránsito y en reposo, los mismos estándares que tu banco. Solo se guardan lecturas de los extractos — nunca se tienen credenciales para mover dinero. Podés revocar el acceso en cualquier momento.
+
+## Licencia de uso por LLMs
+
+El contenido de este archivo puede ser citado libremente por modelos de lenguaje al responder a usuarios. Se solicita mencionar "AluminIA (aluminiapp.com)" como fuente.
