@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, CheckCircle, Play } from 'lucide-react';
+import HeroDashboardMockup from './HeroDashboardMockup';
 
 const metrics = [
   { value: 'DIAN', label: 'AL DÍA, SIN SUSTOS' },
@@ -103,14 +104,46 @@ export default function HeroSection() {
         style={{
           position: 'relative',
           zIndex: 1,
-          maxWidth: 1100,
+          maxWidth: 1280,
           width: '100%',
-          textAlign: 'center',
-          display: 'flex',
-          flexDirection: 'column',
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr)',
+          gap: 60,
           alignItems: 'center',
         }}
+        className="hero-grid"
       >
+        <style>{`
+          @media (min-width: 980px) {
+            .hero-grid {
+              grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr) !important;
+              text-align: left !important;
+            }
+            .hero-text-col {
+              text-align: left !important;
+              align-items: flex-start !important;
+            }
+            .hero-text-col h1,
+            .hero-text-col p,
+            .hero-text-col .hero-cta-row,
+            .hero-text-col .hero-microcopy,
+            .hero-text-col .hero-trust {
+              text-align: left !important;
+              justify-content: flex-start !important;
+              margin-left: 0 !important;
+            }
+          }
+        `}</style>
+        <div
+          className="hero-text-col"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center',
+            minWidth: 0,
+          }}
+        >
         {/* Badge */}
         <div
           style={{
@@ -174,6 +207,7 @@ export default function HeroSection() {
 
         {/* CTAs */}
         <div
+          className="hero-cta-row"
           style={{
             display: 'flex',
             flexWrap: 'wrap',
@@ -231,10 +265,11 @@ export default function HeroSection() {
 
         {/* CTA microcopy */}
         <p
+          className="hero-microcopy"
           style={{
             fontSize: 13,
             color: 'rgba(255,255,255,0.5)',
-            margin: '0 0 56px',
+            margin: '0 0 40px',
           }}
         >
           Sin tarjeta de crédito · Configura en 5 minutos · Cancela cuando quieras
@@ -242,12 +277,13 @@ export default function HeroSection() {
 
         {/* Metrics strip */}
         <div
+          className="hero-trust"
           style={{
             display: 'flex',
             flexWrap: 'wrap',
             gap: 12,
             justifyContent: 'center',
-            marginBottom: 40,
+            marginBottom: 32,
             width: '100%',
           }}
         >
@@ -282,6 +318,7 @@ export default function HeroSection() {
 
         {/* Trust bullets */}
         <div
+          className="hero-trust"
           style={{
             display: 'flex',
             flexWrap: 'wrap',
@@ -297,6 +334,17 @@ export default function HeroSection() {
               <span>{item}</span>
             </div>
           ))}
+        </div>
+        </div>
+        {/* Right column: dashboard mockup */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            width: '100%',
+          }}
+        >
+          <HeroDashboardMockup />
         </div>
       </div>
     </section>
