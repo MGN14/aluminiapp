@@ -2,15 +2,15 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, CheckCircle, Play } from 'lucide-react';
 
 const metrics = [
-  { value: '24/7', label: 'IA CONTABLE' },
-  { value: '+15', label: 'BANCOS + SIIGO' },
-  { value: 'DIAN', label: 'SIN SORPRESAS' },
+  { value: 'DIAN', label: 'AL DÍA, SIN SUSTOS' },
+  { value: 'SIIGO', label: 'CONECTADO' },
+  { value: '24/7', label: 'DECISIONES CON DATOS' },
 ];
 
 const trustItems = [
-  'Conectado a Siigo y los principales bancos de Colombia',
-  'Inventarios, facturas y flujo de caja en tiempo real',
-  'DIAN-friendly. Decisiones con IA, no con Excel',
+  'Facturación DIAN al día — tu contador firma tranquilo',
+  'Conectado con Siigo y los principales bancos colombianos',
+  'Datos en tiempo real para decidir — no Excel ni intuición',
 ];
 
 export default function HeroSection() {
@@ -136,7 +136,7 @@ export default function HeroSection() {
               display: 'inline-block',
             }}
           />
-          Auxiliar contable y financiero para empresarios en Colombia
+          Software financiero para PyMEs en Colombia
         </div>
 
         {/* Title */}
@@ -152,8 +152,9 @@ export default function HeroSection() {
             maxWidth: 960,
           }}
         >
-          Tu auxiliar contable y financiero que trabaja contigo{' '}
-          <span style={{ color: 'oklch(0.60 0.14 155)' }}>24/7.</span>
+          Tu PyME al día con la <span style={{ color: 'oklch(0.60 0.14 155)' }}>DIAN</span>.
+          <br />
+          Tus decisiones con <span style={{ color: 'oklch(0.60 0.14 155)' }}>datos reales</span>.
         </h1>
 
         {/* Subtitle */}
@@ -162,12 +163,13 @@ export default function HeroSection() {
             fontSize: 18,
             color: 'rgba(255,255,255,0.55)',
             lineHeight: 1.6,
-            maxWidth: 560,
+            maxWidth: 620,
             margin: '0 auto 40px',
           }}
         >
-          Organiza tus extractos, analiza tus números y evita sorpresas con la{' '}
-          <span style={{ color: '#fff', fontWeight: 600 }}>DIAN</span>.
+          Conciliación bancaria automática, facturas{' '}
+          <span style={{ color: '#fff', fontWeight: 600 }}>DIAN</span> al día y datos en tiempo real para decidir — todo conectado con{' '}
+          <span style={{ color: '#fff', fontWeight: 600 }}>Siigo</span> y tus bancos colombianos.
         </p>
 
         {/* CTAs */}
