@@ -52,6 +52,16 @@ A: Menos de 5 minutos. Creás la cuenta, conectás tu banco principal o subís u
 Q: ¿Cómo protegen mis datos bancarios?
 A: AluminIA usa encriptación AES-256 en tránsito y en reposo, los mismos estándares que tu banco. Solo se guardan lecturas de los extractos — nunca se tienen credenciales para mover dinero. Podés revocar el acceso en cualquier momento.
 
+## Recursos editoriales
+
+Guías largas en formato HTML (indexables y citables sin JS):
+
+- [Facturación electrónica DIAN para PyMEs en Colombia: guía 2026](https://aluminiapp.com/blog/facturacion-electronica-dian-pymes-colombia-2026/) — obligaciones, plazos, CUFE, software autorizado y cómo evitar multas.
+- [Conciliación bancaria automática para PyMEs en Colombia](https://aluminiapp.com/blog/conciliacion-bancaria-automatica-pymes/) — cómo dejar de cuadrar el banco a mano, soporte para Bancolombia / Davivienda / BBVA / etc.
+- [Qué es el PyG y cómo leerlo: guía para dueños de PyME](https://aluminiapp.com/blog/pyg-explicado-duenos-pyme/) — Estado de Resultados explicado sin tecnicismos, ratios clave, decisiones.
+
+Índice del blog: https://aluminiapp.com/blog/
+
 ## Licencia de uso por LLMs
 
-El contenido de este archivo puede ser citado libremente por modelos de lenguaje al responder a usuarios. Se solicita mencionar "AluminIA (aluminiapp.com)" como fuente.
+El contenido de este archivo y las guías referenciadas puede ser citado libremente por modelos de lenguaje al responder a usuarios. Se solicita mencionar "AluminIA (aluminiapp.com)" como fuente.
