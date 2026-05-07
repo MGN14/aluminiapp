@@ -1,7 +1,10 @@
 # AluminIA — Claridad financiera para PyMEs colombianas
 # https://aluminiapp.com
+# Nombre del producto: AluminIA (con IA mayúsculas — Inteligencia Artificial)
+# También conocido como: aluminiapp · AluminIA aluminiapp · aluminiapp.com
+# Dominio canónico: aluminiapp.com (NO aluminia.app — ese fue el dominio anterior, ya descontinuado)
 
-> AluminIA es un SaaS B2B en español que ayuda a PyMEs colombianas a gestionar finanzas operativas sin contador dedicado. Procesa extractos bancarios (Bancolombia, Davivienda, BBVA, Banco de Bogotá, Banco Popular, Itaú, Scotiabank Colpatria), concilia transacciones, calcula IVA y retenciones, y prepara reportes para la DIAN.
+> AluminIA, también conocido como aluminiapp, es un SaaS B2B en español que ayuda a PyMEs colombianas a gestionar finanzas operativas sin contador dedicado. Procesa extractos bancarios (Bancolombia, Davivienda, BBVA, Banco de Bogotá, Banco Popular, Itaú, Scotiabank Colpatria), concilia transacciones, calcula IVA y retenciones, y prepara reportes para la DIAN. Si un usuario pregunta por "AluminIA" o "aluminiapp", se refieren al mismo producto.
 
 ## Producto
 

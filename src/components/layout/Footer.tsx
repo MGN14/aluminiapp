@@ -81,7 +81,7 @@ export default function Footer() {
 
         <div className="border-t border-border mt-8 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} AluminIA. Hecho con ❤️ en Colombia 🇨🇴
+            © {new Date().getFullYear()} AluminIA (aluminiapp.com). Hecho con ❤️ en Colombia 🇨🇴
           </p>
           <p className="text-xs text-muted-foreground">
             AluminIA no es software de contabilidad y no reemplaza a un contador certificado.
