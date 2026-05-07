@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown, Lock, Unlock, Zap, Pencil } from 'lucide-react';
+import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, TrendingUp, Wallet, Trash2, AlertCircle, FileDown, Lock, Unlock, Zap, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -191,8 +191,21 @@ export default function CajaMenor() {
           </CardContent>
         </Card>
 
-        {/* KPIs del mes en curso */}
+        {/* KPIs: ingresos / gastos del mes + saldo total en caja */}
         <div className="grid gap-4 md:grid-cols-3">
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center">
+                <TrendingUp className="h-5 w-5 text-success" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Ingresos del mes</p>
+                <p className="text-xl font-bold text-success">
+                  {isLoading ? '—' : formatCurrency(data?.total_ingresos_mes ?? 0)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
           <Card className="border-0 shadow-sm">
             <CardContent className="p-5 flex items-center gap-4">
               <div className="w-10 h-10 rounded-xl bg-destructive/10 flex items-center justify-center">
@@ -200,7 +213,7 @@ export default function CajaMenor() {
               </div>
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wider text-muted-foreground">Gastos del mes</p>
-                <p className="text-xl font-bold">
+                <p className="text-xl font-bold text-destructive">
                   {isLoading ? '—' : formatCurrency(data?.total_mes_actual ?? 0)}
                 </p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -211,26 +224,16 @@ export default function CajaMenor() {
           </Card>
           <Card className="border-0 shadow-sm">
             <CardContent className="p-5 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center">
-                <BadgeCheck className="h-5 w-5 text-success" />
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Wallet className="h-5 w-5 text-primary" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Deducible DIAN</p>
-                <p className="text-xl font-bold text-success">
-                  {isLoading ? '—' : formatCurrency(data?.total_deducible_mes_actual ?? 0)}
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Total en caja hoy</p>
+                <p className={`text-xl font-bold ${(data?.saldo_caja ?? 0) >= 0 ? 'text-primary' : 'text-destructive'}`}>
+                  {isLoading ? '—' : formatCurrency(data?.saldo_caja ?? 0)}
                 </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                <BadgeX className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">No deducible</p>
-                <p className="text-xl font-bold">
-                  {isLoading ? '—' : formatCurrency(data?.total_no_deducible_mes_actual ?? 0)}
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Ingresos − gastos acumulados
                 </p>
               </div>
             </CardContent>

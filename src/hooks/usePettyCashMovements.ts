@@ -29,10 +29,15 @@ export interface PettyCashRow {
 
 export interface PettyCashSummary {
   rows: PettyCashRow[];
+  /** Total egresos del mes actual (excluye ingresos). */
   total_mes_actual: number;
-  total_deducible_mes_actual: number;
-  total_no_deducible_mes_actual: number;
+  /** Cantidad de movimientos del mes (incluye ingresos para el contador). */
   count_mes_actual: number;
+  /** Suma de ingresos en efectivo del mes actual. */
+  total_ingresos_mes: number;
+  /** Saldo neto en caja: suma histórica de ingresos − suma histórica de
+   *  egresos. Lo que efectivamente debería haber en la caja física hoy. */
+  saldo_caja: number;
 }
 
 function startOfMonth(): string {
@@ -49,9 +54,9 @@ export function usePettyCashMovements() {
       const empty: PettyCashSummary = {
         rows: [],
         total_mes_actual: 0,
-        total_deducible_mes_actual: 0,
-        total_no_deducible_mes_actual: 0,
         count_mes_actual: 0,
+        total_ingresos_mes: 0,
+        saldo_caja: 0,
       };
       if (!user?.id) return empty;
 
@@ -108,20 +113,26 @@ export function usePettyCashMovements() {
 
       const monthStart = startOfMonth();
       const mesActual = rows.filter((r) => r.date >= monthStart);
-      // Los totales de egreso excluyen ingresos para no inflar números.
       const egresosMes = mesActual.filter((r) => r.kind !== 'ingreso_efectivo');
+      const ingresosMes = mesActual.filter((r) => r.kind === 'ingreso_efectivo');
       const total_mes_actual = egresosMes.reduce((s, r) => s + r.amount, 0);
-      const total_deducible_mes_actual = egresosMes
-        .filter((r) => r.category_is_tax_deductible)
+      const total_ingresos_mes = ingresosMes.reduce((s, r) => s + r.amount, 0);
+
+      // Saldo de caja físico = ingresos históricos − egresos históricos.
+      const totalIngresosHist = rows
+        .filter((r) => r.kind === 'ingreso_efectivo')
         .reduce((s, r) => s + r.amount, 0);
-      const total_no_deducible_mes_actual = total_mes_actual - total_deducible_mes_actual;
+      const totalEgresosHist = rows
+        .filter((r) => r.kind !== 'ingreso_efectivo')
+        .reduce((s, r) => s + r.amount, 0);
+      const saldo_caja = totalIngresosHist - totalEgresosHist;
 
       return {
         rows,
         total_mes_actual,
-        total_deducible_mes_actual,
-        total_no_deducible_mes_actual,
         count_mes_actual: mesActual.length,
+        total_ingresos_mes,
+        saldo_caja,
       };
     },
   });
