@@ -23,14 +23,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { usePersistedFormState, dateToIso, isoToDate } from '@/hooks/usePersistedFormState';
+import { usePersistedFormState, usePersistedDialogOpen, dateToIso, isoToDate } from '@/hooks/usePersistedFormState';
 
 export default function RegistrarIngresoModal() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [open, setOpen] = useState(false);
+  // Open state persistido: si Nico estaba en el modal y refresca / cambia
+  // de tab, vuelve y el modal se reabre solo con los datos.
+  const [open, setOpen] = usePersistedDialogOpen('caja-menor:registrar-ingreso:open');
   // Persistencia del form en sessionStorage (cambios de pestaña / tab discard
   // no pierden lo tipeado). clearForm() al guardar exitoso.
   type FormState = {

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import NewRemisionModal from '@/components/remisiones/NewRemisionModal';
+import { usePersistedDialogOpen } from '@/hooks/usePersistedFormState';
 import RemisionDetailModal from '@/components/remisiones/RemisionDetailModal';
 import VincularFacturaModal from '@/components/remisiones/VincularFacturaModal';
 import VincularPagoRemisionModal from '@/components/remisiones/VincularPagoRemisionModal';
@@ -97,7 +98,10 @@ export default function Remisiones() {
   const { isGerencial, mode } = useModuleContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [newOpen, setNewOpen] = useState(false);
+  // Persistido: si Nico estaba creando una remisión y refresca / cambia
+  // de tab, vuelve y el modal se reabre solo (los campos también, por
+  // usePersistedFormState dentro del modal).
+  const [newOpen, setNewOpen] = usePersistedDialogOpen('remisiones:nueva:open');
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
   const [moverId, setMoverId] = useState<string | null>(null);

@@ -24,7 +24,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import CrearPrestadorModal from './CrearPrestadorModal';
-import { usePersistedFormState, dateToIso, isoToDate } from '@/hooks/usePersistedFormState';
+import { usePersistedFormState, usePersistedDialogOpen, dateToIso, isoToDate } from '@/hooks/usePersistedFormState';
 
 interface Responsible {
   id: string;
@@ -48,7 +48,11 @@ export default function RegistrarGastoModal() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [open, setOpen] = useState(false);
+  // El estado abierto del Dialog también se persiste: si Nico estaba
+  // tipeando y se refresca / cambia de tab, el modal se reabre solo al
+  // volver. Solo se cierra cuando el usuario clickea X / Cancelar /
+  // Guardar exitoso.
+  const [open, setOpen] = usePersistedDialogOpen('caja-menor:registrar-gasto:open');
   // Persistir el form en sessionStorage. Si el usuario cambia de pestaña /
   // navega a otra ruta / Chrome descarta el tab, al volver el form sigue
   // donde lo dejó. clearForm() se llama al guardar exitosamente.
@@ -93,7 +97,9 @@ export default function RegistrarGastoModal() {
 
   // Modal para crear prestador con todos los datos (no inline; el inline solo
   // guardaba el nombre y obligaba a tipear de nuevo en cuenta de cobro).
-  const [crearPrestadorOpen, setCrearPrestadorOpen] = useState(false);
+  // También persistido — si Nico abrió "Crear prestador" desde acá y se
+  // refresca, vuelve y el modal anidado sigue abierto.
+  const [crearPrestadorOpen, setCrearPrestadorOpen] = usePersistedDialogOpen('caja-menor:crear-prestador:open');
 
   const { data: responsibles = [] } = useQuery<Responsible[]>({
     queryKey: ['responsibles-caja-menor', user?.id],

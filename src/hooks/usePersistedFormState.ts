@@ -82,3 +82,44 @@ export function isoToDate(s: string | undefined | null): Date | undefined {
   const d = new Date(s);
   return isNaN(d.getTime()) ? undefined : d;
 }
+
+/**
+ * Persiste el estado abierto/cerrado de un Dialog en sessionStorage.
+ * Si el modal estaba abierto cuando el usuario cambió de pestaña / Chrome
+ * descartó el tab / la ruta cambió y el componente se remontó, al volver
+ * el modal se reabre automáticamente — junto con usePersistedFormState
+ * cierra el flujo: el form recupera datos Y el modal está abierto.
+ *
+ * Asegurate de llamar setOpen(false) cuando el usuario clickea Cancelar,
+ * la X o se guarda exitosamente. Sin eso el modal volvería a abrirse
+ * solo aunque el usuario lo haya cerrado a propósito.
+ */
+export function usePersistedDialogOpen(
+  storageKey: string,
+  enabled = true,
+): [boolean, (v: boolean) => void] {
+  const [open, setOpenState] = useState<boolean>(() => {
+    if (!enabled || typeof window === 'undefined') return false;
+    try {
+      return window.sessionStorage.getItem(storageKey) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const setOpen = useCallback(
+    (v: boolean) => {
+      setOpenState(v);
+      if (!enabled || typeof window === 'undefined') return;
+      try {
+        if (v) window.sessionStorage.setItem(storageKey, '1');
+        else window.sessionStorage.removeItem(storageKey);
+      } catch {
+        // ignore
+      }
+    },
+    [storageKey, enabled],
+  );
+
+  return [open, setOpen];
+}

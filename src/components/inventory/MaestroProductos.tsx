@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, Pencil, Trash2, Lock, Search, Upload, Download, FileSpreadsheet, X } from 'lucide-react';
-import { usePersistedFormState } from '@/hooks/usePersistedFormState';
+import { usePersistedFormState, usePersistedDialogOpen } from '@/hooks/usePersistedFormState';
 
 const UNIDADES = ['und', 'm', 'm²', 'm³', 'kg', 'lb', 'ton', 'l', 'ml', 'caja', 'par', 'rollo', 'paquete', 'juego', 'kit', 'otro'];
 
@@ -119,7 +119,9 @@ export default function MaestroProductos() {
   };
 
   const [search, setSearch] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
+  // El modal de agregar/editar producto también se reabre solo si Nico
+  // estaba en medio de tipear y se refresca / cambia de tab.
+  const [modalOpen, setModalOpen] = usePersistedDialogOpen('maestro-productos:form:open');
   const [editId, setEditId] = useState<string | null>(null);
   // Persistencia del form Add/Edit. Si Nico tipea una ficha entera y cambia
   // de pestaña / tab discard, al volver el form sigue. Se limpia al guardar
