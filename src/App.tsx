@@ -14,6 +14,7 @@ import RouteErrorBoundary from "@/components/RouteErrorBoundary";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
 import TourOverlay from "@/components/tour/TourOverlay";
+import UpdateNotifier from "@/components/UpdateNotifier";
 import { usePageViewTracking } from "@/hooks/useTrackEvent";
 
 /** Mount global de tracking de page views — debe estar dentro de BrowserRouter */
@@ -107,6 +108,7 @@ const App = () => (
           <BrowserRouter>
             <SessionExpiredModal />
             <AuthDebugPanel />
+            <UpdateNotifier />
             <PageViewTracker />
             <RouteErrorBoundary>
             <Suspense fallback={<RouteFallback />}>

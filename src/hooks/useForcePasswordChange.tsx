@@ -46,6 +46,20 @@ export function useForcePasswordChange(): ForcePasswordChangeState {
       setLoading(false);
       return;
     }
+
+    // OAuth-only users (Google sign-in, etc.) no tienen contraseña — el flag
+    // force_password_change los mandaría a un flow de "contraseña actual"
+    // que no tiene sentido. Caso real: Yolycale entró con Google, fue borrada
+    // y re-invitada; el flag quedó true y la app le pedía contraseña actual
+    // que nunca creó. Detectamos provider OAuth-only y saltamos el gate.
+    const identities = (user as { identities?: Array<{ provider?: string }> }).identities ?? [];
+    const hasEmailIdentity = identities.some((i) => i.provider === 'email');
+    if (identities.length > 0 && !hasEmailIdentity) {
+      setRequired(false);
+      setLoading(false);
+      return;
+    }
+
     void fetchFlag(user.id);
   }, [authLoading, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 

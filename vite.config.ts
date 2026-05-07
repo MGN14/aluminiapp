@@ -2,9 +2,45 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
+import fs from "fs";
+
+// Build version = timestamp del build. Se inyecta en el bundle vía
+// __APP_VERSION__ y se escribe en dist/version.json. El runtime polea
+// el .json cada 5 min y compara — si cambia, muestra banner "Recargar".
+// Sin esto, los colaboradores no recibían los pushes de Vercel hasta que
+// el browser invalidaba el cache por su cuenta (a veces nunca).
+const BUILD_VERSION = String(Date.now());
+
+// Plugin que escribe public/version.json al final del build, para que
+// Vercel lo sirva desde el dominio. Lo metemos en `public` (no `dist`)
+// porque Vite copia public/ tal cual al output.
+function writeVersionFile() {
+  return {
+    name: "write-version-file",
+    apply: "build" as const,
+    closeBundle() {
+      const distDir = path.resolve(__dirname, "dist");
+      try {
+        if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(distDir, "version.json"),
+          JSON.stringify({ version: BUILD_VERSION }),
+        );
+      } catch (err) {
+        // No fallar el build si esto rompe — el banner deja de funcionar pero
+        // la app sigue.
+        // eslint-disable-next-line no-console
+        console.warn("[writeVersionFile] failed:", err);
+      }
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(() => ({
+  define: {
+    __APP_VERSION__: JSON.stringify(BUILD_VERSION),
+  },
   server: {
     host: "::",
     port: 8080,
@@ -14,6 +50,7 @@ export default defineConfig(() => ({
   },
   plugins: [
     react(),
+    writeVersionFile(),
     // Source maps upload to Sentry (only when SENTRY_AUTH_TOKEN is set — CI/Vercel)
     process.env.SENTRY_AUTH_TOKEN &&
       sentryVitePlugin({

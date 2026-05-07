@@ -8,7 +8,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/((?!assets|blog|favicon.ico|favicon.svg|favicon.png|robots.txt|sitemap.xml|llms.txt|og-image.png|og-image.svg|placeholder.svg).*)", "destination": "/" }
+    { "source": "/((?!assets|blog|favicon.ico|favicon.svg|favicon.png|robots.txt|sitemap.xml|llms.txt|og-image.png|og-image.svg|placeholder.svg|version.json).*)", "destination": "/" }
   ],
   "headers": [
     {
@@ -41,6 +41,13 @@
       "source": "/robots.txt",
       "headers": [
         { "key": "Content-Type", "value": "text/plain; charset=utf-8" }
+      ]
+    },
+    {
+      "source": "/version.json",
+      "headers": [
+        { "key": "Content-Type", "value": "application/json; charset=utf-8" },
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
       ]
     },
     {

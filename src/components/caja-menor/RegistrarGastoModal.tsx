@@ -23,6 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import CrearPrestadorModal from './CrearPrestadorModal';
 
 interface Responsible {
   id: string;
@@ -56,9 +57,9 @@ export default function RegistrarGastoModal() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // State para crear nuevo prestador inline
-  const [creatingNew, setCreatingNew] = useState(false);
-  const [newPrestadorName, setNewPrestadorName] = useState('');
+  // Modal para crear prestador con todos los datos (no inline; el inline solo
+  // guardaba el nombre y obligaba a tipear de nuevo en cuenta de cobro).
+  const [crearPrestadorOpen, setCrearPrestadorOpen] = useState(false);
 
   const { data: responsibles = [] } = useQuery<Responsible[]>({
     queryKey: ['responsibles-caja-menor', user?.id],
@@ -102,45 +103,15 @@ export default function RegistrarGastoModal() {
     setDate(new Date());
     setConcept('');
     setNotes('');
-    setCreatingNew(false);
-    setNewPrestadorName('');
   };
 
   const handleResponsibleChange = (value: string) => {
     if (value === NEW_PRESTADOR_VALUE) {
-      setCreatingNew(true);
+      // Abrir el modal completo de creación
+      setCrearPrestadorOpen(true);
       setResponsibleId('');
     } else {
       setResponsibleId(value);
-      setCreatingNew(false);
-    }
-  };
-
-  const handleCreatePrestador = async () => {
-    if (!user) return;
-    const name = newPrestadorName.trim();
-    if (!name) {
-      toast({ title: 'Falta nombre', variant: 'destructive' });
-      return;
-    }
-    try {
-      const { data, error } = await supabase
-        .from('responsibles')
-        .insert({
-          user_id: user.id,
-          name,
-          responsible_type: 'petty_cash',
-        } as never)
-        .select('id, name')
-        .single();
-      if (error) throw error;
-      await queryClient.invalidateQueries({ queryKey: ['responsibles-caja-menor'] });
-      setResponsibleId(data!.id);
-      setCreatingNew(false);
-      setNewPrestadorName('');
-      toast({ title: 'Prestador creado' });
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
     }
   };
 
@@ -200,7 +171,7 @@ export default function RegistrarGastoModal() {
           Registrar gasto
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>Registrar gasto en Caja Menor</DialogTitle>
@@ -258,49 +229,24 @@ export default function RegistrarGastoModal() {
           {/* Prestador — separado de los beneficiarios de Conciliación bancaria */}
           <div className="space-y-1.5">
             <Label>Prestador del servicio</Label>
-            {creatingNew ? (
-              <div className="flex gap-2">
-                <Input
-                  autoFocus
-                  placeholder="Ej: Juan Pérez"
-                  value={newPrestadorName}
-                  onChange={(e) => setNewPrestadorName(e.target.value)}
-                />
-                <Button type="button" size="sm" onClick={handleCreatePrestador}>
-                  Crear
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setCreatingNew(false);
-                    setNewPrestadorName('');
-                  }}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            ) : (
-              <Select value={responsibleId} onValueChange={handleResponsibleChange}>
-                <SelectTrigger>
-                  <SelectValue placeholder={responsibles.length === 0 ? 'Crear nuevo prestador' : 'Seleccionar prestador'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {responsibles.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.name}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={NEW_PRESTADOR_VALUE} className="text-primary">
-                    <span className="inline-flex items-center gap-1.5">
-                      <UserPlus className="h-3.5 w-3.5" />
-                      Crear nuevo prestador
-                    </span>
+            <Select value={responsibleId} onValueChange={handleResponsibleChange}>
+              <SelectTrigger>
+                <SelectValue placeholder={responsibles.length === 0 ? 'Crear nuevo prestador' : 'Seleccionar prestador'} />
+              </SelectTrigger>
+              <SelectContent>
+                {responsibles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
                   </SelectItem>
-                </SelectContent>
-              </Select>
-            )}
+                ))}
+                <SelectItem value={NEW_PRESTADOR_VALUE} className="text-primary">
+                  <span className="inline-flex items-center gap-1.5">
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Crear nuevo prestador
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-[10px] text-muted-foreground">
               Lista separada de los beneficiarios de Conciliación Bancaria.
             </p>
@@ -359,6 +305,13 @@ export default function RegistrarGastoModal() {
           </DialogFooter>
         </form>
       </DialogContent>
+
+      <CrearPrestadorModal
+        open={crearPrestadorOpen}
+        onOpenChange={setCrearPrestadorOpen}
+        responsibleType="petty_cash"
+        onCreated={(c) => setResponsibleId(c.id)}
+      />
     </Dialog>
   );
 }

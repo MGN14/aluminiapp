@@ -16,6 +16,9 @@ export interface PettyCashRow {
   concept: string | null;
   kind: PettyCashKind;
   numero_cuenta_cobro: string | null;
+  /** Auto-asignado por trigger BEFORE INSERT (CDC-YYYY-NNNN para cuenta_de_cobro,
+   *  CP-YYYY-NNNN para gasto_efectivo). Editable manualmente desde el modal de PDF. */
+  numero_consecutivo: string | null;
   notes: string | null;
   created_at: string;
   /** FK a petty_cash_closings. NULL = abierto/editable. NOT NULL = cerrado e inmutable. */
@@ -95,6 +98,7 @@ export function usePettyCashMovements() {
           concept: m.concept,
           kind: (m.kind as PettyCashKind) ?? 'gasto_efectivo',
           numero_cuenta_cobro: m.numero_cuenta_cobro,
+          numero_consecutivo: (m as { numero_consecutivo?: string | null }).numero_consecutivo ?? null,
           notes: m.notes,
           created_at: m.created_at,
           closing_id: (m as { closing_id?: string | null }).closing_id ?? null,

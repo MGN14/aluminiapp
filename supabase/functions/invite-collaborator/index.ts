@@ -205,13 +205,20 @@ Deno.serve(async (req) => {
             ${nextStep}
           </p>
         </td></tr>
-        <tr><td align="center" style="padding:0 32px 32px 32px;">
-          <a href="${ctaUrl}"
-             style="display:inline-block;background:oklch(0.43 0.14 155);color:#ffffff;padding:16px 40px;border-radius:999px;text-decoration:none;font-size:16px;font-weight:600;letter-spacing:-0.2px;box-shadow:0 4px 12px rgba(36,209,100,0.25);">
-            ${ctaLabel} →
-          </a>
-          <p style="margin:16px 0 0;font-size:13px;color:#86868b;">
-            ${isNew ? "Si el botón no funciona, copiá este link en tu navegador:" : ""}
+        <tr><td align="center" style="padding:0 32px 16px 32px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+            <tr><td align="center" bgcolor="#1f8a4a" style="background:#1f8a4a;border-radius:14px;box-shadow:0 8px 24px rgba(31,138,74,0.35);">
+              <a href="${ctaUrl}"
+                 style="display:block;background:#1f8a4a;color:#ffffff;padding:20px 56px;border-radius:14px;text-decoration:none;font-size:20px;font-weight:800;letter-spacing:-0.3px;line-height:1;mso-padding-alt:20px 56px;">
+                ${ctaLabel}
+              </a>
+            </td></tr>
+          </table>
+          <p style="margin:14px 0 0;font-size:14px;color:#1f8a4a;font-weight:600;">
+            👆 Click acá para entrar
+          </p>
+          <p style="margin:20px 0 0;font-size:13px;color:#86868b;">
+            ${isNew ? "Si el botón no abre, copiá este link en tu navegador:" : ""}
           </p>
           ${isNew ? `<p style="margin:8px 0 0;font-size:12px;color:#86868b;word-break:break-all;">${ctaUrl}</p>` : ""}
         </td></tr>

@@ -5,6 +5,7 @@ import { es } from 'date-fns/locale';
 import { FileDown, Building2, User } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,11 +53,15 @@ interface ResponsibleData {
 
 export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange }: Props) {
   const { user } = useAuth();
+  // Para colaboradores, los datos de la empresa están en el profile del owner
+  // (no en el suyo). Sin esto, el modal mostraba campos vacíos.
+  const { dataOwnerId, isCollaborator } = useDataOwner();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const [savingProveedor, setSavingProveedor] = useState(false);
   const [savingEmpresa, setSavingEmpresa] = useState(false);
+  const [consecutivoEditable, setConsecutivoEditable] = useState('');
 
   // Form state — datos editables que se guardan al hacer "Generar"
   const [empresa, setEmpresa] = useState<CompanyData>({
@@ -79,15 +84,17 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
   const [incluyePrestaciones, setIncluyePrestaciones] = useState(false);
   const [retencionStr, setRetencionStr] = useState('');
 
-  // Cargar datos empresa
+  // Cargar datos empresa: para colaboradores, leemos el profile del owner
+  // (RLS de profiles tiene policy adicional profiles_collab_read_owner que
+  // permite SELECT del owner). Sin esto, el colaborador veía campos vacíos.
   const { data: companyData } = useQuery<CompanyData>({
-    queryKey: ['profile-company-cdc', user?.id],
-    enabled: !!user?.id && open,
+    queryKey: ['profile-company-cdc', dataOwnerId],
+    enabled: !!dataOwnerId && open,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
         .select('company_name, company_nit, company_address, company_city, letterhead_path, letterhead_top_margin_mm, letterhead_bottom_margin_mm')
-        .eq('user_id', user!.id)
+        .eq('user_id', dataOwnerId!)
         .maybeSingle();
       if (error) throw error;
       const fallback: CompanyData = {
@@ -135,6 +142,13 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
       setConceptoEditable(movement.concept ?? '');
       setIncluyePrestaciones(false);
       setRetencionStr('');
+      // Pre-cargar el consecutivo auto-asignado por el trigger; el usuario
+      // puede editarlo si quiere antes de generar el PDF.
+      setConsecutivoEditable(
+        movement.numero_consecutivo
+          ?? (movement as { numero_cuenta_cobro?: string | null }).numero_cuenta_cobro
+          ?? ''
+      );
     }
   }, [movement]);
 
@@ -164,19 +178,22 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
 
     setGenerating(true);
     try {
-      // 1) Guardar datos de empresa al profile (idempotente)
-      setSavingEmpresa(true);
-      const { error: profileErr } = await supabase
-        .from('profiles')
-        .update({
-          company_name: empresa.company_name,
-          company_nit: empresa.company_nit,
-          company_address: empresa.company_address,
-          company_city: empresa.company_city,
-        })
-        .eq('user_id', user!.id);
-      if (profileErr) throw profileErr;
-      setSavingEmpresa(false);
+      // 1) Guardar datos de empresa al profile (idempotente). Solo el owner
+      // puede tocar su profile; el colaborador no actualiza, solo lee.
+      if (!isCollaborator) {
+        setSavingEmpresa(true);
+        const { error: profileErr } = await supabase
+          .from('profiles')
+          .update({
+            company_name: empresa.company_name,
+            company_nit: empresa.company_nit,
+            company_address: empresa.company_address,
+            company_city: empresa.company_city,
+          })
+          .eq('user_id', user!.id);
+        if (profileErr) throw profileErr;
+        setSavingEmpresa(false);
+      }
 
       // 2) Guardar datos del prestador en responsibles
       if (movement.responsible_id) {
@@ -195,15 +212,22 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
         setSavingProveedor(false);
       }
 
-      // 3) Persistir incluye_prestaciones_sociales y retencion en el movement
+      // 3) Persistir incluye_prestaciones_sociales, retencion, concepto y
+      // consecutivo en el movement. Si el usuario editó el consecutivo,
+      // guardamos lo que escribió; sino dejamos lo que el trigger asignó.
       const retencionNum = parseFloat(retencionStr) || 0;
+      const consecutivoTrim = consecutivoEditable.trim();
+      const movUpdate: Record<string, unknown> = {
+        incluye_prestaciones_sociales: incluyePrestaciones,
+        retencion_amount: retencionNum > 0 ? retencionNum : null,
+        concept: conceptoEditable.trim(),
+      };
+      if (consecutivoTrim && consecutivoTrim !== movement.numero_consecutivo) {
+        movUpdate.numero_consecutivo = consecutivoTrim;
+      }
       const { error: movErr } = await supabase
         .from('petty_cash_movements')
-        .update({
-          incluye_prestaciones_sociales: incluyePrestaciones,
-          retencion_amount: retencionNum > 0 ? retencionNum : null,
-          concept: conceptoEditable.trim(),
-        })
+        .update(movUpdate)
         .eq('id', movement.id);
       if (movErr) throw movErr;
 
@@ -247,7 +271,7 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
         prestadorDocumento: prestador.documento,
         prestadorCiudad: prestador.ciudad || undefined,
         prestadorTelefono: prestador.telefono || undefined,
-        numeroConsecutivo: (movement as { numero_consecutivo?: string | null }).numero_consecutivo ?? movement.numero_cuenta_cobro ?? '—',
+        numeroConsecutivo: consecutivoTrim || movement.numero_consecutivo || movement.numero_cuenta_cobro || '—',
         fecha: fechaFormatted,
         ciudadEmision: empresa.company_city || prestador.ciudad || 'Bogotá D.C.',
         concepto: conceptoEditable.trim(),
@@ -403,7 +427,14 @@ export default function GenerarCuentaDeCobroModal({ movement, open, onOpenChange
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 col-span-2 sm:col-span-1">
                   <Label className="text-xs">Número consecutivo</Label>
-                  <Input value={movement.numero_cuenta_cobro ?? '(se asignó al guardar)'} disabled />
+                  <Input
+                    value={consecutivoEditable}
+                    onChange={(e) => setConsecutivoEditable(e.target.value)}
+                    placeholder="CDC-2026-0001"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Se asignó automáticamente. Podés editarlo si necesitás otro formato.
+                  </p>
                 </div>
                 <div className="space-y-1.5 col-span-2 sm:col-span-1">
                   <Label className="text-xs">Fecha</Label>

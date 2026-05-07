@@ -126,7 +126,7 @@ export default function RegistrarIngresoModal() {
           Registrar ingreso
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>Registrar ingreso en Caja Menor</DialogTitle>
