@@ -67,3 +67,9 @@ verify_jwt = false
 
 [functions.charge-recurring-subscriptions]
 verify_jwt = false
+
+[functions.send-quotation-email]
+verify_jwt = false
+
+[functions.expire-quotations]
+verify_jwt = false

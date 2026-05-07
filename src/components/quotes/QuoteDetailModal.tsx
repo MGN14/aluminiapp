@@ -38,6 +38,7 @@ import {
   Copy,
   Trash2,
   ArrowRightCircle,
+  Mail,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -49,6 +50,7 @@ import {
 import { generateQuotationPdf } from '@/lib/quotationPdf';
 import type { QuotationStatus } from '@/types/quotation';
 import NewQuoteModal from './NewQuoteModal';
+import SendQuoteDialog from './SendQuoteDialog';
 
 const LETTERHEAD_BUCKET = 'letterheads';
 
@@ -115,6 +117,7 @@ export default function QuoteDetailModal({
   const { toast } = useToast();
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [showSend, setShowSend] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { data: detail, isLoading } = useQuotationDetail(quoteId);
@@ -398,14 +401,36 @@ export default function QuoteDetailModal({
                 <div className="flex flex-wrap gap-2 mr-auto">
                   {/* Status transitions */}
                   {detail.status === 'draft' && (
+                    <>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => setShowSend(true)}
+                      >
+                        <Mail className="h-3.5 w-3.5 mr-1.5" />
+                        Enviar
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleStatusChange('sent')}
+                        disabled={setStatus.isPending}
+                        className="text-muted-foreground"
+                        title="Marcar como enviada sin enviar email/WhatsApp"
+                      >
+                        <Send className="h-3.5 w-3.5 mr-1.5" />
+                        Marcar enviada
+                      </Button>
+                    </>
+                  )}
+                  {detail.status === 'sent' && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleStatusChange('sent')}
-                      disabled={setStatus.isPending}
+                      onClick={() => setShowSend(true)}
                     >
-                      <Send className="h-3.5 w-3.5 mr-1.5" />
-                      Marcar enviada
+                      <Mail className="h-3.5 w-3.5 mr-1.5" />
+                      Reenviar
                     </Button>
                   )}
                   {(detail.status === 'sent' || detail.status === 'draft') && (
@@ -499,6 +524,13 @@ export default function QuoteDetailModal({
           editing={{ quotation: detail, items: detail.items }}
         />
       )}
+
+      {/* Enviar (Email / WhatsApp) */}
+      <SendQuoteDialog
+        detail={detail}
+        open={showSend}
+        onOpenChange={setShowSend}
+      />
 
       {/* Confirmación de eliminación */}
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>

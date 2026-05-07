@@ -351,7 +351,30 @@ export function useQuotationMutations() {
     onSuccess: invalidateAll,
   });
 
-  return { create, update, remove, setStatus, duplicate };
+  const markSent = useMutation({
+    mutationFn: async (params: {
+      id: string;
+      channel: 'email' | 'whatsapp';
+      recipient: string;
+      pdfStoragePath?: string | null;
+    }): Promise<void> => {
+      const patch: Record<string, unknown> = {
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+      };
+      if (params.channel === 'email') patch.sent_email_to = params.recipient;
+      if (params.channel === 'whatsapp') patch.sent_whatsapp_to = params.recipient;
+      if (params.pdfStoragePath) patch.pdf_storage_path = params.pdfStoragePath;
+      const { error } = await (supabase
+        .from('quotations' as never)
+        .update(patch as never)
+        .eq('id', params.id) as any);
+      if (error) throw error;
+    },
+    onSuccess: invalidateAll,
+  });
+
+  return { create, update, remove, setStatus, duplicate, markSent };
 }
 
 function round2(n: number): number {
