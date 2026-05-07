@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -115,18 +116,20 @@ const ITEMS: Array<{
 export default function TrialChecklist() {
   const { user } = useAuth();
   const { isTrialing, loading: subLoading, isAdmin, isFounder } = useSubscription();
+  const { isCollaborator, loading: collabLoading } = useDataOwner();
   const [state, setState] = useState<ChecklistState | null>(null);
 
   useEffect(() => {
-    if (!user || subLoading || !isTrialing || isAdmin || isFounder) return;
+    if (!user || subLoading || !isTrialing || isAdmin || isFounder || isCollaborator) return;
     let active = true;
     (async () => {
       const result = await computeChecklist(user.id);
       if (active) setState(result);
     })();
     return () => { active = false; };
-  }, [user?.id, subLoading, isTrialing, isAdmin, isFounder]);
+  }, [user?.id, subLoading, isTrialing, isAdmin, isFounder, isCollaborator]);
 
+  if (collabLoading || isCollaborator) return null;
   if (subLoading || !isTrialing || isAdmin || isFounder) return null;
   if (!state) {
     return (

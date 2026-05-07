@@ -46,6 +46,7 @@ import NicoLogo from '@/components/nico/NicoLogo';
 import PlanBadge from '@/components/subscription/PlanBadge';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { usePermissions } from '@/hooks/usePermissions';
 import type { ModuleKey } from '@/hooks/useCollaborators';
 
@@ -362,6 +363,7 @@ export default function AppSidebar() {
   const currentSearch = location.search;
   const { isGerencial } = useModuleContext();
   const { isAdmin, isFounder } = useSubscription();
+  const { isCollaborator } = useDataOwner();
   const { hasModule } = usePermissions();
 
   // Auto-abrir el sidebar SOLO cuando se entra a Modo Gerencial (transición
@@ -630,7 +632,7 @@ export default function AppSidebar() {
             </SidebarMenuItem>
           </SidebarMenu>
         )}
-        {!collapsed && (
+        {!collapsed && !isCollaborator && (
           <Link
             to="/pricing"
             title="Gestionar suscripción"

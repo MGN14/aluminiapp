@@ -112,22 +112,44 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         effectivePlan = 'pro';
       }
 
-      setState({
-        plan: effectivePlan,
-        status: data.status || 'active',
-        subscribed: data.subscribed || false,
-        subscriptionEnd: data.subscription_end || null,
-        pdfUploadsTotal: data.pdf_uploads_total || 0,
-        pdfUploadsThisMonth: data.pdf_uploads_this_month || 0,
-        isAdmin: data.is_admin || false,
-        isFounder: data.is_founder || false,
-        planSource: data.plan_source || (data.is_admin ? 'admin' : 'database'),
-        loading: false,
-        error: null,
-        isTrialing: data.is_trialing || false,
-        trialExpired: data.trial_expired || false,
-        trialDaysLeft: data.trial_days_left ?? null,
-        trialChecklist: data.trial_checklist || null,
+      // Bail out si el estado no cambió — evita re-renders cascada en cada
+      // poll de 10 min cuando los datos del servidor siguen iguales.
+      setState((prev) => {
+        const next = {
+          plan: effectivePlan,
+          status: data.status || 'active',
+          subscribed: data.subscribed || false,
+          subscriptionEnd: data.subscription_end || null,
+          pdfUploadsTotal: data.pdf_uploads_total || 0,
+          pdfUploadsThisMonth: data.pdf_uploads_this_month || 0,
+          isAdmin: data.is_admin || false,
+          isFounder: data.is_founder || false,
+          planSource: data.plan_source || (data.is_admin ? 'admin' : 'database'),
+          loading: false,
+          error: null,
+          isTrialing: data.is_trialing || false,
+          trialExpired: data.trial_expired || false,
+          trialDaysLeft: data.trial_days_left ?? null,
+          trialChecklist: data.trial_checklist || null,
+        };
+        const sameScalars = prev.plan === next.plan
+          && prev.status === next.status
+          && prev.subscribed === next.subscribed
+          && prev.subscriptionEnd === next.subscriptionEnd
+          && prev.pdfUploadsTotal === next.pdfUploadsTotal
+          && prev.pdfUploadsThisMonth === next.pdfUploadsThisMonth
+          && prev.isAdmin === next.isAdmin
+          && prev.isFounder === next.isFounder
+          && prev.planSource === next.planSource
+          && prev.loading === next.loading
+          && prev.error === next.error
+          && prev.isTrialing === next.isTrialing
+          && prev.trialExpired === next.trialExpired
+          && prev.trialDaysLeft === next.trialDaysLeft;
+        // trialChecklist es objeto; comparamos via JSON para no re-render por nuevo reference.
+        const sameChecklist = JSON.stringify(prev.trialChecklist) === JSON.stringify(next.trialChecklist);
+        if (sameScalars && sameChecklist) return prev;
+        return next;
       });
     } catch (err) {
       if (isDev) console.error('[PLAN] Exception in checkSubscription:', err);
@@ -236,9 +258,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!user || !session || sessionExpired) return;
+    // Antes: poll cada 60s. Eso disparaba un setState con spread cada minuto
+    // y cada componente que consumía useSubscription re-renderizaba sin razón.
+    // 10min es suficiente para detectar un cambio de plan en background sin
+    // causar re-renders constantes en sesiones largas.
     const interval = setInterval(() => {
       void checkSubscription(true);
-    }, 60000);
+    }, 10 * 60_000);
     return () => clearInterval(interval);
   }, [user, session, sessionExpired, checkSubscription]);
 

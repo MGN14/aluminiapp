@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown, Lock, Unlock, Zap } from 'lucide-react';
+import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, Trash2, AlertCircle, FileDown, Lock, Unlock, Zap, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -22,6 +22,7 @@ import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
 import RegistrarIngresoModal from '@/components/caja-menor/RegistrarIngresoModal';
 import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
 import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
+import EditarPrestadorModal from '@/components/caja-menor/EditarPrestadorModal';
 import { generatePettyCashClosingPdf } from '@/lib/pettyCashClosingPdf';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -46,6 +47,7 @@ export default function CajaMenor() {
   const { toast } = useToast();
   const [pdfMovement, setPdfMovement] = useState<PettyCashRow | null>(null);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
+  const [editPrestadorRow, setEditPrestadorRow] = useState<PettyCashRow | null>(null);
 
   if (isGerencial) {
     return <Navigate to="/dashboard" replace />;
@@ -271,7 +273,19 @@ export default function CajaMenor() {
                         {formatCurrency(r.amount)}
                       </div>
                     </div>
-                    <div className="text-sm font-medium">{r.responsible_name ?? '—'}</div>
+                    <div className="text-sm font-medium inline-flex items-center gap-1.5">
+                      {r.responsible_name ?? '—'}
+                      {!r.closing_id && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground"
+                          onClick={() => setEditPrestadorRow(r)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
                     {(r.concept || r.numero_cuenta_cobro) && (
                       <div className="text-xs text-muted-foreground">
                         {r.concept || '—'}
@@ -351,7 +365,20 @@ export default function CajaMenor() {
                           )}
                         </TableCell>
                         <TableCell className="text-sm font-medium">
-                          {r.responsible_name ?? '—'}
+                          <span className="inline-flex items-center gap-1.5">
+                            {r.responsible_name ?? '—'}
+                            {!r.closing_id && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-primary"
+                                onClick={() => setEditPrestadorRow(r)}
+                                title="Editar prestador"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate text-sm" title={r.concept ?? ''}>
                           {r.concept || '—'}
@@ -531,6 +558,14 @@ export default function CajaMenor() {
           open={closeModalOpen}
           onClose={() => setCloseModalOpen(false)}
           rows={data?.rows ?? []}
+        />
+
+        <EditarPrestadorModal
+          open={editPrestadorRow !== null}
+          onOpenChange={(o) => !o && setEditPrestadorRow(null)}
+          movementId={editPrestadorRow?.id ?? null}
+          currentResponsibleId={editPrestadorRow?.responsible_id ?? null}
+          currentResponsibleName={editPrestadorRow?.responsible_name ?? null}
         />
       </div>
     </AppLayout>

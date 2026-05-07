@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Upload, FileText, Loader2, CheckCircle, AlertCircle, Lock } from 'lucide-react';
@@ -22,8 +23,12 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
   const [limitMessage, setLimitMessage] = useState('');
 
   const { trialExpired, isTrialing } = useSubscription();
+  // Colaboradores usan el plan del owner — no aplicamos límites de trial.
+  const { isCollaborator } = useDataOwner();
   const limits = getPlanLimits();
-  const isAtLimit = trialExpired || (isTrialing && limits.pdfLimit !== -1 && pdfUploadsTotal >= limits.pdfLimit);
+  const isAtLimit = !isCollaborator && (
+    trialExpired || (isTrialing && limits.pdfLimit !== -1 && pdfUploadsTotal >= limits.pdfLimit)
+  );
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -218,7 +223,7 @@ export default function PDFUploader({ onUploadComplete }: PDFUploaderProps) {
                       o haz clic para seleccionar · compatible con múltiples bancos
                     </p>
                   </div>
-                  {isTrialing && (
+                  {isTrialing && !isCollaborator && (
                     <p className="text-xs text-muted-foreground bg-muted px-3 py-1 rounded-full">
                       Empresarial Gratuito: {pdfUploadsTotal} extracto{pdfUploadsTotal === 1 ? '' : 's'} subido{pdfUploadsTotal === 1 ? '' : 's'}
                     </p>
