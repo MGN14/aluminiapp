@@ -9,6 +9,11 @@
     <meta name="keywords" content="software contable PyMEs Colombia, facturación electrónica DIAN, integración Siigo PyME, conciliación bancaria automática Colombia, dashboard financiero PyME, software financiero pequeñas empresas Colombia, Bancolombia conciliación, Davivienda PyME" />
     <link rel="canonical" href="https://aluminiapp.com/" />
 
+    <!-- Preconnect a Google Fonts: reduce DNS+TLS round-trip antes de que el CSS las pida -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Libre+Caslon+Text:wght@400;700&family=Lora:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;700&family=Space+Mono:wght@400;700&display=swap" />
+
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://aluminiapp.com/" />
@@ -30,16 +35,23 @@
     <link rel="apple-touch-icon" href="/favicon.png">
     <meta name="theme-color" content="#1d7a52">
 
-    <!-- Structured Data: Organization -->
+    <!-- Structured Data: Organization (con @id para entity resolution cross-page) -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "Organization",
+      "@id": "https://aluminiapp.com/#organization",
       "name": "AluminIA",
       "url": "https://aluminiapp.com",
       "logo": "https://aluminiapp.com/favicon.png",
       "description": "Plataforma de gestión financiera con IA para PyMEs colombianas. Conecta extractos bancarios, facturas DIAN y contabilidad en un solo lugar.",
-      "founder": { "@type": "Person", "name": "Nicolas Gomez" },
+      "founder": {
+        "@type": "Person",
+        "@id": "https://aluminiapp.com/#nicolas-gomez",
+        "name": "Nicolas Gomez",
+        "jobTitle": "Fundador de AluminIA",
+        "url": "https://aluminiapp.com/"
+      },
       "areaServed": { "@type": "Country", "name": "Colombia" },
       "contactPoint": {
         "@type": "ContactPoint",
