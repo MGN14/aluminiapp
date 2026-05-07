@@ -28,10 +28,11 @@ import {
   Loader2,
   Sparkles,
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
 import { useQuotations } from '@/hooks/useQuotations';
 import type { QuotationStatus } from '@/types/quotation';
 import AluminumCatalogModal from '@/components/quotes/AluminumCatalogModal';
+import NewQuoteModal from '@/components/quotes/NewQuoteModal';
+import QuoteDetailModal from '@/components/quotes/QuoteDetailModal';
 
 const STATUS_LABELS: Record<
   QuotationStatus,
@@ -59,23 +60,18 @@ function formatDate(dateStr: string | null | undefined) {
 }
 
 export default function Cotizaciones() {
-  const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QuotationStatus | 'all'>('all');
   const [showCatalog, setShowCatalog] = useState(false);
+  const [showNewQuote, setShowNewQuote] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const { data: quotes = [], isLoading } = useQuotations({
     status: statusFilter,
     search,
   });
 
-  const handleNewQuote = () => {
-    toast({
-      title: 'Próximamente — Fase B',
-      description:
-        'El formulario de nueva cotización llega en la próxima entrega. Por ahora podés cargar tu catálogo de productos.',
-    });
-  };
+  const handleNewQuote = () => setShowNewQuote(true);
 
   const isEmpty = !isLoading && quotes.length === 0 && !search && statusFilter === 'all';
 
@@ -192,7 +188,11 @@ export default function Cotizaciones() {
                       {quotes.map((q) => {
                         const statusInfo = STATUS_LABELS[q.status];
                         return (
-                          <TableRow key={q.id}>
+                          <TableRow
+                            key={q.id}
+                            className="cursor-pointer hover:bg-muted/50"
+                            onClick={() => setDetailId(q.id)}
+                          >
                             <TableCell className="font-mono text-xs">{q.quote_number}</TableCell>
                             <TableCell>{q.responsible_name ?? '—'}</TableCell>
                             <TableCell className="text-xs">{formatDate(q.issue_date)}</TableCell>
@@ -203,17 +203,11 @@ export default function Cotizaciones() {
                             <TableCell className="text-right tabular-nums font-medium">
                               {formatCurrency(Number(q.total))}
                             </TableCell>
-                            <TableCell>
+                            <TableCell onClick={(e) => e.stopPropagation()}>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() =>
-                                  toast({
-                                    title: 'Próximamente — Fase B',
-                                    description:
-                                      'El detalle y el PDF llegan en la próxima entrega.',
-                                  })
-                                }
+                                onClick={() => setDetailId(q.id)}
                               >
                                 <FileText className="h-4 w-4" />
                               </Button>
@@ -231,6 +225,22 @@ export default function Cotizaciones() {
       </div>
 
       <AluminumCatalogModal open={showCatalog} onOpenChange={setShowCatalog} />
+      <NewQuoteModal
+        open={showNewQuote}
+        onOpenChange={setShowNewQuote}
+        onCreated={(id) => {
+          setShowNewQuote(false);
+          setDetailId(id);
+        }}
+      />
+      <QuoteDetailModal
+        quoteId={detailId}
+        open={!!detailId}
+        onOpenChange={(o) => {
+          if (!o) setDetailId(null);
+        }}
+        onDeleted={() => setDetailId(null)}
+      />
     </AppLayout>
   );
 }
