@@ -132,7 +132,7 @@ export default function EnviarExportModal({ open, onOpenChange, transactionCount
 
       // Invocar edge function con fetch directo para poder leer el body de error
       // (supabase.functions.invoke oculta el mensaje detrás de "non-2xx status").
-      const fileName = `aluminia_movimientos_${new Date().toISOString().split('T')[0]}.xlsx`;
+      const fileName = `aluminiapp_movimientos_${new Date().toISOString().split('T')[0]}.xlsx`;
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       const resp = await fetch(

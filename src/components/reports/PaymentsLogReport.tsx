@@ -787,8 +787,8 @@ export default function PaymentsLogReport() {
 
   const periodoLabel = month === 0 ? `${year}` : `${MONTH_LABELS[month]} ${year}`;
   const fileSlug = counterparty !== 'all'
-    ? `aluminia_estado_cuenta_${slugify(counterparty)}_${month === 0 ? year : `${year}-${String(month).padStart(2, '0')}`}.xlsx`
-    : `aluminia_relacion_pagos_${month === 0 ? year : `${year}-${String(month).padStart(2, '0')}`}.xlsx`;
+    ? `aluminiapp_estado_cuenta_${slugify(counterparty)}_${month === 0 ? year : `${year}-${String(month).padStart(2, '0')}`}.xlsx`
+    : `aluminiapp_relacion_pagos_${month === 0 ? year : `${year}-${String(month).padStart(2, '0')}`}.xlsx`;
 
   const buildWorkbook = () => {
     const header = [

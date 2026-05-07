@@ -68,11 +68,11 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <a 
-                  href="mailto:soporte@aluminia.app" 
+                <a
+                  href="mailto:soporte@aluminiapp.com"
                   className="text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  soporte@aluminia.app
+                  soporte@aluminiapp.com
                 </a>
               </li>
             </ul>
