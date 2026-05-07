@@ -26,6 +26,7 @@ import {
   Coins,
   CreditCard,
   Sparkles,
+  Calculator,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -83,6 +84,7 @@ const movementItems: NavItem[] = [
   { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true, permKey: 'caja_menor' },
   { title: 'Inventarios', url: '/inventarios', icon: Package, permKey: 'inventarios' },
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },
+  { title: 'Cotizaciones', url: '/cotizaciones', icon: Calculator, permKey: 'cotizaciones' },
 ];
 
 const movementItemsGerencial: NavItem[] = [

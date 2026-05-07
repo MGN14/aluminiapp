@@ -48,6 +48,7 @@ const Founder = lazy(() => import("./pages/Founder"));
 const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
+const Cotizaciones = lazy(() => import("./pages/Cotizaciones"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
 const CarteraOperativa = lazy(() => import("./pages/CarteraOperativa"));
 const CajaMenor = lazy(() => import("./pages/CajaMenor"));
@@ -264,6 +265,10 @@ const App = () => (
               <Route
                 path="/remisiones"
                 element={<RequireModule moduleKey="remisiones"><Remisiones /></RequireModule>}
+              />
+              <Route
+                path="/cotizaciones"
+                element={<RequireModule moduleKey="cotizaciones"><Cotizaciones /></RequireModule>}
               />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

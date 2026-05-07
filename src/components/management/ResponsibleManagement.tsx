@@ -24,7 +24,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Settings, EyeOff, Loader2, Link2, GitMerge, AlertTriangle } from 'lucide-react';
+import { Plus, Settings, EyeOff, Loader2, Link2, GitMerge, AlertTriangle, Mail } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface Props {
@@ -46,6 +46,11 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
   const [mergingFrom, setMergingFrom] = useState<Responsible | null>(null);
   const [mergeTargetId, setMergeTargetId] = useState<string>('');
   const [merging, setMerging] = useState(false);
+  const [editingContactFor, setEditingContactFor] = useState<Responsible | null>(null);
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactAddress, setContactAddress] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
 
   useEffect(() => {
     if (open) fetchResponsibles();
@@ -190,6 +195,49 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
     }
   };
 
+  const openEditContact = (r: Responsible) => {
+    setEditingContactFor(r);
+    setContactEmail(r.email ?? '');
+    setContactPhone(r.phone ?? '');
+    setContactAddress(r.address ?? '');
+  };
+
+  const closeEditContact = () => {
+    setEditingContactFor(null);
+    setContactEmail('');
+    setContactPhone('');
+    setContactAddress('');
+  };
+
+  const handleSaveContact = async () => {
+    if (!editingContactFor) return;
+    setSavingContact(true);
+    try {
+      const { error } = await supabase
+        .from('responsibles')
+        .update({
+          email: contactEmail.trim() || null,
+          phone: contactPhone.trim() || null,
+          address: contactAddress.trim() || null,
+        } as never)
+        .eq('id', editingContactFor.id);
+      if (error) {
+        toast({
+          title: 'No se pudo guardar',
+          description: error.message,
+          variant: 'destructive',
+        });
+        return;
+      }
+      toast({ title: 'Contacto actualizado' });
+      closeEditContact();
+      fetchResponsibles();
+      onUpdate?.();
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
   const handleDeleteAlias = async (alias: string) => {
     if (!user) return;
     if (!confirm(`¿Eliminar el alias "${alias}"?`)) return;
@@ -284,6 +332,23 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => openEditContact(r)}
+                          title={
+                            r.email || r.phone
+                              ? `Contacto: ${[r.email, r.phone].filter(Boolean).join(' · ')}`
+                              : 'Agregar email / teléfono / dirección'
+                          }
+                          className={
+                            r.email || r.phone
+                              ? 'text-foreground'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }
+                        >
+                          <Mail className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => { setMergingFrom(r); setMergeTargetId(''); }}
                           title="Vincular como alias de otro beneficiario (absorber)"
                           className="text-muted-foreground hover:text-foreground"
@@ -332,6 +397,64 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
           )}
         </div>
       </DialogContent>
+
+      <AlertDialog
+        open={!!editingContactFor}
+        onOpenChange={(o) => {
+          if (!o) closeEditContact();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Datos de contacto: {editingContactFor?.name}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground">
+                  Necesarios para enviar cotizaciones por email o WhatsApp.
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="contact-email">Email</Label>
+                  <Input
+                    id="contact-email"
+                    type="email"
+                    placeholder="cliente@empresa.com"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="contact-phone">Teléfono / WhatsApp</Label>
+                  <Input
+                    id="contact-phone"
+                    type="tel"
+                    placeholder="+57 300 123 4567"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="contact-address">Dirección (opcional)</Label>
+                  <Input
+                    id="contact-address"
+                    placeholder="Cra 7 # 12-34, Bogotá"
+                    value={contactAddress}
+                    onChange={(e) => setContactAddress(e.target.value)}
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingContact}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSaveContact} disabled={savingContact}>
+              {savingContact && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Guardar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!mergingFrom} onOpenChange={(o) => { if (!o) { setMergingFrom(null); setMergeTargetId(''); } }}>
         <AlertDialogContent>

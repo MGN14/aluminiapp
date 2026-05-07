@@ -64,6 +64,9 @@ export interface Responsible {
   name: string;
   active: boolean;
   created_at: string;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
 }
 
 export type ReportGroup = 'ingresos' | 'costos_operacionales' | 'gastos_operativos' | 'impuestos' | 'otros';

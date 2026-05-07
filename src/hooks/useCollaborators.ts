@@ -18,6 +18,7 @@ export const MODULE_KEYS = [
   { key: 'caja_menor', label: 'Caja Menor', group: 'movimientos' as ModuleGroup, description: 'Gastos en efectivo y cuentas de cobro' },
   { key: 'inventarios', label: 'Inventarios', group: 'movimientos' as ModuleGroup, description: 'Productos, stock y movimientos' },
   { key: 'remisiones', label: 'Remisiones', group: 'movimientos' as ModuleGroup, description: 'Notas de despacho a clientes' },
+  { key: 'cotizaciones', label: 'Cotizaciones', group: 'movimientos' as ModuleGroup, description: 'Cotizar ventanas/puertas y enviarlas por email o WhatsApp' },
   { key: 'creditos', label: 'Créditos', group: 'movimientos' as ModuleGroup, description: 'Préstamos bancarios y amortización' },
   // Reportes (granulares — un permiso por reporte, no uno solo agrupado)
   { key: 'estado_resultados', label: 'Estado de resultados (PYG)', group: 'reportes' as ModuleGroup, description: 'Pérdidas y ganancias del negocio' },
@@ -65,6 +66,7 @@ const DEFAULT_PERMISSIONS: Record<ModuleKey, AccessLevel> = {
   caja_menor: 'none',
   inventarios: 'none',
   remisiones: 'none',
+  cotizaciones: 'none',
   creditos: 'none',
   estado_resultados: 'none',
   anticipos: 'none',

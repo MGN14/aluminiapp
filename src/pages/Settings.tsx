@@ -17,6 +17,7 @@ import PaymentMethodCard from '@/components/subscription/PaymentMethodCard';
 import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import SiigoConnectionCard from '@/components/settings/SiigoConnectionCard';
+import QuotationDefaultsCard from '@/components/settings/QuotationDefaultsCard';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mail, Building2, Shield, LogOut, Key, Save, ClipboardList, Pencil, Crown, Sparkles, Rocket, ArrowUpRight, Zap, Clock } from 'lucide-react';
 
@@ -379,6 +380,9 @@ export default function Settings() {
         {/* Categorías deducibles + Estado financiero inicial — full width c/u */}
         <CategoriesDeductibleSettings />
         <InitialFinancialStateCard />
+
+        {/* Defaults para módulo de cotizaciones */}
+        <QuotationDefaultsCard />
 
         {/* Conexiones contables/fiscales */}
         <SiigoConnectionCard />
