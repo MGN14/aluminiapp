@@ -25,7 +25,7 @@
   <text x="600" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="56" font-weight="700" fill="white" text-anchor="middle">AluminIA</text>
   
   <!-- Tagline -->
-  <text x="600" y="320" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="400" fill="#94a3b8" text-anchor="middle">Claridad financiera para PyMEs</text>
+  <text x="600" y="320" font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="400" fill="#94a3b8" text-anchor="middle">Tranquilidad DIAN. Decisiones con datos. Siigo conectado.</text>
   
   <!-- Accent line -->
   <rect x="450" y="370" width="300" height="3" rx="1.5" fill="#2dd4bf" opacity="0.6"/>
@@ -36,5 +36,5 @@
   <rect x="630" y="420" width="50" height="4" fill="#ce1126"/>
   
   <!-- Subtitle -->
-  <text x="600" y="480" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="400" fill="#64748b" text-anchor="middle">Extractos bancarios • IVA • Retenciones • Excel</text>
+  <text x="600" y="480" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="400" fill="#64748b" text-anchor="middle">Conciliación bancaria • Facturación DIAN • Coach IA • Bancolombia y +6 bancos</text>
 </svg>
