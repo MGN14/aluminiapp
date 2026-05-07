@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, UserPlus } from 'lucide-react';
+import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 
 type TipoDocumento = 'CC' | 'CE' | 'PA' | 'NIT';
 
@@ -41,21 +42,44 @@ export default function CrearPrestadorModal({
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [name, setName] = useState('');
-  const [tipoDoc, setTipoDoc] = useState<TipoDocumento>('CC');
-  const [documento, setDocumento] = useState('');
-  const [ciudad, setCiudad] = useState('');
-  const [telefono, setTelefono] = useState('');
+  // Persistencia: si el usuario empieza a tipear y cambia de pestaña /
+  // navega, al volver el form sigue donde estaba. Se limpia al guardar.
+  type FormState = {
+    name: string;
+    tipoDoc: TipoDocumento;
+    documento: string;
+    ciudad: string;
+    telefono: string;
+  };
+  const INITIAL: FormState = {
+    name: '',
+    tipoDoc: 'CC',
+    documento: '',
+    ciudad: '',
+    telefono: '',
+  };
+  const [form, setForm, clearForm] = usePersistedFormState<FormState>(
+    'caja-menor:crear-prestador:v1',
+    INITIAL,
+  );
+  const name = form.name;
+  const setName = (v: string) => setForm((f) => ({ ...f, name: v }));
+  const tipoDoc = form.tipoDoc;
+  const setTipoDoc = (v: TipoDocumento) => setForm((f) => ({ ...f, tipoDoc: v }));
+  const documento = form.documento;
+  const setDocumento = (v: string) => setForm((f) => ({ ...f, documento: v }));
+  const ciudad = form.ciudad;
+  const setCiudad = (v: string) => setForm((f) => ({ ...f, ciudad: v }));
+  const telefono = form.telefono;
+  const setTelefono = (v: string) => setForm((f) => ({ ...f, telefono: v }));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open) {
-      setName(initialName ?? '');
-      setTipoDoc('CC');
-      setDocumento('');
-      setCiudad('');
-      setTelefono('');
+    // Solo aplicamos initialName si no hay un name persistido previo.
+    if (open && initialName && !form.name) {
+      setName(initialName);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialName]);
 
   const handleCreate = async () => {
@@ -94,6 +118,9 @@ export default function CrearPrestadorModal({
       ]);
       toast({ title: 'Prestador creado' });
       onCreated?.({ id: (data as any).id, name: (data as any).name });
+      // Reset + clear sessionStorage tras guardado exitoso.
+      setForm(INITIAL);
+      clearForm();
       onOpenChange(false);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });

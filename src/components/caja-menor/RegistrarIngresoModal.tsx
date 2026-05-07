@@ -23,6 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { usePersistedFormState, dateToIso, isoToDate } from '@/hooks/usePersistedFormState';
 
 export default function RegistrarIngresoModal() {
   const { user } = useAuth();
@@ -30,12 +31,40 @@ export default function RegistrarIngresoModal() {
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState<Date | undefined>(new Date());
-  const [origen, setOrigen] = useState('');
-  const [responsibleId, setResponsibleId] = useState<string>('__none__');
-  const [concept, setConcept] = useState('');
-  const [notes, setNotes] = useState('');
+  // Persistencia del form en sessionStorage (cambios de pestaña / tab discard
+  // no pierden lo tipeado). clearForm() al guardar exitoso.
+  type FormState = {
+    amount: string;
+    dateIso: string | null;
+    origen: string;
+    responsibleId: string;
+    concept: string;
+    notes: string;
+  };
+  const INITIAL_FORM: FormState = {
+    amount: '',
+    dateIso: dateToIso(new Date()),
+    origen: '',
+    responsibleId: '__none__',
+    concept: '',
+    notes: '',
+  };
+  const [form, setForm, clearForm] = usePersistedFormState<FormState>(
+    'caja-menor:registrar-ingreso:v1',
+    INITIAL_FORM,
+  );
+  const date = isoToDate(form.dateIso);
+  const setDate = (d: Date | undefined) => setForm((f) => ({ ...f, dateIso: dateToIso(d) }));
+  const amount = form.amount;
+  const setAmount = (v: string) => setForm((f) => ({ ...f, amount: v }));
+  const origen = form.origen;
+  const setOrigen = (v: string) => setForm((f) => ({ ...f, origen: v }));
+  const responsibleId = form.responsibleId;
+  const setResponsibleId = (v: string) => setForm((f) => ({ ...f, responsibleId: v }));
+  const concept = form.concept;
+  const setConcept = (v: string) => setForm((f) => ({ ...f, concept: v }));
+  const notes = form.notes;
+  const setNotes = (v: string) => setForm((f) => ({ ...f, notes: v }));
   const [saving, setSaving] = useState(false);
 
   // Beneficiarios disponibles (clientes / personas que pueden generar ingreso).
@@ -55,12 +84,8 @@ export default function RegistrarIngresoModal() {
   });
 
   const reset = () => {
-    setAmount('');
-    setDate(new Date());
-    setOrigen('');
-    setResponsibleId('__none__');
-    setConcept('');
-    setNotes('');
+    setForm(INITIAL_FORM);
+    clearForm();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

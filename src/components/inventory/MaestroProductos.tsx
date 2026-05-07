@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, Pencil, Trash2, Lock, Search, Upload, Download, FileSpreadsheet, X } from 'lucide-react';
+import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 
 const UNIDADES = ['und', 'm', 'm²', 'm³', 'kg', 'lb', 'ton', 'l', 'ml', 'caja', 'par', 'rollo', 'paquete', 'juego', 'kit', 'otro'];
 
@@ -120,7 +121,13 @@ export default function MaestroProductos() {
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState({ ...EMPTY });
+  // Persistencia del form Add/Edit. Si Nico tipea una ficha entera y cambia
+  // de pestaña / tab discard, al volver el form sigue. Se limpia al guardar
+  // exitoso o al cerrar manualmente.
+  const [form, setForm, clearForm] = usePersistedFormState(
+    'maestro-productos:form:v1',
+    { ...EMPTY },
+  );
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -154,12 +161,18 @@ export default function MaestroProductos() {
 
   const openNew = () => {
     setEditId(null);
-    setForm({ ...EMPTY });
+    // No reseteo aquí: si el usuario estaba en medio de tipear una ficha y
+    // cerró sin querer, al abrir "Agregar" recuperamos lo que dejó vía
+    // sessionStorage. Si quiere arrancar limpio, el botón "Cancelar" del
+    // modal limpia el storage.
     setModalOpen(true);
   };
 
   const openEdit = (p: ProductMaster) => {
     setEditId(p.id);
+    // En edición sí pisamos siempre con los datos del producto — no tiene
+    // sentido recuperar un form anterior cuando el usuario clickeó editar
+    // una fila distinta.
     setForm({
       ref_siigo: p.ref_siigo,
       description: p.description,
@@ -197,6 +210,10 @@ export default function MaestroProductos() {
         toast({ title: 'Producto agregado al maestro' });
       }
       queryClient.invalidateQueries({ queryKey: ['product-master'] });
+      // Reset + clear sessionStorage tras guardado exitoso.
+      setForm({ ...EMPTY });
+      clearForm();
+      setEditId(null);
       setModalOpen(false);
     } catch (e: any) {
       toast({ title: 'Error al guardar', description: e.message, variant: 'destructive' });
@@ -455,7 +472,19 @@ export default function MaestroProductos() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                // Cancelar = arrancar limpio la próxima vez. Sin esto, el
+                // sessionStorage retendría lo tipeado.
+                setForm({ ...EMPTY });
+                clearForm();
+                setEditId(null);
+                setModalOpen(false);
+              }}
+            >
+              Cancelar
+            </Button>
             <Button onClick={handleSave} disabled={saving || !form.ref_siigo || !form.description}>
               {saving ? 'Guardando...' : editId ? 'Actualizar' : 'Agregar'}
             </Button>

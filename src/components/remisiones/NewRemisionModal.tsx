@@ -19,6 +19,7 @@ import {
   type RemisionItemInput,
   type ProductLite,
 } from '@/lib/remisionInventory';
+import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 
 interface Props {
   open: boolean;
@@ -43,14 +44,45 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
   const queryClient = useQueryClient();
 
   const [step, setStep] = useState<'form' | 'excel' | 'preview'>('form');
-  const [remisionType, setRemisionType] = useState<RemisionType>('venta');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [responsibleId, setResponsibleId] = useState<string>('');
-  const [beneficiary, setBeneficiary] = useState('');
+  // Persistencia de los campos del paso "form" — los items / headers / file
+  // del paso Excel NO se persisten porque dependen de un File object
+  // (no JSON-serializable). Si Nico llega al paso preview y cambia de
+  // pestaña, vuelve y los datos del header/cliente siguen, solo tiene que
+  // re-subir el archivo Excel.
+  type FormState = {
+    remisionType: RemisionType;
+    date: string;
+    responsibleId: string;
+    beneficiary: string;
+    notes: string;
+    status: string;
+  };
+  const INITIAL_FORM: FormState = {
+    remisionType: 'venta',
+    date: new Date().toISOString().split('T')[0],
+    responsibleId: '',
+    beneficiary: '',
+    notes: '',
+    status: 'pendiente',
+  };
+  const [formPersist, setFormPersist, clearFormPersist] = usePersistedFormState<FormState>(
+    'remisiones:nueva:v1',
+    INITIAL_FORM,
+  );
+  const remisionType = formPersist.remisionType;
+  const setRemisionType = (v: RemisionType) => setFormPersist((f) => ({ ...f, remisionType: v }));
+  const date = formPersist.date;
+  const setDate = (v: string) => setFormPersist((f) => ({ ...f, date: v }));
+  const responsibleId = formPersist.responsibleId;
+  const setResponsibleId = (v: string) => setFormPersist((f) => ({ ...f, responsibleId: v }));
+  const beneficiary = formPersist.beneficiary;
+  const setBeneficiary = (v: string) => setFormPersist((f) => ({ ...f, beneficiary: v }));
+  const notes = formPersist.notes;
+  const setNotes = (v: string) => setFormPersist((f) => ({ ...f, notes: v }));
+  const status = formPersist.status;
+  const setStatus = (v: string) => setFormPersist((f) => ({ ...f, status: v }));
   const [creatingResp, setCreatingResp] = useState(false);
   const [newRespName, setNewRespName] = useState('');
-  const [notes, setNotes] = useState('');
-  const [status, setStatus] = useState('pendiente');
   const [fileName, setFileName] = useState('');
   const [items, setItems] = useState<RemisionItemInput[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -132,14 +164,10 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
 
   const reset = () => {
     setStep('form');
-    setRemisionType('venta');
-    setDate(new Date().toISOString().split('T')[0]);
-    setResponsibleId('');
-    setBeneficiary('');
+    setFormPersist(INITIAL_FORM);
+    clearFormPersist();
     setCreatingResp(false);
     setNewRespName('');
-    setNotes('');
-    setStatus('pendiente');
     setFileName('');
     setItems([]);
     setHeaders([]);

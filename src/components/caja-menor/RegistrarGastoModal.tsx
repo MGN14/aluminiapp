@@ -24,6 +24,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import CrearPrestadorModal from './CrearPrestadorModal';
+import { usePersistedFormState, dateToIso, isoToDate } from '@/hooks/usePersistedFormState';
 
 interface Responsible {
   id: string;
@@ -48,13 +49,46 @@ export default function RegistrarGastoModal() {
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<'gasto_efectivo' | 'cuenta_de_cobro'>('gasto_efectivo');
-  const [categoryId, setCategoryId] = useState('');
-  const [responsibleId, setResponsibleId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState<Date | undefined>(new Date());
-  const [concept, setConcept] = useState('');
-  const [notes, setNotes] = useState('');
+  // Persistir el form en sessionStorage. Si el usuario cambia de pestaña /
+  // navega a otra ruta / Chrome descarta el tab, al volver el form sigue
+  // donde lo dejó. clearForm() se llama al guardar exitosamente.
+  type FormState = {
+    kind: 'gasto_efectivo' | 'cuenta_de_cobro';
+    categoryId: string;
+    responsibleId: string;
+    amount: string;
+    dateIso: string | null;
+    concept: string;
+    notes: string;
+  };
+  const INITIAL_FORM: FormState = {
+    kind: 'gasto_efectivo',
+    categoryId: '',
+    responsibleId: '',
+    amount: '',
+    dateIso: dateToIso(new Date()),
+    concept: '',
+    notes: '',
+  };
+  const [form, setForm, clearForm] = usePersistedFormState<FormState>(
+    'caja-menor:registrar-gasto:v1',
+    INITIAL_FORM,
+  );
+  const date = isoToDate(form.dateIso);
+  const setDate = (d: Date | undefined) => setForm((f) => ({ ...f, dateIso: dateToIso(d) }));
+  // Aliases compatibles con el resto del componente (mínimo refactor).
+  const kind = form.kind;
+  const setKind = (v: FormState['kind']) => setForm((f) => ({ ...f, kind: v }));
+  const categoryId = form.categoryId;
+  const setCategoryId = (v: string) => setForm((f) => ({ ...f, categoryId: v }));
+  const responsibleId = form.responsibleId;
+  const setResponsibleId = (v: string) => setForm((f) => ({ ...f, responsibleId: v }));
+  const amount = form.amount;
+  const setAmount = (v: string) => setForm((f) => ({ ...f, amount: v }));
+  const concept = form.concept;
+  const setConcept = (v: string) => setForm((f) => ({ ...f, concept: v }));
+  const notes = form.notes;
+  const setNotes = (v: string) => setForm((f) => ({ ...f, notes: v }));
   const [saving, setSaving] = useState(false);
 
   // Modal para crear prestador con todos los datos (no inline; el inline solo
@@ -96,13 +130,10 @@ export default function RegistrarGastoModal() {
   const selectedCategory = categories.find((c) => c.id === categoryId);
 
   const reset = () => {
-    setKind('gasto_efectivo');
-    setCategoryId('');
-    setResponsibleId('');
-    setAmount('');
-    setDate(new Date());
-    setConcept('');
-    setNotes('');
+    // Reset al estado inicial Y limpiar el sessionStorage (sino al volver a
+    // abrir el modal recuperaría el estado anterior recién guardado).
+    setForm(INITIAL_FORM);
+    clearForm();
   };
 
   const handleResponsibleChange = (value: string) => {
