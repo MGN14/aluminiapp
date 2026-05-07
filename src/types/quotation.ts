@@ -25,7 +25,22 @@ export interface Quotation {
   subtotal_base: number;
   labor_amount: number;
   profit_amount: number;
+  /** Total SIN IVA: subtotal_base + labor_amount + profit_amount. */
   total: number;
+  // Impuestos y retenciones
+  apply_iva: boolean;
+  iva_rate: number;
+  iva_amount: number;
+  apply_retefuente: boolean;
+  retefuente_rate: number;
+  retefuente_amount: number;
+  apply_reteica: boolean;
+  reteica_rate: number;
+  reteica_amount: number;
+  /** total + iva_amount */
+  total_with_iva: number;
+  /** total_with_iva − retefuente_amount − reteica_amount */
+  total_net: number;
   notes: string | null;
   sent_email_to: string | null;
   sent_whatsapp_to: string | null;
@@ -68,19 +83,49 @@ export interface QuotationTotals {
   labor_amount: number;
   profit_amount: number;
   total: number;
+  iva_amount: number;
+  retefuente_amount: number;
+  reteica_amount: number;
+  total_with_iva: number;
+  total_net: number;
+}
+
+export interface QuotationTaxParams {
+  apply_iva: boolean;
+  iva_rate: number; // como decimal (0.19 = 19%)
+  apply_retefuente: boolean;
+  retefuente_rate: number;
+  apply_reteica: boolean;
+  reteica_rate: number;
 }
 
 /**
  * Fórmula compuesta multiplicativa:
- *   subtotal_base = SUM(width × height × quantity × price_per_m2)
- *   labor_amount = subtotal_base × (labor_pct / 100)
- *   profit_amount = (subtotal_base + labor_amount) × (profit_pct / 100)
- *   total = subtotal_base + labor_amount + profit_amount
+ *   subtotal_base   = SUM(width × height × quantity × price_per_m2)
+ *   labor_amount    = subtotal_base × labor_pct/100
+ *   profit_amount   = (subtotal_base + labor_amount) × profit_pct/100
+ *   total           = subtotal_base + labor_amount + profit_amount  (sin IVA)
+ *   iva_amount      = total × iva_rate                              (si apply_iva)
+ *   total_with_iva  = total + iva_amount
+ *   retefuente      = total × retefuente_rate                       (si apply_retefuente)
+ *   reteica         = total × reteica_rate                          (si apply_reteica)
+ *   total_net       = total_with_iva − retefuente − reteica
+ *
+ * Nota: las retenciones se calculan sobre el total sin IVA (base gravable),
+ * que es el patrón colombiano estándar para cotizaciones.
  */
 export function computeQuotationTotals(
   items: Pick<QuotationItemDraft, 'width_m' | 'height_m' | 'quantity' | 'price_per_m2'>[],
   laborPct: number,
   profitPct: number,
+  taxes: QuotationTaxParams = {
+    apply_iva: false,
+    iva_rate: 0,
+    apply_retefuente: false,
+    retefuente_rate: 0,
+    apply_reteica: false,
+    reteica_rate: 0,
+  },
 ): QuotationTotals {
   const subtotal_base = items.reduce((acc, it) => {
     const area = (Number(it.width_m) || 0) * (Number(it.height_m) || 0) * (Number(it.quantity) || 0);
@@ -89,11 +134,25 @@ export function computeQuotationTotals(
   const labor_amount = subtotal_base * (laborPct / 100);
   const profit_amount = (subtotal_base + labor_amount) * (profitPct / 100);
   const total = subtotal_base + labor_amount + profit_amount;
+
+  const iva_amount = taxes.apply_iva ? total * (Number(taxes.iva_rate) || 0) : 0;
+  const total_with_iva = total + iva_amount;
+  const retefuente_amount = taxes.apply_retefuente
+    ? total * (Number(taxes.retefuente_rate) || 0)
+    : 0;
+  const reteica_amount = taxes.apply_reteica ? total * (Number(taxes.reteica_rate) || 0) : 0;
+  const total_net = total_with_iva - retefuente_amount - reteica_amount;
+
   return {
     subtotal_base: round2(subtotal_base),
     labor_amount: round2(labor_amount),
     profit_amount: round2(profit_amount),
     total: round2(total),
+    iva_amount: round2(iva_amount),
+    retefuente_amount: round2(retefuente_amount),
+    reteica_amount: round2(reteica_amount),
+    total_with_iva: round2(total_with_iva),
+    total_net: round2(total_net),
   };
 }
 

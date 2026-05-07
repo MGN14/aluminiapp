@@ -10,11 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Plus, Pencil, Trash2, Upload, Check, X as XIcon } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Upload, Check, X as XIcon, Package } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAluminumCatalog } from '@/hooks/useAluminumCatalog';
 import type { AluminumCatalogEntry } from '@/types/quotation';
 import BulkUploadCatalogModal from './BulkUploadCatalogModal';
+import CatalogComponentsDialog from './CatalogComponentsDialog';
 
 interface Props {
   open: boolean;
@@ -25,6 +26,7 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
   const { toast } = useToast();
   const { data, isLoading, createOne, updateOne, deleteOne, refetch } = useAluminumCatalog();
   const [showBulk, setShowBulk] = useState(false);
+  const [componentsForEntry, setComponentsForEntry] = useState<AluminumCatalogEntry | null>(null);
 
   // Add form state
   const [system, setSystem] = useState('');
@@ -289,6 +291,15 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
                             checked={entry.active}
                             onCheckedChange={() => handleToggleActive(entry)}
                           />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setComponentsForEntry(entry)}
+                            title="Componentes (productos del inventario que componen este producto)"
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <Package className="h-3.5 w-3.5" />
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => startEdit(entry)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -318,6 +329,14 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
         onComplete={() => {
           refetch();
           setShowBulk(false);
+        }}
+      />
+
+      <CatalogComponentsDialog
+        entry={componentsForEntry}
+        open={!!componentsForEntry}
+        onOpenChange={(o) => {
+          if (!o) setComponentsForEntry(null);
         }}
       />
     </>

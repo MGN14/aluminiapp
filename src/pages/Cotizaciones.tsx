@@ -201,7 +201,16 @@ export default function Cotizaciones() {
                               <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
                             </TableCell>
                             <TableCell className="text-right tabular-nums font-medium">
-                              {formatCurrency(Number(q.total))}
+                              {formatCurrency(
+                                q.apply_iva
+                                  ? Number(q.total_with_iva)
+                                  : Number(q.total),
+                              )}
+                              {q.apply_iva && (
+                                <span className="text-[9px] text-muted-foreground ml-1">
+                                  c/IVA
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell onClick={(e) => e.stopPropagation()}>
                               <Button

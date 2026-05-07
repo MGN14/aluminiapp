@@ -31,6 +31,13 @@ export interface CreateQuotationInput {
   valid_until: string;
   labor_pct: number;
   profit_pct: number;
+  // Impuestos / retenciones
+  apply_iva: boolean;
+  iva_rate: number;
+  apply_retefuente: boolean;
+  retefuente_rate: number;
+  apply_reteica: boolean;
+  reteica_rate: number;
   notes?: string | null;
   items: QuotationItemDraft[];
 }
@@ -137,7 +144,14 @@ export function useQuotationMutations() {
       if (!user) throw new Error('No autenticado');
       if (!input.items.length) throw new Error('La cotización debe tener al menos un ítem');
 
-      const totals = computeQuotationTotals(input.items, input.labor_pct, input.profit_pct);
+      const totals = computeQuotationTotals(input.items, input.labor_pct, input.profit_pct, {
+        apply_iva: input.apply_iva,
+        iva_rate: input.iva_rate,
+        apply_retefuente: input.apply_retefuente,
+        retefuente_rate: input.retefuente_rate,
+        apply_reteica: input.apply_reteica,
+        reteica_rate: input.reteica_rate,
+      });
 
       const { data: created, error: cErr } = await (supabase
         .from('quotations' as never)
@@ -152,6 +166,17 @@ export function useQuotationMutations() {
           labor_amount: totals.labor_amount,
           profit_amount: totals.profit_amount,
           total: totals.total,
+          apply_iva: input.apply_iva,
+          iva_rate: input.iva_rate,
+          iva_amount: totals.iva_amount,
+          apply_retefuente: input.apply_retefuente,
+          retefuente_rate: input.retefuente_rate,
+          retefuente_amount: totals.retefuente_amount,
+          apply_reteica: input.apply_reteica,
+          reteica_rate: input.reteica_rate,
+          reteica_amount: totals.reteica_amount,
+          total_with_iva: totals.total_with_iva,
+          total_net: totals.total_net,
           notes: input.notes?.trim() || null,
         } as never)
         .select('id, quote_number')
@@ -193,7 +218,14 @@ export function useQuotationMutations() {
   const update = useMutation({
     mutationFn: async (input: UpdateQuotationInput): Promise<void> => {
       if (!user) throw new Error('No autenticado');
-      const totals = computeQuotationTotals(input.items, input.labor_pct, input.profit_pct);
+      const totals = computeQuotationTotals(input.items, input.labor_pct, input.profit_pct, {
+        apply_iva: input.apply_iva,
+        iva_rate: input.iva_rate,
+        apply_retefuente: input.apply_retefuente,
+        retefuente_rate: input.retefuente_rate,
+        apply_reteica: input.apply_reteica,
+        reteica_rate: input.reteica_rate,
+      });
 
       const { error: uErr } = await (supabase
         .from('quotations' as never)
@@ -207,6 +239,17 @@ export function useQuotationMutations() {
           labor_amount: totals.labor_amount,
           profit_amount: totals.profit_amount,
           total: totals.total,
+          apply_iva: input.apply_iva,
+          iva_rate: input.iva_rate,
+          iva_amount: totals.iva_amount,
+          apply_retefuente: input.apply_retefuente,
+          retefuente_rate: input.retefuente_rate,
+          retefuente_amount: totals.retefuente_amount,
+          apply_reteica: input.apply_reteica,
+          reteica_rate: input.reteica_rate,
+          reteica_amount: totals.reteica_amount,
+          total_with_iva: totals.total_with_iva,
+          total_net: totals.total_net,
           notes: input.notes?.trim() || null,
         } as never)
         .eq('id', input.id) as any);

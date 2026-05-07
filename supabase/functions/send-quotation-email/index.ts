@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
     const ownerId = asCollaborator?.owner_user_id ?? user.id;
     const { data: quote, error: qErr } = await admin
       .from("quotations")
-      .select("id, user_id, quote_number, total, valid_until")
+      .select("id, user_id, quote_number, total, total_with_iva, apply_iva, valid_until")
       .eq("id", quote_id)
       .maybeSingle();
 
@@ -136,11 +136,18 @@ Deno.serve(async (req) => {
         minimumFractionDigits: 0,
       }).format(Number(n) || 0);
 
+
     const validUntilHuman = (() => {
       if (!quote.valid_until) return "";
       const [y, m, d] = String(quote.valid_until).split("-");
       return `${d}/${m}/${y}`;
     })();
+
+    // Total a mostrar: con IVA si aplica, sin IVA en caso contrario.
+    const headlineTotal = quote.apply_iva
+      ? Number(quote.total_with_iva ?? quote.total)
+      : Number(quote.total);
+    const ivaSuffix = quote.apply_iva ? " (IVA incluido)" : "";
 
     const html = `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1d1d1f;">
@@ -155,7 +162,7 @@ Deno.serve(async (req) => {
     <p style="margin: 0 0 16px 0; font-size: 15px;">Hola,</p>
     <p style="margin: 0 0 16px 0; font-size: 14px; color: #424245;">
       Adjuntamos la cotización <strong>${quote.quote_number}</strong> por valor de
-      <strong style="color: #36694e;">${fmtMoney(quote.total)}</strong>${validUntilHuman ? `, válida hasta el <strong>${validUntilHuman}</strong>` : ""}.
+      <strong style="color: #36694e;">${fmtMoney(headlineTotal)}${ivaSuffix}</strong>${validUntilHuman ? `, válida hasta el <strong>${validUntilHuman}</strong>` : ""}.
     </p>
     ${
       escapedMessage

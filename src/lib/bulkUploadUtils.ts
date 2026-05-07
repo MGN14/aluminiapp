@@ -4,6 +4,7 @@ export const COLUMN_ALIASES: Record<string, string[]> = {
   referencia: ['código producto', 'codigo producto', 'código', 'codigo', 'referencia', 'ref', 'sku', 'code', 'cod'],
   nombre: ['nombre producto', 'producto', 'nombre', 'descripción', 'descripcion', 'name', 'desc'],
   unidad: ['unidad de medida', 'unidad', 'und', 'um', 'unit'],
+  sistema: ['sistema', 'system', 'serie', 'línea', 'linea', 'familia', 'grupo'],
   stock: ['total en producto', 'cantidad', 'stock', 'existencia', 'existencias', 'qty', 'saldo'],
   costo_unitario: ['valor unitario aproximado', 'valor unitario', 'costo unitario', 'costo', 'precio compra', 'unit cost'],
   valor_total: ['valor total aproximado', 'valor total', 'total', 'value'],
@@ -23,6 +24,7 @@ export interface ParsedProduct {
   referencia: string;
   nombre: string;
   unidad: string;
+  sistema: string;
   stock: number;
   costo_unitario: number;
   valor_total: number;
@@ -105,6 +107,7 @@ export function buildProducts(
     const ref = cleanText(getField(row, 'referencia'));
     const nombre = cleanText(getField(row, 'nombre'));
     const unidad = cleanText(getField(row, 'unidad')) || 'unidad';
+    const sistema = cleanText(getField(row, 'sistema'));
     const stock = parseColombianNumber(getField(row, 'stock'));
     const costo = parseColombianNumber(getField(row, 'costo_unitario'));
     const valorTotal = parseColombianNumber(getField(row, 'valor_total'));
@@ -127,6 +130,7 @@ export function buildProducts(
       referencia: ref,
       nombre,
       unidad,
+      sistema,
       stock,
       costo_unitario: finalCosto,
       valor_total: valorTotal,

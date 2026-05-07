@@ -210,6 +210,17 @@ export default function QuoteDetailModal({
         profitPct: Number(detail.profit_pct),
         profitAmount: Number(detail.profit_amount),
         total: Number(detail.total),
+        applyIva: !!detail.apply_iva,
+        ivaRate: Number(detail.iva_rate),
+        ivaAmount: Number(detail.iva_amount),
+        applyRetefuente: !!detail.apply_retefuente,
+        retefuenteRate: Number(detail.retefuente_rate),
+        retefuenteAmount: Number(detail.retefuente_amount),
+        applyReteica: !!detail.apply_reteica,
+        reteicaRate: Number(detail.reteica_rate),
+        reteicaAmount: Number(detail.reteica_amount),
+        totalWithIva: Number(detail.total_with_iva),
+        totalNet: Number(detail.total_net),
         notes: detail.notes,
       });
 
@@ -366,26 +377,54 @@ export default function QuoteDetailModal({
                 </Table>
               </div>
 
-              {/* Totales */}
-              <div className="ml-auto w-full sm:w-[320px] space-y-1 text-sm">
+              {/* Totales (con IVA y retenciones) */}
+              <div className="ml-auto w-full sm:w-[360px] space-y-1 text-sm">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Subtotal m²</span>
                   <span className="tabular-nums">{formatCurrency(Number(detail.subtotal_base))}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Mano de obra ({fmtNum(Number(detail.labor_pct), 1)}%)</span>
+                  <span>+ Mano de obra ({fmtNum(Number(detail.labor_pct), 1)}%)</span>
                   <span className="tabular-nums">{formatCurrency(Number(detail.labor_amount))}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Utilidad ({fmtNum(Number(detail.profit_pct), 1)}%)</span>
+                  <span>+ Utilidad ({fmtNum(Number(detail.profit_pct), 1)}%)</span>
                   <span className="tabular-nums">{formatCurrency(Number(detail.profit_amount))}</span>
                 </div>
+                <div className="border-t border-border pt-1 flex justify-between font-medium">
+                  <span>Total sin IVA</span>
+                  <span className="tabular-nums">{formatCurrency(Number(detail.total))}</span>
+                </div>
+                {detail.apply_iva && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>+ IVA ({fmtNum(Number(detail.iva_rate) * 100, 0)}%)</span>
+                    <span className="tabular-nums">{formatCurrency(Number(detail.iva_amount))}</span>
+                  </div>
+                )}
                 <div className="border-t border-border pt-1 flex justify-between font-semibold text-base">
-                  <span>Total</span>
+                  <span>Total con IVA</span>
                   <span className="tabular-nums text-primary">
-                    {formatCurrency(Number(detail.total))}
+                    {formatCurrency(Number(detail.total_with_iva))}
                   </span>
                 </div>
+                {detail.apply_retefuente && Number(detail.retefuente_amount) > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>− Retef. fuente ({fmtNum(Number(detail.retefuente_rate) * 100, 2)}%)</span>
+                    <span className="tabular-nums">−{formatCurrency(Number(detail.retefuente_amount))}</span>
+                  </div>
+                )}
+                {detail.apply_reteica && Number(detail.reteica_amount) > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>− Reteica ({fmtNum(Number(detail.reteica_rate) * 100, 2)}%)</span>
+                    <span className="tabular-nums">−{formatCurrency(Number(detail.reteica_amount))}</span>
+                  </div>
+                )}
+                {(detail.apply_retefuente || detail.apply_reteica) && (
+                  <div className="border-t border-border pt-1 flex justify-between font-medium">
+                    <span>Valor neto a recibir</span>
+                    <span className="tabular-nums">{formatCurrency(Number(detail.total_net))}</span>
+                  </div>
+                )}
               </div>
 
               {detail.notes && (

@@ -106,9 +106,12 @@ export default function SendQuoteDialog({ detail, open, onOpenChange }: Props) {
 
     const companyName = company?.company_name ?? '';
     const dueText = detail.valid_until ? ` Es válida hasta el ${fmtDate(detail.valid_until)}.` : '';
+    const headlineTotal = detail.apply_iva
+      ? Number(detail.total_with_iva)
+      : Number(detail.total);
     const baseMsg = `Hola${detail.responsible?.name ? ` ${detail.responsible.name.split(' ')[0]}` : ''},
 
-Te comparto la cotización ${detail.quote_number} por ${fmtMoney(Number(detail.total))}.${dueText}
+Te comparto la cotización ${detail.quote_number} por ${fmtMoney(headlineTotal)}${detail.apply_iva ? ' (IVA incluido)' : ''}.${dueText}
 
 Cualquier ajuste o duda, me decís.
 
@@ -181,6 +184,17 @@ ${companyName || ''}`.trim();
       profitPct: Number(detail.profit_pct),
       profitAmount: Number(detail.profit_amount),
       total: Number(detail.total),
+      applyIva: !!detail.apply_iva,
+      ivaRate: Number(detail.iva_rate),
+      ivaAmount: Number(detail.iva_amount),
+      applyRetefuente: !!detail.apply_retefuente,
+      retefuenteRate: Number(detail.retefuente_rate),
+      retefuenteAmount: Number(detail.retefuente_amount),
+      applyReteica: !!detail.apply_reteica,
+      reteicaRate: Number(detail.reteica_rate),
+      reteicaAmount: Number(detail.reteica_amount),
+      totalWithIva: Number(detail.total_with_iva),
+      totalNet: Number(detail.total_net),
       notes: detail.notes,
     });
 
@@ -332,7 +346,11 @@ ${companyName || ''}`.trim();
         <DialogHeader>
           <DialogTitle>Enviar cotización {detail.quote_number}</DialogTitle>
           <DialogDescription>
-            {detail.responsible?.name ?? '—'} · {fmtMoney(Number(detail.total))}
+            {detail.responsible?.name ?? '—'} ·{' '}
+            {fmtMoney(
+              detail.apply_iva ? Number(detail.total_with_iva) : Number(detail.total),
+            )}
+            {detail.apply_iva ? ' (IVA incl.)' : ''}
           </DialogDescription>
         </DialogHeader>
 

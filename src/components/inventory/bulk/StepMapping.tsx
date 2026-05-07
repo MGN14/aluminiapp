@@ -9,6 +9,7 @@ const FIELD_LABELS: Record<MappedField, string> = {
   referencia: 'Referencia',
   nombre: 'Nombre',
   unidad: 'Unidad',
+  sistema: 'Sistema',
   stock: 'Stock',
   costo_unitario: 'Costo unitario',
   valor_total: 'Valor total',

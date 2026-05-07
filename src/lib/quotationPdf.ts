@@ -44,7 +44,19 @@ export interface QuotationPdfData {
   laborAmount: number;
   profitPct: number;
   profitAmount: number;
-  total: number;
+  total: number; // total SIN IVA
+  // Impuestos / retenciones (Fase D)
+  applyIva?: boolean;
+  ivaRate?: number; // decimal 0.19
+  ivaAmount?: number;
+  applyRetefuente?: boolean;
+  retefuenteRate?: number;
+  retefuenteAmount?: number;
+  applyReteica?: boolean;
+  reteicaRate?: number;
+  reteicaAmount?: number;
+  totalWithIva?: number;
+  totalNet?: number;
   // Términos
   notes?: string | null;
 }
@@ -370,41 +382,90 @@ export function generateQuotationPdf(data: QuotationPdfData): jsPDF {
 
   y += 4;
 
-  // ============= TOTALES (panel derecha) =============
-  ensureSpace(40);
-  const totalsX = pageW - marginX - 80;
-  const totalsW = 80;
-  const totalsLineH = 5.5;
-  const totalsRows: Array<[string, string, boolean]> = [
-    ['Subtotal (m² × precio)', fmtMoney(data.subtotalBase), false],
-    [`Mano de obra (${fmtNum(data.laborPct, 1)}%)`, fmtMoney(data.laborAmount), false],
-    [`Utilidad (${fmtNum(data.profitPct, 1)}%)`, fmtMoney(data.profitAmount), false],
-  ];
-  for (const [label, value] of totalsRows) {
-    setText(doc, COLORS.muted);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
+  // ============= TOTALES (panel derecha, con IVA y retenciones) =============
+  ensureSpace(70);
+  const totalsX = pageW - marginX - 90;
+  const totalsW = 90;
+  const totalsLineH = 5;
+
+  const drawRow = (label: string, value: string, opts?: { muted?: boolean; bold?: boolean }) => {
+    setText(doc, opts?.muted ? COLORS.muted : COLORS.ink);
+    doc.setFont('helvetica', opts?.bold ? 'bold' : 'normal');
+    doc.setFontSize(opts?.bold ? 9 : 8.5);
     doc.text(label, totalsX, y);
-    setText(doc, COLORS.ink);
     doc.text(value, totalsX + totalsW, y, { align: 'right' });
     y += totalsLineH;
+  };
+
+  const drawRule = () => {
+    setStroke(doc, COLORS.rule);
+    doc.setLineWidth(0.2);
+    doc.line(totalsX, y, totalsX + totalsW, y);
+    y += 1.5;
+  };
+
+  // Bloque 1: subtotal + adicionales
+  drawRow('Subtotal (m² × precio)', fmtMoney(data.subtotalBase), { muted: true });
+  drawRow(
+    `+ Mano de obra (${fmtNum(data.laborPct, 1)}%)`,
+    fmtMoney(data.laborAmount),
+    { muted: true },
+  );
+  drawRow(
+    `+ Utilidad (${fmtNum(data.profitPct, 1)}%)`,
+    fmtMoney(data.profitAmount),
+    { muted: true },
+  );
+  drawRule();
+  drawRow('Total sin IVA', fmtMoney(data.total), { bold: true });
+
+  // Bloque 2: IVA
+  const applyIva = !!data.applyIva && (data.ivaAmount ?? 0) > 0;
+  const totalWithIva = data.totalWithIva ?? data.total;
+  if (applyIva) {
+    drawRow(
+      `+ IVA (${fmtNum((data.ivaRate ?? 0) * 100, 0)}%)`,
+      fmtMoney(data.ivaAmount ?? 0),
+      { muted: true },
+    );
   }
 
+  // Bloque 3: TOTAL CON IVA destacado
   y += 1;
-  setStroke(doc, COLORS.rule);
-  doc.setLineWidth(0.3);
-  doc.line(totalsX, y, totalsX + totalsW, y);
-  y += 5;
-
+  drawRule();
   setFill(doc, COLORS.brand);
   setText(doc, COLORS.ink);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('TOTAL', totalsX, y);
+  doc.text('TOTAL', totalsX, y + 1);
   setText(doc, COLORS.brand);
   doc.setFontSize(13);
-  doc.text(fmtMoney(data.total), totalsX + totalsW, y, { align: 'right' });
+  doc.text(fmtMoney(totalWithIva), totalsX + totalsW, y + 1, { align: 'right' });
   y += 7;
+
+  // Bloque 4: retenciones (informativas)
+  const hasRetef = !!data.applyRetefuente && (data.retefuenteAmount ?? 0) > 0;
+  const hasReteica = !!data.applyReteica && (data.reteicaAmount ?? 0) > 0;
+  if (hasRetef || hasReteica) {
+    drawRule();
+    if (hasRetef) {
+      drawRow(
+        `− Retef. fuente (${fmtNum((data.retefuenteRate ?? 0) * 100, 2)}%)`,
+        `−${fmtMoney(data.retefuenteAmount ?? 0)}`,
+        { muted: true },
+      );
+    }
+    if (hasReteica) {
+      drawRow(
+        `− Reteica (${fmtNum((data.reteicaRate ?? 0) * 100, 2)}%)`,
+        `−${fmtMoney(data.reteicaAmount ?? 0)}`,
+        { muted: true },
+      );
+    }
+    drawRule();
+    drawRow('Valor neto a recibir', fmtMoney(data.totalNet ?? totalWithIva), { bold: true });
+  }
+  y += 2;
 
   // ============= TÉRMINOS Y CONDICIONES =============
   if (data.notes && data.notes.trim()) {

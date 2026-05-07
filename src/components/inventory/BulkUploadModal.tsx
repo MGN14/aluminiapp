@@ -186,12 +186,13 @@ export default function BulkUploadModal({ open, onOpenChange, onComplete }: Prop
               reference: p.referencia,
               name: p.nombre,
               unit: p.unidad,
+              system: p.sistema || null,
               stock_system: p.stock,
               cost_per_unit: p.costo_unitario,
               sale_price: p.precio_venta,
               min_stock: p.stock_minimo,
             }));
-            const { error } = await supabase.from('inventory_products').insert(rows);
+            const { error } = await supabase.from('inventory_products').insert(rows as never);
             if (error) errors += rows.length;
             else inserted += rows.length;
           }
@@ -204,12 +205,13 @@ export default function BulkUploadModal({ open, onOpenChange, onComplete }: Prop
             reference: p.referencia,
             name: p.nombre,
             unit: p.unidad,
+            system: p.sistema || null,
             stock_system: p.stock,
             cost_per_unit: p.costo_unitario,
             sale_price: p.precio_venta,
             min_stock: p.stock_minimo,
           }));
-          const { error } = await supabase.from('inventory_products').insert(batch);
+          const { error } = await supabase.from('inventory_products').insert(batch as never);
           if (error) errors += batch.length;
           else inserted += batch.length;
         }

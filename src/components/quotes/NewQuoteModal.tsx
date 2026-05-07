@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ import {
   UserPlus,
   Sparkles,
   Calculator as CalculatorIcon,
+  Receipt,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -118,34 +120,63 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
   const [items, setItems] = useState<ItemRow[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Impuestos / retenciones (Fase D)
+  const [applyIva, setApplyIva] = useState<boolean>(true);
+  const [ivaRatePct, setIvaRatePct] = useState<string>('19');
+  const [applyRetefuente, setApplyRetefuente] = useState<boolean>(false);
+  const [retefuenteRatePct, setRetefuenteRatePct] = useState<string>('2.5');
+  const [applyReteica, setApplyReteica] = useState<boolean>(false);
+  const [reteicaRatePct, setReteicaRatePct] = useState<string>('0.4');
+
   const { create, update } = useQuotationMutations();
   const submitting = create.isPending || update.isPending || savingResp;
 
-  // Cargar defaults del perfil
+  // Cargar defaults del perfil + tax_settings (retef compra) + profile.reteica
   useEffect(() => {
     if (!user || !open || defaultsLoaded || isEditing) return;
     (async () => {
       try {
-        const { data } = await (supabase
+        const { data: profileData } = await (supabase
           .from('profiles')
-          .select('quote_labor_pct_default, quote_validity_days_default, quote_terms_default')
+          .select(
+            'quote_labor_pct_default, quote_validity_days_default, quote_terms_default, reteica_rate',
+          )
           .eq('user_id', user.id)
           .maybeSingle() as unknown as Promise<{
             data: {
               quote_labor_pct_default: number | null;
               quote_validity_days_default: number | null;
               quote_terms_default: string | null;
+              reteica_rate: number | null;
             } | null;
           }>);
-        const labor = Number(data?.quote_labor_pct_default ?? 0);
-        const validity = Number(data?.quote_validity_days_default ?? 15);
-        const terms = data?.quote_terms_default ?? '';
+        const labor = Number(profileData?.quote_labor_pct_default ?? 0);
+        const validity = Number(profileData?.quote_validity_days_default ?? 15);
+        const terms = profileData?.quote_terms_default ?? '';
         setDefaultLaborPct(labor);
         setDefaultValidityDays(validity);
         setDefaultTerms(terms);
         setLaborPct(String(labor));
         setNotes(terms);
         setValidUntil(addDaysISO(validity, todayISO()));
+
+        // Reteica default desde profile.reteica_rate (decimal, ej 0.004 = 0.4%)
+        const reteicaPct = Number(profileData?.reteica_rate ?? 0) * 100;
+        if (reteicaPct > 0) setReteicaRatePct(String(reteicaPct));
+
+        // Retefuente default desde tax_settings.retefuente_compra_rate
+        try {
+          const { data: tax } = await (supabase
+            .from('tax_settings')
+            .select('retefuente_compra_rate')
+            .maybeSingle() as unknown as Promise<{
+              data: { retefuente_compra_rate: number | null } | null;
+            }>);
+          const retefPct = Number(tax?.retefuente_compra_rate ?? 0) * 100;
+          if (retefPct > 0) setRetefuenteRatePct(String(retefPct));
+        } catch {
+          /* tax_settings es opcional */
+        }
       } catch (err) {
         console.error('NewQuoteModal: failed to load defaults', err);
       } finally {
@@ -164,6 +195,12 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
     setLaborPct(String(q.labor_pct));
     setProfitPct(String(q.profit_pct));
     setNotes(q.notes ?? '');
+    setApplyIva(!!q.apply_iva);
+    setIvaRatePct(String((Number(q.iva_rate) || 0) * 100));
+    setApplyRetefuente(!!q.apply_retefuente);
+    setRetefuenteRatePct(String((Number(q.retefuente_rate) || 0) * 100));
+    setApplyReteica(!!q.apply_reteica);
+    setReteicaRatePct(String((Number(q.reteica_rate) || 0) * 100));
     setItems(
       editing.items.map((it) => ({
         _key: uid(),
@@ -276,12 +313,32 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
     });
   };
 
-  // Totals (live)
+  // Totals (live) — incluye IVA y retenciones
   const totals = useMemo(() => {
     const labor = Math.max(0, parseFloat(laborPct) || 0);
     const profit = Math.max(0, parseFloat(profitPct) || 0);
-    return computeQuotationTotals(items, labor, profit);
-  }, [items, laborPct, profitPct]);
+    const ivaRate = Math.max(0, parseFloat(ivaRatePct) || 0) / 100;
+    const retefRate = Math.max(0, parseFloat(retefuenteRatePct) || 0) / 100;
+    const reteicaRate = Math.max(0, parseFloat(reteicaRatePct) || 0) / 100;
+    return computeQuotationTotals(items, labor, profit, {
+      apply_iva: applyIva,
+      iva_rate: ivaRate,
+      apply_retefuente: applyRetefuente,
+      retefuente_rate: retefRate,
+      apply_reteica: applyReteica,
+      reteica_rate: reteicaRate,
+    });
+  }, [
+    items,
+    laborPct,
+    profitPct,
+    applyIva,
+    ivaRatePct,
+    applyRetefuente,
+    retefuenteRatePct,
+    applyReteica,
+    reteicaRatePct,
+  ]);
 
   // Crear cliente on-the-fly
   const handleCreateResponsible = async () => {
@@ -368,6 +425,12 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
       valid_until: validUntil,
       labor_pct: Math.max(0, parseFloat(laborPct) || 0),
       profit_pct: Math.max(0, parseFloat(profitPct) || 0),
+      apply_iva: applyIva,
+      iva_rate: Math.max(0, parseFloat(ivaRatePct) || 0) / 100,
+      apply_retefuente: applyRetefuente,
+      retefuente_rate: Math.max(0, parseFloat(retefuenteRatePct) || 0) / 100,
+      apply_reteica: applyReteica,
+      reteica_rate: Math.max(0, parseFloat(reteicaRatePct) || 0) / 100,
       notes: notes.trim() || null,
       items: items.map((it) => ({
         description: it.description?.trim() || '',
@@ -773,31 +836,132 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
           </div>
         </div>
 
+        {/* ============= IMPUESTOS Y RETENCIONES ============= */}
+        <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3 mt-3">
+          <div className="flex items-center gap-2">
+            <Receipt className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Impuestos y retenciones</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* IVA */}
+            <div className="rounded-md border border-border bg-background p-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">IVA</Label>
+                <Switch checked={applyIva} onCheckedChange={setApplyIva} />
+              </div>
+              <Input
+                type="number"
+                step="0.1"
+                min={0}
+                value={ivaRatePct}
+                onChange={(e) => setIvaRatePct(e.target.value)}
+                disabled={!applyIva}
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Porcentaje (default 19%). Se suma al total.
+              </p>
+            </div>
+
+            {/* Retefuente */}
+            <div className="rounded-md border border-border bg-background p-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Retención en la fuente</Label>
+                <Switch checked={applyRetefuente} onCheckedChange={setApplyRetefuente} />
+              </div>
+              <Input
+                type="number"
+                step="0.1"
+                min={0}
+                value={retefuenteRatePct}
+                onChange={(e) => setRetefuenteRatePct(e.target.value)}
+                disabled={!applyRetefuente}
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Activá si el cliente es agente retenedor. Se resta del total con IVA.
+              </p>
+            </div>
+
+            {/* Reteica */}
+            <div className="rounded-md border border-border bg-background p-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Reteica</Label>
+                <Switch checked={applyReteica} onCheckedChange={setApplyReteica} />
+              </div>
+              <Input
+                type="number"
+                step="0.01"
+                min={0}
+                value={reteicaRatePct}
+                onChange={(e) => setReteicaRatePct(e.target.value)}
+                disabled={!applyReteica}
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Tarifa por mil de la ciudad. Se resta del total con IVA.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* ============= TOTALES (resumen lateral) ============= */}
         <div className="rounded-md border border-border bg-muted/30 p-3 mt-3">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-3">
             <CalculatorIcon className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Resumen</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase text-muted-foreground">Subtotal m²</span>
-              <div className="tabular-nums">{formatCurrency(totals.subtotal_base)}</div>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Subtotal m²</span>
+              <span className="tabular-nums">{formatCurrency(totals.subtotal_base)}</span>
             </div>
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase text-muted-foreground">Mano de obra</span>
-              <div className="tabular-nums">{formatCurrency(totals.labor_amount)}</div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">
+                + Mano de obra ({laborPct || 0}%)
+              </span>
+              <span className="tabular-nums">{formatCurrency(totals.labor_amount)}</span>
             </div>
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase text-muted-foreground">Utilidad</span>
-              <div className="tabular-nums">{formatCurrency(totals.profit_amount)}</div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">
+                + Utilidad ({profitPct || 0}%)
+              </span>
+              <span className="tabular-nums">{formatCurrency(totals.profit_amount)}</span>
             </div>
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase text-muted-foreground">Total</span>
-              <div className="tabular-nums font-semibold text-base text-primary">
-                {formatCurrency(totals.total)}
+            <div className="flex justify-between border-t border-border pt-1 mt-1 font-medium">
+              <span>= Total sin IVA</span>
+              <span className="tabular-nums">{formatCurrency(totals.total)}</span>
+            </div>
+            {applyIva && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">+ IVA ({ivaRatePct}%)</span>
+                <span className="tabular-nums">{formatCurrency(totals.iva_amount)}</span>
               </div>
+            )}
+            <div className="flex justify-between border-t border-border pt-1 mt-1 font-semibold text-sm text-primary">
+              <span>Total con IVA</span>
+              <span className="tabular-nums">{formatCurrency(totals.total_with_iva)}</span>
             </div>
+            {applyRetefuente && (
+              <div className="flex justify-between text-muted-foreground">
+                <span>− Retef. fuente ({retefuenteRatePct}%)</span>
+                <span className="tabular-nums">
+                  −{formatCurrency(totals.retefuente_amount)}
+                </span>
+              </div>
+            )}
+            {applyReteica && (
+              <div className="flex justify-between text-muted-foreground">
+                <span>− Reteica ({reteicaRatePct}%)</span>
+                <span className="tabular-nums">−{formatCurrency(totals.reteica_amount)}</span>
+              </div>
+            )}
+            {(applyRetefuente || applyReteica) && (
+              <div className="flex justify-between border-t border-border pt-1 mt-1 font-medium text-sm">
+                <span>Valor neto a recibir</span>
+                <span className="tabular-nums">{formatCurrency(totals.total_net)}</span>
+              </div>
+            )}
           </div>
         </div>
 
