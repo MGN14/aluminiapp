@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, PartyPopper, Clock, Zap } from 'lucide-react';
+import { ExternalLink, PartyPopper, Clock, CheckCircle2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { SearchableSelect } from '@/components/transactions/SearchableSelect';
 import InvoiceSelector, { InvoiceTag } from '@/components/transactions/InvoiceSelector';
@@ -395,10 +395,10 @@ export function PendingTransactionsTable({
                               <TooltipTrigger asChild>
                                 <Badge
                                   variant="outline"
-                                  className="text-[10px] px-1.5 py-0 h-5 border-[oklch(0.43_0.14_155_/_0.4)] text-[oklch(0.43_0.14_155)] bg-[oklch(0.43_0.14_155_/_0.08)] flex items-center gap-1 cursor-help"
+                                  className="text-[10px] px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
                                 >
-                                  <Zap className="h-2.5 w-2.5" />
-                                  Cazado en operativa
+                                  <CheckCircle2 className="h-2.5 w-2.5" />
+                                  Conciliado
                                 </Badge>
                               </TooltipTrigger>
                               <TooltipContent side="top">
@@ -563,10 +563,10 @@ export function PendingTransactionsTable({
                               <TooltipTrigger asChild>
                                 <Badge
                                   variant="outline"
-                                  className="text-[10px] px-1.5 py-0 h-5 border-[oklch(0.43_0.14_155_/_0.4)] text-[oklch(0.43_0.14_155)] bg-[oklch(0.43_0.14_155_/_0.08)] flex items-center gap-1 cursor-help"
+                                  className="text-[10px] px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
                                 >
-                                  <Zap className="h-2.5 w-2.5" />
-                                  Cazado en operativa
+                                  <CheckCircle2 className="h-2.5 w-2.5" />
+                                  Conciliado
                                 </Badge>
                               </TooltipTrigger>
                               <TooltipContent side="top">
