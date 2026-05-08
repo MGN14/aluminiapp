@@ -337,12 +337,19 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
 
       if (remError) throw remError;
 
+      // total_cost = units * unit_cost. Antes lo dejábamos en su DEFAULT 0 y
+      // todos los reportes que leen total_cost (Remisiones page, payment
+      // status, dashboards) mostraban 0 aunque units y unit_cost estuvieran
+      // bien. La migración 20260511120000 agregó un trigger BEFORE INSERT
+      // que calcula esto en DB, pero también lo enviamos desde frontend
+      // por defensa en profundidad y para que el preview/save sean iguales.
       const itemsToInsert = items.map(item => ({
         remision_id: remision.id,
         reference: item.reference,
         product_name: item.product_name,
         units: item.units,
         unit_cost: item.unit_cost,
+        total_cost: Number(item.units) * Number(item.unit_cost),
       }));
 
       const { error: itemsError } = await supabase.from('remision_items').insert(itemsToInsert);
