@@ -276,9 +276,13 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
       toast({ title: 'No se encontraron items válidos', variant: 'destructive' });
       return;
     }
-    setItems(parsed);
 
-    // Resolve against inventory maestro
+    // Resolve against inventory maestro y auto-fill costos vacíos.
+    // Si el Excel no trajo precio (columna no mapeada o celda vacía), tomamos
+    // cost_per_unit del maestro de productos. Antes el item quedaba en 0 y
+    // los reportes mostraban valor 0 aunque el producto sí tenía precio
+    // registrado en inventario.
+    let enriched = parsed;
     if (user?.id) {
       setResolving(true);
       try {
@@ -286,12 +290,21 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
         setProductMap(map);
         const unmatched = parsed.filter(i => !map.has(i.reference.trim().toLowerCase()));
         setUnmatchedRefs(unmatched);
+        enriched = parsed.map(i => {
+          if (i.unit_cost > 0) return i;
+          const prod = map.get(i.reference.trim().toLowerCase());
+          if (prod && prod.cost_per_unit > 0) {
+            return { ...i, unit_cost: Number(prod.cost_per_unit) };
+          }
+          return i;
+        });
       } catch (e) {
         toast({ title: 'Error al cruzar con el maestro de productos', variant: 'destructive' });
       } finally {
         setResolving(false);
       }
     }
+    setItems(enriched);
     setStep('preview');
   };
 

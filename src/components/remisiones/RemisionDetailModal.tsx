@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon } from 'lucide-react';
+import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon, Trash2 } from 'lucide-react';
 
 interface Props {
   remisionId: string;
@@ -51,6 +51,19 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange }: 
   const [responsibleId, setResponsibleId] = useState('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState('');
+
+  // Items editables (units / unit_cost / eliminar). Las refs y product_name
+  // siguen siendo solo lectura — para reescribirlas, se borra y se re-sube
+  // la remisión desde Excel.
+  type EditableItem = {
+    id: string;
+    reference: string;
+    product_name: string;
+    units: number;
+    unit_cost: number;
+    deleted: boolean; // marcado para eliminar al guardar
+  };
+  const [editableItems, setEditableItems] = useState<EditableItem[]>([]);
 
   const { data: remision, isLoading } = useQuery({
     queryKey: ['remision-detail', remisionId],
@@ -93,6 +106,17 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange }: 
       setResponsibleId(remision.responsible_id ?? '');
       setNotes(remision.notes ?? '');
       setStatus(remision.status ?? 'pendiente');
+      const items = (remision as any)?.remision_items ?? [];
+      setEditableItems(
+        items.map((i: any) => ({
+          id: i.id,
+          reference: i.reference,
+          product_name: i.product_name,
+          units: Number(i.units) || 0,
+          unit_cost: Number(i.unit_cost) || 0,
+          deleted: false,
+        })),
+      );
     }
   }, [editing, remision]);
 
@@ -109,6 +133,33 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange }: 
         status,
       }).eq('id', remision.id);
       if (error) throw error;
+
+      // Items: aplicar diff. UPDATE para los modificados, DELETE para los
+      // marcados como deleted. El trigger remision_items_set_total_cost
+      // recalcula total_cost automáticamente.
+      const toDelete = editableItems.filter((i) => i.deleted).map((i) => i.id);
+      const toUpdate = editableItems.filter((i) => !i.deleted);
+
+      if (toDelete.length > 0) {
+        const { error: delErr } = await supabase
+          .from('remision_items')
+          .delete()
+          .in('id', toDelete);
+        if (delErr) throw delErr;
+      }
+
+      // Update por id — secuencial pero típicamente son <30 items.
+      for (const it of toUpdate) {
+        const { error: upErr } = await supabase
+          .from('remision_items')
+          .update({
+            units: it.units,
+            unit_cost: it.unit_cost,
+          })
+          .eq('id', it.id);
+        if (upErr) throw upErr;
+      }
+
       await queryClient.invalidateQueries({ queryKey: ['remision-detail', remisionId] });
       await queryClient.invalidateQueries({ queryKey: ['remisiones'] });
       toast({ title: 'Remisión actualizada' });
@@ -222,25 +273,94 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange }: 
                     <TableHead className="text-right">Unidades</TableHead>
                     <TableHead className="text-right">Costo unit.</TableHead>
                     <TableHead className="text-right">Total</TableHead>
+                    {editing && <TableHead className="w-10"></TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((item: any) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-mono text-xs">{item.reference}</TableCell>
-                      <TableCell className="text-xs">{item.product_name}</TableCell>
-                      <TableCell className="text-right">{Number(item.units).toLocaleString('es-CO')}</TableCell>
-                      <TableCell className="text-right">{item.unit_cost > 0 ? formatCurrency(Number(item.unit_cost)) : '—'}</TableCell>
-                      <TableCell className="text-right">{item.total_cost > 0 ? formatCurrency(Number(item.total_cost)) : '—'}</TableCell>
-                    </TableRow>
-                  ))}
+                  {editing
+                    ? editableItems.filter((i) => !i.deleted).map((item, idx) => {
+                        const realIdx = editableItems.findIndex((x) => x.id === item.id);
+                        const total = item.units * item.unit_cost;
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-mono text-xs">{item.reference}</TableCell>
+                            <TableCell className="text-xs">{item.product_name}</TableCell>
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={item.units}
+                                onChange={(e) => {
+                                  const v = parseFloat(e.target.value) || 0;
+                                  setEditableItems((prev) => prev.map((it, i) => (i === realIdx ? { ...it, units: v } : it)));
+                                }}
+                                className="h-8 text-right text-xs w-24 ml-auto"
+                              />
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={item.unit_cost}
+                                onChange={(e) => {
+                                  const v = parseFloat(e.target.value) || 0;
+                                  setEditableItems((prev) => prev.map((it, i) => (i === realIdx ? { ...it, unit_cost: v } : it)));
+                                }}
+                                className="h-8 text-right text-xs w-32 ml-auto"
+                              />
+                            </TableCell>
+                            <TableCell className="text-right text-xs tabular-nums">
+                              {total > 0 ? formatCurrency(total) : '—'}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive"
+                                onClick={() => {
+                                  setEditableItems((prev) => prev.map((it, i) => (i === realIdx ? { ...it, deleted: true } : it)));
+                                }}
+                                title="Eliminar fila"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    : items.map((item: any) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-mono text-xs">{item.reference}</TableCell>
+                          <TableCell className="text-xs">{item.product_name}</TableCell>
+                          <TableCell className="text-right">{Number(item.units).toLocaleString('es-CO')}</TableCell>
+                          <TableCell className="text-right">{item.unit_cost > 0 ? formatCurrency(Number(item.unit_cost)) : '—'}</TableCell>
+                          <TableCell className="text-right">{item.total_cost > 0 ? formatCurrency(Number(item.total_cost)) : '—'}</TableCell>
+                        </TableRow>
+                      ))}
                 </TableBody>
               </Table>
             </div>
 
             <div className="flex justify-between text-sm border-t pt-3">
-              <span className="text-muted-foreground">Total unidades: <strong>{totalUnidades.toLocaleString('es-CO')}</strong></span>
-              {totalValor > 0 && <span className="text-muted-foreground">Valor total: <strong>{formatCurrency(totalValor)}</strong></span>}
+              <span className="text-muted-foreground">
+                Total unidades:{' '}
+                <strong>
+                  {(editing
+                    ? editableItems.filter((i) => !i.deleted).reduce((s, i) => s + i.units, 0)
+                    : totalUnidades
+                  ).toLocaleString('es-CO')}
+                </strong>
+              </span>
+              {(() => {
+                const valorActual = editing
+                  ? editableItems.filter((i) => !i.deleted).reduce((s, i) => s + i.units * i.unit_cost, 0)
+                  : totalValor;
+                return valorActual > 0 ? (
+                  <span className="text-muted-foreground">Valor total: <strong>{formatCurrency(valorActual)}</strong></span>
+                ) : null;
+              })()}
             </div>
 
             {/* Facturas vinculadas (solo DIAN, ventas) */}
