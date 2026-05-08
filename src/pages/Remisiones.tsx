@@ -103,6 +103,9 @@ export default function Remisiones() {
   // usePersistedFormState dentro del modal).
   const [newOpen, setNewOpen] = usePersistedDialogOpen('remisiones:nueva:open');
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Cuando se abre desde el lápiz, el modal arranca en modo edición. Cuando
+  // se abre desde el Eye (Ver detalle), arranca read-only.
+  const [detailInitialEditing, setDetailInitialEditing] = useState(false);
   const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
   const [moverId, setMoverId] = useState<string | null>(null);
   const [scoreDetail, setScoreDetail] = useState<{ label: string; detail: string; color: string } | null>(null);
@@ -483,10 +486,20 @@ export default function Remisiones() {
                         })()}
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => setDetailId(r.id)} title="Ver detalle">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => { setDetailInitialEditing(false); setDetailId(r.id); }}
+                              title="Ver detalle"
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setEditingStatusId(editingStatusId === r.id ? null : r.id)} title="Cambiar estado">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => { setDetailInitialEditing(true); setDetailId(r.id); }}
+                              title="Editar remisión"
+                            >
                               <Pencil className="h-4 w-4" />
                             </Button>
                             {effectiveGerencial && !isCompra && (
@@ -592,7 +605,8 @@ export default function Remisiones() {
         <RemisionDetailModal
           remisionId={detailId}
           open={!!detailId}
-          onOpenChange={(o) => { if (!o) setDetailId(null); }}
+          onOpenChange={(o) => { if (!o) { setDetailId(null); setDetailInitialEditing(false); } }}
+          initialEditing={detailInitialEditing}
         />
       )}
 

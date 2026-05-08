@@ -19,6 +19,10 @@ interface Props {
   remisionId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Si true, el modal arranca directamente en modo edición. Útil cuando
+   *  el usuario clickea el lápiz desde la tabla — no tiene que volver a
+   *  hacer click en "Editar" adentro. */
+  initialEditing?: boolean;
 }
 
 function formatCurrency(value: number) {
@@ -39,12 +43,20 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secon
   cancelado: { label: 'Cancelado', variant: 'destructive' },
 };
 
-export default function RemisionDetailModal({ remisionId, open, onOpenChange }: Props) {
+export default function RemisionDetailModal({ remisionId, open, onOpenChange, initialEditing = false }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initialEditing);
   const [saving, setSaving] = useState(false);
+
+  // Si reabre el modal con un initialEditing distinto (ej: el usuario antes
+  // clickeó "Ver" y ahora clickea "Editar" en la misma sesión sin cerrar el
+  // modal entre medio), respetamos el nuevo flag.
+  useEffect(() => {
+    if (open) setEditing(initialEditing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, remisionId, initialEditing]);
 
   // Form state (solo se llena al entrar a edicion)
   const [date, setDate] = useState('');
