@@ -9,7 +9,23 @@ const logStep = (step: string, details?: Record<string, unknown>) => {
   console.log(`[CREATE-WOMPI-CHECKOUT] ${step}${details ? ` - ${JSON.stringify(details)}` : ''}`);
 };
 
-const WOMPI_SANDBOX_URL = "https://sandbox.wompi.co/v1";
+// Wompi tiene 2 ambientes: sandbox (test) y production (live). La URL base
+// y el dominio de checkout son distintos. Detectamos por prefijo de la
+// private key:
+//   prv_prod_... / prv_live_... → producción
+//   prv_test_... / prv_stag_... → sandbox
+//
+// Antes esto estaba hardcodeado en sandbox — los pagos hechos por usuarios
+// reales nunca llegaban a la cuenta productiva de Wompi y el webhook nunca
+// activaba el plan. Override manual con WOMPI_ENV=production|sandbox.
+function resolveWompiEnv(privateKey: string): { apiUrl: string; checkoutHost: string; isProd: boolean } {
+  const explicit = (Deno.env.get("WOMPI_ENV") ?? "").toLowerCase().trim();
+  const looksProd = privateKey.startsWith("prv_prod_") || privateKey.startsWith("prv_live_");
+  const isProd = explicit === "production" || explicit === "prod" || (!explicit && looksProd);
+  return isProd
+    ? { apiUrl: "https://production.wompi.co/v1", checkoutHost: "https://checkout.wompi.co", isProd: true }
+    : { apiUrl: "https://sandbox.wompi.co/v1", checkoutHost: "https://checkout.co.uat.wompi.dev", isProd: false };
+}
 
 // HMAC-SHA256 sobre `${userId}-${plan}-${timestamp}` usando WOMPI_EVENTS_SECRET.
 // Se anexa al reference para que wompi-webhook pueda verificar que el user_id
@@ -132,14 +148,17 @@ serve(async (req) => {
     const eventsSecret = Deno.env.get("WOMPI_EVENTS_SECRET") ?? "";
     if (!eventsSecret) throw new Error("WOMPI_EVENTS_SECRET is not set");
 
-    const origin = req.headers.get("origin") || "https://aluminia.app";
+    const wompiEnv = resolveWompiEnv(wompiPrivateKey);
+    logStep("Wompi env resolved", { isProd: wompiEnv.isProd });
+
+    const origin = req.headers.get("origin") || "https://aluminiapp.com";
     const basePlan = planKey.replace("-anual", "");
     const timestamp = Date.now();
     const payload = `${userJson.id}-${basePlan}-${timestamp}`;
     const sig = await signReference(payload, eventsSecret);
     const reference = `aluminia-${basePlan}-${userJson.id}-${timestamp}-${sig}`;
 
-    const linkRes = await fetch(`${WOMPI_SANDBOX_URL}/payment_links`, {
+    const linkRes = await fetch(`${wompiEnv.apiUrl}/payment_links`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -189,8 +208,12 @@ serve(async (req) => {
       });
     }
 
-    const checkoutUrl = `https://checkout.wompi.co/l/${paymentLinkId}`;
-    logStep("Payment link created", { paymentLinkId, checkoutUrl, planKey });
+    // Si Wompi devuelve permalink/url en la respuesta, usarlo (más robusto
+     // ante cambios de subdominio). Fallback al patrón estándar.
+    const apiPermalink = (linkData?.data?.permalink as string | undefined)
+      || (linkData?.data?.url as string | undefined);
+    const checkoutUrl = apiPermalink || `${wompiEnv.checkoutHost}/l/${paymentLinkId}`;
+    logStep("Payment link created", { paymentLinkId, checkoutUrl, planKey, env: wompiEnv.isProd ? "prod" : "sandbox" });
 
     return new Response(JSON.stringify({ url: checkoutUrl, reference }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -21,7 +21,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
-const WOMPI_SANDBOX_URL = "https://sandbox.wompi.co/v1";
+// Wompi sandbox vs production. Detección por prefijo de la private key
+// (prv_prod_/prv_live_ → prod). Override con WOMPI_ENV=production|sandbox.
+function resolveWompiApiUrl(privateKey: string): string {
+  const explicit = (Deno.env.get("WOMPI_ENV") ?? "").toLowerCase().trim();
+  const looksProd = privateKey.startsWith("prv_prod_") || privateKey.startsWith("prv_live_");
+  const isProd = explicit === "production" || explicit === "prod" || (!explicit && looksProd);
+  return isProd ? "https://production.wompi.co/v1" : "https://sandbox.wompi.co/v1";
+}
 
 // Misma tabla de planes que create-wompi-checkout. Si cambia ahí, cambia acá.
 const PLAN_AMOUNTS_CENTS: Record<string, number> = {
@@ -67,10 +74,10 @@ interface AcceptanceTokenRes {
   };
 }
 
-async function getAcceptanceTokens(publicKey: string): Promise<{ acceptance: string; personalData: string }> {
+async function getAcceptanceTokens(publicKey: string, apiUrl: string): Promise<{ acceptance: string; personalData: string }> {
   // Wompi exige acceptance tokens en cada transaction (compliance habeas data).
   // Los tokens son de corta duración — los pedimos al vuelo en cada cobro.
-  const res = await fetch(`${WOMPI_SANDBOX_URL}/merchants/${publicKey}`);
+  const res = await fetch(`${apiUrl}/merchants/${publicKey}`);
   if (!res.ok) throw new Error(`acceptance tokens HTTP ${res.status}`);
   const data = await res.json() as AcceptanceTokenRes;
   const acceptance = data.data?.presigned_acceptance?.acceptance_token;
@@ -147,11 +154,13 @@ serve(async (req) => {
   const pms = (pmsRaw ?? []) as PaymentMethodRow[];
   const pmByUser = new Map(pms.map(pm => [pm.user_id, pm]));
 
-  // 3) Acceptance tokens (válidos durante todo el batch)
+  // 3) Acceptance tokens (válidos durante todo el batch). Resolvemos URL
+  //    según ambiente — antes hardcoded a sandbox aunque la cuenta fuera prod.
+  const wompiApiUrl = resolveWompiApiUrl(wompiPrivateKey);
   let acceptance: string;
   let personalData: string;
   try {
-    const t = await getAcceptanceTokens(wompiPublicKey);
+    const t = await getAcceptanceTokens(wompiPublicKey, wompiApiUrl);
     acceptance = t.acceptance;
     personalData = t.personalData;
   } catch (e) {
@@ -235,7 +244,7 @@ serve(async (req) => {
     let success = false;
 
     try {
-      const txRes = await fetch(`${WOMPI_SANDBOX_URL}/transactions`, {
+      const txRes = await fetch(`${wompiApiUrl}/transactions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

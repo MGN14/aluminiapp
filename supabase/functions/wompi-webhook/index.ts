@@ -5,7 +5,15 @@ const logStep = (step: string, details?: Record<string, unknown>) => {
   console.log(`[WOMPI-WEBHOOK] ${step}${details ? ` - ${JSON.stringify(details)}` : ''}`);
 };
 
-const WOMPI_SANDBOX_URL = "https://sandbox.wompi.co/v1";
+// Wompi sandbox vs production. Detección por prefijo de la private key
+// (prv_prod_/prv_live_ → prod). Override con WOMPI_ENV=production|sandbox.
+function resolveWompiApiUrl(privateKey: string): string {
+  const explicit = (Deno.env.get("WOMPI_ENV") ?? "").toLowerCase().trim();
+  const looksProd = privateKey.startsWith("prv_prod_") || privateKey.startsWith("prv_live_");
+  const isProd = explicit === "production" || explicit === "prod" || (!explicit && looksProd);
+  return isProd ? "https://production.wompi.co/v1" : "https://sandbox.wompi.co/v1";
+}
+
 const PLAN_AMOUNT_CENTS = 39900000; // $399,000 COP
 
 // Debe coincidir con signReference() en create-wompi-checkout.
@@ -99,7 +107,8 @@ serve(async (req) => {
 
     // Step 2: Backend verification - fetch transaction from Wompi API
     const wompiPrivateKey = Deno.env.get("WOMPI_PRIVATE_KEY") ?? "";
-    const verifyRes = await fetch(`${WOMPI_SANDBOX_URL}/transactions/${transactionId}`, {
+    const wompiApiUrl = resolveWompiApiUrl(wompiPrivateKey);
+    const verifyRes = await fetch(`${wompiApiUrl}/transactions/${transactionId}`, {
       headers: { Authorization: `Bearer ${wompiPrivateKey}` },
     });
 
