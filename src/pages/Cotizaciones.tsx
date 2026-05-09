@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -30,7 +31,6 @@ import {
 } from 'lucide-react';
 import { useQuotations } from '@/hooks/useQuotations';
 import type { QuotationStatus } from '@/types/quotation';
-import AluminumCatalogModal from '@/components/quotes/AluminumCatalogModal';
 import NewQuoteModal from '@/components/quotes/NewQuoteModal';
 import QuoteDetailModal from '@/components/quotes/QuoteDetailModal';
 
@@ -62,7 +62,6 @@ function formatDate(dateStr: string | null | undefined) {
 export default function Cotizaciones() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QuotationStatus | 'all'>('all');
-  const [showCatalog, setShowCatalog] = useState(false);
   const [showNewQuote, setShowNewQuote] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -90,9 +89,11 @@ export default function Cotizaciones() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowCatalog(true)}>
-              <BookOpen className="h-4 w-4 mr-1.5" />
-              Productos terminados
+            <Button asChild variant="outline" size="sm">
+              <Link to="/productos-terminados">
+                <BookOpen className="h-4 w-4 mr-1.5" />
+                Productos terminados
+              </Link>
             </Button>
             <Button size="sm" onClick={handleNewQuote}>
               <Plus className="h-4 w-4 mr-1.5" />
@@ -111,14 +112,16 @@ export default function Cotizaciones() {
               <div className="space-y-1.5 max-w-md">
                 <h3 className="text-lg font-medium">Aún no tenés cotizaciones</h3>
                 <p className="text-sm text-muted-foreground">
-                  Empezá cargando tu catálogo de productos (sistema + color + precio por m²).
+                  Empezá configurando tus productos terminados (sistema + color + componentes por m²).
                   Después armás cotizaciones en 2 minutos y las enviás directo al cliente.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 justify-center">
-                <Button variant="outline" size="sm" onClick={() => setShowCatalog(true)}>
-                  <BookOpen className="h-4 w-4 mr-1.5" />
-                  Cargar catálogo
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/productos-terminados">
+                    <BookOpen className="h-4 w-4 mr-1.5" />
+                    Configurar productos terminados
+                  </Link>
                 </Button>
                 <Button size="sm" onClick={handleNewQuote}>
                   <Plus className="h-4 w-4 mr-1.5" />
@@ -233,7 +236,6 @@ export default function Cotizaciones() {
         )}
       </div>
 
-      <AluminumCatalogModal open={showCatalog} onOpenChange={setShowCatalog} />
       <NewQuoteModal
         open={showNewQuote}
         onOpenChange={setShowNewQuote}

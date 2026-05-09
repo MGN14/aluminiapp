@@ -50,6 +50,7 @@ const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
 const Cotizaciones = lazy(() => import("./pages/Cotizaciones"));
+const ProductosTerminados = lazy(() => import("./pages/ProductosTerminados"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
 const CarteraOperativa = lazy(() => import("./pages/CarteraOperativa"));
 const CajaMenor = lazy(() => import("./pages/CajaMenor"));
@@ -271,6 +272,10 @@ const App = () => (
               <Route
                 path="/cotizaciones"
                 element={<RequireModule moduleKey="cotizaciones"><Cotizaciones /></RequireModule>}
+              />
+              <Route
+                path="/productos-terminados"
+                element={<RequireModule moduleKey="cotizaciones"><ProductosTerminados /></RequireModule>}
               />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

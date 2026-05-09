@@ -27,6 +27,7 @@ import {
   CreditCard,
   Sparkles,
   Calculator,
+  Boxes,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -86,6 +87,7 @@ const movementItems: NavItem[] = [
   { title: 'Inventarios', url: '/inventarios', icon: Package, permKey: 'inventarios' },
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },
   { title: 'Cotizaciones', url: '/cotizaciones', icon: Calculator, permKey: 'cotizaciones' },
+  { title: 'Productos terminados', url: '/productos-terminados', icon: Boxes, permKey: 'cotizaciones' },
 ];
 
 const movementItemsGerencial: NavItem[] = [
