@@ -318,7 +318,7 @@ export default function BulkUploadCatalogModal({ open, onOpenChange, onComplete 
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {step === 'upload' && 'Carga masiva del catálogo'}
+            {step === 'upload' && 'Carga masiva de productos terminados'}
             {step === 'preview' && 'Validación de productos'}
             {step === 'done' && 'Importación completada'}
           </DialogTitle>

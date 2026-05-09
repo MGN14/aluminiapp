@@ -398,7 +398,7 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
     }
     for (const it of items) {
       if (!it.system || !it.color) {
-        setSubmitError('Cada ítem necesita sistema y color del catálogo.');
+        setSubmitError('Cada ítem necesita sistema y color de un producto terminado.');
         return;
       }
       if (!it.width_m || it.width_m <= 0 || !it.height_m || it.height_m <= 0) {
