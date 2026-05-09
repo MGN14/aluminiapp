@@ -146,9 +146,9 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Catálogo de productos</DialogTitle>
+            <DialogTitle>Productos terminados</DialogTitle>
             <DialogDescription>
-              Sistema + color + precio por m². Lo usás como fuente de precios al cotizar.
+              Sistema + color + precio por m². Configurá los componentes (cabezal, sillar, jamba, vidrio, accesorios) para que la app calcule el costo real por m². Lo usás como fuente de precios al cotizar.
             </DialogDescription>
           </DialogHeader>
 

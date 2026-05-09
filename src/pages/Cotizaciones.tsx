@@ -86,13 +86,13 @@ export default function Cotizaciones() {
               Cotizaciones
             </h1>
             <p className="text-sm text-muted-foreground">
-              Cotizá ventanas y puertas a partir de tu catálogo. Envialas por email o WhatsApp.
+              Cotizá ventanas y puertas a partir de tus productos terminados. Envialas por email o WhatsApp.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowCatalog(true)}>
               <BookOpen className="h-4 w-4 mr-1.5" />
-              Catálogo
+              Productos terminados
             </Button>
             <Button size="sm" onClick={handleNewQuote}>
               <Plus className="h-4 w-4 mr-1.5" />

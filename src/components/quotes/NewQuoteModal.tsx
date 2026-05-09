@@ -480,9 +480,9 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
           <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-3 flex items-start gap-2">
             <Sparkles className="h-4 w-4 text-amber-700 dark:text-amber-400 mt-0.5 flex-shrink-0" />
             <div className="text-sm text-amber-900 dark:text-amber-100">
-              <strong>Cargá tu catálogo primero.</strong> Necesitás al menos un sistema + color con
+              <strong>Cargá tus productos terminados primero.</strong> Necesitás al menos un sistema + color con
               precio por m² antes de armar una cotización. Cerrá este modal y abrí{' '}
-              <em>Catálogo</em>.
+              <em>Productos terminados</em>.
             </div>
           </div>
         )}

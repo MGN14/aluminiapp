@@ -130,12 +130,10 @@ export default function CatalogComponentsDialog({ entry, open, onOpenChange }: P
       <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Componentes — {entry.system} · {entry.color}
+            Componentes por m² — {entry.system} · {entry.color}
           </DialogTitle>
           <DialogDescription>
-            Productos del inventario que componen un m² de este producto terminado. El
-            precio_m² del catálogo sigue siendo manual ({formatCurrency(Number(entry.price_per_m2))}
-            ); este BOM es informativo y queda guardado para futuro descuento de stock.
+            Definí qué lleva un m² de este producto terminado. Ej: 1m de cabezal, 1m de sillar, 1m de jamba, 2m de enganche, 2m de traslape, 4 rodachinas, vidrio templado/crudo/reflectivo, silicona. La app suma costos × cantidad/m² y te da el costo real por m². Hoy el precio del catálogo sigue siendo manual ({formatCurrency(Number(entry.price_per_m2))}); pronto pasa a calcularse automático con + mano de obra + utilidad.
           </DialogDescription>
         </DialogHeader>
 
