@@ -26,7 +26,6 @@ import {
   Coins,
   CreditCard,
   Sparkles,
-  Calculator,
   Boxes,
 } from 'lucide-react';
 import {
@@ -86,8 +85,7 @@ const movementItems: NavItem[] = [
   { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true, permKey: 'caja_menor' },
   { title: 'Inventarios', url: '/inventarios', icon: Package, permKey: 'inventarios' },
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },
-  { title: 'Productos terminados / Cotizaciones', url: '/cotizaciones', icon: Calculator, permKey: 'cotizaciones' },
-  { title: 'Productos terminados / Configuración', url: '/productos-terminados', icon: Boxes, permKey: 'cotizaciones' },
+  { title: 'Productos terminados', url: '/productos-terminados', icon: Boxes, permKey: 'cotizaciones' },
 ];
 
 const movementItemsGerencial: NavItem[] = [
