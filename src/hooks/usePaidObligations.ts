@@ -59,7 +59,7 @@ export function usePaidObligations() {
       const { error } = await (supabase as any)
         .from('fiscal_config')
         .update({ paid_dian_events: next })
-        ;
+        .eq('user_id', user.id);
       if (error) throw error;
       return next;
     },
