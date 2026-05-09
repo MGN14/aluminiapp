@@ -826,7 +826,7 @@ ANÁLISIS DE DIFERENCIAS (Sistema vs Físico):
 Productos con diferencia: ${productsWithDiff.length} de ${enriched.length}
 Valor total de diferencias: ${fmt(totalDifferenceValue)}
 % de descuadre (ratio = diff costo / valor total Siigo): ${pctDescuadre.toFixed(1)}%
-Score Control de Inventario derivado: ${totalInventoryValue > 0 ? (Math.max(0, 20 * (1 - Math.min(1, totalDifferenceValue / totalInventoryValue)))).toFixed(1) : 0}/20 pts
+Score Control de Inventario derivado: ${totalInventoryValue > 0 ? (Math.max(0, 25 * (1 - Math.min(1, totalDifferenceValue / totalInventoryValue)))).toFixed(1) : 0}/25 pts
 ${pctDescuadre > 5 ? "⚠ ALERTA: El descuadre supera el 5%. Esto puede indicar ventas sin factura, pérdidas, robos o errores de conteo, y penaliza el Score de Visita DIAN." : ""}
 
 ${positiveeDiff.length > 0 ? `FALTANTES EN BODEGA (sistema > físico — posible venta sin factura, robo, pérdida):

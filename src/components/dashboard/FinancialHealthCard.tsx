@@ -124,7 +124,7 @@ export default function FinancialHealthCard({ year, month }: Props) {
                   </span>
                 </div>
                 <span className="text-[10px] font-bold tabular-nums shrink-0" style={{ color: weakest.color }}>
-                  {weakest.value.toFixed(1)}/20
+                  {weakest.value.toFixed(1)}/25
                 </span>
               </div>
               <p className="text-xs font-semibold text-foreground">{weakest.label}</p>
@@ -137,7 +137,7 @@ export default function FinancialHealthCard({ year, month }: Props) {
           {/* Mini-barras de las 5 variables */}
           <div className="space-y-1.5 flex-1">
             {donutData.map((seg) => {
-              const pct = Math.max(0, Math.min(100, (seg.value / 20) * 100));
+              const pct = Math.max(0, Math.min(100, (seg.value / 25) * 100));
               return (
                 <div key={seg.key} className="flex items-center gap-2" title={seg.hint}>
                   <div

@@ -319,8 +319,8 @@ export default function FinancialHealth() {
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {VARIABLES.map((v) => {
               const value = scores[v.key as keyof typeof scores] as number;
-              const pctBar = Math.round((value / 20) * 100);
-              const barColor = value >= 18 ? 'bg-success' : value >= 15 ? 'bg-success/70' : value >= 10 ? 'bg-warning' : 'bg-destructive';
+              const pctBar = Math.round((value / 25) * 100);
+              const barColor = value >= 22 ? 'bg-success' : value >= 18 ? 'bg-success/70' : value >= 12 ? 'bg-warning' : 'bg-destructive';
               const info = getVariableExplanation(v.key, details);
               const alert = getVariableAlert(v.key, value);
 
@@ -339,7 +339,7 @@ export default function FinancialHealth() {
                     {/* Score */}
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-3xl font-bold tracking-tight text-foreground">{value}</span>
-                      <span className="text-sm text-muted-foreground font-medium">/ 20</span>
+                      <span className="text-sm text-muted-foreground font-medium">/ 25</span>
                     </div>
 
                     {/* Bar */}
