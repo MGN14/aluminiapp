@@ -28,23 +28,20 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
   const [showBulk, setShowBulk] = useState(false);
   const [componentsForEntry, setComponentsForEntry] = useState<AluminumCatalogEntry | null>(null);
 
-  // Add form state
+  // Add form state — solo lo mínimo para crear, después se configura todo en el editor
   const [system, setSystem] = useState('');
   const [color, setColor] = useState('');
-  const [pricePerM2, setPricePerM2] = useState('');
   const [description, setDescription] = useState('');
 
-  // Edit state
+  // Edit state — edición rápida solo de sistema/color/descripción (el precio se calcula auto)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editSystem, setEditSystem] = useState('');
   const [editColor, setEditColor] = useState('');
-  const [editPrice, setEditPrice] = useState('');
   const [editDescription, setEditDescription] = useState('');
 
   const resetAddForm = () => {
     setSystem('');
     setColor('');
-    setPricePerM2('');
     setDescription('');
   };
 
@@ -53,20 +50,18 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
       toast({ title: 'Falta sistema o color', variant: 'destructive' });
       return;
     }
-    const price = Number(pricePerM2);
-    if (!Number.isFinite(price) || price <= 0) {
-      toast({ title: 'Precio por m² inválido', variant: 'destructive' });
-      return;
-    }
     try {
-      await createOne.mutateAsync({
+      // Crear con price_per_m2 = 0. Se calcula desde los componentes en el editor.
+      const created = await createOne.mutateAsync({
         system: system.trim(),
         color: color.trim(),
-        price_per_m2: price,
+        price_per_m2: 0,
         description: description.trim() || null,
       });
       resetAddForm();
-      toast({ title: 'Producto agregado al catálogo' });
+      toast({ title: 'Producto creado — configurá los componentes' });
+      // Abrir directamente el editor para que el usuario arme el BOM y los datos
+      setComponentsForEntry(created);
     } catch (e: any) {
       const msg = e?.message?.includes('duplicate')
         ? 'Ya existe un producto con ese sistema y color.'
@@ -79,7 +74,6 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
     setEditingId(entry.id);
     setEditSystem(entry.system);
     setEditColor(entry.color);
-    setEditPrice(String(entry.price_per_m2));
     setEditDescription(entry.description ?? '');
   };
 
@@ -87,7 +81,6 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
     setEditingId(null);
     setEditSystem('');
     setEditColor('');
-    setEditPrice('');
     setEditDescription('');
   };
 
@@ -97,18 +90,12 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
       toast({ title: 'Falta sistema o color', variant: 'destructive' });
       return;
     }
-    const price = Number(editPrice);
-    if (!Number.isFinite(price) || price <= 0) {
-      toast({ title: 'Precio por m² inválido', variant: 'destructive' });
-      return;
-    }
     try {
       await updateOne.mutateAsync({
         id: editingId,
         patch: {
           system: editSystem.trim(),
           color: editColor.trim(),
-          price_per_m2: price,
           description: editDescription.trim() || null,
         },
       });
@@ -148,7 +135,7 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
           <DialogHeader>
             <DialogTitle>Productos terminados</DialogTitle>
             <DialogDescription>
-              Sistema + color + precio por m². Configurá los componentes (cabezal, sillar, jamba, vidrio, accesorios) para que la app calcule el costo real por m². Lo usás como fuente de precios al cotizar.
+              Creá un producto (sistema + color), después configurá sus componentes (cabezal, sillar, jamba, vidrio, accesorios) con cantidad por m². La app calcula el costo real automáticamente desde tu inventario y lo usa al cotizar.
             </DialogDescription>
           </DialogHeader>
 
@@ -160,11 +147,12 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
             </Button>
           </div>
 
-          {/* Add form */}
+          {/* Add form — solo lo mínimo. Precio, vidrio, mano de obra, etc. se configura después. */}
           <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <div className="text-xs font-medium text-muted-foreground">Nuevo producto</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">Sistema</Label>
+                <Label className="text-xs">Sistema *</Label>
                 <Input
                   placeholder="744"
                   value={system}
@@ -172,20 +160,11 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Color</Label>
+                <Label className="text-xs">Color *</Label>
                 <Input
                   placeholder="Blanco"
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Precio por m² (COP)</Label>
-                <Input
-                  type="number"
-                  placeholder="180000"
-                  value={pricePerM2}
-                  onChange={(e) => setPricePerM2(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
@@ -197,6 +176,9 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
                 />
               </div>
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              Después de crear, abriremos el configurador para que armes los componentes (cabezal, sillar, jamba, vidrio, accesorios), tiempo de entrega, mano de obra y precio.
+            </p>
             <Button
               onClick={handleAdd}
               disabled={createOne.isPending}
@@ -208,7 +190,7 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
               ) : (
                 <>
                   <Plus className="h-4 w-4 mr-1.5" />
-                  Agregar al catálogo
+                  Crear y configurar
                 </>
               )}
             </Button>
@@ -221,34 +203,35 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
             </div>
           ) : data.length === 0 ? (
             <p className="text-center text-sm text-muted-foreground py-6">
-              Tu catálogo está vacío. Agregá productos arriba o usá la carga masiva.
+              Sin productos terminados aún. Creá uno arriba o usá la carga masiva.
             </p>
           ) : (
             <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
               {data.map((entry) => {
                 const editing = entry.id === editingId;
+                const costo = entry.costo_calculado_m2 ?? 0;
+                const precio = entry.price_per_m2 ?? 0;
+                const sinConfigurar = costo === 0 && precio === 0;
                 return (
                   <div
                     key={entry.id}
-                    className="rounded-lg border border-border p-2 grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto] gap-2 items-center"
+                    className={`rounded-lg border p-3 ${
+                      sinConfigurar ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-border'
+                    }`}
                   >
                     {editing ? (
-                      <>
+                      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-center">
                         <Input
                           value={editSystem}
                           onChange={(e) => setEditSystem(e.target.value)}
                           className="h-8"
+                          placeholder="Sistema"
                         />
                         <Input
                           value={editColor}
                           onChange={(e) => setEditColor(e.target.value)}
                           className="h-8"
-                        />
-                        <Input
-                          type="number"
-                          value={editPrice}
-                          onChange={(e) => setEditPrice(e.target.value)}
-                          className="h-8"
+                          placeholder="Color"
                         />
                         <Input
                           value={editDescription}
@@ -269,43 +252,44 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
                             <XIcon className="h-4 w-4" />
                           </Button>
                         </div>
-                        <div />
-                      </>
+                      </div>
                     ) : (
-                      <>
-                        <span className={`text-sm font-medium ${!entry.active ? 'text-muted-foreground line-through' : ''}`}>
-                          {entry.system}
-                        </span>
-                        <span className={`text-sm ${!entry.active ? 'text-muted-foreground line-through' : ''}`}>
-                          {entry.color}
-                        </span>
-                        <div className={`text-sm tabular-nums ${!entry.active ? 'text-muted-foreground line-through' : ''}`}>
-                          <div>
-                            {entry.price_per_m2.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}
-                            <span className="text-[10px] text-muted-foreground"> venta/m²</span>
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            Costo: {(entry.costo_calculado_m2 ?? 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}
-                          </div>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className={`flex-1 min-w-[150px] ${!entry.active ? 'text-muted-foreground line-through' : ''}`}>
+                          <div className="text-sm font-medium">{entry.system} · {entry.color}</div>
+                          {entry.description && (
+                            <div className="text-[11px] text-muted-foreground truncate">{entry.description}</div>
+                          )}
                         </div>
-                        <span className="text-xs text-muted-foreground truncate" title={entry.description ?? ''}>
-                          {entry.description ?? '—'}
-                        </span>
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="text-xs tabular-nums text-right min-w-[140px]">
+                          {sinConfigurar ? (
+                            <span className="text-amber-700 dark:text-amber-400 font-medium">Sin configurar</span>
+                          ) : (
+                            <>
+                              <div className="text-muted-foreground">
+                                Costo: {costo.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}/m²
+                              </div>
+                              <div className="font-medium">
+                                Venta: {precio.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}/m²
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            variant={sinConfigurar ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setComponentsForEntry(entry)}
+                            className="h-8"
+                          >
+                            <Package className="h-3.5 w-3.5 mr-1.5" />
+                            {sinConfigurar ? 'Configurar' : 'Editar config'}
+                          </Button>
                           <Switch
                             checked={entry.active}
                             onCheckedChange={() => handleToggleActive(entry)}
                           />
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setComponentsForEntry(entry)}
-                            title="Configurar producto: componentes, vidrio, mano de obra, condiciones"
-                            className="text-muted-foreground hover:text-foreground"
-                          >
-                            <Package className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => startEdit(entry)} title="Edición rápida (sistema/color/precio)">
+                          <Button variant="ghost" size="sm" onClick={() => startEdit(entry)} title="Renombrar">
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                           <Button
@@ -317,8 +301,7 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
-                        <div />
-                      </>
+                      </div>
                     )}
                   </div>
                 );
