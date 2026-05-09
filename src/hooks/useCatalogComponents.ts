@@ -95,7 +95,12 @@ export function useCatalogComponentMutations() {
         } as never) as any);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [COMPONENTS_KEY] }),
+    onSuccess: () => {
+      // Invalidar también aluminum-catalog para que el header del accordion
+      // refresque costo_calculado_m2 (que el trigger recalcula en el server).
+      qc.invalidateQueries({ queryKey: [COMPONENTS_KEY] });
+      qc.invalidateQueries({ queryKey: ['aluminum-catalog'] });
+    },
   });
 
   const update = useMutation({
@@ -109,7 +114,12 @@ export function useCatalogComponentMutations() {
         .eq('id', params.id) as any);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [COMPONENTS_KEY] }),
+    onSuccess: () => {
+      // Invalidar también aluminum-catalog para que el header del accordion
+      // refresque costo_calculado_m2 (que el trigger recalcula en el server).
+      qc.invalidateQueries({ queryKey: [COMPONENTS_KEY] });
+      qc.invalidateQueries({ queryKey: ['aluminum-catalog'] });
+    },
   });
 
   const remove = useMutation({
@@ -120,7 +130,12 @@ export function useCatalogComponentMutations() {
         .eq('id', id) as any);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [COMPONENTS_KEY] }),
+    onSuccess: () => {
+      // Invalidar también aluminum-catalog para que el header del accordion
+      // refresque costo_calculado_m2 (que el trigger recalcula en el server).
+      qc.invalidateQueries({ queryKey: [COMPONENTS_KEY] });
+      qc.invalidateQueries({ queryKey: ['aluminum-catalog'] });
+    },
   });
 
   return { add, update, remove };
