@@ -279,10 +279,15 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
                         <span className={`text-sm ${!entry.active ? 'text-muted-foreground line-through' : ''}`}>
                           {entry.color}
                         </span>
-                        <span className={`text-sm tabular-nums ${!entry.active ? 'text-muted-foreground line-through' : ''}`}>
-                          {entry.price_per_m2.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}
-                          <span className="text-[10px] text-muted-foreground"> /m²</span>
-                        </span>
+                        <div className={`text-sm tabular-nums ${!entry.active ? 'text-muted-foreground line-through' : ''}`}>
+                          <div>
+                            {entry.price_per_m2.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}
+                            <span className="text-[10px] text-muted-foreground"> venta/m²</span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            Costo: {(entry.costo_calculado_m2 ?? 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}
+                          </div>
+                        </div>
                         <span className="text-xs text-muted-foreground truncate" title={entry.description ?? ''}>
                           {entry.description ?? '—'}
                         </span>
@@ -295,12 +300,12 @@ export default function AluminumCatalogModal({ open, onOpenChange }: Props) {
                             variant="ghost"
                             size="sm"
                             onClick={() => setComponentsForEntry(entry)}
-                            title="Componentes (productos del inventario que componen este producto)"
+                            title="Configurar producto: componentes, vidrio, mano de obra, condiciones"
                             className="text-muted-foreground hover:text-foreground"
                           >
                             <Package className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => startEdit(entry)}>
+                          <Button variant="ghost" size="sm" onClick={() => startEdit(entry)} title="Edición rápida (sistema/color/precio)">
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                           <Button

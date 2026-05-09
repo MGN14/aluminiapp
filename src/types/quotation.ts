@@ -3,9 +3,22 @@ export interface AluminumCatalogEntry {
   user_id: string;
   system: string;
   color: string;
+  /** Precio de venta sugerido por m² (manual). Si no se setea, la cotización lo calcula desde costo + márgenes. */
   price_per_m2: number;
   description: string | null;
   active: boolean;
+  /** Si true, el producto incluye vidrio en su BOM. */
+  lleva_vidrio: boolean;
+  /** Texto libre: "templado 6mm", "crudo 4mm", "reflectivo bronce", etc. */
+  tipo_vidrio: string | null;
+  /** Tiempo de entrega típico en días hábiles. */
+  tiempo_entrega_dias: number;
+  /** Condiciones específicas (anticipo, garantía, instalación). */
+  condiciones: string | null;
+  /** Override % mano de obra para este producto-color. NULL = usa default global del perfil. */
+  mano_obra_pct: number | null;
+  /** Costo real calculado por m² (Σ componentes × costo unitario). Auto-actualizado por trigger. */
+  costo_calculado_m2: number;
   created_at: string;
   updated_at: string;
 }

@@ -11,6 +11,11 @@ export interface CatalogInput {
   price_per_m2: number;
   description?: string | null;
   active?: boolean;
+  lleva_vidrio?: boolean;
+  tipo_vidrio?: string | null;
+  tiempo_entrega_dias?: number;
+  condiciones?: string | null;
+  mano_obra_pct?: number | null;
 }
 
 export function useAluminumCatalog(opts?: { onlyActive?: boolean }) {
@@ -46,6 +51,11 @@ export function useAluminumCatalog(opts?: { onlyActive?: boolean }) {
           price_per_m2: input.price_per_m2,
           description: input.description?.trim() || null,
           active: input.active ?? true,
+          lleva_vidrio: input.lleva_vidrio ?? true,
+          tipo_vidrio: input.tipo_vidrio?.trim() || null,
+          tiempo_entrega_dias: input.tiempo_entrega_dias ?? 0,
+          condiciones: input.condiciones?.trim() || null,
+          mano_obra_pct: input.mano_obra_pct ?? null,
         } as never)
         .select('*')
         .single() as any);
@@ -64,6 +74,15 @@ export function useAluminumCatalog(opts?: { onlyActive?: boolean }) {
       if (params.patch.description !== undefined)
         patch.description = params.patch.description?.trim() || null;
       if (params.patch.active !== undefined) patch.active = params.patch.active;
+      if (params.patch.lleva_vidrio !== undefined) patch.lleva_vidrio = params.patch.lleva_vidrio;
+      if (params.patch.tipo_vidrio !== undefined)
+        patch.tipo_vidrio = params.patch.tipo_vidrio?.trim() || null;
+      if (params.patch.tiempo_entrega_dias !== undefined)
+        patch.tiempo_entrega_dias = params.patch.tiempo_entrega_dias;
+      if (params.patch.condiciones !== undefined)
+        patch.condiciones = params.patch.condiciones?.trim() || null;
+      if (params.patch.mano_obra_pct !== undefined)
+        patch.mano_obra_pct = params.patch.mano_obra_pct;
       const { error } = await (supabase
         .from('aluminum_catalog' as never)
         .update(patch as never)
