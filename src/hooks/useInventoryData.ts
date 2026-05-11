@@ -63,6 +63,17 @@ export interface InventoryMetrics {
    *  de "Días de Inventario" y "Sin Movimiento" no son confiables y la UI
    *  debe mostrar "—" en lugar de 0d/100%. */
   hasMovementData: boolean;
+  /** Última fecha en la que se sincronizó el stock_system desde Siigo (MAX
+   *  de inventory_products.last_siigo_sync_at). Null si ningún producto
+   *  vino de Siigo o nunca se hizo sync. Sirve para contextualizar el
+   *  descuadre Siigo vs físico (ej: si la sync fue ayer y el conteo hace
+   *  un mes, el descuadre es esperado). */
+  lastSiigoSyncAt: string | null;
+  /** Última fecha en la que se registró conteo físico (MAX de
+   *  inventory_products.last_count_date). Null si nunca se hizo conteo.
+   *  El delta entre esta fecha y lastSiigoSyncAt explica los descuadres
+   *  por entradas/salidas no contadas todavía. */
+  lastPhysicalCountAt: string | null;
 }
 
 function classifyStatus(daysOfInventory: number, avgDailySales: number): InventoryStatus {
@@ -92,6 +103,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
     pctNoMovement: 0, totalDifference: 0, totalDifferenceValue: 0,
     totalProducts: 0, criticalCount: 0, excessCount: 0,
     hasMovementData: false,
+    lastSiigoSyncAt: null, lastPhysicalCountAt: null,
   });
 
   const fetchData = useCallback(async () => {
@@ -224,6 +236,20 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
       // "Sin Movimiento" no son confiables y la UI los muestra como "—".
       const hasMovementData = recentSalesByRef.size > 0;
 
+      // Trackeo de fechas: cuándo se actualizó Siigo y cuándo se hizo conteo.
+      // Sirve para contextualizar descuadres (ej: llegó mercancía hoy y el
+      // conteo es de hace un mes → el descuadre es esperado).
+      const maxIso = (arr: (string | null | undefined)[]): string | null => {
+        let best: string | null = null;
+        for (const v of arr) {
+          if (!v) continue;
+          if (best === null || v > best) best = v;
+        }
+        return best;
+      };
+      const lastSiigoSyncAt = maxIso(rawProducts.map(p => p.last_siigo_sync_at));
+      const lastPhysicalCountAt = maxIso(rawProducts.map(p => p.last_count_date));
+
       setMetrics({
         totalValue,
         avgDaysOfInventory: Math.round(avgDays),
@@ -235,6 +261,8 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         criticalCount: enriched.filter(p => p.status === 'critico').length,
         excessCount: enriched.filter(p => p.status === 'exceso').length,
         hasMovementData,
+        lastSiigoSyncAt,
+        lastPhysicalCountAt,
       });
     } catch (err: any) {
       toast({ title: 'Error cargando inventario', description: err.message, variant: 'destructive' });

@@ -14,6 +14,7 @@ import AdjustStockModal from '@/components/inventory/AdjustStockModal';
 import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import PhysicalCountModal from '@/components/inventory/PhysicalCountModal';
 import MaestroProductos from '@/components/inventory/MaestroProductos';
+import InventoryFreshnessBanner from '@/components/inventory/InventoryFreshnessBanner';
 import AppLayout from '@/components/layout/AppLayout';
 
 type Tab = 'inventario' | 'maestro';
@@ -354,6 +355,14 @@ export default function Inventory() {
             {/* Insights Nico */}
             <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '0ms' }}>
               <InventoryInsights products={products} metrics={metrics} />
+            </div>
+
+            {/* Freshness banner — fechas de última sync Siigo y último conteo físico */}
+            <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '40ms' }}>
+              <InventoryFreshnessBanner
+                lastSiigoSyncAt={metrics.lastSiigoSyncAt}
+                lastPhysicalCountAt={metrics.lastPhysicalCountAt}
+              />
             </div>
 
             {/* Metric Cards */}
