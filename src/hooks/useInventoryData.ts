@@ -134,14 +134,13 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
       const rawProducts = (prodRes.data || []) as InventoryProduct[];
       const rawInventoryMovements = (movRes.data || []) as InventoryMovement[];
 
-      // 2. Ventas de los últimos 90 días según fuente del modo activo.
+      // 2. Ventas y compras de los últimos 90 días según fuente del modo.
       //    Devuelve eventos individuales (date, quantity, reference) para
       //    poder construir el chart por bucket — no solo el agregado por ref.
-      const salesEvents = await loadRecentSalesEvents(
-        user.id,
-        dataSource,
-        ninetyDaysAgoIso,
-      );
+      const [salesEvents, purchaseEvents] = await Promise.all([
+        loadRecentSalesEvents(user.id, dataSource, ninetyDaysAgoIso),
+        loadRecentPurchaseEvents(user.id, dataSource, ninetyDaysAgoIso),
+      ]);
 
       // Map ref → product_id para mapear eventos sintéticos a productos.
       const productByRef = new Map<string, InventoryProduct>();
@@ -160,30 +159,58 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
           const product = productByRef.get(k);
           if (!product) return null;
           return {
-            id: `synthetic-${dataSource}-${ev.sourceId}-${ev.lineIndex}`,
+            id: `synthetic-salida-${dataSource}-${ev.sourceId}-${ev.lineIndex}`,
             product_id: product.id,
             movement_type: 'salida',
             quantity: Math.abs(ev.quantity),
             unit_cost: product.cost_per_unit ?? 0,
             total_cost: Math.abs(ev.quantity) * (product.cost_per_unit ?? 0),
             invoice_id: dataSource === 'dian' ? ev.sourceId : null,
-            notes: dataSource === 'dian' ? '[Auto: factura]' : '[Auto: remisión]',
+            notes: dataSource === 'dian' ? '[Auto: factura venta]' : '[Auto: remisión venta]',
             movement_date: ev.date,
             created_at: ev.date,
           } satisfies InventoryMovement;
         })
         .filter((m): m is InventoryMovement => m !== null);
 
-      // Movimientos para chart e historial: combinamos entradas/ajustes manuales
-      // del inventory_movements raw + salidas sintéticas de la fuente activa.
-      // Excluimos las salidas raw para no duplicar (las salidas oficiales son
-      // las facturas o remisiones según el modo).
-      const inventoryEntries = rawInventoryMovements.filter(
-        m => m.movement_type !== 'salida',
+      // Construir movimientos sintéticos de ENTRADA desde la fuente del modo.
+      // Razón: siigo-sync-products solo actualiza stock_system (total acumulado)
+      // pero no inserta movimientos individuales — entonces las compras Siigo
+      // nunca aparecían en el gráfico. Las entradas reales viven en
+      // invoices type='compra' (DIAN, incluye facturas Siigo) o
+      // remisiones remision_type='compra' (Gerencial).
+      const syntheticEntradas: InventoryMovement[] = purchaseEvents
+        .map(ev => {
+          const k = ev.reference.trim().toLowerCase();
+          const product = productByRef.get(k);
+          if (!product) return null;
+          return {
+            id: `synthetic-entrada-${dataSource}-${ev.sourceId}-${ev.lineIndex}`,
+            product_id: product.id,
+            movement_type: 'entrada',
+            quantity: Math.abs(ev.quantity),
+            unit_cost: product.cost_per_unit ?? 0,
+            total_cost: Math.abs(ev.quantity) * (product.cost_per_unit ?? 0),
+            invoice_id: dataSource === 'dian' ? ev.sourceId : null,
+            notes: dataSource === 'dian' ? '[Auto: factura compra]' : '[Auto: remisión compra]',
+            movement_date: ev.date,
+            created_at: ev.date,
+          } satisfies InventoryMovement;
+        })
+        .filter((m): m is InventoryMovement => m !== null);
+
+      // Movimientos para chart e historial: combinamos ajustes manuales
+      // del inventory_movements raw + entradas/salidas sintéticas de la
+      // fuente activa. Excluimos entradas y salidas raw para no duplicar
+      // (las fuentes oficiales son facturas/remisiones según el modo).
+      const inventoryAdjustments = rawInventoryMovements.filter(
+        m => m.movement_type !== 'salida' && m.movement_type !== 'entrada',
       );
-      const combinedMovements = [...inventoryEntries, ...syntheticSalidas].sort(
-        (a, b) => new Date(b.movement_date).getTime() - new Date(a.movement_date).getTime(),
-      );
+      const combinedMovements = [
+        ...inventoryAdjustments,
+        ...syntheticEntradas,
+        ...syntheticSalidas,
+      ].sort((a, b) => new Date(b.movement_date).getTime() - new Date(a.movement_date).getTime());
       setMovements(combinedMovements);
 
       // 3. Calcular agregado por reference SOLO para últimos 30 días (KPIs).
@@ -423,6 +450,82 @@ async function loadRecentSalesEvents(
     .eq('remisiones.user_id', userId)
     .eq('remisiones.module_origin', 'gerencial')
     .eq('remisiones.remision_type', 'venta')
+    .gte('remisiones.date', sinceIso);
+  if (error) throw error;
+  let i = 0;
+  for (const row of (data ?? []) as Array<{
+    id: string;
+    remision_id: string;
+    reference: string | null;
+    units: number | null;
+    remisiones: { date: string };
+  }>) {
+    if (!row.reference) continue;
+    out.push({
+      date: row.remisiones.date,
+      quantity: Number(row.units ?? 0),
+      reference: row.reference,
+      sourceId: row.remision_id ?? row.id,
+      lineIndex: i++,
+    });
+  }
+  return out;
+}
+
+/**
+ * Carga eventos de compra (entradas de inventario) según el modo:
+ * - DIAN: invoice_items de invoices type='compra' (incluye facturas Siigo).
+ * - Gerencial: remision_items de remisiones module_origin='gerencial' y
+ *   remision_type='compra'.
+ *
+ * Simétrica a loadRecentSalesEvents pero para entradas. Razón de existir:
+ * siigo-sync-products solo actualiza stock_system acumulado, no crea
+ * inventory_movements individuales, así que las compras Siigo no aparecían
+ * en el gráfico de entradas/salidas.
+ */
+async function loadRecentPurchaseEvents(
+  userId: string,
+  source: InventoryDataSource,
+  sinceIso: string,
+): Promise<SalesEvent[]> {
+  const out: SalesEvent[] = [];
+
+  if (source === 'dian') {
+    const { data, error } = await supabase
+      .from('invoice_items')
+      .select('id, invoice_id, reference, quantity, invoices!inner(id, issue_date, type, user_id)')
+      .eq('user_id', userId)
+      .eq('invoices.user_id', userId)
+      .eq('invoices.type', 'compra')
+      .gte('invoices.issue_date', sinceIso);
+    if (error) throw error;
+    let i = 0;
+    for (const row of (data ?? []) as Array<{
+      id: string;
+      invoice_id: string;
+      reference: string | null;
+      quantity: number | null;
+      invoices: { issue_date: string };
+    }>) {
+      if (!row.reference) continue;
+      out.push({
+        date: row.invoices.issue_date,
+        quantity: Number(row.quantity ?? 0),
+        reference: row.reference,
+        sourceId: row.invoice_id ?? row.id,
+        lineIndex: i++,
+      });
+    }
+    return out;
+  }
+
+  // gerencial
+  const { data, error } = await supabase
+    .from('remision_items')
+    .select('id, remision_id, reference, units, remisiones!inner(id, date, module_origin, remision_type, user_id)')
+    .eq('remisiones.user_id', userId)
+    .eq('remisiones.module_origin', 'gerencial')
+    .eq('remisiones.remision_type', 'compra')
     .gte('remisiones.date', sinceIso);
   if (error) throw error;
   let i = 0;
