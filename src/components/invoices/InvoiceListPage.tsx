@@ -208,6 +208,56 @@ export default function InvoiceListPage({ type }: Props) {
     if (isEmpresarial) fetchInvoices();
   }, [isEmpresarial, fetchInvoices]);
 
+  // Auto-sync con Siigo al entrar a la página, si pasó > 10 min desde la
+  // última sync. Evita la fricción de tener que clickear "Sincronizar"
+  // cada vez que se carga la página para ver facturas nuevas.
+  useEffect(() => {
+    if (!isEmpresarial) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || cancelled) return;
+        const { data: creds } = await supabase
+          .from('user_siigo_credentials')
+          .select('connection_status, last_invoice_pulled_at')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (!creds || creds.connection_status !== 'connected') return;
+        const lastIso = creds.last_invoice_pulled_at;
+        const minutesSince = lastIso
+          ? (Date.now() - new Date(lastIso).getTime()) / 60_000
+          : Infinity;
+        if (minutesSince < 10) return; // fresco, no resync
+        // Dispara silenciosamente; cuando termina, refresca la lista.
+        setSiigoSyncing(true);
+        const { data, error } = await supabase.functions.invoke('siigo-sync-invoices', {
+          body: { kinds: [type] },
+        });
+        if (cancelled) return;
+        if (error || !data?.ok) {
+          // No mostrar toast en auto-sync para no molestar; el botón manual
+          // sigue disponible si el usuario quiere reintentar.
+          console.warn('[siigo auto-sync]', error?.message ?? data?.error);
+        } else if ((data.synced ?? 0) > 0) {
+          await fetchInvoices();
+          toast({
+            title: 'Siigo actualizado',
+            description: `${data.synced} facturas nuevas o actualizadas.`,
+          });
+        }
+      } catch (e) {
+        console.warn('[siigo auto-sync] error', e);
+      } finally {
+        if (!cancelled) setSiigoSyncing(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEmpresarial, type, fetchInvoices, toast]);
+
   const filtered = useMemo(() => {
     let result = yearScoped;
     if (statusFilter !== 'all') result = result.filter(i => i.status === statusFilter);
