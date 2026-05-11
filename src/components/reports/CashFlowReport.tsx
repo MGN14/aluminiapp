@@ -146,6 +146,8 @@ function useInvoiceSummary(userId: string | undefined, year: number) {
         .from('invoices')
         .select('type, total_amount, issue_date, status')
         .eq('status', 'confirmed')
+        // Excluir facturas anuladas totalmente por nota crédito.
+        .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
       if (error) throw error;

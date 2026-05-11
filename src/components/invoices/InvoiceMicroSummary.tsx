@@ -12,7 +12,10 @@ interface Props {
 
 export default function InvoiceMicroSummary({ invoices, type }: Props) {
   const { total, iva } = useMemo(() => {
-    const confirmed = invoices.filter(i => i.status === 'confirmed');
+    // Excluir las anuladas totalmente por NC: no son facturación válida.
+    const confirmed = invoices.filter(
+      i => i.status === 'confirmed' && (i as { void_type?: string | null }).void_type !== 'total',
+    );
     return {
       total: confirmed.reduce((s, i) => s + i.total_amount, 0),
       iva: confirmed.reduce((s, i) => s + i.iva_amount, 0),

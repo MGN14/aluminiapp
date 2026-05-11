@@ -131,6 +131,8 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
           .select('id, invoice_number, counterparty_name, issue_date, due_date, total_amount, type, responsible_id')
           .eq('type', targetType)
           .eq('status', 'confirmed')
+          // Excluir las anuladas totalmente por NC: no se les vinculan pagos.
+          .or('void_type.is.null,void_type.eq.partial')
           .gte('issue_date', cutoff)
           .order('issue_date', { ascending: false })
           .limit(200);

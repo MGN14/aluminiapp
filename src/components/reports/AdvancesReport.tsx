@@ -111,10 +111,13 @@ export default function AdvancesReport() {
       }
 
       // Get user invoices for reconciliation
+      // Excluir facturas anuladas totalmente por NC: no se les puede vincular
+      // anticipos porque ya no son facturación válida.
       const { data: invoicesRaw } = await supabase
         .from('invoices')
         .select('id, invoice_number, counterparty_name, total_amount, issue_date')
         .eq('type', 'venta')
+        .or('void_type.is.null,void_type.eq.partial')
         .order('issue_date', { ascending: false })
         .limit(200);
 

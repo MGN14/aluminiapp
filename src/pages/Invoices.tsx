@@ -124,7 +124,8 @@ export default function Invoices() {
   }, [invoices, statusFilter, searchQuery, activeTab]);
 
   const confirmedInvoices = useMemo(() => {
-    return invoices.filter(i => i.status === 'confirmed');
+    // Excluir las anuladas totalmente por nota crédito.
+    return invoices.filter(i => i.status === 'confirmed' && (i as { void_type?: string | null }).void_type !== 'total');
   }, [invoices]);
 
   const handleViewPDF = useCallback(async (storagePath: string | null) => {

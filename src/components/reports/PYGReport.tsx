@@ -370,6 +370,8 @@ export default function PYGReport() {
         .select('issue_date, total_amount')
         .eq('type', 'venta')
         .eq('status', 'confirmed')
+        // Excluir facturas anuladas totalmente por nota crédito.
+        .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
       return (data || []) as Array<{ issue_date: string; total_amount: number }>;

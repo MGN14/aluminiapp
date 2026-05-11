@@ -50,6 +50,8 @@ export function useOperationalData(year: number): OperationalData {
         .from('invoices')
         .select('id, total_amount, subtotal_base, counterparty_name, retefuente_cliente_amount, retefuente_cliente_rate')
         .eq('type', 'venta')
+        // Excluir facturas anuladas totalmente por nota crédito.
+        .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);
 
@@ -67,6 +69,8 @@ export function useOperationalData(year: number): OperationalData {
         .select('counterparty_name, subtotal_base, responsible_id')
         .eq('type', 'venta')
         .eq('status', 'confirmed')
+        // Excluir facturas anuladas totalmente por nota crédito.
+        .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);
 

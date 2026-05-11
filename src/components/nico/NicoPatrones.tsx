@@ -92,6 +92,8 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         .from('invoices')
         .select('id, invoice_number, issue_date, total_amount, counterparty_name, status, type, responsible_id')
         .eq('type', 'venta')
+        // Excluir las anuladas totalmente por NC: Nico IA no debe alertar sobre patrones de facturas inválidas.
+        .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', `${currentYear - 1}-01-01`);
       return data || [];
     },

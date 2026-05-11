@@ -88,10 +88,12 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
 
   const fetchInvoicesWithBalances = useCallback(async () => {
     // Fetch confirmed invoices
+    // Excluir las anuladas totalmente por NC: no se les puede vincular pagos.
     const { data: rawInvoices } = await supabase
       .from('invoices')
       .select('id, invoice_number, type, counterparty_name, issue_date, total_amount')
       .eq('status', 'confirmed')
+      .or('void_type.is.null,void_type.eq.partial')
       .order('issue_date', { ascending: false })
       .limit(200);
 

@@ -300,6 +300,8 @@ export default function PaymentsLogReport() {
           .from('invoices')
           .select('id, type, total_amount, counterparty_name, responsible_id')
           .in('responsible_id', allRespIdsForClient)
+          // Excluir facturas anuladas totalmente por nota crédito.
+          .or('void_type.is.null,void_type.eq.partial')
           .gte('issue_date', `${year}-01-01`)
           .lte('issue_date', `${year}-12-31`);
         (linkedInvs ?? []).forEach((i: any) => invsCollected.set(i.id, i));
@@ -310,6 +312,8 @@ export default function PaymentsLogReport() {
         .select('id, type, total_amount, counterparty_name, responsible_id')
         .is('responsible_id', null)
         .ilike('counterparty_name', `%${counterparty.split(' ').slice(0, 2).join(' ')}%`)
+        // Excluir facturas anuladas totalmente por nota crédito.
+        .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
       (fallbackInvs ?? []).forEach((i: any) => {
@@ -772,6 +776,8 @@ export default function PaymentsLogReport() {
         .from('invoices')
         .select('type, total_amount, status')
         .eq('status', 'confirmed')
+        // Excluir facturas anuladas totalmente por nota crédito.
+        .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', startDate)
         .lte('issue_date', endDate);
       let ventas = 0, compras = 0, ventasCount = 0, comprasCount = 0;
