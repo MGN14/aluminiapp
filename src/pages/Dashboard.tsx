@@ -175,7 +175,9 @@ function DashboardContent() {
   const fetchSalesInvoices = useCallback(async () => {
     try {
       const { start: yearStart, end: yearEnd } = getYearRange(periodSelection.year);
-      const { data, error } = await supabase.from('invoices').select('id, issue_date, total_amount, counterparty_name, responsible_id').eq('status', 'confirmed').eq('type', 'venta').gte('issue_date', yearStart).lte('issue_date', yearEnd).order('issue_date', { ascending: true });
+      // .or('void_type.is.null,void_type.eq.partial') excluye las anuladas
+      // totalmente por nota crédito — siguen en Siigo pero ya no facturación.
+      const { data, error } = await supabase.from('invoices').select('id, issue_date, total_amount, counterparty_name, responsible_id').eq('status', 'confirmed').eq('type', 'venta').gte('issue_date', yearStart).lte('issue_date', yearEnd).or('void_type.is.null,void_type.eq.partial').order('issue_date', { ascending: true });
       if (error) throw error;
       setSalesInvoices((data as SalesInvoiceData[]) || []);
     } catch (error) { console.error('Error fetching sales invoices:', error); setSalesInvoices([]); }

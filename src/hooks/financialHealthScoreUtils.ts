@@ -121,6 +121,17 @@ export interface HealthInvoice {
   type: string | null;
   total_amount: number | null;
   retefuente_cliente_amount?: number | null;
+  /** Si void_type='total' la factura está anulada por nota crédito y NO debe
+   *  contar en facturación / IVA / score. Las parciales sí cuentan al monto
+   *  neto pero por ahora se manejan al nivel de cálculo agregado. */
+  void_type?: 'total' | 'partial' | null;
+}
+
+/** Filtro estándar: una factura cuenta como facturación válida cuando NO
+ *  está totalmente anulada por nota crédito. Se aplica antes de cualquier
+ *  agregación de facturación / IVA / cartera. */
+export function isCountableInvoice(inv: { void_type?: string | null }): boolean {
+  return inv.void_type !== 'total';
 }
 
 function isNA(notes: string | null): boolean {

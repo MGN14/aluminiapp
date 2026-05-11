@@ -39,6 +39,16 @@ export interface Invoice {
   payment_method: string | null;
   notes: string | null;
   status: 'draft' | 'confirmed' | 'error' | 'uploading' | 'processing' | 'ready';
+  /**
+   * Anulación por nota crédito. voided_at != null => factura tiene NC asociada
+   * en Siigo. void_type='total' => NC iguala el total (factura inválida,
+   * excluir de KPIs). void_type='partial' => NC parcial (saldo neto reducido).
+   */
+  voided_at?: string | null;
+  voided_amount?: number | null;
+  voided_by_credit_note_id?: string | null;
+  voided_by_credit_note_number?: string | null;
+  void_type?: 'total' | 'partial' | null;
   source?: 'manual' | 'siigo';
   siigo_id?: string | null;
   storage_path: string | null;

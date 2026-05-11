@@ -104,7 +104,7 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           .lt('date', nextYearStart),
         supabase
           .from('invoices')
-          .select('id, type, status, issue_date, total_amount, retefuente_cliente_amount')
+          .select('id, type, status, issue_date, total_amount, retefuente_cliente_amount, void_type')
           .eq('status', 'confirmed')
           .gte('issue_date', yearStart)
           .lt('issue_date', nextYearStart),
@@ -213,7 +213,11 @@ export function useFinancialHealthScore(year: number, _month?: number) {
           : `${year}-${String(month + 1).padStart(2, '0')}-01`;
 
         const transactionsToDate = transactions.filter((tx) => tx.date < rangeEndExclusive);
-        const invoicesToDate = invoices.filter((invoice) => invoice.issue_date < rangeEndExclusive);
+        // Excluir facturas totalmente anuladas por nota crédito: ya no son
+        // facturación válida (Siigo las sigue exponiendo pero no cuentan).
+        const invoicesToDate = invoices.filter(
+          (invoice) => invoice.issue_date < rangeEndExclusive && invoice.void_type !== 'total',
+        );
         const salesInvoicesToDate = invoicesToDate.filter((invoice) => invoice.type === 'venta');
         const salesInvoiceIds = new Set(salesInvoicesToDate.map((invoice) => invoice.id));
 

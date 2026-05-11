@@ -131,7 +131,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       // Fetch all queries in parallel
       const periodQuery = supabase
         .from('invoices')
-        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
+        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status, void_type')
         .eq('status', 'confirmed')
         .gte('issue_date', startStr)
         .lte('issue_date', endStr)
@@ -139,7 +139,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
       const yearQuery = supabase
         .from('invoices')
-        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
+        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status, void_type')
         .eq('status', 'confirmed')
         .gte('issue_date', yearStartStr)
         .lte('issue_date', yearEndStr)
@@ -178,7 +178,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       if (cuatrimestreStart && cuatrimestreEnd) {
         cuatrimestreQuery = supabase
           .from('invoices')
-          .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
+          .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status, void_type')
           .eq('status', 'confirmed')
           .gte('issue_date', cuatrimestreStart.toISOString().split('T')[0])
           .lte('issue_date', cuatrimestreEnd.toISOString().split('T')[0])
@@ -188,7 +188,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       // Previous month invoices query
       const prevMonthQuery = supabase
         .from('invoices')
-        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status')
+        .select('id, type, issue_date, subtotal_base, iva_amount, total_amount, counterparty_name, invoice_number, reteica_amount, autoretefuente_amount, status, void_type')
         .eq('status', 'confirmed')
         .gte('issue_date', prevMonthStart)
         .lte('issue_date', prevMonthEnd);
@@ -213,10 +213,17 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         prevMonthQuery,
       ]);
 
-      if (!periodResult.error && periodResult.data) setInvoices(periodResult.data);
-      if (!yearResult.error && yearResult.data) setAllYearInvoices(yearResult.data);
+      // Filtro común: excluir facturas totalmente anuladas por nota crédito.
+      // Las parciales siguen contando porque el saldo neto sigue siendo válido.
+      // Cast a any porque el types generado de Supabase no reconoce void_type
+      // hasta regenerarse (la columna se agregó en la migration 20260514).
+      const stripVoided = (rows: any[] | null): any[] =>
+        (rows ?? []).filter((r: any) => r?.void_type !== 'total');
+
+      if (!periodResult.error && periodResult.data) setInvoices(stripVoided(periodResult.data as any));
+      if (!yearResult.error && yearResult.data) setAllYearInvoices(stripVoided(yearResult.data as any));
       if (settingsResult?.data) setRetefuenteCompraRate(settingsResult.data.retefuente_compra_rate || 0);
-      
+
       // Sum DIAN payments (these are negative amounts = egresos, we take abs value)
       if (dianResult && !dianResult.error && dianResult.data) {
         const total = dianResult.data.reduce((s: number, t: { amount: number | null }) => s + Math.abs(t.amount ?? 0), 0);
@@ -224,15 +231,15 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       } else {
         setDianPaymentsIva(0);
       }
-      
+
       if (cuatrimestreResult && !cuatrimestreResult.error && cuatrimestreResult.data) {
-        setCuatrimestreInvoices(cuatrimestreResult.data);
+        setCuatrimestreInvoices(stripVoided(cuatrimestreResult.data as any));
       } else {
         setCuatrimestreInvoices([]);
       }
 
       if (!prevMonthResult.error && prevMonthResult.data) {
-        setPrevMonthInvoices(prevMonthResult.data);
+        setPrevMonthInvoices(stripVoided(prevMonthResult.data as any));
       } else {
         setPrevMonthInvoices([]);
       }
@@ -253,12 +260,12 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       // Query by user_id + join invoices inline to filter by type/status/date.
       // This is more reliable than filtering by invoice_id list (avoids URL length limits
       // and works even when period invoices have no items but year invoices do).
-      const yearSalesIds = [
+      const yearSalesIds = ([
         ...(periodResult.data || []),
         ...(yearResult.data || []),
-      ]
-        .filter(i => i.type === 'venta' && i.status === 'confirmed')
-        .map(i => i.id)
+      ] as any[])
+        .filter((i: any) => i?.type === 'venta' && i?.status === 'confirmed' && i?.void_type !== 'total')
+        .map((i: any) => i.id as string)
         .filter((id, idx, arr) => arr.indexOf(id) === idx); // dedupe
 
       if (yearSalesIds.length > 0) {
@@ -274,7 +281,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
           if (chunkItems) allItems.push(...(chunkItems as InvoiceItemRow[]));
         }
         // Filter to only period invoices for the card (use period + year depending on data)
-        const periodIds = new Set((periodResult.data || []).filter(i => i.type === 'venta').map(i => i.id));
+        const periodIds = new Set(((periodResult.data as any[]) || []).filter((i: any) => i?.type === 'venta').map((i: any) => i.id as string));
         const periodItems = allItems.filter(item => periodIds.has((item as any).invoice_id));
         // Fall back to full year if period has no items
         setInvoiceItems(periodItems.length > 0 ? periodItems : allItems);

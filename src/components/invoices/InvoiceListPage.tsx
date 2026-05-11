@@ -166,7 +166,8 @@ export default function InvoiceListPage({ type }: Props) {
   }, [invoices, currentYear]);
 
   const summary = useMemo(() => {
-    const confirmed = yearScoped.filter(i => i.status === 'confirmed');
+    // Excluir facturas totalmente anuladas por NC: no son facturación válida.
+    const confirmed = yearScoped.filter(i => i.status === 'confirmed' && i.void_type !== 'total');
     return {
       count: confirmed.length,
       total: confirmed.reduce((s, i) => s + i.total_amount, 0),
@@ -179,7 +180,7 @@ export default function InvoiceListPage({ type }: Props) {
   // Usa el resolver para unificar variantes via responsible_id + aliases
   // de Conciliación Bancaria.
   const counterpartyRanking = useMemo(() => {
-    const confirmed = yearScoped.filter(i => i.status === 'confirmed');
+    const confirmed = yearScoped.filter(i => i.status === 'confirmed' && i.void_type !== 'total');
     const map = new Map<string, { name: string; total: number; count: number }>();
     for (const i of confirmed) {
       const raw = i.counterparty_name || (type === 'venta' ? i.buyer_name : i.seller_name);
@@ -863,12 +864,19 @@ export default function InvoiceListPage({ type }: Props) {
                       const s = statusLabel[inv.status] || statusLabel.draft;
                       const displayDate = inv.issue_date || inv.created_at;
                       const isDraftOrError = ['draft', 'error', 'uploading', 'processing', 'ready'].includes(inv.status);
+                      const isVoidedTotal = inv.void_type === 'total';
+                      const isVoidedPartial = inv.void_type === 'partial';
+                      const rowClass = isVoidedTotal
+                        ? 'bg-destructive/5 opacity-60'
+                        : isDraftOrError
+                          ? 'bg-warning/5'
+                          : '';
                       return (
-                        <TableRow key={inv.id} className={isDraftOrError ? 'bg-warning/5' : ''}>
+                        <TableRow key={inv.id} className={rowClass}>
                           <TableCell className="text-sm">
                             {format(parseLocalDate(displayDate), 'dd MMM yy', { locale: es })}
                           </TableCell>
-                          <TableCell className="font-medium text-sm max-w-[260px]">
+                          <TableCell className={`font-medium text-sm max-w-[260px] ${isVoidedTotal ? 'line-through' : ''}`}>
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="truncate">
                                 {resolveCounterpartyName(
@@ -903,12 +911,27 @@ export default function InvoiceListPage({ type }: Props) {
                               )}
                             </div>
                           </TableCell>
-                          <TableCell className="text-sm">{inv.invoice_number || '—'}</TableCell>
-                          <TableCell className="text-right font-medium">{formatCurrency(inv.total_amount)}</TableCell>
+                          <TableCell className={`text-sm ${isVoidedTotal ? 'line-through' : ''}`}>{inv.invoice_number || '—'}</TableCell>
+                          <TableCell className={`text-right font-medium ${isVoidedTotal ? 'line-through' : ''}`}>{formatCurrency(inv.total_amount)}</TableCell>
                           <TableCell>
-                            <span style={{ display: 'inline-block', ...(statusStyle[inv.status] || statusStyle.draft) }}>
-                              {s.text}
-                            </span>
+                            {isVoidedTotal ? (
+                              <Badge variant="destructive" className="text-[10px] gap-1" title={`Anulada por ${inv.voided_by_credit_note_number ?? 'nota crédito'}`}>
+                                Nota Crédito
+                              </Badge>
+                            ) : isVoidedPartial ? (
+                              <div className="flex flex-col gap-0.5">
+                                <span style={{ display: 'inline-block', ...(statusStyle[inv.status] || statusStyle.draft) }}>
+                                  {s.text}
+                                </span>
+                                <Badge variant="outline" className="text-[9px] px-1.5 border-destructive/40 text-destructive" title={`NC parcial ${inv.voided_by_credit_note_number ?? ''}: ${formatCurrency(Number(inv.voided_amount ?? 0))}`}>
+                                  NC parcial
+                                </Badge>
+                              </div>
+                            ) : (
+                              <span style={{ display: 'inline-block', ...(statusStyle[inv.status] || statusStyle.draft) }}>
+                                {s.text}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
