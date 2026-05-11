@@ -175,7 +175,7 @@ serve(async (req) => {
       ? `${new Date().getFullYear()}-01-01`
       : (body.since
           ?? (creds.last_invoice_pulled_at ? daysAgo(30) : daysAgo(90)));
-    const until = body.until ?? today();
+    const until = body.until ?? tomorrow();
     const kinds: Kind[] = body.kinds && body.kinds.length > 0
       ? body.kinds
       : ["venta", "compra"];
@@ -606,6 +606,15 @@ function num(v: unknown): number {
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Siigo interpreta `created_end=YYYY-MM-DD` como "antes de las 00:00 UTC
+// de ese día", lo que excluye TODO el día indicado. Usamos mañana como
+// upper bound para asegurar que el día de hoy se incluye completo.
+function tomorrow(): string {
+  const t = new Date();
+  t.setUTCDate(t.getUTCDate() + 1);
+  return t.toISOString().slice(0, 10);
 }
 
 function daysAgo(d: number): string {
