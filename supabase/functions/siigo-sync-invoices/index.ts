@@ -346,6 +346,32 @@ serve(async (req) => {
       }
     }
 
+    // ── Sync de notas crédito (NC) — solo si se incluyó 'venta' en kinds.
+    // Razón: una factura Siigo puede ser anulada con NC. La NC referencia la
+    // factura origen y reduce su valor efectivo. La app debe excluir las
+    // facturas voided (total) de KPIs de facturación, IVA, etc.
+    let creditNotesProcessed = 0;
+    let invoicesVoided = 0;
+    if (kinds.includes("venta")) {
+      try {
+        const ncResult = await syncCreditNotes({
+          admin,
+          userId,
+          since,
+          until,
+          apiHeaders,
+        });
+        creditNotesProcessed = ncResult.processed;
+        invoicesVoided = ncResult.voided;
+        debug.credit_notes = ncResult.debug;
+        if (ncResult.errors.length > 0) {
+          errors.push(...ncResult.errors.map(e => `NC: ${e}`));
+        }
+      } catch (e) {
+        errors.push(`NC sync error: ${(e as Error).message}`);
+      }
+    }
+
     await admin.from("user_siigo_credentials").update({
       connection_status: "connected",
       last_sync_at: new Date().toISOString(),
@@ -361,6 +387,8 @@ serve(async (req) => {
       items_inserted: itemsInserted,
       responsibles_auto_created: respAutoCreated,
       aliases_auto_created: aliasesAutoCreated,
+      credit_notes_processed: creditNotesProcessed,
+      invoices_voided: invoicesVoided,
       errors: errors.slice(0, 20),
       since,
       until,
@@ -628,4 +656,151 @@ function json(payload: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Sync de notas crédito (NCs) desde Siigo
+//
+// Las NCs anulan o reducen el valor de una factura. Cada NC referencia la
+// factura origen vía `invoice.id` (siigo_id) o vía `number` (fallback).
+// Marcamos la factura como voided cuando la suma de NCs >= total.
+// ────────────────────────────────────────────────────────────────────────────
+interface SiigoCreditNote {
+  id: string;
+  document?: { id?: number; code?: string };
+  number?: number;
+  name?: string;
+  date?: string;
+  total?: number;
+  invoice?: {
+    id?: string;        // siigo_id de la factura origen
+    number?: number;
+    prefix?: string;
+  };
+  // Algunos tenants exponen el link como array de "references"
+  references?: Array<{
+    document?: { id?: string };
+    number?: number;
+  }>;
+  items?: SiigoLine[];
+}
+
+async function syncCreditNotes(opts: {
+  admin: ReturnType<typeof createClient>;
+  userId: string;
+  since: string;
+  until: string;
+  apiHeaders: Record<string, string>;
+}): Promise<{
+  processed: number;
+  voided: number;
+  errors: string[];
+  debug: Record<string, unknown>;
+}> {
+  const { admin, userId, since, until, apiHeaders } = opts;
+  let processed = 0;
+  let voided = 0;
+  const errors: string[] = [];
+  const debug: Record<string, unknown> = {};
+
+  // Acumulador en memoria: invoice_siigo_id → { amount_total_nc, last_nc_id, last_nc_number }
+  // Se aplica al final como UPDATE por factura.
+  const ncByInvoice = new Map<string, {
+    totalNc: number;
+    lastNcSiigoId: string;
+    lastNcNumber: string | null;
+  }>();
+
+  let page = 1;
+  while (true) {
+    const url = new URL(SIIGO_BASE + "/v1/credit-notes");
+    url.searchParams.set("created_start", since);
+    url.searchParams.set("created_end", until);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("page_size", String(PAGE_SIZE));
+
+    const res = await fetch(url.toString(), { headers: apiHeaders });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      errors.push(`page ${page}: ${res.status} ${detail.slice(0, 200)}`);
+      break;
+    }
+    const payload = await res.json() as {
+      results?: SiigoCreditNote[];
+      pagination?: { total_results?: number };
+    };
+    const results = payload.results ?? [];
+    if (page === 1) {
+      debug.page1 = {
+        total_results: payload.pagination?.total_results ?? null,
+        returned: results.length,
+        numbers: results.map(r => r.number ?? r.name ?? r.id).slice(0, 10),
+        url: url.toString(),
+      };
+    }
+    if (results.length === 0) break;
+
+    for (const nc of results) {
+      processed++;
+      // Resolver siigo_id de la factura origen (prioridad: invoice.id, references)
+      const invoiceSiigoId =
+        nc.invoice?.id
+        ?? (nc.references ?? [])
+          .map(r => r.document?.id)
+          .find((id): id is string => !!id)
+        ?? null;
+      if (!invoiceSiigoId) {
+        errors.push(`${nc.id}: sin referencia a factura origen`);
+        continue;
+      }
+      const ncTotal = num(nc.total);
+      if (ncTotal <= 0) continue;
+      const ncNumber = nc.name ?? (nc.number != null ? String(nc.number) : null);
+      const prev = ncByInvoice.get(invoiceSiigoId);
+      ncByInvoice.set(invoiceSiigoId, {
+        totalNc: (prev?.totalNc ?? 0) + ncTotal,
+        lastNcSiigoId: nc.id,
+        lastNcNumber: ncNumber,
+      });
+    }
+
+    if (results.length < PAGE_SIZE) break;
+    page++;
+  }
+
+  // Aplicar a cada factura: leer total_amount, calcular si es total o parcial,
+  // hacer UPDATE.
+  for (const [invSiigoId, agg] of ncByInvoice.entries()) {
+    const { data: inv } = await admin
+      .from("invoices")
+      .select("id, total_amount")
+      .eq("user_id", userId)
+      .eq("siigo_id", invSiigoId)
+      .maybeSingle();
+    if (!inv) {
+      // La factura origen no está sincronizada en la app (rara). Skip.
+      continue;
+    }
+    const totalAmount = num((inv as { total_amount: number }).total_amount);
+    // total NC >= 99% del total factura → consideramos anulación total
+    // (Siigo a veces tiene diferencias de centavos por redondeo)
+    const isTotal = totalAmount > 0 && agg.totalNc >= totalAmount * 0.99;
+    const { error: updErr } = await admin
+      .from("invoices")
+      .update({
+        voided_at: new Date().toISOString(),
+        voided_amount: agg.totalNc,
+        voided_by_credit_note_id: agg.lastNcSiigoId,
+        voided_by_credit_note_number: agg.lastNcNumber,
+        void_type: isTotal ? "total" : "partial",
+      })
+      .eq("id", (inv as { id: string }).id);
+    if (updErr) {
+      errors.push(`update invoice ${invSiigoId}: ${updErr.message}`);
+    } else if (isTotal) {
+      voided++;
+    }
+  }
+
+  return { processed, voided, errors, debug };
 }
