@@ -110,7 +110,24 @@ export default function InvoiceListPage({ type }: Props) {
   const [bulkDeletingErrors, setBulkDeletingErrors] = useState(false);
   const [siigoSyncing, setSiigoSyncing] = useState(false);
   const [dianValidating, setDianValidating] = useState(false);
-  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  type SortField = 'date' | 'invoice_number' | 'total';
+  type SortConfig = { field: SortField; direction: 'asc' | 'desc' };
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'date', direction: 'desc' });
+
+  const toggleSort = useCallback((field: SortField) => {
+    setSortConfig(prev =>
+      prev.field === field
+        ? { field, direction: prev.direction === 'desc' ? 'asc' : 'desc' }
+        : { field, direction: field === 'invoice_number' ? 'asc' : 'desc' },
+    );
+  }, []);
+
+  // Extrae el primer número entero de un string para sortear "FMGN 281" como 281.
+  // Fallback: localeCompare numérico si no se puede extraer.
+  const numericOf = (s: string | null | undefined): number => {
+    const m = (s ?? '').match(/\d+/);
+    return m ? Number(m[0]) : NaN;
+  };
   const counterpartyResolver = useCounterpartyResolver();
 
   const isEmpresarial = plan === 'empresarial' || plan === 'pro' || plan === 'admin' || isTrialing;
@@ -271,13 +288,27 @@ export default function InvoiceListPage({ type }: Props) {
         (i.invoice_number || '').toLowerCase().includes(q)
       );
     }
+    const sign = sortConfig.direction === 'desc' ? -1 : 1;
     const sorted = [...result].sort((a, b) => {
-      const da = a.issue_date || a.created_at || '';
-      const db = b.issue_date || b.created_at || '';
-      return sortOrder === 'desc' ? db.localeCompare(da) : da.localeCompare(db);
+      if (sortConfig.field === 'date') {
+        const da = a.issue_date || a.created_at || '';
+        const db = b.issue_date || b.created_at || '';
+        return sign * da.localeCompare(db);
+      }
+      if (sortConfig.field === 'invoice_number') {
+        const na = numericOf(a.invoice_number);
+        const nb = numericOf(b.invoice_number);
+        // Si ambos son números válidos, sort numérico. Si no, lexicográfico.
+        if (Number.isFinite(na) && Number.isFinite(nb)) return sign * (na - nb);
+        return sign * (a.invoice_number ?? '').localeCompare(b.invoice_number ?? '');
+      }
+      // total
+      const ta = Number(a.total_amount ?? 0);
+      const tb = Number(b.total_amount ?? 0);
+      return sign * (ta - tb);
     });
     return sorted;
-  }, [yearScoped, statusFilter, searchQuery, sortOrder]);
+  }, [yearScoped, statusFilter, searchQuery, sortConfig]);
 
   const handleViewPDF = useCallback(async (storagePath: string | null) => {
     if (!storagePath) {
@@ -762,26 +793,6 @@ export default function InvoiceListPage({ type }: Props) {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Fecha:</span>
-            <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as 'desc' | 'asc')}>
-              <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="desc">
-                  <span className="flex items-center gap-2">
-                    <ArrowDownNarrowWide className="h-3.5 w-3.5" />
-                    Más nuevas primero
-                  </span>
-                </SelectItem>
-                <SelectItem value="asc">
-                  <span className="flex items-center gap-2">
-                    <ArrowUpNarrowWide className="h-3.5 w-3.5" />
-                    Más antiguas primero
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
 
         {/* Table */}
@@ -812,10 +823,37 @@ export default function InvoiceListPage({ type }: Props) {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="w-[100px]">Fecha</TableHead>
+                      <TableHead className="w-[100px] cursor-pointer select-none" onClick={() => toggleSort('date')}>
+                        <span className="inline-flex items-center gap-1">
+                          Fecha
+                          {sortConfig.field === 'date' && (
+                            sortConfig.direction === 'desc'
+                              ? <ArrowDownNarrowWide className="h-3 w-3" />
+                              : <ArrowUpNarrowWide className="h-3 w-3" />
+                          )}
+                        </span>
+                      </TableHead>
                       <TableHead>{counterpartyLabel}</TableHead>
-                      <TableHead className="w-[120px]">Número</TableHead>
-                      <TableHead className="text-right w-[130px]">Total</TableHead>
+                      <TableHead className="w-[120px] cursor-pointer select-none" onClick={() => toggleSort('invoice_number')}>
+                        <span className="inline-flex items-center gap-1">
+                          Número
+                          {sortConfig.field === 'invoice_number' && (
+                            sortConfig.direction === 'desc'
+                              ? <ArrowDownNarrowWide className="h-3 w-3" />
+                              : <ArrowUpNarrowWide className="h-3 w-3" />
+                          )}
+                        </span>
+                      </TableHead>
+                      <TableHead className="text-right w-[130px] cursor-pointer select-none" onClick={() => toggleSort('total')}>
+                        <span className="inline-flex items-center gap-1 justify-end w-full">
+                          Total
+                          {sortConfig.field === 'total' && (
+                            sortConfig.direction === 'desc'
+                              ? <ArrowDownNarrowWide className="h-3 w-3" />
+                              : <ArrowUpNarrowWide className="h-3 w-3" />
+                          )}
+                        </span>
+                      </TableHead>
                       <TableHead className="w-[160px]">Estado</TableHead>
                       <TableHead className="w-[150px] text-right">Acciones</TableHead>
                     </TableRow>
