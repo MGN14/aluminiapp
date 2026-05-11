@@ -199,15 +199,20 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         })
         .filter((m): m is InventoryMovement => m !== null);
 
-      // Movimientos para chart e historial: combinamos ajustes manuales
-      // del inventory_movements raw + entradas/salidas sintéticas de la
-      // fuente activa. Excluimos entradas y salidas raw para no duplicar
-      // (las fuentes oficiales son facturas/remisiones según el modo).
-      const inventoryAdjustments = rawInventoryMovements.filter(
-        m => m.movement_type !== 'salida' && m.movement_type !== 'entrada',
-      );
+      // Movimientos para chart e historial:
+      // - Entradas raw de inventory_movements (incluyen las que siigo-sync-products
+      //   inserta cuando detecta delta positivo de stock — caso importador que
+      //   carga contenedor directo en Siigo sin factura DIAN).
+      // - Ajustes manuales raw (movement_type distinto a entrada/salida).
+      // - Entradas sintéticas desde facturas de compra DIAN o remisiones compra
+      //   gerencial (cuando hay factura/remisión que respalda la compra).
+      // - Salidas sintéticas desde facturas de venta DIAN o remisiones venta
+      //   gerencial.
+      // Excluimos salidas raw para no duplicar (las salidas oficiales son
+      // siempre las facturas/remisiones del modo activo).
+      const rawNonSalidas = rawInventoryMovements.filter(m => m.movement_type !== 'salida');
       const combinedMovements = [
-        ...inventoryAdjustments,
+        ...rawNonSalidas,
         ...syntheticEntradas,
         ...syntheticSalidas,
       ].sort((a, b) => new Date(b.movement_date).getTime() - new Date(a.movement_date).getTime());

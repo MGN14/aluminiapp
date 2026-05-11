@@ -122,25 +122,31 @@ serve(async (req) => {
     // 1. Preserve manual cost overrides (never overwrite a non-zero manual cost with 0).
     // 2. Link manual rows (siigo_id=null) to their Siigo counterpart BY reference —
     //    otherwise the upsert creates duplicates and leaves the manual row orphaned.
+    // 3. Detectar incrementos de stock entre syncs para registrar entradas
+    //    sintéticas en inventory_movements (caso importador: el contenedor
+    //    se carga directo en Siigo sin factura de compra DIAN).
     const { data: existing } = await admin
       .from("inventory_products")
-      .select("id, siigo_id, reference, cost_per_unit")
+      .select("id, siigo_id, reference, cost_per_unit, stock_system")
       .eq("user_id", userId);
-    const existingCosts = new Map<string, number>();
-    const manualByReference = new Map<string, { id: string; cost: number }>();
+    const existingBySiigoId = new Map<string, { id: string; cost: number; stock: number }>();
+    const manualByReference = new Map<string, { id: string; cost: number; stock: number }>();
     for (const row of existing ?? []) {
       const cost = Number(row.cost_per_unit) || 0;
+      const stock = Number(row.stock_system) || 0;
       if (row.siigo_id) {
-        existingCosts.set(row.siigo_id, cost);
+        existingBySiigoId.set(row.siigo_id, { id: row.id, cost, stock });
       } else if (row.reference) {
-        manualByReference.set(row.reference.trim().toLowerCase(), { id: row.id, cost });
+        manualByReference.set(row.reference.trim().toLowerCase(), { id: row.id, cost, stock });
       }
     }
 
     let synced = 0;
     let skipped = 0;
+    let entriesLogged = 0;
     const errors: string[] = [];
     const nowIso = new Date().toISOString();
+    const todayDate = nowIso.slice(0, 10);
 
     let page = 1;
     while (true) {
@@ -170,9 +176,20 @@ serve(async (req) => {
           // the existing product instead of creating a Siigo duplicate next to it.
           const refKey = (p.code ?? p.reference ?? p.id).trim().toLowerCase();
           const manualMatch = manualByReference.get(refKey);
-          const carriedCost = existingCosts.get(p.id)
+          const existingSiigo = existingBySiigoId.get(p.id);
+          const carriedCost = existingSiigo?.cost
             ?? (manualMatch?.cost && manualMatch.cost > 0 ? manualMatch.cost : undefined);
           const row = mapSiigoProduct(p, userId, nowIso, carriedCost);
+
+          // Stock anterior y nuevo — para detectar entradas (caso importador:
+          // contenedor cargado directo en Siigo, sin factura de compra DIAN).
+          // Solo registramos entrada si el producto YA existía y el delta es
+          // positivo. Productos nuevos no generan entrada (es initial load).
+          const previousProduct = existingSiigo ?? manualMatch ?? null;
+          const oldStock = previousProduct?.stock ?? 0;
+          const newStock = row.stock_system;
+          const delta = newStock - oldStock;
+          let productId: string | null = previousProduct?.id ?? null;
 
           let error: { message: string } | null = null;
           if (manualMatch) {
@@ -185,8 +202,11 @@ serve(async (req) => {
           } else {
             const res = await admin
               .from("inventory_products")
-              .upsert(row, { onConflict: "user_id,siigo_id" });
+              .upsert(row, { onConflict: "user_id,siigo_id" })
+              .select("id")
+              .single();
             error = res.error;
+            if (!error && res.data?.id) productId = res.data.id;
           }
 
           if (error) {
@@ -194,6 +214,30 @@ serve(async (req) => {
             skipped++;
           } else {
             synced++;
+            // Registrar entrada sintética en inventory_movements si:
+            // - El producto ya existía en DB (no es initial load)
+            // - El stock subió (delta > 0)
+            // - Tenemos product_id válido
+            if (previousProduct && delta > 0 && productId) {
+              const cost = Number(row.cost_per_unit) || 0;
+              const { error: movErr } = await admin
+                .from("inventory_movements")
+                .insert({
+                  user_id: userId,
+                  product_id: productId,
+                  movement_type: "entrada",
+                  quantity: delta,
+                  unit_cost: cost,
+                  total_cost: delta * cost,
+                  movement_date: todayDate,
+                  notes: `[Auto: ajuste stock Siigo ${oldStock} → ${newStock}]`,
+                });
+              if (movErr) {
+                errors.push(`${p.id} mov: ${movErr.message}`);
+              } else {
+                entriesLogged++;
+              }
+            }
           }
         } catch (mapErr) {
           errors.push(`${p.id}: ${(mapErr as Error).message}`);
@@ -211,7 +255,7 @@ serve(async (req) => {
       last_error: errors.length > 0 ? errors.slice(0, 5).join(" | ") : null,
     }).eq("user_id", userId);
 
-    return json({ ok: true, synced, skipped, errors: errors.slice(0, 20) });
+    return json({ ok: true, synced, skipped, entriesLogged, errors: errors.slice(0, 20) });
   } catch (e) {
     return json({ ok: false, error: "Error inesperado", detail: (e as Error).message }, 500);
   }
