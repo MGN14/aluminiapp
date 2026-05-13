@@ -56,9 +56,13 @@ export function usePermissions(): UsePermissionsResult {
       if (collabErr) throw collabErr;
 
       if (!collab) {
-        // Usuario logueado que no es admin ni colaborador linkeado.
-        // Caso raro — sin permisos por defecto.
-        setPerms({});
+        // Owner de su propia cuenta (signup normal, no admin interno).
+        // Tiene acceso completo a SUS módulos — los permisos restringidos
+        // existen para limitar lo que los COLABORADORES ven, no a los
+        // dueños. Caso real reportado: creacionesmarvel@gmail.com (signup
+        // nuevo, no es founder ni admin) no podía subir extractos porque
+        // setPerms({}) bloqueaba todos los módulos. Bypass total con null.
+        setPerms(null);
       } else {
         const { data: rows, error: permsErr } = await supabase
           .from('collaborator_permissions')
