@@ -247,6 +247,21 @@ export default function ChangePassword() {
                   isInitialSetup ? 'Crear contraseña y entrar' : 'Cambiar contraseña'
                 )}
               </Button>
+
+              {/* Escape hatch: si el flag force_password_change quedó atascado
+                  en true por error (ej: fail-closed sostenido por mala red),
+                  el usuario puede cerrar sesión en lugar de quedar bloqueado
+                  en esta pantalla sin recordar su contraseña actual. */}
+              <button
+                type="button"
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  window.location.assign('/login');
+                }}
+                className="w-full text-center text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline mt-2"
+              >
+                Cerrar sesión
+              </button>
             </form>
           </CardContent>
         </Card>
