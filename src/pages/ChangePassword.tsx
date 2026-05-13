@@ -92,6 +92,18 @@ export default function ChangePassword() {
       return;
     }
 
+    // 2b) Si es colaborador, marcar el invite como aceptado. Es idempotente:
+    //     si ya estaba active, no hace nada. Solo importa en el primer
+    //     login de un invitado. Falla silenciosa (la RPC ya está GRANTed
+    //     a authenticated y el RLS de collaborators permite update self).
+    if (isInitialSetup) {
+      try {
+        await supabase.rpc('mark_collaborator_active' as never);
+      } catch (e) {
+        console.warn('[change-password] mark_collaborator_active failed', e);
+      }
+    }
+
     // 3) Clear the force_password_change flag on the profile.
     if (user?.id) {
       const { error: flagError } = await supabase
@@ -107,10 +119,18 @@ export default function ChangePassword() {
     await refresh();
     setLoading(false);
     toast({
-      title: 'Contraseña actualizada',
-      description: 'Tu contraseña se cambió correctamente.',
+      title: isInitialSetup ? '¡Bienvenido a AluminIA!' : 'Contraseña actualizada',
+      description: isInitialSetup
+        ? 'Tu contraseña quedó lista. Entrando al dashboard…'
+        : 'Tu contraseña se cambió correctamente.',
     });
-    navigate('/dashboard', { replace: true });
+    // HARD navigate (window.location) en lugar de navigate(). Sin esto, una
+    // race condition entre el state local de useForcePasswordChange y el
+    // ProtectedRoute terminaba mandando al usuario de vuelta a
+    // /change-password tras el setup, o mostrando una pantalla rota. Hard
+    // reload garantiza que useAuth, useForcePasswordChange y useDataOwner
+    // releen DB con los flags ya actualizados.
+    window.location.assign('/dashboard');
   };
 
   return (

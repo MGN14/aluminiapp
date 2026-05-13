@@ -23,16 +23,32 @@ export function useForcePasswordChange(): ForcePasswordChangeState {
 
   const fetchFlag = async (userId: string) => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('force_password_change' as never)
-      .eq('user_id', userId)
-      .maybeSingle();
+    // Retry una vez si la primera lectura falla — cubre network blips
+    // sin caer a la lógica de fail-closed.
+    let data: any = null;
+    let error: any = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await supabase
+        .from('profiles')
+        .select('force_password_change' as never)
+        .eq('user_id', userId)
+        .maybeSingle();
+      data = res.data;
+      error = res.error;
+      if (!error) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
 
     if (error) {
-      // Fail-open: don't block users if the query itself fails.
-      console.error('[force_password_change] fetch error', error);
-      setRequired(false);
+      // Fail-CLOSED: si después de 2 intentos seguimos sin poder leer el
+      // flag, asumimos lo peor y bloqueamos. Caso real: una colaboradora
+      // entró a la app sin completar el setup de password porque el query
+      // falló transitorio y el fail-open la dejó pasar. Mejor falso
+      // positivo (mandarla a /change-password y que pase) que falso
+      // negativo (acceso sin password). El componente OAuth-only ya
+      // bypasea esto arriba.
+      console.error('[force_password_change] fetch error (fail-closed)', error);
+      setRequired(true);
     } else {
       setRequired(!!(data as { force_password_change?: boolean } | null)?.force_password_change);
     }
