@@ -345,16 +345,24 @@ export default function PYGReport() {
   );
   const { data: fiscalExposure } = useFiscalExposure(user?.id, year);
 
-  const { data: cashMovements } = useQuery({
+  const { data: cashMovements } = useQuery<Array<{ date: string; type: string; amount: number }>>({
     queryKey: ['cash-movements-pyg', user?.id, year, isGerencial],
     queryFn: async () => {
       if (!user?.id || !isGerencial) return [];
-      const { data } = await supabase
-        .from('cash_movements')
+      // Excluir movimientos promovidos desde Caja Menor — esos ya están
+      // contados via petty_cash_movements. Si no se excluyen, los promovidos
+      // se cuentan DOS veces en el PyG modo Gerencial (una vez por el
+      // petty_cash original, otra por el cash_movement creado por
+      // promote_petty_cash_to_cash_movement). El cast a any es necesario
+      // porque petty_cash_movement_id fue agregado en migración nueva y
+      // todavía no está en supabase/types.ts (se regenera aparte).
+      const { data } = await (supabase
+        .from('cash_movements') as any)
         .select('date, type, amount')
         .gte('date', `${year}-01-01`)
-        .lte('date', `${year}-12-31`);
-      return data || [];
+        .lte('date', `${year}-12-31`)
+        .is('petty_cash_movement_id', null);
+      return (data || []) as Array<{ date: string; type: string; amount: number }>;
     },
     enabled: !!user?.id && isGerencial,
   });
