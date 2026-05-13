@@ -112,6 +112,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         effectivePlan = 'pro';
       }
 
+      // Para colaboradores, el plan/trial que devuelve la edge function ya
+      // viene del owner. Pero como defensa adicional, escondemos la UI de
+      // trial completamente — un colab nunca debería ver "Te quedan X
+      // días" porque él no decide pagar; eso es asunto del owner.
+      const isCollab = !!data.is_collaborator;
+
       // Bail out si el estado no cambió — evita re-renders cascada en cada
       // poll de 10 min cuando los datos del servidor siguen iguales.
       setState((prev) => {
@@ -127,10 +133,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           planSource: data.plan_source || (data.is_admin ? 'admin' : 'database'),
           loading: false,
           error: null,
-          isTrialing: data.is_trialing || false,
-          trialExpired: data.trial_expired || false,
-          trialDaysLeft: data.trial_days_left ?? null,
-          trialChecklist: data.trial_checklist || null,
+          // Para colab, NUNCA isTrialing ni trialExpired (esos triggers son
+          // para que el owner active el plan, no para el colab). Si el
+          // owner perdió acceso, subscribed=false ya lo refleja.
+          isTrialing: isCollab ? false : (data.is_trialing || false),
+          trialExpired: isCollab ? false : (data.trial_expired || false),
+          trialDaysLeft: isCollab ? null : (data.trial_days_left ?? null),
+          trialChecklist: isCollab ? null : (data.trial_checklist || null),
         };
         const sameScalars = prev.plan === next.plan
           && prev.status === next.status

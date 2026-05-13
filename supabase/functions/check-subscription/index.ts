@@ -72,6 +72,33 @@ serve(async (req) => {
 
     logStep("User authenticated", { userId });
 
+    // Detectar si el usuario es colaborador. Si lo es, todo lo relacionado
+    // con el plan (trial, expiración, uploads, status) se lee de la cuenta
+    // del OWNER, no del colaborador. Esto evita que el colab vea su propio
+    // trial de 14 días (que Supabase le crea al aceptar la invite) y
+    // refleja el plan real al que tiene acceso.
+    //
+    // Los flags de privilegio (is_admin, is_founder) se mantienen DEL
+    // COLABORADOR — sus permisos no se heredan del owner.
+    const { data: collabRow } = await supabaseClient
+      .from("collaborators")
+      .select("owner_user_id, status")
+      .eq("collaborator_user_id", userId)
+      .in("status", ["active", "pending"])
+      .order("status", { ascending: true }) // active antes que pending
+      .limit(1)
+      .maybeSingle();
+
+    const isCollaborator = !!collabRow?.owner_user_id;
+    const planUserId = isCollaborator ? collabRow!.owner_user_id : userId;
+
+    if (isCollaborator) {
+      logStep("Collaborator detected — resolving plan from owner", {
+        collaborator: userId,
+        owner: planUserId,
+      });
+    }
+
     // Helper: count actual non-deleted statements for user
     const countActiveStatements = async (uid: string) => {
       const { count } = await supabaseClient
@@ -82,7 +109,7 @@ serve(async (req) => {
       return count ?? 0;
     };
 
-    // Check FOUNDER
+    // Check FOUNDER (siempre por su propio email, no heredado)
     const founderEmail = Deno.env.get("FOUNDER_EMAIL");
     const isFounder = founderEmail && email.toLowerCase() === founderEmail.toLowerCase();
 
@@ -120,47 +147,56 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
     }
 
-    // Regular user: read from database
+    // Regular user: read from database. Para colaboradores leemos la
+    // subscription del owner (planUserId), no la suya propia.
     let { data: dbSub } = await supabaseClient
-      .from("user_subscriptions").select("*").eq("user_id", userId).single();
+      .from("user_subscriptions").select("*").eq("user_id", planUserId).single();
 
     if (!dbSub) {
-      await supabaseClient.from("user_subscriptions")
-        .insert({ 
-          user_id: userId, plan: "demo", status: "trialing",
-          trial_started_at: new Date().toISOString(),
-          plan_expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-          trial_checklist: { statement_uploaded: false, invoice_uploaded: false, invoice_matched: false, dian_reviewed: false },
-        });
-      const { data: newSub } = await supabaseClient
-        .from("user_subscriptions").select("*").eq("user_id", userId).single();
-      dbSub = newSub;
+      // Solo creamos el row de trial si NO es colaborador. Para colab,
+      // el owner siempre tiene un row (lo crea su propio checkSubscription
+      // la primera vez). Si por algún motivo no existe, no inventamos uno.
+      if (!isCollaborator) {
+        await supabaseClient.from("user_subscriptions")
+          .insert({
+            user_id: planUserId, plan: "demo", status: "trialing",
+            trial_started_at: new Date().toISOString(),
+            plan_expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+            trial_checklist: { statement_uploaded: false, invoice_uploaded: false, invoice_matched: false, dian_reviewed: false },
+          });
+        const { data: newSub } = await supabaseClient
+          .from("user_subscriptions").select("*").eq("user_id", planUserId).single();
+        dbSub = newSub;
+      }
     }
 
-    // If demo user missing trial fields, backfill
-    if (dbSub?.plan === "demo" && !dbSub.trial_started_at) {
+    // If demo user missing trial fields, backfill (solo para owner, no para colab)
+    if (!isCollaborator && dbSub?.plan === "demo" && !dbSub.trial_started_at) {
       const trialStart = dbSub.created_at || new Date().toISOString();
       const trialExpires = new Date(new Date(trialStart).getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
       await supabaseClient.from("user_subscriptions").update({
         trial_started_at: trialStart,
         plan_expires_at: dbSub.plan_expires_at || trialExpires,
         status: new Date(trialExpires) < new Date() ? "inactive" : "trialing",
-      }).eq("user_id", userId);
+      }).eq("user_id", planUserId);
       dbSub = { ...dbSub, trial_started_at: trialStart, plan_expires_at: dbSub.plan_expires_at || trialExpires };
     }
 
     let plan = dbSub?.plan || "demo";
     let status = dbSub?.status || "active";
 
-    // Check expiration for paid plans
+    // Check expiration for paid plans. Solo el owner puede mutar su propio
+    // status (un colab no debería estar mutando los flags del owner).
     if (plan !== "demo" && dbSub?.plan_expires_at) {
       const expiresAt = new Date(dbSub.plan_expires_at);
       if (expiresAt < new Date()) {
         logStep("Paid plan expired, reverting to demo inactive", { expiresAt: dbSub.plan_expires_at });
-        await supabaseClient.from("user_subscriptions").update({
-          plan: "demo", status: "inactive", plan_expires_at: dbSub.plan_expires_at,
-          wompi_transaction_id: null, updated_at: new Date().toISOString(),
-        }).eq("user_id", userId);
+        if (!isCollaborator) {
+          await supabaseClient.from("user_subscriptions").update({
+            plan: "demo", status: "inactive", plan_expires_at: dbSub.plan_expires_at,
+            wompi_transaction_id: null, updated_at: new Date().toISOString(),
+          }).eq("user_id", planUserId);
+        }
         plan = "demo";
         status = "inactive";
       }
@@ -171,9 +207,11 @@ serve(async (req) => {
       const expiresAt = new Date(dbSub.plan_expires_at);
       if (expiresAt < new Date()) {
         logStep("Trial expired");
-        await supabaseClient.from("user_subscriptions").update({
-          status: "inactive", updated_at: new Date().toISOString(),
-        }).eq("user_id", userId);
+        if (!isCollaborator) {
+          await supabaseClient.from("user_subscriptions").update({
+            status: "inactive", updated_at: new Date().toISOString(),
+          }).eq("user_id", planUserId);
+        }
         status = "inactive";
       }
     }
@@ -190,8 +228,9 @@ serve(async (req) => {
 
     const subscribed = plan !== "demo" || isTrialing;
 
-    // Count actual active statements instead of cumulative counter
-    const activeStatements = await countActiveStatements(userId);
+    // Count statements del owner — el colab usa los uploads compartidos
+    // del propietario, no los suyos (que serían siempre 0).
+    const activeStatements = await countActiveStatements(planUserId);
 
     return new Response(JSON.stringify({
       subscribed, plan, status,
@@ -202,6 +241,9 @@ serve(async (req) => {
       trial_days_left: trialDaysLeft,
       trial_expired: trialExpired,
       trial_checklist: dbSub?.trial_checklist || null,
+      // Flag para el frontend — útil para esconder UI de "activar plan"
+      // que solo aplica al owner.
+      is_collaborator: isCollaborator,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
