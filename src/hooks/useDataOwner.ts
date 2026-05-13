@@ -38,11 +38,19 @@ export function useDataOwner() {
     let cancelled = false;
     (async () => {
       try {
+        // Aceptamos active O pending. Misma allowlist que current_data_owner()
+        // SQL. Antes solo aceptaba active y por eso useDataOwner reportaba
+        // isCollaborator=false para colabs recién aceptados (la fila queda
+        // 'pending' hasta que mark_collaborator_active la promueve), causando
+        // que el frontend les pidiera datos con user.id propio en vez del
+        // owner — UI vacía y el lado del owner los seguía viendo 'pending'.
         const { data, error } = await supabase
           .from('collaborators')
-          .select('owner_user_id')
+          .select('owner_user_id, status')
           .eq('collaborator_user_id', user.id)
-          .eq('status', 'active')
+          .in('status', ['active', 'pending'])
+          .order('status', { ascending: true }) // active < pending alfabéticamente
+          .limit(1)
           .maybeSingle();
 
         if (error) throw error;
@@ -51,6 +59,22 @@ export function useDataOwner() {
           if (data?.owner_user_id) {
             setDataOwnerId(data.owner_user_id);
             setIsCollaborator(true);
+
+            // Si la fila quedó en 'pending' pero el usuario ya está autenticado
+            // y operando, promover a 'active' automáticamente. Idempotente:
+            // si ya está active, el RPC no hace nada. Esto resuelve casos
+            // donde mark_collaborator_active no se llamó en su momento (p.ej.
+            // setup completado antes de que existiera el RPC).
+            if (data.status === 'pending') {
+              try {
+                await supabase.rpc('mark_collaborator_active' as never);
+              } catch (rpcErr) {
+                // No bloqueante — la app ya funciona con pending tras la
+                // migración 20260515120000. Solo cosmético en el listado del
+                // owner que la sigue viendo "pendiente".
+                console.warn('[useDataOwner] mark_collaborator_active failed', rpcErr);
+              }
+            }
           } else {
             setDataOwnerId(user.id);
             setIsCollaborator(false);
