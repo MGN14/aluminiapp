@@ -235,7 +235,10 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         const totalSales30d = recentSales;
         const avgStock = p.stock_system > 0 ? p.stock_system : 1;
         const rotation = totalSales30d / avgStock;
-        const difference = p.stock_physical !== null ? p.stock_system - p.stock_physical : 0;
+        // Math.round: stock_system/physical son numeric de Postgres y arrastran
+        // ruido de floating point (ej: 175.99 → DIF +170.99). Las unidades de
+        // inventario son enteras, así que la diferencia también.
+        const difference = p.stock_physical !== null ? Math.round(p.stock_system - p.stock_physical) : 0;
 
         return {
           ...p,
