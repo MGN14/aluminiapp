@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import NewRemisionModal from '@/components/remisiones/NewRemisionModal';
-import { usePersistedDialogOpen } from '@/hooks/usePersistedFormState';
+import { usePersistedDialogOpen, usePersistedFormState } from '@/hooks/usePersistedFormState';
 import RemisionDetailModal from '@/components/remisiones/RemisionDetailModal';
 import VincularFacturaModal from '@/components/remisiones/VincularFacturaModal';
 import VincularPagoRemisionModal from '@/components/remisiones/VincularPagoRemisionModal';
@@ -112,11 +112,32 @@ export default function Remisiones() {
   const [vincularRemision, setVincularRemision] = useState<{ id: string; number: string } | null>(null);
   const [moverGerencialId, setMoverGerencialId] = useState<string | null>(null);
   const [vincularPagoRemision, setVincularPagoRemision] = useState<any | null>(null);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'date' | 'value' | 'score' | 'number'>('date');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  // Filtros persistidos en sessionStorage — si el usuario está revisando
+  // remisiones con filtros aplicados y cambia de pestaña / refresca / Chrome
+  // descarta el tab, al volver los filtros siguen donde estaban. Antes se
+  // reseteaban a default y había que re-aplicar todo.
+  type RemFilters = {
+    search: string;
+    statusFilter: string;
+    typeFilter: string;
+    sortBy: 'date' | 'value' | 'score' | 'number';
+    sortDir: 'asc' | 'desc';
+  };
+  const [filters, setFilters] = usePersistedFormState<RemFilters>(
+    'remisiones:filtros:v1',
+    { search: '', statusFilter: 'all', typeFilter: 'all', sortBy: 'date', sortDir: 'desc' },
+  );
+  const search = filters.search;
+  const setSearch = (v: string) => setFilters((f) => ({ ...f, search: v }));
+  const statusFilter = filters.statusFilter;
+  const setStatusFilter = (v: string) => setFilters((f) => ({ ...f, statusFilter: v }));
+  const typeFilter = filters.typeFilter;
+  const setTypeFilter = (v: string) => setFilters((f) => ({ ...f, typeFilter: v }));
+  const sortBy = filters.sortBy;
+  const setSortBy = (v: RemFilters['sortBy']) => setFilters((f) => ({ ...f, sortBy: v }));
+  const sortDir = filters.sortDir;
+  const setSortDir = (v: RemFilters['sortDir'] | ((prev: RemFilters['sortDir']) => RemFilters['sortDir'])) =>
+    setFilters((f) => ({ ...f, sortDir: typeof v === 'function' ? v(f.sortDir) : v }));
 
   const effectiveGerencial = mode === 'gerencial';
   const moduleOrigin = effectiveGerencial ? 'gerencial' : 'dian';

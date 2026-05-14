@@ -24,7 +24,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Settings, EyeOff, Loader2, Link2, GitMerge, AlertTriangle, Mail } from 'lucide-react';
+import { Plus, Settings, EyeOff, Loader2, Link2, GitMerge, AlertTriangle, Mail, Pencil, Check, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface Props {
@@ -39,7 +39,15 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
   const [open, setOpen] = useState(false);
   const [responsibles, setResponsibles] = useState<Responsible[]>([]);
   const [aliasesByResp, setAliasesByResp] = useState<Map<string, string[]>>(new Map());
+  // IDs de responsibles que tienen al menos un alias source='siigo' — esos
+  // están vinculados a Siigo y NO se les permite editar el nombre (el sync
+  // los renombraría de vuelta). Los demás son manuales y sí son editables.
+  const [siigoLinkedIds, setSiigoLinkedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  // Edición inline del nombre.
+  const [editingNameFor, setEditingNameFor] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState('');
+  const [savingName, setSavingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [linkToResponsibleId, setLinkToResponsibleId] = useState<string>(NO_LINK);
   const [adding, setAdding] = useState(false);
@@ -60,17 +68,57 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
     setLoading(true);
     const [respRes, aliasRes] = await Promise.all([
       supabase.from('responsibles').select('*').order('name'),
-      supabase.from('responsible_aliases' as never).select('responsible_id, alias') as any,
+      supabase.from('responsible_aliases' as never).select('responsible_id, alias, source') as any,
     ]);
     setResponsibles((respRes.data as Responsible[]) || []);
     const map = new Map<string, string[]>();
-    for (const a of (aliasRes.data ?? []) as Array<{ responsible_id: string; alias: string }>) {
+    const siigoSet = new Set<string>();
+    for (const a of (aliasRes.data ?? []) as Array<{ responsible_id: string; alias: string; source?: string }>) {
       const arr = map.get(a.responsible_id) ?? [];
       arr.push(a.alias);
       map.set(a.responsible_id, arr);
+      if (a.source === 'siigo') siigoSet.add(a.responsible_id);
     }
     setAliasesByResp(map);
+    setSiigoLinkedIds(siigoSet);
     setLoading(false);
+  };
+
+  // Editar el nombre de un beneficiario creado a mano. Renombra tanto el
+  // responsible como su alias canónico (el alias = nombre viejo) para que
+  // el matching futuro siga funcionando. No se permite para responsibles
+  // vinculados a Siigo — el sync los renombraría de vuelta.
+  const handleSaveName = async (resp: Responsible) => {
+    const newName = nameInput.trim();
+    if (!newName || newName === resp.name) {
+      setEditingNameFor(null);
+      return;
+    }
+    setSavingName(true);
+    try {
+      const { error: respErr } = await supabase
+        .from('responsibles')
+        .update({ name: newName })
+        .eq('id', resp.id);
+      if (respErr) throw respErr;
+
+      // Actualizar el alias canónico (el que coincidía con el nombre viejo).
+      await supabase
+        .from('responsible_aliases' as never)
+        .update({ alias: newName } as never)
+        .eq('responsible_id', resp.id)
+        .ilike('alias', resp.name);
+
+      toast({ title: 'Beneficiario renombrado', description: `"${resp.name}" → "${newName}"` });
+      setEditingNameFor(null);
+      setNameInput('');
+      fetchResponsibles();
+      onUpdate?.();
+    } catch (err: any) {
+      toast({ title: 'Error al renombrar', description: err.message, variant: 'destructive' });
+    } finally {
+      setSavingName(false);
+    }
   };
 
   const handleAdd = async () => {
@@ -320,11 +368,58 @@ export default function ResponsibleManagement({ onUpdate }: Props) {
                 const aliases = (aliasesByResp.get(r.id) ?? []).filter(a => a.toLowerCase() !== r.name.toLowerCase());
                 return (
                   <div key={r.id} className="rounded-lg border border-border">
-                    <div className="flex items-center justify-between p-2">
-                      <span className={`text-sm ${!r.active ? 'text-muted-foreground line-through' : ''}`}>
-                        {r.name}
-                      </span>
+                    <div className="flex items-center justify-between p-2 gap-2">
+                      {editingNameFor === r.id ? (
+                        <div className="flex items-center gap-1 flex-1 min-w-0">
+                          <Input
+                            value={nameInput}
+                            onChange={(e) => setNameInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !savingName) handleSaveName(r);
+                              if (e.key === 'Escape') { setEditingNameFor(null); setNameInput(''); }
+                            }}
+                            autoFocus
+                            className="h-7 text-sm"
+                          />
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-7 w-7 p-0 text-success"
+                            onClick={() => handleSaveName(r)}
+                            disabled={savingName}
+                          >
+                            {savingName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground"
+                            onClick={() => { setEditingNameFor(null); setNameInput(''); }}
+                            disabled={savingName}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className={`text-sm flex items-center gap-1.5 ${!r.active ? 'text-muted-foreground line-through' : ''}`}>
+                          {r.name}
+                          {siigoLinkedIds.has(r.id) && (
+                            <span className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-muted text-muted-foreground" title="Vinculado a Siigo — el nombre se sincroniza automáticamente">
+                              Siigo
+                            </span>
+                          )}
+                        </span>
+                      )}
                       <div className="flex items-center gap-2">
+                        {editingNameFor !== r.id && !siigoLinkedIds.has(r.id) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => { setEditingNameFor(r.id); setNameInput(r.name); }}
+                            title="Editar nombre"
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Switch
                           checked={r.active}
                           onCheckedChange={(checked) => handleToggleActive(r.id, checked)}

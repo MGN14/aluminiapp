@@ -111,6 +111,29 @@ export default function Inventory() {
     setEditProduct(product);
   };
 
+  // Eliminar referencia del inventario. Útil para refs basura que entraron
+  // del sync de Siigo (ej: "transporte", "producto generico", "servicios").
+  // Soft delete: marcamos active=false para no romper FKs de movimientos /
+  // remisiones históricas que apunten a ese producto.
+  const handleDeleteProduct = async (product: ProductWithMetrics) => {
+    const ok = window.confirm(
+      `¿Eliminar "${product.reference} — ${product.name}" del inventario?\n\n` +
+      `La referencia se ocultará de la lista. Los movimientos históricos no se borran.`,
+    );
+    if (!ok) return;
+    try {
+      const { error } = await supabase
+        .from('inventory_products')
+        .update({ active: false })
+        .eq('id', product.id);
+      if (error) throw error;
+      await refetch();
+      toast({ title: 'Referencia eliminada', description: `${product.reference} ya no aparece en el inventario.` });
+    } catch (err: any) {
+      toast({ title: 'Error al eliminar', description: err.message, variant: 'destructive' });
+    }
+  };
+
   const handleUpdateProduct = async (data: { reference: string; name: string; unit: string; stock_system: number; cost_per_unit: number; sale_price: number; min_stock: number; system: string | null }) => {
     if (!editProduct) return false;
     // No permitimos cambiar la referencia (es ID lógico). Resto sí.
@@ -382,7 +405,7 @@ export default function Inventory() {
 
             {/* Table */}
             <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '240ms' }}>
-              <InventoryTable products={products} onAdjust={openAdjust} onEdit={openEdit} onAddMovement={openMovement} />
+              <InventoryTable products={products} onAdjust={openAdjust} onEdit={openEdit} onAddMovement={openMovement} onDelete={handleDeleteProduct} />
             </div>
 
             {/* Historial de ajustes */}

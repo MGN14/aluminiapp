@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Package, ArrowUpDown, Plus, Minus, Pencil, Search, Scale } from 'lucide-react';
+import { Package, ArrowUpDown, Plus, Minus, Pencil, Search, Scale, Trash2 } from 'lucide-react';
 import type { ProductWithMetrics, InventoryStatus } from '@/hooks/useInventoryData';
 
 const STATUS_STYLES: Record<InventoryStatus, { label: string; dot: string; color: string; bg: string; border: string }> = {
@@ -40,6 +40,7 @@ interface Props {
   onAdjust: (product: ProductWithMetrics) => void;
   onEdit: (product: ProductWithMetrics) => void;
   onAddMovement: (product: ProductWithMetrics, type: 'entrada' | 'salida') => void;
+  onDelete: (product: ProductWithMetrics) => void;
 }
 
 type SortKey = 'reference' | 'stock_system' | 'stock_physical' | 'difference' | 'days_of_inventory' | 'status' | 'cost_per_unit' | 'value';
@@ -133,7 +134,7 @@ function ActionButton({ onClick, title, color, bgHover, children }: { onClick: (
   );
 }
 
-export default function InventoryTable({ products, onAdjust, onEdit, onAddMovement }: Props) {
+export default function InventoryTable({ products, onAdjust, onEdit, onAddMovement, onDelete }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('status');
   const [sortAsc, setSortAsc] = useState(true);
   const [search, setSearch] = useState('');
@@ -633,6 +634,14 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                         bgHover="oklch(0.43 0.14 155 / 0.10)"
                       >
                         <Pencil style={{ width: 13, height: 13 }} />
+                      </ActionButton>
+                      <ActionButton
+                        onClick={() => onDelete(p)}
+                        title="Eliminar referencia"
+                        color="oklch(0.52 0.18 25)"
+                        bgHover="oklch(0.58 0.20 25 / 0.10)"
+                      >
+                        <Trash2 style={{ width: 13, height: 13 }} />
                       </ActionButton>
                     </div>
                   </td>
