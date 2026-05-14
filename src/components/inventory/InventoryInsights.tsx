@@ -59,7 +59,9 @@ function generateInsights(products: ProductWithMetrics[], metrics: InventoryMetr
       title: 'Descuadre Siigo vs. físico',
       text: (
         <>
-          Se detectaron <strong>{metrics.totalDifference} unidades</strong> de diferencia
+          {/* Math.round + toLocaleString — sin esto, la suma de diferencias
+              arrastra ruido de floating point (ej: 17379.989999999998). */}
+          Se detectaron <strong>{Math.round(metrics.totalDifference).toLocaleString('es-CO')} unidades</strong> de diferencia
           {metrics.totalDifferenceValue > 0 && <> (<strong>{fmtCur(metrics.totalDifferenceValue)}</strong>)</>} en {withDiff} productos. Revisar en el próximo conteo.
         </>
       ),

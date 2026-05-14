@@ -260,8 +260,12 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         : 0;
       const noMovement = enriched.filter(p => p.avg_daily_sales === 0).length;
       const pctNo = enriched.length > 0 ? (noMovement / enriched.length) * 100 : 0;
-      const totalDiff = enriched.reduce((s, p) => s + Math.abs(p.difference), 0);
-      const totalDiffValue = enriched.reduce((s, p) => s + Math.abs(p.difference) * (p.cost_per_unit || 0), 0);
+      // Math.round en la suma final — cada p.difference (numeric de Postgres)
+      // arrastra ruido de floating point al sumarse, y la suma terminaba en
+      // valores como 17379.989999999998. Redondear acá deja el valor limpio
+      // para todos los consumidores (Insights, Metrics, score).
+      const totalDiff = Math.round(enriched.reduce((s, p) => s + Math.abs(p.difference), 0));
+      const totalDiffValue = Math.round(enriched.reduce((s, p) => s + Math.abs(p.difference) * (p.cost_per_unit || 0), 0));
 
       // hasMovementData refleja si la FUENTE ACTIVA (DIAN/Gerencial) tiene
       // ventas en los últimos 30d. Si no hay, "Días de Inventario" y
