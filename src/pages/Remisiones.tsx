@@ -115,7 +115,7 @@ export default function Remisiones() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'date' | 'value' | 'score'>('date');
+  const [sortBy, setSortBy] = useState<'date' | 'value' | 'score' | 'number'>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const effectiveGerencial = mode === 'gerencial';
@@ -215,6 +215,12 @@ export default function Remisiones() {
       if (sortBy === 'date') {
         aVal = new Date(a.date).getTime();
         bVal = new Date(b.date).getTime();
+      } else if (sortBy === 'number') {
+        // Extrae el N de "REM-N" / "REMG-N" para ordenar numéricamente
+        // (sino "REM-10" quedaría antes de "REM-2" por orden de string).
+        const numOf = (n: string | null) => parseInt(String(n ?? '').match(/-(\d+)$/)?.[1] ?? '0', 10);
+        aVal = numOf(a.number);
+        bVal = numOf(b.number);
       } else if (sortBy === 'value') {
         const aItems = a.remision_items || [];
         const bItems = b.remision_items || [];
@@ -229,7 +235,8 @@ export default function Remisiones() {
     return arr;
   }, [remisiones, search, statusFilter, typeFilter, sortBy, sortDir, effectiveGerencial]);
 
-  const toggleSort = (col: 'date' | 'value' | 'score') => {
+  type SortCol = 'date' | 'value' | 'score' | 'number';
+  const toggleSort = (col: SortCol) => {
     if (sortBy === col) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
@@ -238,7 +245,7 @@ export default function Remisiones() {
     }
   };
 
-  const sortIcon = (col: 'date' | 'value' | 'score') => {
+  const sortIcon = (col: SortCol) => {
     if (sortBy !== col) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />;
     return sortDir === 'asc' ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />;
   };
@@ -384,7 +391,9 @@ export default function Remisiones() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead># Remisión</TableHead>
+                    <TableHead className="cursor-pointer select-none hover:bg-muted/70" onClick={() => toggleSort('number')}>
+                      <span className="inline-flex items-center gap-1"># Remisión {sortIcon('number')}</span>
+                    </TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead className="cursor-pointer select-none hover:bg-muted/70" onClick={() => toggleSort('date')}>
                       <span className="inline-flex items-center gap-1">Fecha {sortIcon('date')}</span>
