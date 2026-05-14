@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAluminumCatalog } from '@/hooks/useAluminumCatalog';
 import { useResponsiblesWithSalesFlag } from '@/hooks/useResponsiblesWithSalesFlag';
@@ -86,6 +87,9 @@ function addDaysISO(daysFromIssue: number, issue: string): string {
 
 export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }: Props) {
   const { user } = useAuth();
+  // Para colaboradores, los defaults de cotización viven en el profile del
+  // OWNER, no en el suyo. Sin dataOwnerId el colab veía defaults vacíos.
+  const { dataOwnerId } = useDataOwner();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isEditing = !!editing;
@@ -131,9 +135,10 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
   const { create, update } = useQuotationMutations();
   const submitting = create.isPending || update.isPending || savingResp;
 
-  // Cargar defaults del perfil + tax_settings (retef compra) + profile.reteica
+  // Cargar defaults del perfil + tax_settings (retef compra) + profile.reteica.
+  // Para colaboradores leemos el profile del owner (dataOwnerId).
   useEffect(() => {
-    if (!user || !open || defaultsLoaded || isEditing) return;
+    if (!user || !open || defaultsLoaded || isEditing || !dataOwnerId) return;
     (async () => {
       try {
         const { data: profileData } = await (supabase
@@ -141,7 +146,7 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
           .select(
             'quote_labor_pct_default, quote_validity_days_default, quote_terms_default, reteica_rate',
           )
-          .eq('user_id', user.id)
+          .eq('user_id', dataOwnerId)
           .maybeSingle() as unknown as Promise<{
             data: {
               quote_labor_pct_default: number | null;
@@ -183,7 +188,7 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
         setDefaultsLoaded(true);
       }
     })();
-  }, [user, open, defaultsLoaded, isEditing]);
+  }, [user, open, defaultsLoaded, isEditing, dataOwnerId]);
 
   // Cargar valores cuando es edición
   useEffect(() => {

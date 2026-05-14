@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { supabase } from '@/integrations/supabase/client';
 import {
   useQuotationDetail,
@@ -114,6 +115,9 @@ export default function QuoteDetailModal({
   onDeleted,
 }: Props) {
   const { user } = useAuth();
+  // Para colaboradores, los datos de empresa para el PDF están en el
+  // profile del owner, no en el suyo.
+  const { dataOwnerId } = useDataOwner();
   const { toast } = useToast();
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -123,17 +127,17 @@ export default function QuoteDetailModal({
   const { data: detail, isLoading } = useQuotationDetail(quoteId);
   const { remove, setStatus, duplicate } = useQuotationMutations();
 
-  // Empresa + letterhead (best-effort)
+  // Empresa + letterhead (best-effort) — leído del profile del owner.
   const { data: company } = useQuery<CompanyData | null>({
-    queryKey: ['profile-company-quote', user?.id],
-    enabled: !!user?.id && open,
+    queryKey: ['profile-company-quote', dataOwnerId],
+    enabled: !!dataOwnerId && open,
     queryFn: async () => {
       const { data, error } = await (supabase
         .from('profiles')
         .select(
           'company_name, company_nit, company_address, company_city, company_phone, letterhead_path, letterhead_top_margin_mm, letterhead_bottom_margin_mm, accounting_email',
         )
-        .eq('user_id', user!.id)
+        .eq('user_id', dataOwnerId!)
         .maybeSingle() as unknown as Promise<{
           data: CompanyData | null;
           error: { message: string } | null;
