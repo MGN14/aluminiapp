@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,7 @@ import {
   type PhysicalCountRow, type ExistingProduct, PHYSICAL_COLUMN_ALIASES,
 } from '@/lib/physicalCountUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 
 interface Props {
   open: boolean;
@@ -27,22 +28,50 @@ type Step = 'upload' | 'mapping' | 'preview' | 'done';
 export default function PhysicalCountModal({ open, onOpenChange, onComplete }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [step, setStep] = useState<Step>('upload');
-  const [headers, setHeaders] = useState<string[]>([]);
-  const [rawRows, setRawRows] = useState<unknown[][]>([]);
-  const [mapping, setMapping] = useState<PhysicalColumnMapping[]>([]);
-  const [rows, setRows] = useState<PhysicalCountRow[]>([]);
+  // Wizard state persistido en sessionStorage. Si el usuario está subiendo
+  // el conteo y se sale / cambia de pestaña / se refresca, al volver el
+  // wizard sigue donde estaba (paso, mapeo, filas cruzadas). El File no se
+  // persiste pero ya tenemos rawRows parseado, así que no se necesita.
+  type WizardState = {
+    step: Step;
+    headers: string[];
+    rawRows: unknown[][];
+    mapping: PhysicalColumnMapping[];
+    rows: PhysicalCountRow[];
+    result: { updated: number; notFound: number; errors: number };
+  };
+  const INITIAL: WizardState = {
+    step: 'upload',
+    headers: [],
+    rawRows: [],
+    mapping: [],
+    rows: [],
+    result: { updated: 0, notFound: 0, errors: 0 },
+  };
+  const [wizard, setWizard, clearWizard] = usePersistedFormState<WizardState>(
+    'inventario:conteo-fisico:v1',
+    INITIAL,
+  );
+  const step = wizard.step;
+  const setStep = (s: Step) => setWizard((w) => ({ ...w, step: s }));
+  const headers = wizard.headers;
+  const setHeaders = (h: string[]) => setWizard((w) => ({ ...w, headers: h }));
+  const rawRows = wizard.rawRows;
+  const setRawRows = (r: unknown[][]) => setWizard((w) => ({ ...w, rawRows: r }));
+  const mapping = wizard.mapping;
+  const setMapping = (m: PhysicalColumnMapping[] | ((prev: PhysicalColumnMapping[]) => PhysicalColumnMapping[])) =>
+    setWizard((w) => ({ ...w, mapping: typeof m === 'function' ? m(w.mapping) : m }));
+  const rows = wizard.rows;
+  const setRows = (r: PhysicalCountRow[]) => setWizard((w) => ({ ...w, rows: r }));
+  const result = wizard.result;
+  const setResult = (r: { updated: number; notFound: number; errors: number }) =>
+    setWizard((w) => ({ ...w, result: r }));
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState({ updated: 0, notFound: 0, errors: 0 });
 
   const reset = () => {
-    setStep('upload');
-    setHeaders([]);
-    setRawRows([]);
-    setMapping([]);
-    setRows([]);
+    setWizard(INITIAL);
+    clearWizard();
     setUploading(false);
-    setResult({ updated: 0, notFound: 0, errors: 0 });
   };
 
   const processFile = useCallback(async (file: File) => {
@@ -154,21 +183,55 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
   const errorCount = rows.filter(r => r.status === 'error').length;
   const dupCount = rows.filter(r => r.status === 'duplicate').length;
 
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+
   const downloadTemplate = async () => {
+    setDownloadingTemplate(true);
     try {
       const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as string) as any;
-      const data = [
-        ['referencia', 'nombre_producto', 'unidad_medida', 'unidades_fisicas'],
-        ['REF-001', 'Perfil T6 Natural', 'unidad', 148],
-        ['REF-002', 'Lámina Lisa 1mm', 'metro', 82],
-      ];
+
+      // Pre-cargar la plantilla con TODAS las referencias que ya existen en
+      // el inventario contable. Así el bodeguero no tiene que tipear las
+      // referencias (que pueden tener formato específico, ej: el "-5" que
+      // agregaron en Siigo) — solo completa la columna unidades_fisicas.
+      // Esto evita el problema de "referencia no existe" por typos o por
+      // formato distinto al del sistema.
+      const { data: existing } = await supabase
+        .from('inventory_products')
+        .select('reference, name, unit')
+        .eq('active', true)
+        .order('reference');
+
+      const header = ['referencia', 'nombre_producto', 'unidad_medida', 'unidades_fisicas'];
+      const data: (string | number)[][] = [header];
+
+      if (existing && existing.length > 0) {
+        for (const p of existing) {
+          // unidades_fisicas vacío — lo llena el bodeguero
+          data.push([p.reference ?? '', p.name ?? '', p.unit ?? 'unidad', '']);
+        }
+      } else {
+        // Fallback: si el inventario está vacío, dejar ejemplos.
+        data.push(['REF-001', 'Perfil T6 Natural', 'unidad', 148]);
+        data.push(['REF-002', 'Lámina Lisa 1mm', 'metro', 82]);
+      }
+
       const ws = XLSX.utils.aoa_to_sheet(data);
-      ws['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 18 }];
+      ws['!cols'] = [{ wch: 18 }, { wch: 30 }, { wch: 15 }, { wch: 18 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Conteo Físico');
       XLSX.writeFile(wb, 'plantilla_inventario_fisico.xlsx');
+
+      if (existing && existing.length > 0) {
+        toast({
+          title: 'Plantilla descargada',
+          description: `${existing.length} referencias pre-cargadas. El bodeguero solo completa la columna "unidades_fisicas".`,
+        });
+      }
     } catch {
       toast({ title: 'Error al generar plantilla', variant: 'destructive' });
+    } finally {
+      setDownloadingTemplate(false);
     }
   };
 
@@ -223,10 +286,14 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
               <p className="text-sm font-medium">Arrastra tu archivo de conteo físico</p>
               <p className="text-xs text-muted-foreground mt-1">Archivo Excel (.xlsx) con referencia, nombre, unidad y unidades contadas</p>
             </div>
-            <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2 w-full">
+            <Button variant="outline" size="sm" onClick={downloadTemplate} disabled={downloadingTemplate} className="gap-2 w-full">
               <Download className="h-3.5 w-3.5" />
-              Descargar plantilla conteo físico
+              {downloadingTemplate ? 'Generando plantilla…' : 'Descargar plantilla con tus referencias'}
             </Button>
+            <div className="text-xs text-muted-foreground bg-primary/5 border border-primary/20 rounded-xl p-3 space-y-1">
+              <p className="font-medium text-primary">📋 La plantilla ya trae tus referencias del sistema</p>
+              <p>Descargás el Excel con todas las referencias precargadas — el bodeguero solo completa la columna <span className="font-mono">unidades_fisicas</span> con lo que cuenta en bodega. No tiene que tipear referencias.</p>
+            </div>
             <div className="text-xs text-muted-foreground bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 space-y-1">
               <p className="font-medium text-amber-400">⚠️ Este conteo NO reemplaza el inventario contable</p>
               <p>Solo actualiza las unidades físicas para comparar contra el sistema de Siigo y detectar diferencias operativas.</p>
@@ -278,9 +345,12 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
               <span className="text-muted-foreground ml-auto">{rows.length} filas total</span>
             </div>
 
-            <div className="max-h-60 overflow-auto rounded-xl border border-border/50">
+            {/* Lista COMPLETA — antes se cortaba a 30 filas. El contenedor
+                scrollea, así que mostramos todo para que el usuario pueda
+                revisar cada referencia. */}
+            <div className="max-h-[45vh] overflow-auto rounded-xl border border-border/50">
               <Table>
-                <TableHeader>
+                <TableHeader className="sticky top-0 bg-background z-10">
                   <TableRow className="text-xs">
                     <TableHead>Ref.</TableHead>
                     <TableHead className="text-right">Uds. Sistema</TableHead>
@@ -290,7 +360,7 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.slice(0, 30).map((r, i) => (
+                  {rows.map((r, i) => (
                     <TableRow key={i} className={
                       r.status === 'error' ? 'bg-destructive/5' :
                       r.status === 'not_found' ? 'bg-amber-500/5' :
@@ -320,15 +390,35 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
                   ))}
                 </TableBody>
               </Table>
-              {rows.length > 30 && <p className="text-xs text-muted-foreground text-center py-2">+{rows.length - 30} más...</p>}
             </div>
 
-            {notFoundCount > 0 && (
-              <div className="text-xs text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
-                <p className="font-medium">⚠️ {notFoundCount} referencias no existen en el inventario contable de Siigo</p>
-                <p className="text-muted-foreground mt-1">Estas referencias serán ignoradas. Primero cárgalas desde Siigo.</p>
-              </div>
-            )}
+            {/* Alerta cuando hay MUCHAS referencias no identificadas — eso
+                típicamente significa que el maestro de productos está
+                desactualizado (ej: cambió el formato de referencia en Siigo
+                pero no se re-sincronizó). */}
+            {notFoundCount > 0 && (() => {
+              const pct = rows.length > 0 ? (notFoundCount / rows.length) * 100 : 0;
+              const isCritical = pct >= 30 || notFoundCount >= 15;
+              return isCritical ? (
+                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-1.5">
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4" />
+                    {notFoundCount} de {rows.length} referencias ({Math.round(pct)}%) no existen en tu inventario
+                  </p>
+                  <p className="text-destructive/80">
+                    Un porcentaje tan alto suele indicar que el <strong>Maestro de Productos está desactualizado</strong> —
+                    por ejemplo, si cambiaste el formato de las referencias en Siigo (como agregar "-5") pero no
+                    re-sincronizaste el inventario. Revisá que el Maestro tenga las referencias con el mismo formato
+                    que el archivo de conteo antes de continuar.
+                  </p>
+                </div>
+              ) : (
+                <div className="text-xs text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
+                  <p className="font-medium">⚠️ {notFoundCount} referencias no existen en el inventario contable de Siigo</p>
+                  <p className="text-muted-foreground mt-1">Estas referencias serán ignoradas. Primero cárgalas desde Siigo.</p>
+                </div>
+              );
+            })()}
 
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => setStep('mapping')} className="flex-1">Atrás</Button>

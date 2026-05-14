@@ -16,6 +16,7 @@ import PhysicalCountModal from '@/components/inventory/PhysicalCountModal';
 import MaestroProductos from '@/components/inventory/MaestroProductos';
 import InventoryFreshnessBanner from '@/components/inventory/InventoryFreshnessBanner';
 import AppLayout from '@/components/layout/AppLayout';
+import { usePersistedDialogOpen } from '@/hooks/usePersistedFormState';
 
 type Tab = 'inventario' | 'maestro';
 
@@ -36,7 +37,11 @@ export default function Inventory() {
   const [tab, setTab] = useState<Tab>('inventario');
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
-  const [showPhysical, setShowPhysical] = useState(false);
+  // El modal de conteo físico persiste su estado abierto: si el usuario
+  // está en medio del wizard (subiendo / mapeando / revisando el cruce) y
+  // se sale o refresca, al volver el modal se reabre y el wizard sigue
+  // donde estaba (PhysicalCountModal persiste su propio wizard state).
+  const [showPhysical, setShowPhysical] = usePersistedDialogOpen('inventario:conteo-fisico:open');
   const [siigoSyncing, setSiigoSyncing] = useState(false);
   const [adjustProduct, setAdjustProduct] = useState<ProductWithMetrics | null>(null);
   const [adjustMode, setAdjustMode] = useState<'adjust' | 'entrada' | 'salida'>('adjust');
