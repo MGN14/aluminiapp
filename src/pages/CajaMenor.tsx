@@ -15,6 +15,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { usePettyCashMovements, type PettyCashRow } from '@/hooks/usePettyCashMovements';
 import { usePettyCashClosings, useReopenPettyCashClosing, type PettyCashClosing } from '@/hooks/usePettyCashClosings';
 import { usePromotePettyCashMovement } from '@/hooks/usePromotePettyCashMovement';
@@ -22,7 +23,7 @@ import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
 import RegistrarIngresoModal from '@/components/caja-menor/RegistrarIngresoModal';
 import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
 import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
-import EditarPrestadorModal from '@/components/caja-menor/EditarPrestadorModal';
+import EditarMovimientoModal from '@/components/caja-menor/EditarMovimientoModal';
 import { generatePettyCashClosingPdf } from '@/lib/pettyCashClosingPdf';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -39,6 +40,10 @@ export default function CajaMenor() {
   const { isGerencial } = useModuleContext();
   const { user } = useAuth();
   const { isAdmin } = useSubscription();
+  // Solo el dueño de la cuenta (no colaboradores) puede cerrar la caja.
+  // El backend también lo valida en close_petty_cash_period, esto solo
+  // oculta el botón para evitar confusión.
+  const { isCollaborator } = useDataOwner();
   const { data, isLoading, error } = usePettyCashMovements();
   const { data: closings = [] } = usePettyCashClosings();
   const reopenMutation = useReopenPettyCashClosing();
@@ -47,7 +52,7 @@ export default function CajaMenor() {
   const { toast } = useToast();
   const [pdfMovement, setPdfMovement] = useState<PettyCashRow | null>(null);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
-  const [editPrestadorRow, setEditPrestadorRow] = useState<PettyCashRow | null>(null);
+  const [editMovimientoRow, setEditMovimientoRow] = useState<PettyCashRow | null>(null);
 
   if (isGerencial) {
     return <Navigate to="/dashboard" replace />;
@@ -165,16 +170,20 @@ export default function CajaMenor() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCloseModalOpen(true)}
-              disabled={!hasOpenMovements}
-              title={hasOpenMovements ? 'Cerrar caja del período' : 'No hay movimientos abiertos'}
-            >
-              <Lock className="h-4 w-4 mr-1.5" />
-              Cerrar caja
-            </Button>
+            {/* Cerrar caja: solo el administrador/dueño. Los colaboradores
+                pueden registrar movimientos pero no cerrar el período. */}
+            {!isCollaborator && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCloseModalOpen(true)}
+                disabled={!hasOpenMovements}
+                title={hasOpenMovements ? 'Cerrar caja del período' : 'No hay movimientos abiertos'}
+              >
+                <Lock className="h-4 w-4 mr-1.5" />
+                Cerrar caja
+              </Button>
+            )}
             <RegistrarIngresoModal />
             <RegistrarGastoModal />
           </div>
@@ -283,7 +292,7 @@ export default function CajaMenor() {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-muted-foreground"
-                          onClick={() => setEditPrestadorRow(r)}
+                          onClick={() => setEditMovimientoRow(r)}
                         >
                           <Pencil className="h-3 w-3" />
                         </Button>
@@ -375,7 +384,7 @@ export default function CajaMenor() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 text-muted-foreground hover:text-primary"
-                                onClick={() => setEditPrestadorRow(r)}
+                                onClick={() => setEditMovimientoRow(r)}
                                 title="Editar prestador"
                               >
                                 <Pencil className="h-3 w-3" />
@@ -563,12 +572,10 @@ export default function CajaMenor() {
           rows={data?.rows ?? []}
         />
 
-        <EditarPrestadorModal
-          open={editPrestadorRow !== null}
-          onOpenChange={(o) => !o && setEditPrestadorRow(null)}
-          movementId={editPrestadorRow?.id ?? null}
-          currentResponsibleId={editPrestadorRow?.responsible_id ?? null}
-          currentResponsibleName={editPrestadorRow?.responsible_name ?? null}
+        <EditarMovimientoModal
+          open={editMovimientoRow !== null}
+          onOpenChange={(o) => !o && setEditMovimientoRow(null)}
+          movement={editMovimientoRow}
         />
       </div>
     </AppLayout>

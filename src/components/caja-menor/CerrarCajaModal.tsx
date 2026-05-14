@@ -54,14 +54,20 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
     );
   }, [rows, periodStart, periodEnd]);
 
-  const totalEgresos = useMemo(
-    () => periodRows.reduce((s, r) => s + r.amount, 0),
-    [periodRows],
-  );
+  // Separar ingresos de egresos por kind. Antes se sumaba TODO como egreso
+  // (bug: el saldo computado quedaba -ingresos-egresos en lugar del neto).
+  const { totalIngresos, totalEgresos } = useMemo(() => {
+    let ing = 0;
+    let egr = 0;
+    for (const r of periodRows) {
+      if (r.kind === 'ingreso_efectivo') ing += r.amount;
+      else egr += r.amount;
+    }
+    return { totalIngresos: ing, totalEgresos: egr };
+  }, [periodRows]);
 
-  // El saldo computado es el "neto" del período: salidas (gastos) restan.
-  // Como hoy todos los movimientos son gastos, computed = -totalEgresos.
-  const computedBalance = -totalEgresos;
+  // Saldo computado = neto del período: ingresos suman, egresos restan.
+  const computedBalance = totalIngresos - totalEgresos;
   const declaredBalance = safeParseFloat(declaredStr);
   const difference = declaredBalance - computedBalance;
 
@@ -144,16 +150,22 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
               <span className="tabular-nums">{periodRows.length}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-muted-foreground">Total ingresos</span>
+              <span className="tabular-nums text-success">+{formatCurrency(totalIngresos)}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Total egresos</span>
-              <span className="tabular-nums text-destructive">{formatCurrency(totalEgresos)}</span>
+              <span className="tabular-nums text-destructive">−{formatCurrency(totalEgresos)}</span>
             </div>
             <div className="flex justify-between font-medium pt-1.5 border-t">
               <span>Saldo computado (neto)</span>
-              <span className="tabular-nums">{formatCurrency(computedBalance)}</span>
+              <span className={`tabular-nums ${computedBalance >= 0 ? 'text-foreground' : 'text-destructive'}`}>
+                {formatCurrency(computedBalance)}
+              </span>
             </div>
             <p className="text-[11px] text-muted-foreground pt-1">
-              El saldo computado es lo que <em>debería</em> haber en caja según los movimientos.
-              Si arrancaste el período con plata previa, sumala a tu saldo declarado.
+              El saldo computado es lo que <em>debería</em> haber en caja según los movimientos
+              (ingresos − egresos). Si arrancaste el período con plata previa, sumala a tu saldo declarado.
             </p>
           </div>
 

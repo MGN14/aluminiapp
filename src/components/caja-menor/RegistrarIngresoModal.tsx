@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { CalendarIcon, ArrowDownToLine } from 'lucide-react';
+import { CalendarIcon, ArrowDownToLine, UserPlus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -24,6 +24,9 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { usePersistedFormState, usePersistedDialogOpen, dateToIso, isoToDate } from '@/hooks/usePersistedFormState';
+import CrearPrestadorModal from './CrearPrestadorModal';
+
+const NEW_PRESTADOR_VALUE = '__new__';
 
 export default function RegistrarIngresoModal() {
   const { user } = useAuth();
@@ -68,6 +71,16 @@ export default function RegistrarIngresoModal() {
   const notes = form.notes;
   const setNotes = (v: string) => setForm((f) => ({ ...f, notes: v }));
   const [saving, setSaving] = useState(false);
+  // Modal anidado para crear un beneficiario nuevo sin salir del flujo.
+  const [crearPrestadorOpen, setCrearPrestadorOpen] = useState(false);
+
+  const handleResponsibleChange = (v: string) => {
+    if (v === NEW_PRESTADOR_VALUE) {
+      setCrearPrestadorOpen(true);
+    } else {
+      setResponsibleId(v);
+    }
+  };
 
   // Beneficiarios disponibles (clientes / personas que pueden generar ingreso).
   // RLS filtra por owner; sin .eq('user_id', user.id) que rompía a colaboradores.
@@ -209,7 +222,7 @@ export default function RegistrarIngresoModal() {
 
           <div className="space-y-1.5">
             <Label>Beneficiario / cliente (opcional)</Label>
-            <Select value={responsibleId} onValueChange={setResponsibleId}>
+            <Select value={responsibleId} onValueChange={handleResponsibleChange}>
               <SelectTrigger>
                 <SelectValue placeholder="Sin beneficiario" />
               </SelectTrigger>
@@ -218,6 +231,12 @@ export default function RegistrarIngresoModal() {
                 {responsibles.map((r) => (
                   <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                 ))}
+                <SelectItem value={NEW_PRESTADOR_VALUE} className="text-primary">
+                  <span className="inline-flex items-center gap-1.5">
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Crear nuevo beneficiario
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground">
@@ -249,6 +268,13 @@ export default function RegistrarIngresoModal() {
           </DialogFooter>
         </form>
       </DialogContent>
+
+      <CrearPrestadorModal
+        open={crearPrestadorOpen}
+        onOpenChange={setCrearPrestadorOpen}
+        responsibleType="both"
+        onCreated={(c) => setResponsibleId(c.id)}
+      />
     </Dialog>
   );
 }
