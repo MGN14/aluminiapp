@@ -73,3 +73,6 @@ verify_jwt = false
 
 [functions.expire-quotations]
 verify_jwt = false
+
+[functions.public-snapshot]
+verify_jwt = false

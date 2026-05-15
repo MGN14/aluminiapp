@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useExpectedPayments } from '@/hooks/useExpectedPayments';
+import { useExpectedPayments, type ExpectedPayment } from '@/hooks/useExpectedPayments';
 
 interface Props {
   open: boolean;
@@ -20,15 +20,18 @@ interface Props {
     id: string;
     name: string;
   } | null;
+  /** Si está, modo edición: pre-llena el form y dispara update en vez de create. */
+  editing?: ExpectedPayment | null;
   onSuccess?: () => void;
 }
 
 const todayIso = () => new Date().toISOString().split('T')[0];
 
-// Modal para registrar una promesa de pago de un cliente. Se invoca desde el
-// drill-down de una factura en "Lo que me deben" o desde la fila de un cliente.
-export default function AcordarPagoModal({ open, onOpenChange, invoice, responsible, onSuccess }: Props) {
-  const { create } = useExpectedPayments();
+// Modal para registrar / editar una promesa de pago de un cliente. Si se pasa
+// `editing` arranca en modo edición (pre-lleno, actualiza la fila existente).
+export default function AcordarPagoModal({ open, onOpenChange, invoice, responsible, editing, onSuccess }: Props) {
+  const { create, update } = useExpectedPayments();
+  const isEditMode = !!editing;
   const [date, setDate] = useState(todayIso());
   const [amount, setAmount] = useState(0);
   const [notes, setNotes] = useState('');
@@ -36,15 +39,22 @@ export default function AcordarPagoModal({ open, onOpenChange, invoice, responsi
 
   useEffect(() => {
     if (open) {
-      // Defaults al abrir: fecha = hoy +7 días, monto = saldo pendiente.
-      const d = new Date();
-      d.setDate(d.getDate() + 7);
-      setDate(d.toISOString().split('T')[0]);
-      setAmount(invoice?.pending ?? 0);
-      setNotes('');
+      if (editing) {
+        // Modo edición: pre-llena con los valores actuales.
+        setDate(editing.due_date);
+        setAmount(editing.amount);
+        setNotes(editing.notes ?? '');
+      } else {
+        // Modo creación: defaults = hoy +7 días, monto = saldo pendiente.
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        setDate(d.toISOString().split('T')[0]);
+        setAmount(invoice?.pending ?? 0);
+        setNotes('');
+      }
       setErrMsg(null);
     }
-  }, [open, invoice]);
+  }, [open, invoice, editing]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,13 +68,22 @@ export default function AcordarPagoModal({ open, onOpenChange, invoice, responsi
       return;
     }
     try {
-      await create.mutateAsync({
-        invoice_id: invoice?.id ?? null,
-        responsible_id: responsible?.id ?? null,
-        due_date: date,
-        amount,
-        notes: notes.trim() || null,
-      });
+      if (isEditMode && editing) {
+        await update.mutateAsync({
+          id: editing.id,
+          due_date: date,
+          amount,
+          notes: notes.trim() || null,
+        });
+      } else {
+        await create.mutateAsync({
+          invoice_id: invoice?.id ?? null,
+          responsible_id: responsible?.id ?? null,
+          due_date: date,
+          amount,
+          notes: notes.trim() || null,
+        });
+      }
       onSuccess?.();
       onOpenChange(false);
     } catch (err: unknown) {
@@ -72,20 +91,23 @@ export default function AcordarPagoModal({ open, onOpenChange, invoice, responsi
     }
   };
 
-  const targetLabel = invoice
-    ? `Factura ${invoice.invoice_number}`
-    : responsible
-      ? responsible.name
-      : 'Sin factura específica';
+  const saving = create.isPending || update.isPending;
+  const targetLabel = editing
+    ? (editing.invoice_number ? `Factura ${editing.invoice_number}` : (editing.responsible_name ?? 'Cliente'))
+    : invoice
+      ? `Factura ${invoice.invoice_number}`
+      : responsible
+        ? responsible.name
+        : 'Sin factura específica';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Acordar pago de cliente</DialogTitle>
+          <DialogTitle className="text-base">{isEditMode ? 'Editar cobro acordado' : 'Acordar pago de cliente'}</DialogTitle>
           <DialogDescription className="text-xs">
             Para <span className="font-medium text-foreground">{targetLabel}</span>.
-            Aparece en el dashboard ("Cobros próximos") y en el calendario.
+            {!isEditMode && ' Aparece en el dashboard ("Cobros próximos") y en el calendario.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -134,8 +156,8 @@ export default function AcordarPagoModal({ open, onOpenChange, invoice, responsi
             <p className="text-xs text-destructive">{errMsg}</p>
           )}
 
-          <Button type="submit" disabled={create.isPending || amount <= 0} className="w-full">
-            {create.isPending ? 'Guardando...' : 'Acordar cobro'}
+          <Button type="submit" disabled={saving || amount <= 0} className="w-full">
+            {saving ? 'Guardando...' : isEditMode ? 'Guardar cambios' : 'Acordar cobro'}
           </Button>
         </form>
       </DialogContent>

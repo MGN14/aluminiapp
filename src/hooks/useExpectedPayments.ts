@@ -159,6 +159,34 @@ export function useExpectedPayments() {
     },
   });
 
+  // Editar una promesa existente (cambiar fecha, monto, nota).
+  const update = useMutation({
+    mutationFn: async (input: {
+      id: string;
+      due_date?: string;
+      amount?: number;
+      notes?: string | null;
+    }) => {
+      const patch: Record<string, unknown> = {};
+      if (input.due_date !== undefined) patch.due_date = input.due_date;
+      if (input.amount !== undefined) patch.amount = input.amount;
+      if (input.notes !== undefined) patch.notes = input.notes;
+      if (Object.keys(patch).length === 0) return;
+      const { error } = await supabase
+        .from('expected_payments' as never)
+        .update(patch as never)
+        .eq('id', input.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast({ title: 'Cobro actualizado' });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Error al actualizar', description: err.message, variant: 'destructive' });
+    },
+  });
+
   // Marcar como cumplido (recibí el pago).
   const markCumplido = useMutation({
     mutationFn: async (id: string) => {
@@ -209,6 +237,7 @@ export function useExpectedPayments() {
     error: query.error,
     refetch: query.refetch,
     create,
+    update,
     markCumplido,
     cancel,
     remove,

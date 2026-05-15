@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { CalendarClock, ArrowRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { useExpectedPayments } from '@/hooks/useExpectedPayments';
+import { CalendarClock, ArrowRight, AlertTriangle, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
+import { useExpectedPayments, type ExpectedPayment } from '@/hooks/useExpectedPayments';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
+import AcordarPagoModal from '@/components/expected-payments/AcordarPagoModal';
 
 const MAX_ITEMS = 5;
 
@@ -24,9 +26,18 @@ function urgencyColor(days: number): string {
 }
 
 // Dashboard card: muestra próximos cobros esperados (próx 7 días) + vencidos.
-// Cada item tiene botón "Cobrado" para marcar manualmente. Click → factura.
+// Cada item tiene: ✓ cobrado, ✎ editar, 🗑 borrar.
 export default function UpcomingPaymentsCard() {
-  const { data, isLoading, markCumplido } = useExpectedPayments();
+  const { data, isLoading, markCumplido, remove } = useExpectedPayments();
+  const [editing, setEditing] = useState<ExpectedPayment | null>(null);
+
+  const handleRemove = (p: ExpectedPayment) => {
+    const ok = window.confirm(
+      `¿Borrar el cobro acordado de ${p.responsible_name ?? 'cliente'} por $${p.amount.toLocaleString('es-CO')}?`,
+    );
+    if (!ok) return;
+    remove.mutate(p.id);
+  };
 
   // Mostrar vencidos primero, después próximos 7 días.
   const items = [
@@ -125,16 +136,37 @@ export default function UpcomingPaymentsCard() {
                 <span className="font-mono font-semibold tabular-nums whitespace-nowrap">
                   {formatCurrency(p.amount)}
                 </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 w-6 p-0 text-success hover:bg-success/10 shrink-0"
-                  title="Marcar como cobrado"
-                  onClick={() => markCumplido.mutate(p.id)}
-                  disabled={markCumplido.isPending}
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                </Button>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 text-success hover:bg-success/10"
+                    title="Marcar como cobrado"
+                    onClick={() => markCumplido.mutate(p.id)}
+                    disabled={markCumplido.isPending}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    title="Editar fecha / monto / nota"
+                    onClick={() => setEditing(p)}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    title="Borrar cobro acordado"
+                    onClick={() => handleRemove(p)}
+                    disabled={remove.isPending}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
               </li>
             );
           })}
@@ -146,6 +178,12 @@ export default function UpcomingPaymentsCard() {
         >
           Ver todos en Lo que me deben <ArrowRight className="h-3 w-3" />
         </Link>
+
+        <AcordarPagoModal
+          open={!!editing}
+          onOpenChange={(v) => { if (!v) setEditing(null); }}
+          editing={editing}
+        />
       </CardContent>
     </Card>
   );
