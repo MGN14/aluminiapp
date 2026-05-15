@@ -298,7 +298,7 @@ export default function PaymentsLogReport() {
       if (allRespIdsForClient.length > 0) {
         const { data: linkedInvs } = await supabase
           .from('invoices')
-          .select('id, type, total_amount, counterparty_name, responsible_id')
+          .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount' as never)
           .in('responsible_id', allRespIdsForClient)
           // Excluir facturas anuladas totalmente por nota crédito.
           .or('void_type.is.null,void_type.eq.partial')
@@ -327,6 +327,25 @@ export default function PaymentsLogReport() {
       const facturadoCompra = invsCompra.reduce((s: number, i: any) => s + Number(i.total_amount ?? 0), 0);
       const facturado = facturadoVenta + facturadoCompra;
       const invIds = invs.map((i: any) => i.id);
+
+      // Retenciones del lado venta: el cliente retuvo plata y la pagó a DIAN/
+      // municipio en vez de pagártela al banco. Por lo tanto se descuentan del
+      // saldo (no son deuda viva). reteica + autoretefuente: auto-detect por
+      // amount > 0 (cliente no agente retenedor → quedan en 0). retefuente
+      // mantiene comportamiento legacy (default 2.5% si rate=null) para no
+      // inflar facturas viejas.
+      const retencionesVenta = invsVenta.reduce((s: number, i: any) => {
+        const savedRete = Number(i.retefuente_cliente_amount ?? 0);
+        const rawRate = i.retefuente_cliente_rate;
+        const hasRate = rawRate !== null && rawRate !== undefined;
+        const effRate = hasRate ? Number(rawRate) : 0.025;
+        const retefuente = savedRete > 0
+          ? savedRete
+          : Math.round(Number(i.subtotal_base ?? 0) * effRate);
+        const reteica = Math.abs(Number(i.reteica_amount ?? 0));
+        const autoretefuente = Math.abs(Number(i.autoretefuente_amount ?? 0));
+        return s + retefuente + reteica + autoretefuente;
+      }, 0);
 
       // 2. Encontrar TODAS las txs del cliente — vía 3 caminos:
       //   (a) responsible_id IN (allRespIdsForClient)
@@ -491,7 +510,9 @@ export default function PaymentsLogReport() {
       // que facturaste — les tenés que emitir facturas (anticipos vivos).
       const totalACobrar = facturadoVenta + cxcInicial;
       const totalRecibidoVenta = movIngresos + anticiposClienteTotal;
-      const saldoNetoVenta = totalACobrar - totalRecibidoVenta;
+      // Retenciones (retefuente + reteica + autoretefuente) descuentan del
+      // saldo: son plata que el cliente retuvo y pagó al estado, no a vos.
+      const saldoNetoVenta = totalACobrar - totalRecibidoVenta - retencionesVenta;
       // Para retrocompatibilidad mantenemos "pendienteVenta" pero ahora
       // representa el saldo neto (puede ser negativo).
       const pendienteVenta = saldoNetoVenta;
@@ -524,6 +545,7 @@ export default function PaymentsLogReport() {
         anticiposClienteUnlinked,
         anticiposClienteLinked,
         anticiposClienteTotal,
+        retencionesVenta,
         anticiposProvUnlinked,
         anticiposProvLinked,
         anticiposProvTotal,
@@ -1305,6 +1327,12 @@ export default function PaymentsLogReport() {
                         <li className="flex justify-between text-success">
                           <span>− {anticiposLabel}</span>
                           <span className="font-medium">{formatCurrency(anticiposLado)}</span>
+                        </li>
+                      )}
+                      {isVenta && counterpartySummary!.retencionesVenta > 0 && (
+                        <li className="flex justify-between text-success">
+                          <span>− Retenciones (rete­fuente + reteica + autorete­fuente)</span>
+                          <span className="font-medium">{formatCurrency(counterpartySummary!.retencionesVenta)}</span>
                         </li>
                       )}
                       <li className={`flex justify-between border-t pt-1.5 mt-1 font-semibold ${colorClasses.value}`}>

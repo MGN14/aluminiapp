@@ -239,6 +239,7 @@ export default function AccountsReceivableReport() {
                     <TableHead className="font-semibold text-right">Saldo inicial</TableHead>
                     <TableHead className="font-semibold text-right">Cobrado</TableHead>
                     <TableHead className="font-semibold text-right">Anticipos</TableHead>
+                    <TableHead className="font-semibold text-right">Retenciones</TableHead>
                     <TableHead className="font-semibold text-right">Saldo neto</TableHead>
                     <TableHead className="font-semibold text-center"># Facturas</TableHead>
                   </TableRow>
@@ -246,13 +247,13 @@ export default function AccountsReceivableReport() {
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
                         Cargando datos...
                       </TableCell>
                     </TableRow>
                   ) : clientsConDeuda.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12">
+                      <TableCell colSpan={9} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
                           <p className="text-muted-foreground">Ningún cliente con saldo pendiente en {year}.</p>
@@ -383,6 +384,9 @@ function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas,
         <TableCell className="text-right text-sm text-success">
           {anticipos > 0 ? `−${formatCurrency(anticipos)}` : '—'}
         </TableCell>
+        <TableCell className="text-right text-sm text-success">
+          {client.retenciones_total > 0 ? `−${formatCurrency(client.retenciones_total)}` : '—'}
+        </TableCell>
         <TableCell className="text-right text-sm font-bold text-destructive">
           {formatCurrency(saldo)}
         </TableCell>
@@ -393,7 +397,7 @@ function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas,
 
       {isExpanded && (
         <TableRow className="hover:bg-transparent">
-          <TableCell colSpan={8} className="p-0">
+          <TableCell colSpan={9} className="p-0">
             <div className="bg-muted/10 border-l-2 border-l-primary px-6 py-4 space-y-3">
               <p className="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Receipt className="h-4 w-4 text-primary" />
@@ -432,6 +436,12 @@ function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas,
                   <div className="flex items-center justify-between text-success">
                     <span>− Anticipos del cliente</span>
                     <span className="font-mono">{formatCurrency(anticipos)}</span>
+                  </div>
+                )}
+                {client.retenciones_total > 0 && (
+                  <div className="flex items-center justify-between text-success">
+                    <span>− Retenciones (retefuente + reteica + autoretefuente)</span>
+                    <span className="font-mono">{formatCurrency(client.retenciones_total)}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between pt-1.5 border-t border-border text-sm">
@@ -508,10 +518,12 @@ function InvoiceLineRow({ inv, paid = false, onVincular }: InvoiceLineRowProps) 
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-3 mt-0.5 text-muted-foreground">
+        <div className="flex items-center gap-3 mt-0.5 text-muted-foreground flex-wrap">
           <span>Total: {formatCurrency(inv.total_amount)}</span>
           {inv.paid_direct > 0 && <span className="text-success">Pagado: {formatCurrency(inv.paid_direct)}</span>}
           {inv.retefuente > 0 && <span className="text-primary">Retefuente: {formatCurrency(inv.retefuente)}</span>}
+          {inv.reteica > 0 && <span className="text-primary">ReteICA: {formatCurrency(inv.reteica)}</span>}
+          {inv.autoretefuente > 0 && <span className="text-primary">Autorete: {formatCurrency(inv.autoretefuente)}</span>}
         </div>
       </div>
       <div className="text-right shrink-0">

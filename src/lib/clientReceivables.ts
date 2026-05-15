@@ -4,13 +4,21 @@
 // Pagos" para cualquier cliente — por construcción, no por aritmética que
 // coincide.
 //
-// Fórmula por cliente (mirror de PaymentsLogReport line 478-494):
+// Fórmula por cliente:
 //
 //   total_a_cobrar    = facturado_venta (excluyendo void_type='full') + cxc_inicial
 //   total_recibido    = movIngresos (todos los pagos del banco del cliente,
 //                                    estén o no vinculados a factura específica)
 //                     + anticipos_de_clientes (linked + unlinked)
+//                     + retenciones (retefuente + reteica + autoretefuente —
+//                                    plata que el cliente retuvo y pagó a DIAN/
+//                                    municipio en lugar de pagártela al banco)
 //   saldo_neto        = total_a_cobrar − total_recibido
+//
+// Las retenciones se descuentan solo cuando están explícitamente cargadas en
+// la factura (reteica_amount > 0, autoretefuente_amount > 0). retefuente
+// mantiene el comportamiento legacy (default 2.5% si rate=null en facturas
+// viejas), para no inflar saldos de facturas pre-existentes.
 //
 // saldo_neto < 0 → saldo a favor del cliente (le debemos / hay anticipo vivo).
 
@@ -36,9 +44,14 @@ export interface InvoiceLine {
   issue_date: string;
   total_amount: number;
   retefuente: number;
+  reteica: number;
+  autoretefuente: number;
+  /** retefuente + reteica + autoretefuente. Plata que el cliente retuvo en
+   *  origen y pagó a DIAN/municipio — no te llega al banco, no es deuda viva. */
+  retenciones_total: number;
   /** Pagos vinculados a esta factura específica (transactions.invoice_id + matches + anticipos linked). */
   paid_direct: number;
-  /** total_amount − paid_direct − retefuente, clamped a 0. Es el pendiente "puro" de esta factura, sin contar pagos del cliente no vinculados. */
+  /** total_amount − paid_direct − retenciones_total, clamped a 0. */
   pending_invoice: number;
   void_type: 'partial' | null;
   days_since: number;
@@ -54,7 +67,10 @@ export interface ClientReceivable {
   cobrado_banco: number;
   /** Anticipos del estado inicial (linked + unlinked) — restan del saldo. */
   anticipos_total: number;
-  /** (facturado + cxc_inicial) − (cobrado_banco + anticipos_total). Negativo = saldo a favor del cliente. */
+  /** Suma de retenciones (retefuente + reteica + autoretefuente) en todas las
+   *  facturas del cliente. Resta del saldo porque ya están pagadas a DIAN/municipio. */
+  retenciones_total: number;
+  /** (facturado + cxc_inicial) − (cobrado_banco + anticipos_total + retenciones_total). Negativo = saldo a favor del cliente. */
   saldo_neto: number;
   invoices_pendientes: InvoiceLine[];
   invoices_pagadas: InvoiceLine[];
@@ -98,7 +114,7 @@ export async function calculateAllClientReceivables(
       // `void_type` se añadió en migración 20260514120000 pero todavía no está
       // en types generados; usamos `as never` para que TS no se queje del
       // select. El filtro `.or('void_type...')` funciona igual a nivel DB.
-      .select('id, invoice_number, counterparty_name, responsible_id, issue_date, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, void_type' as never)
+      .select('id, invoice_number, counterparty_name, responsible_id, issue_date, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, void_type' as never)
       .eq('type', 'venta')
       .gte('issue_date', startDate)
       .lte('issue_date', endDate)
@@ -195,6 +211,12 @@ export async function calculateAllClientReceivables(
     const retefuente = savedRete > 0
       ? savedRete
       : Math.round(Number(inv.subtotal_base ?? 0) * effectiveRate);
+    // reteica + autoretefuente: solo descontar si están explícitamente
+    // cargados en la factura (auto-detect por amount > 0). Facturas a clientes
+    // que NO son agentes retenedores tienen estos campos en 0/null.
+    const reteica = Math.abs(Number(inv.reteica_amount ?? 0));
+    const autoretefuente = Math.abs(Number(inv.autoretefuente_amount ?? 0));
+    const retenciones_total = retefuente + reteica + autoretefuente;
 
     const issueDate = inv.issue_date as string;
     const daysSince = Math.max(0, Math.floor((today.getTime() - new Date(issueDate).getTime()) / 86400000));
@@ -205,6 +227,9 @@ export async function calculateAllClientReceivables(
       issue_date: issueDate,
       total_amount: Number(inv.total_amount ?? 0),
       retefuente,
+      reteica,
+      autoretefuente,
+      retenciones_total,
       paid_direct: 0,
       pending_invoice: 0,
       void_type: (inv.void_type as 'partial' | null) ?? null,
@@ -236,7 +261,7 @@ export async function calculateAllClientReceivables(
     }
   }
   for (const inv of invoiceMap.values()) {
-    inv.pending_invoice = Math.max(0, inv.total_amount - inv.paid_direct - inv.retefuente);
+    inv.pending_invoice = Math.max(0, inv.total_amount - inv.paid_direct - inv.retenciones_total);
   }
 
   // ===========================================================================
@@ -318,6 +343,7 @@ export async function calculateAllClientReceivables(
         cxc_inicial: 0,
         cobrado_banco: 0,
         anticipos_total: 0,
+        retenciones_total: 0,
         saldo_neto: 0,
         invoices_pendientes: [],
         invoices_pagadas: [],
@@ -333,12 +359,16 @@ export async function calculateAllClientReceivables(
   for (const inv of invoiceMap.values()) {
     const a = getAcc(inv.client_id);
     a.facturado_venta += inv.total_amount;
+    a.retenciones_total += inv.retenciones_total;
     const line: InvoiceLine = {
       id: inv.id,
       invoice_number: inv.invoice_number,
       issue_date: inv.issue_date,
       total_amount: inv.total_amount,
       retefuente: inv.retefuente,
+      reteica: inv.reteica,
+      autoretefuente: inv.autoretefuente,
+      retenciones_total: inv.retenciones_total,
       paid_direct: inv.paid_direct,
       pending_invoice: inv.pending_invoice,
       void_type: inv.void_type,
@@ -372,7 +402,7 @@ export async function calculateAllClientReceivables(
   // Saldo neto + ordenar invoices
   const clients: ClientReceivable[] = [];
   for (const a of acc.values()) {
-    a.saldo_neto = (a.facturado_venta + a.cxc_inicial) - (a.cobrado_banco + a.anticipos_total);
+    a.saldo_neto = (a.facturado_venta + a.cxc_inicial) - (a.cobrado_banco + a.anticipos_total + a.retenciones_total);
     a.invoices_pendientes = a._pendientes.sort((x, y) => y.pending_invoice - x.pending_invoice);
     a.invoices_pagadas = a._pagadas.sort((x, y) => new Date(y.issue_date).getTime() - new Date(x.issue_date).getTime());
     delete (a as Partial<Accum>)._pendientes;
