@@ -93,6 +93,7 @@ export type ObligacionTipo =
   | 'parafiscales'
   | 'cesantias'
   | 'credito'
+  | 'cobro_esperado'
   | 'otro';
 
 export interface CalendarEvent {
@@ -102,11 +103,13 @@ export interface CalendarEvent {
   fecha: Date;
   periodo: string;
   monto?: number | null;
-  origen: 'dian' | 'ica' | 'negocio' | 'credito';
+  origen: 'dian' | 'ica' | 'negocio' | 'credito' | 'cobro_cliente';
   // For negocio events: ID of the business_obligation row (needed to toggle `completadas`).
   obligationId?: string;
   // For credito events: link de regreso al crédito.
   creditId?: string;
+  // For cobro_cliente events: link al expected_payment para marcar cumplido.
+  expectedPaymentId?: string;
 }
 
 export const TIPO_COLOR: Record<ObligacionTipo, string> = {
@@ -121,6 +124,7 @@ export const TIPO_COLOR: Record<ObligacionTipo, string> = {
   parafiscales: 'bg-indigo-100 text-indigo-700 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300',
   cesantias: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300',
   credito: 'bg-cyan-100 text-cyan-700 border-cyan-300 dark:bg-cyan-950/40 dark:text-cyan-300',
+  cobro_esperado: 'bg-green-100 text-green-700 border-green-300 dark:bg-green-950/40 dark:text-green-300',
   otro: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300',
 };
 
@@ -136,10 +140,11 @@ export const TIPO_LABEL: Record<ObligacionTipo, string> = {
   parafiscales: 'Parafiscales',
   cesantias: 'Cesantías',
   credito: 'Crédito',
+  cobro_esperado: 'Cobro cliente',
   otro: 'Otro',
 };
 
-export const TIPO_ORIGEN: Record<ObligacionTipo, 'dian' | 'ica' | 'negocio' | 'credito'> = {
+export const TIPO_ORIGEN: Record<ObligacionTipo, 'dian' | 'ica' | 'negocio' | 'credito' | 'cobro_cliente'> = {
   iva: 'dian',
   retefuente: 'dian',
   renta: 'dian',
@@ -151,5 +156,6 @@ export const TIPO_ORIGEN: Record<ObligacionTipo, 'dian' | 'ica' | 'negocio' | 'c
   parafiscales: 'negocio',
   cesantias: 'negocio',
   credito: 'credito',
+  cobro_esperado: 'cobro_cliente',
   otro: 'negocio',
 };

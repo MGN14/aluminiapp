@@ -209,7 +209,7 @@ export default function CalendarioMensual({ events, initialDate }: Props) {
       {/* Leyenda */}
       <div className="flex flex-wrap gap-2 pt-2 border-t">
         <span className="text-xs text-muted-foreground mr-2">Leyenda:</span>
-        {(['iva','retefuente','renta','ica','arriendo','nomina','pila','servicios'] as const).map(t => (
+        {(['iva','retefuente','renta','ica','arriendo','nomina','pila','servicios','cobro_esperado'] as const).map(t => (
           <span key={t} className={`text-[10px] px-2 py-0.5 rounded border ${TIPO_COLOR[t]}`}>
             {TIPO_LABEL[t]}
           </span>

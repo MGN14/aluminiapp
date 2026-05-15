@@ -8,13 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Receipt, AlertCircle, Info, CheckCircle2, ChevronDown, ChevronRight, Wallet, Link2, ArrowDownCircle, Users, TrendingDown } from 'lucide-react';
+import { Receipt, AlertCircle, Info, CheckCircle2, ChevronDown, ChevronRight, Wallet, Link2, ArrowDownCircle, Users, TrendingDown, CalendarClock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import VincularPagoModal from './VincularPagoModal';
+import AcordarPagoModal from '@/components/expected-payments/AcordarPagoModal';
 import {
   calculateAllClientReceivables,
   type ClientReceivable,
@@ -48,6 +49,10 @@ export default function AccountsReceivableReport() {
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
   const [showPagadasByClient, setShowPagadasByClient] = useState<Set<string>>(new Set());
   const [vincularInvoice, setVincularInvoice] = useState<VincularInvoiceTarget | null>(null);
+  const [acordarTarget, setAcordarTarget] = useState<{
+    invoice?: { id: string; invoice_number: string; pending: number };
+    responsible?: { id: string; name: string };
+  } | null>(null);
   const [showSaldoAFavor, setShowSaldoAFavor] = useState(false);
 
   // Cartera por cliente — alineada con la lógica de PaymentsLogReport vía util
@@ -276,6 +281,13 @@ export default function AccountsReceivableReport() {
                           pending: inv.pending_invoice,
                           total_amount: inv.total_amount,
                         })}
+                        onAcordarInvoice={(inv) => setAcordarTarget({
+                          invoice: { id: inv.id, invoice_number: inv.invoice_number, pending: inv.pending_invoice },
+                          responsible: client.client_id.startsWith('__name:') ? undefined : { id: client.client_id, name: client.client_name },
+                        })}
+                        onAcordarCliente={() => setAcordarTarget({
+                          responsible: client.client_id.startsWith('__name:') ? undefined : { id: client.client_id, name: client.client_name },
+                        })}
                       />
                     ))
                   )}
@@ -336,6 +348,14 @@ export default function AccountsReceivableReport() {
           invoice={vincularInvoice}
           onSuccess={() => { refetch(); }}
         />
+
+        <AcordarPagoModal
+          open={!!acordarTarget}
+          onOpenChange={(v) => { if (!v) setAcordarTarget(null); }}
+          invoice={acordarTarget?.invoice ?? null}
+          responsible={acordarTarget?.responsible ?? null}
+          onSuccess={() => { refetch(); }}
+        />
       </div>
     </TooltipProvider>
   );
@@ -351,9 +371,11 @@ interface ClientRowProps {
   showPagadas: boolean;
   onTogglePagadas: () => void;
   onVincularInvoice: (inv: InvoiceLine) => void;
+  onAcordarInvoice: (inv: InvoiceLine) => void;
+  onAcordarCliente: () => void;
 }
 
-function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas, onVincularInvoice }: ClientRowProps) {
+function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas, onVincularInvoice, onAcordarInvoice, onAcordarCliente }: ClientRowProps) {
   const facturado = client.facturado_venta;
   const cobrado = client.cobrado_banco;
   const anticipos = client.anticipos_total;
@@ -411,10 +433,29 @@ function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas,
               ) : (
                 <div className="space-y-1">
                   {client.invoices_pendientes.map(inv => (
-                    <InvoiceLineRow key={inv.id} inv={inv} onVincular={() => onVincularInvoice(inv)} />
+                    <InvoiceLineRow
+                      key={inv.id}
+                      inv={inv}
+                      onVincular={() => onVincularInvoice(inv)}
+                      onAcordar={() => onAcordarInvoice(inv)}
+                    />
                   ))}
                 </div>
               )}
+
+              {/* Atajo: acordar un cobro general del cliente (sin factura específica).
+                  Útil cuando te dice "te pago 5M el viernes" cubriendo varias facturas. */}
+              <div className="flex items-center justify-end pt-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2.5 text-xs gap-1.5 text-primary hover:bg-primary/10"
+                  onClick={(e) => { e.stopPropagation(); onAcordarCliente(); }}
+                >
+                  <CalendarClock className="h-3 w-3" />
+                  Acordar cobro general (sin factura)
+                </Button>
+              </div>
 
               {/* Resumen de cálculo */}
               <div className="space-y-1 pt-2 border-t border-border text-xs">
@@ -487,9 +528,10 @@ interface InvoiceLineRowProps {
   inv: InvoiceLine;
   paid?: boolean;
   onVincular?: () => void;
+  onAcordar?: () => void;
 }
 
-function InvoiceLineRow({ inv, paid = false, onVincular }: InvoiceLineRowProps) {
+function InvoiceLineRow({ inv, paid = false, onVincular, onAcordar }: InvoiceLineRowProps) {
   return (
     <div
       className={cn(
@@ -530,16 +572,31 @@ function InvoiceLineRow({ inv, paid = false, onVincular }: InvoiceLineRowProps) 
         <div className={cn("font-mono font-bold", paid ? 'text-success' : 'text-destructive')}>
           {paid ? 'Cubierta' : formatCurrency(inv.pending_invoice)}
         </div>
-        {!paid && onVincular && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 px-2 text-[10px] mt-0.5 gap-1 text-primary hover:bg-primary/10"
-            onClick={(e) => { e.stopPropagation(); onVincular(); }}
-          >
-            <Link2 className="h-2.5 w-2.5" />
-            Vincular pago
-          </Button>
+        {!paid && (
+          <div className="flex flex-col gap-0.5 mt-0.5">
+            {onVincular && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[10px] gap-1 text-primary hover:bg-primary/10 justify-end"
+                onClick={(e) => { e.stopPropagation(); onVincular(); }}
+              >
+                <Link2 className="h-2.5 w-2.5" />
+                Vincular pago
+              </Button>
+            )}
+            {onAcordar && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[10px] gap-1 text-warning hover:bg-warning/10 justify-end"
+                onClick={(e) => { e.stopPropagation(); onAcordar(); }}
+              >
+                <CalendarClock className="h-2.5 w-2.5" />
+                Acordar cobro
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>

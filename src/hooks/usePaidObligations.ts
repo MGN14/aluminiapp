@@ -42,6 +42,11 @@ export function usePaidObligations() {
       // desaparece de upcoming events automáticamente.
       return false;
     }
+    if (ev.origen === 'cobro_cliente') {
+      // Idem: useExpectedPayments solo trae status='pendiente'. Si ya se
+      // marcó cumplido desde el Dashboard, ni siquiera se inyecta como evento.
+      return false;
+    }
     if (ev.origen === 'negocio') {
       const ob = obligations.find(o => o.id === ev.obligationId);
       if (!ob) return false;
@@ -77,6 +82,13 @@ export function usePaidObligations() {
       // Para cuotas de crédito, el toggle aquí no hace nada — el usuario
       // registra el pago en /creditos y eso actualiza el estado automático.
       toast.info('Registrá el pago desde Créditos para actualizar la cuota.');
+      return;
+    }
+    if (ev.origen === 'cobro_cliente') {
+      // Para cobros esperados, marcá cumplido desde el card del Dashboard o
+      // desde Lo que me deben — no desde el calendario (el calendario solo
+      // muestra los pendientes).
+      toast.info('Marcá como cobrado desde el Dashboard o Lo que me deben.');
       return;
     }
     if (ev.origen === 'negocio') {

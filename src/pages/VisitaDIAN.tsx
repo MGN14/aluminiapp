@@ -17,12 +17,14 @@ import { useFinancialHealthScore } from '@/hooks/useFinancialHealthScore';
 import { SCORE_VARIABLES } from '@/hooks/financialHealthScoreUtils';
 import { useUpcomingObligations, diasRestantes } from '@/hooks/useUpcomingObligations';
 import { usePaidObligations } from '@/hooks/usePaidObligations';
+import { useExpectedPayments } from '@/hooks/useExpectedPayments';
 import { useNico } from '@/hooks/useNicoContext';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useEvasionGap } from '@/hooks/useEvasionGap';
 import RentabilidadFormalizacion from '@/components/gerencial/RentabilidadFormalizacion';
 import { supabase } from '@/integrations/supabase/client';
-import { TIPO_LABEL } from '@/lib/dianCalendar2026';
+import { TIPO_LABEL, type CalendarEvent } from '@/lib/dianCalendar2026';
+import { parseLocalDate } from '@/lib/dateUtils';
 
 function getRiskLevel(score: number): { label: string; color: string } {
   if (score >= 90) return { label: 'Bajo', color: 'text-success' };
@@ -52,8 +54,26 @@ function getNicoMessage(score: number): { line1: string; line2: string } {
 
 export default function VisitaDIAN() {
   const { config, saveConfig } = useFiscalConfig();
-  const { events, urgentes, nitDigit } = useUpcomingObligations(15);
+  const { events: obligationEvents, urgentes, nitDigit } = useUpcomingObligations(15);
   const { isPaid } = usePaidObligations();
+  const { data: expectedPaymentsData } = useExpectedPayments();
+
+  // Merge: obligaciones tributarias + cobros esperados → un solo calendario.
+  // Los cobros se muestran en verde (tipo 'cobro_esperado') con el nombre del
+  // cliente. Solo se inyectan los pendientes (el hook filtra cumplidos).
+  const events: CalendarEvent[] = useMemo(() => {
+    const cobroEvents: CalendarEvent[] = (expectedPaymentsData?.all ?? []).map(p => ({
+      id: `cobro-${p.id}`,
+      tipo: 'cobro_esperado',
+      descripcion: `Cobrar ${p.responsible_name ?? 'cliente'}${p.invoice_number ? ` (Fact. ${p.invoice_number})` : ''}${p.notes ? ` — ${p.notes}` : ''}`,
+      fecha: parseLocalDate(p.due_date),
+      periodo: p.invoice_number ? `Factura ${p.invoice_number}` : 'Cobro acordado',
+      monto: p.amount,
+      origen: 'cobro_cliente',
+      expectedPaymentId: p.id,
+    }));
+    return [...obligationEvents, ...cobroEvents];
+  }, [obligationEvents, expectedPaymentsData]);
   const { openNico, setPageContext } = useNico();
   const { isGerencial } = useModuleContext();
 
