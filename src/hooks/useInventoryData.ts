@@ -22,6 +22,12 @@ export interface InventoryProduct {
   last_siigo_sync_at?: string | null;
   /** Sistema/grupo al que pertenece la referencia (ej: "744", "8025", "proyectante"). */
   system?: string | null;
+  /** Punto de ancla del inventario teórico (modo Gerencial). El teórico se
+   *  calcula como stock_inicial + entradas manuales − remisiones de venta,
+   *  contando solo movimientos posteriores a stock_inicial_date. Null si la
+   *  referencia nunca se configuró para teórico. */
+  stock_inicial?: number | null;
+  stock_inicial_date?: string | null;
 }
 
 export type InventoryDataSource = 'dian' | 'gerencial';
@@ -37,6 +43,11 @@ export interface InventoryMovement {
   notes: string | null;
   movement_date: string;
   created_at: string;
+  /** Origen del movimiento: 'remision', 'entrada_manual', 'factura', etc.
+   *  El teórico gerencial solo cuenta 'entrada_manual' (entradas) y
+   *  'remision' (salidas de venta). */
+  source_type?: string | null;
+  source_id?: string | null;
 }
 
 export type InventoryStatus = 'critico' | 'alerta' | 'sano' | 'exceso';
@@ -47,6 +58,10 @@ export interface ProductWithMetrics extends InventoryProduct {
   rotation: number;
   status: InventoryStatus;
   avg_daily_sales: number;
+  /** Lo que debería haber en bodega. En modo Gerencial se calcula desde
+   *  stock_inicial + entradas manuales − remisiones de venta. En modo DIAN
+   *  es igual a stock_system (Siigo). */
+  teorico: number;
 }
 
 export interface InventoryMetrics {
@@ -226,22 +241,56 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         recentSalesByRef.set(k, (recentSalesByRef.get(k) ?? 0) + Math.abs(ev.quantity));
       }
 
+      // Teórico (modo Gerencial): "lo que debería haber en bodega" sin importar
+      // factura/Siigo. Parte del stock_inicial que cargó el usuario y suma
+      // entradas manuales / resta remisiones de venta, contando solo los
+      // movimientos posteriores a stock_inicial_date (el ancla del último
+      // cuadre). En modo DIAN no se calcula — el teórico es igual a Siigo.
+      const teoricoByProduct = new Map<string, number>();
+      if (dataSource === 'gerencial') {
+        for (const p of rawProducts) {
+          if (p.stock_inicial === null || p.stock_inicial === undefined) continue;
+          const anchorDate = (p.stock_inicial_date ?? '').split('T')[0];
+          let entradas = 0;
+          let salidas = 0;
+          for (const m of rawInventoryMovements) {
+            if (m.product_id !== p.id) continue;
+            if (anchorDate && m.movement_date < anchorDate) continue;
+            if (m.source_type === 'entrada_manual' && m.movement_type === 'entrada') {
+              entradas += Number(m.quantity) || 0;
+            } else if (m.source_type === 'remision' && m.movement_type === 'salida') {
+              salidas += Number(m.quantity) || 0;
+            }
+          }
+          teoricoByProduct.set(p.id, Number(p.stock_inicial) + entradas - salidas);
+        }
+      }
+
       const enriched: ProductWithMetrics[] = rawProducts.map(p => {
         const refKey = (p.reference ?? '').trim().toLowerCase();
         const recentSales = recentSalesByRef.get(refKey) ?? 0;
 
+        // En Gerencial el stock "real" es el teórico; en DIAN es Siigo. Si en
+        // Gerencial la referencia no tiene stock_inicial cargado, degradamos a
+        // Siigo para no dejar la fila vacía (el usuario debería cargarlo).
+        const teorico = teoricoByProduct.has(p.id)
+          ? teoricoByProduct.get(p.id)!
+          : p.stock_system;
+        const compareBase = dataSource === 'gerencial' ? teorico : p.stock_system;
+
         const avgDailySales = recentSales / 30;
-        const daysOfInventory = avgDailySales > 0 ? p.stock_system / avgDailySales : 999;
+        const daysOfInventory = avgDailySales > 0 ? compareBase / avgDailySales : 999;
         const totalSales30d = recentSales;
-        const avgStock = p.stock_system > 0 ? p.stock_system : 1;
+        const avgStock = compareBase > 0 ? compareBase : 1;
         const rotation = totalSales30d / avgStock;
         // Math.round: stock_system/physical son numeric de Postgres y arrastran
         // ruido de floating point (ej: 175.99 → DIF +170.99). Las unidades de
         // inventario son enteras, así que la diferencia también.
-        const difference = p.stock_physical !== null ? Math.round(p.stock_system - p.stock_physical) : 0;
+        const difference = p.stock_physical !== null ? Math.round(compareBase - p.stock_physical) : 0;
 
         return {
           ...p,
+          teorico,
           difference,
           days_of_inventory: Math.round(daysOfInventory),
           rotation: Math.round(rotation * 100) / 100,
@@ -252,8 +301,9 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
 
       setProducts(enriched);
 
-      // Aggregate metrics
-      const totalValue = enriched.reduce((s, p) => s + p.stock_system * p.cost_per_unit, 0);
+      // Aggregate metrics. Valor total usa p.teorico — en DIAN es igual a
+      // stock_system, en Gerencial refleja lo que debería haber en bodega.
+      const totalValue = enriched.reduce((s, p) => s + p.teorico * p.cost_per_unit, 0);
       const withSales = enriched.filter(p => p.avg_daily_sales > 0);
       const avgDays = withSales.length > 0
         ? withSales.reduce((s, p) => s + p.days_of_inventory, 0) / withSales.length
@@ -393,9 +443,60 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
     return true;
   };
 
+  // Entrada manual de inventario (modo Gerencial). Solo deja registro en
+  // inventory_movements con source_type='entrada_manual' — alimenta el
+  // teórico, NO toca stock_system (Siigo) ni stock_physical (conteo). El
+  // teórico la suma en el próximo fetchData.
+  const registerEntradaManual = async (data: {
+    product_id: string;
+    quantity: number;
+    unit_cost: number;
+    movement_date?: string;
+    notes?: string;
+  }) => {
+    if (!user) return false;
+    const { error } = await supabase.from('inventory_movements').insert({
+      user_id: user.id,
+      product_id: data.product_id,
+      movement_type: 'entrada',
+      source_type: 'entrada_manual',
+      quantity: data.quantity,
+      unit_cost: data.unit_cost,
+      total_cost: data.quantity * data.unit_cost,
+      movement_date: data.movement_date || new Date().toISOString().split('T')[0],
+      notes: data.notes ?? null,
+    } as never);
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      return false;
+    }
+    await fetchData();
+    return true;
+  };
+
+  // Cuadre global del inventario teórico: el stock físico contado de cada
+  // referencia pasa a ser el nuevo stock_inicial y stock_inicial_date se
+  // actualiza a hoy ("el final se vuelve inicial"). El teórico arranca de
+  // cero desde ese punto.
+  const cuadrarInventario = async () => {
+    if (!user) return false;
+    const { data, error } = await supabase.rpc('cuadrar_inventario_teorico' as never);
+    if (error) {
+      toast({ title: 'Error al cuadrar inventario', description: error.message, variant: 'destructive' });
+      return false;
+    }
+    await fetchData();
+    toast({
+      title: 'Inventario cuadrado',
+      description: `${data ?? 0} referencias re-ancladas. El teórico arranca de nuevo desde el conteo físico.`,
+    });
+    return true;
+  };
+
   return {
     products, movements, metrics, loading,
     addProduct, updateProduct, addMovement, deleteProduct, refetch: fetchData,
+    registerEntradaManual, cuadrarInventario,
     dataSource,
   };
 }

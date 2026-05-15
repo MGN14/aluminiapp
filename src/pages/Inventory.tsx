@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, History, BookOpen, RefreshCw, Loader2, FileText, ScrollText } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck, History, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import { useModuleContext } from '@/hooks/useModuleContext';
@@ -14,6 +14,7 @@ import AdjustStockModal from '@/components/inventory/AdjustStockModal';
 import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import PhysicalCountModal from '@/components/inventory/PhysicalCountModal';
 import MaestroProductos from '@/components/inventory/MaestroProductos';
+import EntradaInventarioModal from '@/components/inventory/EntradaInventarioModal';
 import InventoryFreshnessBanner from '@/components/inventory/InventoryFreshnessBanner';
 import AppLayout from '@/components/layout/AppLayout';
 import { usePersistedDialogOpen } from '@/hooks/usePersistedFormState';
@@ -23,7 +24,7 @@ type Tab = 'inventario' | 'maestro';
 export default function Inventory() {
   const { isGerencial } = useModuleContext();
   const dataSource = isGerencial ? 'gerencial' : 'dian';
-  const { products, movements, metrics, loading, addProduct, updateProduct, addMovement, refetch } = useInventoryData(dataSource);
+  const { products, movements, metrics, loading, addProduct, updateProduct, addMovement, registerEntradaManual, cuadrarInventario, refetch } = useInventoryData(dataSource);
   const { toast } = useToast();
 
   const existingSystems = useMemo(() => {
@@ -37,6 +38,8 @@ export default function Inventory() {
   const [tab, setTab] = useState<Tab>('inventario');
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [showEntrada, setShowEntrada] = useState(false);
+  const [cuadreLoading, setCuadreLoading] = useState(false);
   // El modal de conteo físico persiste su estado abierto: si el usuario
   // está en medio del wizard (subiendo / mapeando / revisando el cruce) y
   // se sale o refresca, al volver el modal se reabre y el wizard sigue
@@ -109,6 +112,21 @@ export default function Inventory() {
 
   const openEdit = (product: ProductWithMetrics) => {
     setEditProduct(product);
+  };
+
+  // Cuadre global del inventario teórico: el stock físico contado pasa a ser
+  // el nuevo punto de partida (inicial) de cada referencia.
+  const handleCuadrarInventario = async () => {
+    const ok = window.confirm(
+      'Cuadrar inventario teórico\n\n' +
+      'El stock físico contado de cada referencia pasará a ser su nuevo punto de partida (inicial). ' +
+      'Las entradas y remisiones se contarán desde hoy.\n\n' +
+      'Hacé esto después de un conteo físico. ¿Continuar?',
+    );
+    if (!ok) return;
+    setCuadreLoading(true);
+    await cuadrarInventario();
+    setCuadreLoading(false);
   };
 
   // Eliminar referencia del inventario. Útil para refs basura que entraron
@@ -230,6 +248,67 @@ export default function Inventory() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {isGerencial && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowEntrada(true)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      height: 36,
+                      padding: '0 14px',
+                      borderRadius: 10,
+                      background: '#fff',
+                      border: '1.5px solid oklch(0.43 0.14 155 / 0.30)',
+                      color: 'oklch(0.43 0.14 155)',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s, border-color 0.15s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'oklch(0.43 0.14 155 / 0.08)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+                  >
+                    <ArrowDownToLine style={{ width: 14, height: 14 }} />
+                    Registrar entrada
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCuadrarInventario}
+                    disabled={cuadreLoading}
+                    title="El stock físico contado pasa a ser el nuevo punto de partida (inicial) del teórico"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      height: 36,
+                      padding: '0 14px',
+                      borderRadius: 10,
+                      background: '#fff',
+                      border: '1.5px solid oklch(0.55 0.17 70 / 0.30)',
+                      color: 'oklch(0.55 0.17 70)',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      fontFamily: 'inherit',
+                      cursor: cuadreLoading ? 'not-allowed' : 'pointer',
+                      opacity: cuadreLoading ? 0.6 : 1,
+                      transition: 'background 0.15s, border-color 0.15s',
+                    }}
+                    onMouseEnter={(e) => { if (!cuadreLoading) e.currentTarget.style.background = 'oklch(0.70 0.17 70 / 0.08)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+                  >
+                    {cuadreLoading ? (
+                      <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" />
+                    ) : (
+                      <CheckCheck style={{ width: 14, height: 14 }} />
+                    )}
+                    Cuadrar inventario
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => setShowPhysical(true)}
@@ -395,7 +474,7 @@ export default function Inventory() {
 
             {/* Metric Cards */}
             <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '80ms' }}>
-              <InventoryMetrics metrics={metrics} />
+              <InventoryMetrics metrics={metrics} isGerencial={isGerencial} />
             </div>
 
             {/* Chart */}
@@ -405,7 +484,7 @@ export default function Inventory() {
 
             {/* Table */}
             <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '240ms' }}>
-              <InventoryTable products={products} onAdjust={openAdjust} onEdit={openEdit} onAddMovement={openMovement} onDelete={handleDeleteProduct} />
+              <InventoryTable products={products} onAdjust={openAdjust} onEdit={openEdit} onAddMovement={openMovement} onDelete={handleDeleteProduct} isGerencial={isGerencial} />
             </div>
 
             {/* Historial de ajustes */}
@@ -477,6 +556,7 @@ export default function Inventory() {
         } : null}
       />
       <BulkUploadModal open={showBulk} onOpenChange={setShowBulk} onComplete={refetch} />
+      <EntradaInventarioModal open={showEntrada} onOpenChange={setShowEntrada} products={products} onSubmit={registerEntradaManual} />
       <PhysicalCountModal open={showPhysical} onOpenChange={setShowPhysical} onComplete={refetch} />
       <AdjustStockModal
         open={!!adjustProduct}

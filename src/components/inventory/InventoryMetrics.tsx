@@ -4,7 +4,7 @@ import type { InventoryMetrics as Metrics } from '@/hooks/useInventoryData';
 const fmt = (n: number) => n.toLocaleString('es-CO', { maximumFractionDigits: 0 });
 const fmtCurrency = (n: number) => `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
 
-interface Props { metrics: Metrics; }
+interface Props { metrics: Metrics; isGerencial?: boolean; }
 
 type CardDef = {
   key: keyof Metrics;
@@ -26,11 +26,15 @@ const BADGE_AMBER = { bg: 'oklch(0.70 0.17 70 / 0.12)', color: 'oklch(0.55 0.17 
 const BADGE_RED   = { bg: 'oklch(0.58 0.20 25 / 0.12)', color: 'oklch(0.52 0.18 25)', border: 'oklch(0.58 0.20 25 / 0.25)' };
 const BADGE_VIOLET= { bg: 'oklch(0.55 0.17 305 / 0.12)', color: 'oklch(0.50 0.17 305)', border: 'oklch(0.55 0.17 305 / 0.25)' };
 
-const cards: CardDef[] = [
+// En Gerencial el descuadre se mide contra el teórico (lo que debería haber
+// en bodega); en DIAN contra Siigo.
+const buildCards = (isGerencial: boolean): CardDef[] => {
+const stockLabel = isGerencial ? 'teórico' : 'Siigo';
+return [
   {
     key: 'totalValue',
     label: 'Valor Total Inventario',
-    hint: 'Suma de unidades Siigo × costo unitario de cada producto.',
+    hint: `Suma de unidades ${isGerencial ? 'teóricas' : 'Siigo'} × costo unitario de cada producto.`,
     icon: DollarSign,
     format: fmtCurrency,
     gradient: 'linear-gradient(135deg, oklch(0.55 0.15 240 / 0.08), oklch(0.65 0.12 220 / 0.03))',
@@ -71,7 +75,7 @@ const cards: CardDef[] = [
   {
     key: 'totalDifference',
     label: 'Diferencia Unidades',
-    hint: 'Unidades de descuadre entre Siigo y físico (suma de |Siigo − físico|). Señal de fuga o error de registro.',
+    hint: `Unidades de descuadre entre ${stockLabel} y físico (suma de |${stockLabel} − físico|). Señal de fuga o error de registro.`,
     icon: ArrowLeftRight,
     format: fmt,
     gradient: 'linear-gradient(135deg, oklch(0.70 0.17 70 / 0.08), oklch(0.75 0.14 60 / 0.03))',
@@ -83,7 +87,7 @@ const cards: CardDef[] = [
   {
     key: 'totalDifferenceValue',
     label: 'Diferencia en Costo',
-    hint: 'Plata en riesgo: suma de |Siigo − físico| × costo unitario por producto.',
+    hint: `Plata en riesgo: suma de |${stockLabel} − físico| × costo unitario por producto.`,
     icon: Wallet,
     format: fmtCurrency,
     gradient: 'linear-gradient(135deg, oklch(0.62 0.20 15 / 0.08), oklch(0.68 0.17 25 / 0.03))',
@@ -93,8 +97,10 @@ const cards: CardDef[] = [
     getBadge: (v: number) => (v > 0 ? { label: 'Revisar', ...BADGE_RED } : null),
   },
 ];
+};
 
-export default function InventoryMetrics({ metrics }: Props) {
+export default function InventoryMetrics({ metrics, isGerencial = false }: Props) {
+  const cards = buildCards(isGerencial);
   return (
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
       {cards.map((c, idx) => {

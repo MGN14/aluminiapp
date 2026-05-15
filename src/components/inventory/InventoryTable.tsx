@@ -41,6 +41,9 @@ interface Props {
   onEdit: (product: ProductWithMetrics) => void;
   onAddMovement: (product: ProductWithMetrics, type: 'entrada' | 'salida') => void;
   onDelete: (product: ProductWithMetrics) => void;
+  /** Modo Gerencial: la columna de stock muestra el teórico (lo que debería
+   *  haber en bodega) en vez del stock de Siigo. */
+  isGerencial?: boolean;
 }
 
 type SortKey = 'reference' | 'stock_system' | 'stock_physical' | 'difference' | 'days_of_inventory' | 'status' | 'cost_per_unit' | 'value';
@@ -134,7 +137,9 @@ function ActionButton({ onClick, title, color, bgHover, children }: { onClick: (
   );
 }
 
-export default function InventoryTable({ products, onAdjust, onEdit, onAddMovement, onDelete }: Props) {
+export default function InventoryTable({ products, onAdjust, onEdit, onAddMovement, onDelete, isGerencial = false }: Props) {
+  // En Gerencial la columna de stock es el teórico; en DIAN es Siigo.
+  const stockOf = (p: ProductWithMetrics) => (isGerencial ? p.teorico : p.stock_system);
   const [sortKey, setSortKey] = useState<SortKey>('status');
   const [sortAsc, setSortAsc] = useState(true);
   const [search, setSearch] = useState('');
@@ -174,7 +179,8 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
       let cmp = 0;
       if (sortKey === 'status') cmp = statusOrder[a.status] - statusOrder[b.status];
       else if (sortKey === 'reference') cmp = a.reference.localeCompare(b.reference);
-      else if (sortKey === 'value') cmp = (a.stock_system * a.cost_per_unit) - (b.stock_system * b.cost_per_unit);
+      else if (sortKey === 'stock_system') cmp = stockOf(a) - stockOf(b);
+      else if (sortKey === 'value') cmp = (stockOf(a) * a.cost_per_unit) - (stockOf(b) * b.cost_per_unit);
       else if (sortKey === 'stock_physical') {
         const aNull = a.stock_physical === null;
         const bNull = b.stock_physical === null;
@@ -363,7 +369,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
           <thead>
             <tr>
               <SortableTh label="Producto" active={sortKey === 'reference'} asc={sortAsc} onClick={() => toggleSort('reference')} />
-              <SortableTh label="Siigo" active={sortKey === 'stock_system'} asc={sortAsc} onClick={() => toggleSort('stock_system')} align="right" />
+              <SortableTh label={isGerencial ? 'Teórico' : 'Siigo'} active={sortKey === 'stock_system'} asc={sortAsc} onClick={() => toggleSort('stock_system')} align="right" />
               <SortableTh label="Físico" active={sortKey === 'stock_physical'} asc={sortAsc} onClick={() => toggleSort('stock_physical')} align="right" />
               <SortableTh label="Dif." active={sortKey === 'difference'} asc={sortAsc} onClick={() => toggleSort('difference')} align="right" />
               <SortableTh label="Costo unit." active={sortKey === 'cost_per_unit'} asc={sortAsc} onClick={() => toggleSort('cost_per_unit')} align="right" />
@@ -378,7 +384,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
               const s = STATUS_STYLES[p.status];
               const hasPhysical = p.stock_physical !== null;
               const diff = p.difference;
-              const value = p.stock_system * p.cost_per_unit;
+              const value = stockOf(p) * p.cost_per_unit;
               const days = p.days_of_inventory;
               const daysColor = daysCoverageColor(days);
               const daysPct = Math.min(100, (days / 90) * 100);
@@ -471,9 +477,9 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                     </div>
                   </td>
 
-                  {/* Siigo */}
+                  {/* Siigo / Teórico */}
                   <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontWeight: 600 }}>
-                    {fmt(p.stock_system)}
+                    {fmt(stockOf(p))}
                   </td>
 
                   {/* Físico */}
