@@ -3,21 +3,23 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
-import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MONTH_NAMES } from '@/types/transaction';
-import { parseLocalDate } from '@/lib/dateUtils';
-import { Receipt, AlertCircle, Info, Lightbulb, CheckCircle2, ChevronDown, ChevronRight, Banknote, ShieldCheck, History, Link2, Wallet } from 'lucide-react';
-import { format, differenceInDays } from 'date-fns';
+import { Receipt, AlertCircle, Info, CheckCircle2, ChevronDown, ChevronRight, Wallet, Link2, ArrowDownCircle, Users, TrendingDown } from 'lucide-react';
+import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import VincularPagoModal from './VincularPagoModal';
+import {
+  calculateAllClientReceivables,
+  type ClientReceivable,
+  type InvoiceLine,
+} from '@/lib/clientReceivables';
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('es-CO', {
@@ -31,47 +33,10 @@ function formatCurrency(value: number): string {
 const currentYear = new Date().getFullYear();
 const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-interface PaymentDetail {
-  type: 'transaction' | 'match' | 'advance' | 'retefuente';
-  label: string;
-  amount: number;
-  date?: string;
-}
-
-interface InvoiceWithPayments {
+interface VincularInvoiceTarget {
   id: string;
   invoice_number: string;
   counterparty_name: string | null;
-  responsible_id: string | null;
-  issue_date: string;
-  total_amount: number;
-  paid_amount: number;
-  pending: number;
-  days_since: number;
-  status: 'pagada' | 'parcial' | 'pendiente';
-  details: PaymentDetail[];
-}
-
-interface Suggestion {
-  invoiceId: string;
-  invoiceNumber: string;
-  transactionId: string;
-  transactionDesc: string;
-  transactionAmount: number;
-}
-
-interface InitialCxCRow {
-  id: string;
-  responsible_name: string | null;
-  amount: number;
-  paid_amount: number;
-  pending: number;
-  details: PaymentDetail[];
-}
-
-interface VincularSaldoInicialTarget {
-  id: string;
-  responsible_name: string | null;
   pending: number;
   total_amount: number;
 }
@@ -80,314 +45,24 @@ export default function AccountsReceivableReport() {
   const { user } = useAuth();
   const { isGerencial } = useModuleContext();
   const [year, setYear] = useState(currentYear);
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [vincularInvoice, setVincularInvoice] = useState<InvoiceWithPayments | null>(null);
-  const [vincularSaldoInicial, setVincularSaldoInicial] = useState<VincularSaldoInicialTarget | null>(null);
-  const counterpartyResolver = useCounterpartyResolver();
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+  const [showPagadasByClient, setShowPagadasByClient] = useState<Set<string>>(new Set());
+  const [vincularInvoice, setVincularInvoice] = useState<VincularInvoiceTarget | null>(null);
+  const [showSaldoAFavor, setShowSaldoAFavor] = useState(false);
 
-  const toggleRow = (id: string) => {
-    setExpandedRows(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
+  // Cartera por cliente — alineada con la lógica de PaymentsLogReport vía util
+  // compartido `calculateAllClientReceivables`. Garantiza que el saldo de un
+  // cliente sea idéntico al que muestra Relación de Pagos.
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['accounts-receivable', user?.id, year],
+    queryKey: ['accounts-receivable-by-client', user?.id, year],
     queryFn: async () => {
       if (!user) return null;
-
-      const startDate = `${year}-01-01`;
-      const endDate = `${year}-12-31`;
-
-      const [invoicesRes, initialDetailsRes, anticiposClienteRes] = await Promise.all([
-        supabase
-          .from('invoices')
-          .select('id, invoice_number, counterparty_name, responsible_id, issue_date, due_date, total_amount, subtotal_base, status, type, retefuente_cliente_amount, retefuente_cliente_rate, autoretefuente_amount, reteica_amount, dias_credito, balance_pending, source')
-          .eq('type', 'venta')
-          .gte('issue_date', startDate)
-          .lte('issue_date', endDate)
-          .order('issue_date', { ascending: false })
-          .returns<Array<Record<string, any>>>(),
-        supabase
-          .from('initial_state_details' as any)
-          .select('*')
-          .eq('field_type', 'cuentas_por_cobrar'),
-        // FIX BUG (reportado por Nico): los anticipos de clientes que NO
-        // están vinculados a una factura específica deben restarse del
-        // saldo total por cobrar. Antes solo se descontaban los que tenían
-        // invoice_id, así un cliente con anticipo de $113M que después
-        // facturó $167M aparecía debiendo $167M en lugar de $54M.
-        supabase
-          .from('initial_state_details' as any)
-          .select('amount, responsible_name, responsible_id')
-          .eq('field_type', 'anticipos_de_clientes')
-          .is('invoice_id', null),
-      ]);
-
-      const { data: invoices, error: invErr } = invoicesRes;
-      const initialCxCDetails = (initialDetailsRes.data as any[]) || [];
-      const unlinkedAnticipos = (anticiposClienteRes.data as any[]) || [];
-
-      if (invErr) throw invErr;
-      if (!invoices?.length && initialCxCDetails.length === 0 && unlinkedAnticipos.length === 0) {
-        return { receivables: [], suggestions: [], initialCxC: 0, initialCxCRows: [] as InitialCxCRow[], totalAnticiposNoVinculados: 0, anticiposNoVinculadosRows: [] };
-      }
-
-      // Matches against initial balances (partial payments)
-      const initialIds = initialCxCDetails.map((d: any) => d.id);
-      let iniMatches: any[] = [];
-      const iniMatchTxIds = new Set<string>();
-      if (initialIds.length > 0) {
-        const { data: iniMatchRes } = await supabase
-          .from('initial_balance_matches' as any)
-          .select('initial_state_detail_id, transaction_id, matched_amount')
-          .in('initial_state_detail_id', initialIds);
-        iniMatches = (iniMatchRes as any[]) || [];
-        iniMatches.forEach((m: any) => iniMatchTxIds.add(m.transaction_id));
-      }
-
-      // Resolve tx descriptions/dates for initial-balance matches
-      const iniMatchTxMap = new Map<string, { description: string; date: string }>();
-      if (iniMatchTxIds.size > 0) {
-        const { data: iniMatchTxs } = await supabase
-          .from('transactions')
-          .select('id, description, date')
-          .in('id', [...iniMatchTxIds]);
-        (iniMatchTxs || []).forEach((t: any) => iniMatchTxMap.set(t.id, { description: t.description, date: t.date }));
-      }
-
-      // Build per-initial-detail payment map
-      const iniPaidByDetail = new Map<string, number>();
-      const iniDetailsByDetail = new Map<string, PaymentDetail[]>();
-      initialIds.forEach((id: string) => {
-        iniPaidByDetail.set(id, 0);
-        iniDetailsByDetail.set(id, []);
-      });
-      iniMatches.forEach((m: any) => {
-        const amt = Math.abs(m.matched_amount ?? 0);
-        const tx = iniMatchTxMap.get(m.transaction_id);
-        iniPaidByDetail.set(m.initial_state_detail_id, (iniPaidByDetail.get(m.initial_state_detail_id) || 0) + amt);
-        iniDetailsByDetail.get(m.initial_state_detail_id)?.push({
-          type: 'match',
-          label: tx?.description || 'Conciliación manual',
-          amount: amt,
-          date: tx?.date,
-        });
-      });
-
-      const initialCxCRows: InitialCxCRow[] = initialCxCDetails.map((d: any) => {
-        const paid = iniPaidByDetail.get(d.id) || 0;
-        const pending = Math.max(0, (d.amount ?? 0) - paid);
-        return {
-          id: d.id,
-          responsible_name: d.responsible_name,
-          amount: d.amount ?? 0,
-          paid_amount: paid,
-          pending,
-          details: iniDetailsByDetail.get(d.id) || [],
-        };
-      });
-
-      const initialCxC = initialCxCRows.reduce((s, r) => s + r.pending, 0);
-
-      const invoiceIds = invoices.map(i => i.id);
-
-      const [directRes, matchRes, advanceRes, unmatchedRes] = await Promise.all([
-        supabase
-          .from('transactions')
-          .select('id, invoice_id, amount, description, date')
-          .is('deleted_at', null)
-          .in('invoice_id', invoiceIds),
-        supabase
-          .from('invoice_transaction_matches')
-          .select('invoice_id, matched_amount, transaction_id')
-          .in('invoice_id', invoiceIds),
-        supabase
-          .from('initial_state_details')
-          .select('invoice_id, amount, responsible_name')
-          .eq('field_type', 'anticipos_de_clientes')
-          .in('invoice_id', invoiceIds),
-        supabase
-          .from('transactions')
-          .select('id, amount, description, owner, responsible_id, date')
-          .eq('type', 'ingreso')
-          .is('invoice_id', null)
-          .is('deleted_at', null)
-          .gte('date', startDate)
-          .lte('date', endDate),
-      ]);
-
-      // Get transaction dates for matches
-      const matchTxIds = [...new Set((matchRes.data || []).map(m => m.transaction_id))];
-      let matchTxMap = new Map<string, { description: string; date: string }>();
-      if (matchTxIds.length > 0) {
-        const { data: matchTxs } = await supabase
-          .from('transactions')
-          .select('id, description, date')
-          .in('id', matchTxIds);
-        (matchTxs || []).forEach(t => matchTxMap.set(t.id, { description: t.description, date: t.date }));
-      }
-
-      // Build per-invoice detail lists
-      const detailsByInvoice = new Map<string, PaymentDetail[]>();
-      const paymentsByInvoice = new Map<string, number>();
-
-      invoiceIds.forEach(id => {
-        detailsByInvoice.set(id, []);
-        paymentsByInvoice.set(id, 0);
-      });
-
-      // Direct transaction payments
-      (directRes.data || []).forEach(p => {
-        if (!p.invoice_id) return;
-        const amt = Math.abs(p.amount ?? 0);
-        detailsByInvoice.get(p.invoice_id)?.push({
-          type: 'transaction',
-          label: p.description || 'Transacción directa',
-          amount: amt,
-          date: p.date,
-        });
-        paymentsByInvoice.set(p.invoice_id, (paymentsByInvoice.get(p.invoice_id) || 0) + amt);
-      });
-
-      // Match payments
-      (matchRes.data || []).forEach(p => {
-        const tx = matchTxMap.get(p.transaction_id);
-        const amt = Math.abs(p.matched_amount);
-        detailsByInvoice.get(p.invoice_id)?.push({
-          type: 'match',
-          label: tx?.description || 'Conciliación manual',
-          amount: amt,
-          date: tx?.date,
-        });
-        paymentsByInvoice.set(p.invoice_id, (paymentsByInvoice.get(p.invoice_id) || 0) + amt);
-      });
-
-      // Advance payments from initial state
-      ((advanceRes.data || []) as any[]).forEach(p => {
-        if (!p.invoice_id) return;
-        const amt = Math.abs(p.amount ?? 0);
-        detailsByInvoice.get(p.invoice_id)?.push({
-          type: 'advance',
-          label: `Anticipo periodo anterior — ${p.responsible_name || 'Sin nombre'}`,
-          amount: amt,
-        });
-        paymentsByInvoice.set(p.invoice_id, (paymentsByInvoice.get(p.invoice_id) || 0) + amt);
-      });
-
-      const today = new Date();
-      const receivables: InvoiceWithPayments[] = invoices.map(inv => {
-        // SOURCE OF TRUTH es la CONCILIACIÓN BANCARIA en AluminIA.
-        // El user reconcilia manualmente primero acá, después su contadora
-        // sube la info a Siigo. Por eso NO usamos invoices.balance_pending
-        // de Siigo — lo guardamos como info auxiliar pero el saldo real
-        // sigue calculándose desde transactions + invoice_transaction_matches.
-        const rawPaid = paymentsByInvoice.get(inv.id) || 0;
-        const paid = rawPaid;
-        // Use the saved retefuente values from the invoice module directly
-        // Only fall back to 2.5% if rate is null (never configured), not if explicitly 0
-        const savedRetefuente = (inv as any).retefuente_cliente_amount ?? 0;
-        const rawRate = (inv as any).retefuente_cliente_rate;
-        const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-        const effectiveRate = hasExplicitRate ? rawRate : 0.025;
-        const retefuenteCliente = savedRetefuente > 0
-          ? savedRetefuente
-          : Math.round((inv.subtotal_base ?? 0) * effectiveRate);
-        const details = [...(detailsByInvoice.get(inv.id) || [])];
-
-        // Always add retention as a detail line for sale invoices
-        if (retefuenteCliente > 0) {
-          const displayRate = savedRetefuente > 0 && rawRate > 0 ? (rawRate * 100).toFixed(1) : '2.5';
-          details.push({
-            type: 'retefuente',
-            label: `Retefuente cliente ${displayRate}% (pagada a DIAN)`,
-            amount: retefuenteCliente,
-          });
-        }
-
-        const totalDeducted = paid + retefuenteCliente;
-        const pending = Math.max(0, inv.total_amount - totalDeducted);
-        const daysSince = differenceInDays(today, new Date(inv.issue_date));
-        let status: 'pagada' | 'parcial' | 'pendiente' = 'pendiente';
-        if (pending <= 0) status = 'pagada';
-        else if (totalDeducted > 0) status = 'parcial';
-
-        return {
-          id: inv.id,
-          invoice_number: inv.invoice_number,
-          counterparty_name: inv.counterparty_name,
-          responsible_id: inv.responsible_id ?? null,
-          issue_date: inv.issue_date,
-          total_amount: inv.total_amount,
-          paid_amount: totalDeducted,
-          pending,
-          days_since: daysSince,
-          status,
-          details,
-        };
-      });
-
-      const unpaid = receivables.filter(r => r.pending > 0).sort((a, b) => b.pending - a.pending);
-
-      // Suggestions
-      const suggestions: Suggestion[] = [];
-      const TOLERANCE = 0.05;
-      for (const inv of unpaid) {
-        for (const tx of (unmatchedRes.data || [])) {
-          const txAmount = Math.abs(tx.amount ?? 0);
-          const diff = Math.abs(txAmount - inv.total_amount) / inv.total_amount;
-          const ownerMatch = tx.owner && inv.counterparty_name &&
-            tx.owner.toLowerCase().includes(inv.counterparty_name.toLowerCase().substring(0, 5));
-          if (diff <= TOLERANCE || ownerMatch) {
-            suggestions.push({
-              invoiceId: inv.id,
-              invoiceNumber: inv.invoice_number,
-              transactionId: tx.id,
-              transactionDesc: tx.description,
-              transactionAmount: txAmount,
-            });
-          }
-        }
-      }
-
-      // Suma de anticipos NO vinculados a facturas específicas. Estos se
-      // restan del saldo total por cobrar globalmente porque representan
-      // plata ya recibida pero no aplicada a una factura puntual.
-      const totalAnticiposNoVinculados = unlinkedAnticipos.reduce(
-        (s: number, a: any) => s + Math.abs(Number(a.amount ?? 0)), 0);
-
-      return {
-        receivables: unpaid,
-        suggestions,
-        allReceivables: receivables,
-        initialCxC,
-        initialCxCRows,
-        totalAnticiposNoVinculados,
-        anticiposNoVinculadosRows: unlinkedAnticipos,
-      };
+      return await calculateAllClientReceivables(year);
     },
     enabled: !!user,
   });
 
-  const initialCxC = data?.initialCxC ?? 0;
-  const totalAnticiposNoVinculados = data?.totalAnticiposNoVinculados ?? 0;
-
-  // Saldo total por cobrar = facturas pendientes + saldo inicial CxC
-  // − anticipos de clientes NO vinculados a una factura específica.
-  // (Los anticipos vinculados ya se restan dentro de cada factura individual.)
-  const totalPending = useMemo(() => {
-    const facturasYInicial = (data?.receivables || []).reduce((s, r) => s + r.pending, 0) + initialCxC;
-    return Math.max(0, facturasYInicial - totalAnticiposNoVinculados);
-  }, [data, initialCxC, totalAnticiposNoVinculados]);
-
-  // Solo en Gerencial: cobros en efectivo del año (ingresos manuales en
-  // cash_movements). No se vinculan a una factura específica todavía — los
-  // mostramos como una "bolsa" complementaria que ajusta la cartera real
-  // estimada. Si el cliente cobró en efectivo, parte de su CxC oficial
-  // está en realidad cobrada.
+  // KPI Gerencial: cobros en efectivo del año (heurística de cartera real).
   const { data: cashIncomeYear } = useQuery({
     queryKey: ['ar-cash-income', user?.id, year, isGerencial],
     queryFn: async () => {
@@ -399,81 +74,47 @@ export default function AccountsReceivableReport() {
         .gte('date', `${year}-01-01`)
         .lte('date', `${year}-12-31`);
       if (error) return 0;
-      return (data ?? []).reduce((s, r: any) => s + Number(r.amount ?? 0), 0);
+      return (data ?? []).reduce((s, r: { amount: number | null }) => s + Number(r.amount ?? 0), 0);
     },
     enabled: !!user && isGerencial,
   });
 
   const cobrosEfectivo = cashIncomeYear ?? 0;
-  // Cartera real estimada: cartera oficial menos cobros en efectivo, sin
-  // bajar de cero. Es una heurística — se vuelve exacta cuando el cliente
-  // vincula manualmente cada cobro a su factura desde Movimientos.
+  const totalPending = data?.total_saldo_pendiente ?? 0;
   const carteraReal = isGerencial
     ? Math.max(0, totalPending - cobrosEfectivo)
     : totalPending;
 
-  const paidInvoices = useMemo(() => {
-    return (data?.allReceivables || []).filter(r => r.pending <= 0);
-  }, [data]);
+  const clientsConDeuda = useMemo(
+    () => (data?.clients ?? []).filter(c => c.saldo_neto > 0),
+    [data],
+  );
+  const clientsSaldoAFavor = useMemo(
+    () => (data?.clients ?? []).filter(c => c.saldo_neto < 0),
+    [data],
+  );
 
-  const [showPaid, setShowPaid] = useState(false);
-
-  const handleAssociate = async (suggestion: Suggestion) => {
-    if (!user) return;
-    const { error } = await supabase
-      .from('transactions')
-      .update({ invoice_id: suggestion.invoiceId })
-      .eq('id', suggestion.transactionId);
-
-    if (error) {
-      toast.error('Error al asociar la transacción');
-      return;
-    }
-    toast.success(`Transacción asociada a factura #${suggestion.invoiceNumber}`);
-    refetch();
+  const toggleClient = (id: string) => {
+    setExpandedClients(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
-
-
-  const statusBadge = (status: 'pagada' | 'parcial' | 'pendiente') => {
-    switch (status) {
-      case 'pagada':
-        return <Badge variant="outline" className="bg-success/10 text-success border-success/30">Pagada</Badge>;
-      case 'parcial':
-        return <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Parcial</Badge>;
-      case 'pendiente':
-        return <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">Pendiente</Badge>;
-    }
-  };
-
-  const detailIcon = (type: PaymentDetail['type']) => {
-    switch (type) {
-      case 'transaction': return <Banknote className="h-4 w-4 text-success" />;
-      case 'match': return <CheckCircle2 className="h-4 w-4 text-success" />;
-      case 'advance': return <History className="h-4 w-4 text-warning" />;
-      case 'retefuente': return <ShieldCheck className="h-4 w-4 text-primary" />;
-    }
-  };
-
-  const detailTypeBadge = (type: PaymentDetail['type']) => {
-    const labels: Record<string, string> = {
-      transaction: 'Pago',
-      match: 'Conciliación',
-      advance: 'Anticipo',
-      retefuente: 'Retención',
-    };
-    const colors: Record<string, string> = {
-      transaction: 'bg-success/10 text-success border-success/30',
-      match: 'bg-success/10 text-success border-success/30',
-      advance: 'bg-warning/10 text-warning border-warning/30',
-      retefuente: 'bg-primary/10 text-primary border-primary/30',
-    };
-    return <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", colors[type])}>{labels[type]}</Badge>;
+  const togglePagadas = (clientId: string) => {
+    setShowPagadasByClient(prev => {
+      const next = new Set(prev);
+      if (next.has(clientId)) next.delete(clientId);
+      else next.add(clientId);
+      return next;
+    });
   };
 
   return (
     <TooltipProvider>
       <div className="space-y-4">
-        {/* Header + filter */}
+        {/* Header + año */}
         <Card>
           <CardHeader className="pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -483,8 +124,12 @@ export default function AccountsReceivableReport() {
                   <TooltipTrigger asChild>
                     <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Facturas de venta emitidas con saldo pendiente de pago.</p>
+                  <TooltipContent className="max-w-sm">
+                    <p className="text-xs leading-snug">
+                      Saldo por cliente alineado con Relación de Pagos:
+                      facturado + saldo inicial − ingresos del banco del cliente − anticipos.
+                      Excluye facturas anuladas con nota crédito.
+                    </p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -502,13 +147,12 @@ export default function AccountsReceivableReport() {
           </CardHeader>
         </Card>
 
-        {/* KPIs — en Gerencial mostramos cartera oficial + cobros en efectivo
-            + cartera real estimada. En DIAN solo la oficial. */}
-        <div className={isGerencial ? "grid grid-cols-1 md:grid-cols-3 gap-3" : ""}>
+        {/* KPIs */}
+        <div className={isGerencial ? "grid grid-cols-1 md:grid-cols-4 gap-3" : "grid grid-cols-1 md:grid-cols-2 gap-3"}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                {isGerencial ? 'Cartera oficial (DIAN)' : 'Total de lo que me deben'}
+                {isGerencial ? 'Cartera oficial (DIAN)' : 'Total cartera'}
               </CardTitle>
               <div className="p-2 rounded-lg bg-destructive/10">
                 <Receipt className="h-4 w-4 text-destructive" />
@@ -517,16 +161,23 @@ export default function AccountsReceivableReport() {
             <CardContent>
               <div className="text-2xl font-bold text-destructive">{formatCurrency(totalPending)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {data?.receivables.length ?? 0} factura{(data?.receivables.length ?? 0) !== 1 ? 's' : ''} pendientes • {year}
+                {clientsConDeuda.length} cliente{clientsConDeuda.length !== 1 ? 's' : ''} con saldo • {year}
               </p>
-              {totalAnticiposNoVinculados > 0 && (
-                <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
-                  <span className="text-success font-medium">
-                    −{formatCurrency(totalAnticiposNoVinculados)}
-                  </span>{' '}
-                  ya restado de anticipos de clientes (saldo inicial sin factura vinculada).
-                </p>
-              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Saldo a favor</CardTitle>
+              <div className="p-2 rounded-lg bg-success/10">
+                <ArrowDownCircle className="h-4 w-4 text-success" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-success">{formatCurrency(data?.total_saldo_a_favor ?? 0)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Anticipos vivos / cobrado de más
+              </p>
             </CardContent>
           </Card>
 
@@ -542,7 +193,7 @@ export default function AccountsReceivableReport() {
                 <CardContent>
                   <div className="text-2xl font-bold text-warning">{formatCurrency(cobrosEfectivo)}</div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Movimientos en efectivo tipo ingreso • {year}
+                    Ingresos en efectivo • {year}
                   </p>
                 </CardContent>
               </Card>
@@ -557,7 +208,7 @@ export default function AccountsReceivableReport() {
                 <CardContent>
                   <div className="text-2xl font-bold text-success">{formatCurrency(carteraReal)}</div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Cartera oficial − cobros en efectivo
+                    Oficial − cobros en efectivo
                   </p>
                 </CardContent>
               </Card>
@@ -565,334 +216,67 @@ export default function AccountsReceivableReport() {
           )}
         </div>
 
-        {isGerencial && cobrosEfectivo > 0 && (
-          <Card className="border-warning/30 bg-warning/[0.04]">
-            <CardContent className="py-3 px-4 flex items-start gap-2 text-xs text-muted-foreground">
-              <Info className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-              <p>
-                <span className="font-medium text-foreground">Cartera real es estimada.</span>{' '}
-                Restamos los cobros en efectivo del total que muestra la DIAN, asumiendo que parte ya está cobrada.
-                Para mayor precisión, vinculá cada movimiento en efectivo a su factura desde el módulo{' '}
-                <span className="font-medium">Movimientos en efectivo</span>.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Suggestions */}
-        {(data?.suggestions?.length ?? 0) > 0 && (
-          <Card className="border-warning/30 bg-warning/5">
-            <CardHeader className="pb-2">
-              <div className="flex items-center gap-2">
-                <Lightbulb className="h-4 w-4 text-warning" />
-                <CardTitle className="text-sm font-medium">Sugerencias de conciliación</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {data!.suggestions!.map((s, i) => (
-                <div key={i} className="flex items-center justify-between gap-3 p-2 rounded-md bg-card border">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">
-                      <span className="font-medium">#{s.invoiceNumber}</span>
-                      <span className="text-muted-foreground"> ← </span>
-                      <span className="text-muted-foreground truncate">{s.transactionDesc}</span>
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Monto transacción: {formatCurrency(s.transactionAmount)}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0 gap-1 text-xs"
-                    onClick={() => handleAssociate(s)}
-                  >
-                    <CheckCircle2 className="h-3 w-3" />
-                    Asociar
-                  </Button>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Table */}
+        {/* Tabla por cliente */}
         <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">
+                  Saldo por cliente ({clientsConDeuda.length})
+                </CardTitle>
+              </div>
+            </div>
+          </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/80">
                     <TableHead className="w-8"></TableHead>
-                    <TableHead className="font-semibold"># Factura</TableHead>
                     <TableHead className="font-semibold">Cliente</TableHead>
-                    <TableHead className="font-semibold">Emisión</TableHead>
-                    <TableHead className="font-semibold text-right">Total</TableHead>
-                    <TableHead className="font-semibold text-right">Abonado</TableHead>
-                    <TableHead className="font-semibold text-right">Pendiente</TableHead>
-                    <TableHead className="font-semibold text-center">Días</TableHead>
-                    <TableHead className="font-semibold text-center">Estado</TableHead>
+                    <TableHead className="font-semibold text-right">Facturado</TableHead>
+                    <TableHead className="font-semibold text-right">Saldo inicial</TableHead>
+                    <TableHead className="font-semibold text-right">Cobrado</TableHead>
+                    <TableHead className="font-semibold text-right">Anticipos</TableHead>
+                    <TableHead className="font-semibold text-right">Saldo neto</TableHead>
+                    <TableHead className="font-semibold text-center"># Facturas</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                         Cargando datos...
                       </TableCell>
                     </TableRow>
-                  ) : !data?.receivables?.length && !data?.initialCxCRows?.length ? (
+                  ) : clientsConDeuda.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-12">
+                      <TableCell colSpan={8} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
-                          <p className="text-muted-foreground">No hay facturas con saldo pendiente en {year}.</p>
+                          <p className="text-muted-foreground">Ningún cliente con saldo pendiente en {year}.</p>
                         </div>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    <>
-                      {/* Initial CxC balances per client */}
-                      {(data?.initialCxCRows || []).filter((r) => r.pending > 0).map((detail) => {
-                        const rowKey = `initial-${detail.id}`;
-                        const isExpanded = expandedRows.has(rowKey);
-                        const hasDetails = detail.details.length > 0;
-                        const status: 'pagada' | 'parcial' | 'pendiente' = detail.pending <= 0
-                          ? 'pagada'
-                          : detail.paid_amount > 0 ? 'parcial' : 'pendiente';
-                        return (
-                          <React.Fragment key={rowKey}>
-                            <TableRow
-                              className={cn(
-                                'bg-warning/5 border-l-2 border-l-warning cursor-pointer hover:bg-warning/10',
-                                isExpanded && 'bg-warning/15'
-                              )}
-                              onClick={() => toggleRow(rowKey)}
-                            >
-                              <TableCell className="w-8 px-2">
-                                {isExpanded
-                                  ? <ChevronDown className="h-4 w-4 text-warning" />
-                                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-                              </TableCell>
-                              <TableCell className="text-sm font-medium text-warning">📋 Saldo inicial</TableCell>
-                              <TableCell className="text-sm font-medium">{detail.responsible_name || 'Sin nombre'}</TableCell>
-                              <TableCell className="text-sm whitespace-nowrap text-muted-foreground">Periodo anterior</TableCell>
-                              <TableCell className="text-right text-sm font-medium">{formatCurrency(detail.amount)}</TableCell>
-                              <TableCell className="text-right text-sm text-success">{formatCurrency(detail.paid_amount)}</TableCell>
-                              <TableCell className="text-right text-sm font-bold text-destructive">{formatCurrency(detail.pending)}</TableCell>
-                              <TableCell className="text-center text-sm text-muted-foreground">—</TableCell>
-                              <TableCell className="text-center">
-                                {status === 'parcial'
-                                  ? <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Parcial</Badge>
-                                  : <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Histórico</Badge>}
-                              </TableCell>
-                            </TableRow>
-                            {isExpanded && (
-                              <TableRow key={`${rowKey}-details`} className="hover:bg-transparent">
-                                <TableCell colSpan={9} className="p-0">
-                                  <div className="bg-warning/5 border-l-2 border-l-warning mx-0">
-                                    <div className="px-6 py-4 space-y-3">
-                                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                        <Receipt className="h-4 w-4 text-warning" />
-                                        Abonos a este saldo inicial
-                                      </p>
-                                      {hasDetails ? (
-                                        <div className="space-y-2">
-                                          {detail.details.map((d, idx) => (
-                                            <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border/60">
-                                              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/60 shrink-0">
-                                                {detailIcon(d.type)}
-                                              </div>
-                                              <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 mb-0.5">
-                                                  {detailTypeBadge(d.type)}
-                                                  {d.date && (
-                                                    <span className="text-xs text-muted-foreground">
-                                                      {format(parseLocalDate(d.date), 'dd MMM yyyy', { locale: es })}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                                <p className="text-sm text-foreground truncate">{d.label}</p>
-                                              </div>
-                                              <span className="text-sm font-bold whitespace-nowrap text-success">
-                                                −{formatCurrency(d.amount)}
-                                              </span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <p className="text-xs text-muted-foreground italic">
-                                          Aún no hay abonos vinculados a este saldo inicial.
-                                        </p>
-                                      )}
-                                      {hasDetails && (
-                                        <>
-                                          <div className="flex items-center justify-between pt-3 border-t border-border">
-                                            <span className="text-sm font-semibold text-muted-foreground">Total abonado</span>
-                                            <span className="text-base font-bold text-success">−{formatCurrency(detail.paid_amount)}</span>
-                                          </div>
-                                          <div className="flex items-center justify-between">
-                                            <span className="text-sm font-semibold text-muted-foreground">Saldo pendiente</span>
-                                            <span className="text-base font-bold text-destructive">{formatCurrency(detail.pending)}</span>
-                                          </div>
-                                        </>
-                                      )}
-                                      <div className="flex items-center justify-between gap-3 pt-3 border-t border-border">
-                                        <p className="text-xs text-muted-foreground">
-                                          ¿Recibiste un pago bancario de este cliente histórico? Vinculalo al saldo.
-                                        </p>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="shrink-0 gap-1 text-xs border-warning/40 text-warning hover:bg-warning/10"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setVincularSaldoInicial({
-                                              id: detail.id,
-                                              responsible_name: detail.responsible_name,
-                                              pending: detail.pending,
-                                              total_amount: detail.amount,
-                                            });
-                                          }}
-                                        >
-                                          <Link2 className="h-3.5 w-3.5" />
-                                          Vincular pago
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                      {data.receivables.map((inv) => {
-                      const isExpanded = expandedRows.has(inv.id);
-                      const hasDetails = (inv.details?.length ?? 0) > 0;
-
-                      return (
-                        <React.Fragment key={inv.id}>
-                          <TableRow
-                            className={cn(
-                              'cursor-pointer hover:bg-muted/50',
-                              isExpanded && 'bg-muted/30 border-l-2 border-l-primary'
-                            )}
-                            onClick={() => toggleRow(inv.id)}
-                          >
-                            <TableCell className="w-8 px-2">
-                              {isExpanded
-                                ? <ChevronDown className="h-4 w-4 text-primary" />
-                                : <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                              }
-                            </TableCell>
-                            <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
-                            <TableCell className="text-sm">{resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver)}</TableCell>
-                            <TableCell className="text-sm whitespace-nowrap">
-                              {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
-                            </TableCell>
-                            <TableCell className="text-right text-sm font-medium">
-                              {formatCurrency(inv.total_amount)}
-                            </TableCell>
-                            <TableCell className="text-right text-sm text-success">
-                              {formatCurrency(inv.paid_amount)}
-                            </TableCell>
-                            <TableCell className="text-right text-sm font-bold text-destructive">
-                              {formatCurrency(inv.pending)}
-                            </TableCell>
-                            <TableCell className={cn(
-                              "text-center text-sm font-medium",
-                              inv.days_since > 90 ? 'text-destructive' : inv.days_since > 30 ? 'text-warning' : 'text-muted-foreground'
-                            )}>
-                              {inv.days_since}d
-                            </TableCell>
-                            <TableCell className="text-center">{statusBadge(inv.status)}</TableCell>
-                          </TableRow>
-                          {isExpanded && (
-                            <TableRow key={`${inv.id}-details`} className="hover:bg-transparent">
-                              <TableCell colSpan={9} className="p-0">
-                                <div className="bg-muted/10 border-l-2 border-l-primary mx-0">
-                                  <div className="px-6 py-4 space-y-3">
-                                    <p className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                      <Receipt className="h-4 w-4 text-primary" />
-                                      Detalle de abonos y deducciones
-                                    </p>
-                                    {hasDetails ? (
-                                      <div className="space-y-2">
-                                        {(inv.details || []).map((d, idx) => (
-                                          <div
-                                            key={idx}
-                                            className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border/60"
-                                          >
-                                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/60 shrink-0">
-                                              {detailIcon(d.type)}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                              <div className="flex items-center gap-2 mb-0.5">
-                                                {detailTypeBadge(d.type)}
-                                                {d.date && (
-                                                  <span className="text-xs text-muted-foreground">
-                                                     {format(parseLocalDate(d.date), 'dd MMM yyyy', { locale: es })}
-                                                  </span>
-                                                )}
-                                              </div>
-                                              <p className="text-sm text-foreground truncate">{d.label}</p>
-                                            </div>
-                                            <span className={cn(
-                                              "text-sm font-bold whitespace-nowrap",
-                                              d.type === 'retefuente' ? 'text-primary' : 'text-success'
-                                            )}>
-                                              −{formatCurrency(d.amount)}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <p className="text-xs text-muted-foreground italic">
-                                        Aún no hay abonos ni deducciones registradas.
-                                      </p>
-                                    )}
-                                    {/* Summary row */}
-                                    {hasDetails && (
-                                      <>
-                                        <div className="flex items-center justify-between pt-3 border-t border-border">
-                                          <span className="text-sm font-semibold text-muted-foreground">Total deducido de la deuda</span>
-                                          <span className="text-base font-bold text-success">
-                                            −{formatCurrency((inv.details || []).reduce((s, d) => s + d.amount, 0))}
-                                          </span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-sm font-semibold text-muted-foreground">Saldo pendiente</span>
-                                          <span className="text-base font-bold text-destructive">
-                                            {formatCurrency(inv.pending)}
-                                          </span>
-                                        </div>
-                                      </>
-                                    )}
-                                    {/* Vincular pago CTA */}
-                                    <div className="flex items-center justify-between gap-3 pt-3 border-t border-border">
-                                      <p className="text-xs text-muted-foreground">
-                                        ¿Ya recibiste un pago bancario? Vinculalo a esta factura.
-                                      </p>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="shrink-0 gap-1 text-xs border-primary/40 text-primary hover:bg-primary/10"
-                                        onClick={(e) => { e.stopPropagation(); setVincularInvoice(inv); }}
-                                      >
-                                        <Link2 className="h-3.5 w-3.5" />
-                                        Vincular pago
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                    </>
+                    clientsConDeuda.map(client => (
+                      <ClientRow
+                        key={client.client_id}
+                        client={client}
+                        isExpanded={expandedClients.has(client.client_id)}
+                        onToggle={() => toggleClient(client.client_id)}
+                        showPagadas={showPagadasByClient.has(client.client_id)}
+                        onTogglePagadas={() => togglePagadas(client.client_id)}
+                        onVincularInvoice={(inv) => setVincularInvoice({
+                          id: inv.id,
+                          invoice_number: inv.invoice_number,
+                          counterparty_name: client.client_name,
+                          pending: inv.pending_invoice,
+                          total_amount: inv.total_amount,
+                        })}
+                      />
+                    ))
                   )}
                 </TableBody>
               </Table>
@@ -900,128 +284,43 @@ export default function AccountsReceivableReport() {
           </CardContent>
         </Card>
 
-        {/* Paid invoices */}
-        {!isLoading && paidInvoices.length > 0 && (
+        {/* Saldos a favor (anticipos vivos / cobrado de más) */}
+        {!isLoading && clientsSaldoAFavor.length > 0 && (
           <Card>
-            <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowPaid(!showPaid)}>
+            <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowSaldoAFavor(s => !s)}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-success" />
+                  <TrendingDown className="h-4 w-4 text-success" />
                   <CardTitle className="text-sm font-medium">
-                    Facturas pagadas ({paidInvoices.length})
+                    Clientes con saldo a favor ({clientsSaldoAFavor.length})
                   </CardTitle>
                 </div>
-                {showPaid
+                {showSaldoAFavor
                   ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                }
+                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
               </div>
             </CardHeader>
-            {showPaid && (
+            {showSaldoAFavor && (
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/80">
-                        <TableHead className="w-8"></TableHead>
-                        <TableHead className="font-semibold"># Factura</TableHead>
                         <TableHead className="font-semibold">Cliente</TableHead>
-                        <TableHead className="font-semibold">Emisión</TableHead>
-                        <TableHead className="font-semibold text-right">Total</TableHead>
-                        <TableHead className="font-semibold text-right">Abonado</TableHead>
-                        <TableHead className="font-semibold text-right">Pendiente</TableHead>
-                        <TableHead className="font-semibold text-center">Días</TableHead>
-                        <TableHead className="font-semibold text-center">Estado</TableHead>
+                        <TableHead className="font-semibold text-right">Facturado</TableHead>
+                        <TableHead className="font-semibold text-right">Cobrado</TableHead>
+                        <TableHead className="font-semibold text-right">Saldo a favor</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paidInvoices.map((inv) => {
-                        const isExpanded = expandedRows.has(inv.id);
-                        const hasDetails = (inv.details?.length ?? 0) > 0;
-                        return (
-                          <React.Fragment key={inv.id}>
-                            <TableRow
-                              className={cn(
-                                hasDetails && 'cursor-pointer hover:bg-muted/50',
-                                isExpanded && 'bg-muted/30 border-l-2 border-l-primary'
-                              )}
-                              onClick={() => hasDetails && toggleRow(inv.id)}
-                            >
-                              <TableCell className="w-8 px-2">
-                                {hasDetails && (
-                                  isExpanded
-                                    ? <ChevronDown className="h-4 w-4 text-primary" />
-                                    : <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                )}
-                              </TableCell>
-                              <TableCell className="text-sm font-medium">{inv.invoice_number}</TableCell>
-                              <TableCell className="text-sm">{resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver)}</TableCell>
-                              <TableCell className="text-sm whitespace-nowrap">
-                                {format(new Date(inv.issue_date), 'dd MMM yyyy', { locale: es })}
-                              </TableCell>
-                              <TableCell className="text-right text-sm font-medium">
-                                {formatCurrency(inv.total_amount)}
-                              </TableCell>
-                              <TableCell className="text-right text-sm text-success">
-                                {formatCurrency(inv.paid_amount)}
-                              </TableCell>
-                              <TableCell className="text-right text-sm text-muted-foreground">
-                                {formatCurrency(inv.pending)}
-                              </TableCell>
-                              <TableCell className="text-center text-sm text-muted-foreground">
-                                {inv.days_since}d
-                              </TableCell>
-                              <TableCell className="text-center">{statusBadge(inv.status)}</TableCell>
-                            </TableRow>
-                            {isExpanded && (
-                              <TableRow key={`${inv.id}-details`} className="hover:bg-transparent">
-                                <TableCell colSpan={9} className="p-0">
-                                  <div className="bg-muted/10 border-l-2 border-l-primary mx-0">
-                                    <div className="px-6 py-4 space-y-3">
-                                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                        <Receipt className="h-4 w-4 text-primary" />
-                                        Detalle de abonos y deducciones
-                                      </p>
-                                      <div className="space-y-2">
-                                        {(inv.details || []).map((d, idx) => (
-                                          <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border/60">
-                                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/60 shrink-0">
-                                              {detailIcon(d.type)}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                              <div className="flex items-center gap-2 mb-0.5">
-                                                {detailTypeBadge(d.type)}
-                                                {d.date && (
-                                                  <span className="text-xs text-muted-foreground">
-                                                    {format(parseLocalDate(d.date), 'dd MMM yyyy', { locale: es })}
-                                                  </span>
-                                                )}
-                                              </div>
-                                              <p className="text-sm text-foreground truncate">{d.label}</p>
-                                            </div>
-                                            <span className={cn(
-                                              "text-sm font-bold whitespace-nowrap",
-                                              d.type === 'retefuente' ? 'text-primary' : 'text-success'
-                                            )}>
-                                              −{formatCurrency(d.amount)}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                      <div className="flex items-center justify-between pt-3 border-t border-border">
-                                        <span className="text-sm font-semibold text-muted-foreground">Total deducido</span>
-                                        <span className="text-base font-bold text-success">
-                                          −{formatCurrency((inv.details || []).reduce((s, d) => s + d.amount, 0))}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
+                      {clientsSaldoAFavor.map(c => (
+                        <TableRow key={c.client_id}>
+                          <TableCell className="text-sm font-medium">{c.client_name}</TableCell>
+                          <TableCell className="text-right text-sm">{formatCurrency(c.facturado_venta + c.cxc_inicial)}</TableCell>
+                          <TableCell className="text-right text-sm">{formatCurrency(c.cobrado_banco + c.anticipos_total)}</TableCell>
+                          <TableCell className="text-right text-sm font-bold text-success">{formatCurrency(Math.abs(c.saldo_neto))}</TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>
@@ -1033,23 +332,204 @@ export default function AccountsReceivableReport() {
         <VincularPagoModal
           open={!!vincularInvoice}
           onOpenChange={(v) => { if (!v) setVincularInvoice(null); }}
-          invoice={vincularInvoice ? {
-            id: vincularInvoice.id,
-            invoice_number: vincularInvoice.invoice_number,
-            counterparty_name: vincularInvoice.counterparty_name,
-            pending: vincularInvoice.pending,
-            total_amount: vincularInvoice.total_amount,
-          } : null}
-          onSuccess={() => { refetch(); }}
-        />
-
-        <VincularPagoModal
-          open={!!vincularSaldoInicial}
-          onOpenChange={(v) => { if (!v) setVincularSaldoInicial(null); }}
-          saldoInicial={vincularSaldoInicial}
+          invoice={vincularInvoice}
           onSuccess={() => { refetch(); }}
         />
       </div>
     </TooltipProvider>
+  );
+}
+
+// ============================================================================
+// Sub-component: una fila por cliente + drill-down a sus facturas.
+// ============================================================================
+interface ClientRowProps {
+  client: ClientReceivable;
+  isExpanded: boolean;
+  onToggle: () => void;
+  showPagadas: boolean;
+  onTogglePagadas: () => void;
+  onVincularInvoice: (inv: InvoiceLine) => void;
+}
+
+function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas, onVincularInvoice }: ClientRowProps) {
+  const facturado = client.facturado_venta;
+  const cobrado = client.cobrado_banco;
+  const anticipos = client.anticipos_total;
+  const cxcInicial = client.cxc_inicial;
+  const saldo = client.saldo_neto;
+  const nPendientes = client.invoices_pendientes.length;
+
+  return (
+    <React.Fragment>
+      <TableRow
+        className={cn(
+          'cursor-pointer hover:bg-muted/50',
+          isExpanded && 'bg-muted/30 border-l-2 border-l-primary',
+        )}
+        onClick={onToggle}
+      >
+        <TableCell className="w-8 px-2">
+          {isExpanded
+            ? <ChevronDown className="h-4 w-4 text-primary" />
+            : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        </TableCell>
+        <TableCell className="text-sm font-medium">{client.client_name}</TableCell>
+        <TableCell className="text-right text-sm">{formatCurrency(facturado)}</TableCell>
+        <TableCell className="text-right text-sm text-warning">
+          {cxcInicial > 0 ? formatCurrency(cxcInicial) : '—'}
+        </TableCell>
+        <TableCell className="text-right text-sm text-success">{formatCurrency(cobrado)}</TableCell>
+        <TableCell className="text-right text-sm text-success">
+          {anticipos > 0 ? `−${formatCurrency(anticipos)}` : '—'}
+        </TableCell>
+        <TableCell className="text-right text-sm font-bold text-destructive">
+          {formatCurrency(saldo)}
+        </TableCell>
+        <TableCell className="text-center text-xs text-muted-foreground">
+          {nPendientes} pend.
+        </TableCell>
+      </TableRow>
+
+      {isExpanded && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={8} className="p-0">
+            <div className="bg-muted/10 border-l-2 border-l-primary px-6 py-4 space-y-3">
+              <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Receipt className="h-4 w-4 text-primary" />
+                Facturas pendientes
+              </p>
+
+              {client.invoices_pendientes.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">
+                  Sin facturas pendientes — el saldo viene del saldo inicial o anticipos.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {client.invoices_pendientes.map(inv => (
+                    <InvoiceLineRow key={inv.id} inv={inv} onVincular={() => onVincularInvoice(inv)} />
+                  ))}
+                </div>
+              )}
+
+              {/* Resumen de cálculo */}
+              <div className="space-y-1 pt-2 border-t border-border text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Facturado del año</span>
+                  <span className="font-mono">{formatCurrency(facturado)}</span>
+                </div>
+                {cxcInicial > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">+ Saldo inicial (periodo anterior)</span>
+                    <span className="font-mono">{formatCurrency(cxcInicial)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-success">
+                  <span>− Cobrado en banco</span>
+                  <span className="font-mono">{formatCurrency(cobrado)}</span>
+                </div>
+                {anticipos > 0 && (
+                  <div className="flex items-center justify-between text-success">
+                    <span>− Anticipos del cliente</span>
+                    <span className="font-mono">{formatCurrency(anticipos)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between pt-1.5 border-t border-border text-sm">
+                  <span className="font-semibold">Saldo neto</span>
+                  <span className={cn("font-mono font-bold", saldo > 0 ? 'text-destructive' : 'text-success')}>
+                    {formatCurrency(saldo)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Facturas pagadas — colapsable */}
+              {client.invoices_pagadas.length > 0 && (
+                <div className="pt-2 border-t border-border">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onTogglePagadas(); }}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showPagadas ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    Facturas cubiertas ({client.invoices_pagadas.length})
+                  </button>
+                  {showPagadas && (
+                    <div className="mt-2 space-y-1">
+                      {client.invoices_pagadas.map(inv => (
+                        <InvoiceLineRow key={inv.id} inv={inv} paid />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </React.Fragment>
+  );
+}
+
+// ============================================================================
+// Sub-component: una línea de factura (pendiente o pagada) dentro del drill-down.
+// ============================================================================
+interface InvoiceLineRowProps {
+  inv: InvoiceLine;
+  paid?: boolean;
+  onVincular?: () => void;
+}
+
+function InvoiceLineRow({ inv, paid = false, onVincular }: InvoiceLineRowProps) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 p-2.5 rounded-lg bg-card border border-border/60 text-xs",
+        paid && "opacity-60",
+      )}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-medium">{inv.invoice_number || '(s/n)'}</span>
+          <span className="text-muted-foreground">
+            {format(parseLocalDate(inv.issue_date), 'dd MMM yyyy', { locale: es })}
+          </span>
+          {inv.void_type === 'partial' && (
+            <Badge variant="outline" className="text-[9px] px-1 py-0 bg-warning/10 text-warning border-warning/30">
+              Nota crédito parcial
+            </Badge>
+          )}
+          {!paid && inv.days_since > 30 && (
+            <Badge variant="outline" className={cn(
+              "text-[9px] px-1 py-0",
+              inv.days_since > 90 ? 'bg-destructive/10 text-destructive border-destructive/30'
+                : 'bg-warning/10 text-warning border-warning/30',
+            )}>
+              {inv.days_since}d
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-3 mt-0.5 text-muted-foreground">
+          <span>Total: {formatCurrency(inv.total_amount)}</span>
+          {inv.paid_direct > 0 && <span className="text-success">Pagado: {formatCurrency(inv.paid_direct)}</span>}
+          {inv.retefuente > 0 && <span className="text-primary">Retefuente: {formatCurrency(inv.retefuente)}</span>}
+        </div>
+      </div>
+      <div className="text-right shrink-0">
+        <div className={cn("font-mono font-bold", paid ? 'text-success' : 'text-destructive')}>
+          {paid ? 'Cubierta' : formatCurrency(inv.pending_invoice)}
+        </div>
+        {!paid && onVincular && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] mt-0.5 gap-1 text-primary hover:bg-primary/10"
+            onClick={(e) => { e.stopPropagation(); onVincular(); }}
+          >
+            <Link2 className="h-2.5 w-2.5" />
+            Vincular pago
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
