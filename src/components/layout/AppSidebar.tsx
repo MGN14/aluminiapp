@@ -27,6 +27,7 @@ import {
   CreditCard,
   Sparkles,
   Boxes,
+  Ship,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -86,6 +87,8 @@ const movementItems: NavItem[] = [
   { title: 'Inventarios', url: '/inventarios', icon: Package, permKey: 'inventarios' },
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },
   { title: 'Productos terminados', url: '/productos-terminados', icon: Boxes, permKey: 'cotizaciones' },
+  // Visible en ambos modos; AdminRoute en App.tsx restringe a admin/owner.
+  { title: 'Importaciones', url: '/importaciones', icon: Ship },
 ];
 
 const movementItemsGerencial: NavItem[] = [

@@ -31,6 +31,7 @@ import FiscalProfileWarning from '@/components/dashboard/FiscalProfileWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
 import UpcomingObligationsCard from '@/components/dashboard/UpcomingObligationsCard';
 import UpcomingPaymentsCard from '@/components/dashboard/UpcomingPaymentsCard';
+import UpcomingImportsCard from '@/components/dashboard/UpcomingImportsCard';
 import EvasionGapCard from '@/components/dashboard/EvasionGapCard';
 import { calculateEvasionGap } from '@/lib/evasionGap';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
@@ -894,8 +895,9 @@ function DashboardContent() {
           <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
           <UpcomingObligationsCard />
         </div>
-        <div className="grid gap-4 md:grid-cols-1">
+        <div className="grid gap-4 md:grid-cols-2">
           <UpcomingPaymentsCard />
+          <UpcomingImportsCard />
         </div>
 
         {metrics.transactionCount === 0 && transactions.length === 0 ? (

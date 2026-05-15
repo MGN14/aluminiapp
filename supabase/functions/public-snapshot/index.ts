@@ -2,7 +2,7 @@
 // un snapshot del estado de AluminIA. Protegido por bearer token custom (no
 // usa la auth de Supabase). Solo expone datos de un único OWNER_USER_ID.
 //
-// Forma del JSON devuelto (acordada con Nico):
+// Forma del JSON devuelto:
 //
 //   {
 //     "smm_aluminio_actual": { "precio_usd_ton": number, "fecha": ISO },
@@ -13,15 +13,12 @@
 //     "_meta":               { generated_at, source_notes }
 //   }
 //
-// Estado actual del schema vs lo que pide el JSON:
-// - smm_aluminio_actual + trm_usd_cop → REAL (tabla macro_indicators).
-// - pedidos_abiertos → PROXY: invoices type='compra' con balance_pending>0.
-//   No existe módulo de importaciones con flujo cotización→aduana en el schema.
-//   Se devuelve estado mapeado mejor-esfuerzo desde invoices.status.
-//   precio_smm_cerrado siempre 0 (no hay campo). USD calculado dividiendo el
-//   balance COP entre la TRM actual (aproximado).
-// - vencimientos_proximos → invoices type='compra' con due_date en los
-//   próximos 60 días + cuotas de credit_payments proyectadas.
+// Fuentes:
+// - smm_aluminio_actual + trm_usd_cop → macro_indicators (sync diario).
+// - pedidos_abiertos → tabla imports (módulo de importaciones), estado en
+//   {cotizacion, anticipo, produccion, transito, aduana, entregado, cancelado}.
+// - vencimientos_proximos → imports con fecha_estimada_llegada en próx 60 días
+//   y saldo > 0.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
@@ -40,7 +37,6 @@ const json = (body: unknown, status = 200) =>
   });
 
 serve(async (req) => {
-  // Preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
@@ -59,7 +55,6 @@ serve(async (req) => {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  // user_id del dueño cuyos datos exponemos (single-tenant snapshot).
   const ownerUserId = Deno.env.get("OWNER_USER_ID");
   if (!ownerUserId) {
     return json({ error: "OWNER_USER_ID no configurado" }, 500);
@@ -73,20 +68,22 @@ serve(async (req) => {
   const admin = createClient(supabaseUrl, serviceRoleKey);
 
   try {
-    // ====================================================================
-    // 1. SMM aluminio + TRM (tabla macro_indicators)
-    // ====================================================================
+    // =====================================================================
+    // 1. SMM aluminio + TRM
+    //    SMM se guarda como indicator_type='aluminio_lme' por el sync de
+    //    sync-macro-indicators (LME spot via Yahoo Finance ALI=F).
+    // =====================================================================
     const [aluminioRes, trmRes] = await Promise.all([
       admin
         .from("macro_indicators")
-        .select("value, period_date, fetched_at")
-        .eq("indicator_type", "aluminio")
+        .select("value, period_date")
+        .eq("indicator_type", "aluminio_lme")
         .order("period_date", { ascending: false })
         .limit(1)
         .maybeSingle(),
       admin
         .from("macro_indicators")
-        .select("value, period_date, fetched_at")
+        .select("value, period_date")
         .eq("indicator_type", "trm")
         .order("period_date", { ascending: false })
         .limit(1)
@@ -107,119 +104,63 @@ serve(async (req) => {
         }
       : { valor: 0, fecha: null };
 
-    const trmCurrent = trm.valor > 0 ? trm.valor : null;
-    const toUsd = (cop: number): number =>
-      trmCurrent ? Math.round((cop / trmCurrent) * 100) / 100 : 0;
-
-    // ====================================================================
-    // 2. Pedidos abiertos — PROXY: invoices type='compra' con balance_pending>0
-    //    No hay módulo de importaciones con flujo cotización→aduana.
-    // ====================================================================
-    const { data: openInvoices, error: invErr } = await admin
-      .from("invoices")
-      .select("id, counterparty_name, responsible_id, status, balance_pending, total_amount, due_date, issue_date")
-      .eq("user_id", ownerUserId)
-      .eq("type", "compra")
-      .gt("balance_pending", 0)
-      .order("issue_date", { ascending: false });
-    if (invErr) throw invErr;
-
-    // Resolver nombre del proveedor desde responsible_id si counterparty_name está vacío.
-    const respIds = Array.from(
-      new Set((openInvoices ?? []).map((i: { responsible_id: string | null }) => i.responsible_id).filter(Boolean)),
-    ) as string[];
-    let respNames = new Map<string, string>();
-    if (respIds.length > 0) {
-      const { data: resps } = await admin
-        .from("responsibles")
-        .select("id, name")
-        .in("id", respIds);
-      respNames = new Map((resps ?? []).map((r: { id: string; name: string }) => [r.id, r.name]));
-    }
-
-    const mapEstado = (status: string | null, balancePending: number, total: number): string => {
-      // Mapeo aproximado de invoice.status → enum del JSON. Si el schema
-      // gana un campo de fase real, cambiar acá.
-      if (!status || status === "draft") return "cotizacion";
-      if (balancePending >= total) return "anticipo";
-      if (balancePending > 0) return "produccion";
-      return "entregado";
+    // =====================================================================
+    // 2. Pedidos abiertos — tabla `imports`, estado != entregado/cancelado.
+    // =====================================================================
+    type ImportRow = {
+      id: string;
+      proveedor_nombre: string;
+      estado: string;
+      precio_smm_cerrado_usd_ton: number | null;
+      saldo_pendiente_usd: number | null;
+      monto_total_usd: number | null;
+      anticipo_pagado_usd: number | null;
+      fecha_estimada_llegada: string | null;
+      fecha_anticipo: string | null;
+      ref_pedido: string | null;
     };
+    const { data: importsRows, error: impErr } = await admin
+      .from("imports")
+      .select("id, proveedor_nombre, estado, precio_smm_cerrado_usd_ton, saldo_pendiente_usd, monto_total_usd, anticipo_pagado_usd, fecha_estimada_llegada, fecha_anticipo, ref_pedido")
+      .eq("user_id", ownerUserId)
+      .not("estado", "in", "(entregado,cancelado)")
+      .order("fecha_estimada_llegada", { ascending: true, nullsFirst: false });
+    if (impErr) throw impErr;
 
-    const pedidosAbiertos = (openInvoices ?? []).map((inv) => {
-      const row = inv as {
-        id: string;
-        counterparty_name: string | null;
-        responsible_id: string | null;
-        status: string | null;
-        balance_pending: number | null;
-        total_amount: number | null;
-        due_date: string | null;
-        issue_date: string | null;
-      };
-      const proveedor = row.counterparty_name
-        ?? (row.responsible_id ? respNames.get(row.responsible_id) ?? "" : "")
-        ?? "";
-      const saldoCop = Number(row.balance_pending ?? 0);
-      return {
-        id: row.id,
-        proveedor,
-        estado: mapEstado(row.status, saldoCop, Number(row.total_amount ?? 0)),
-        precio_smm_cerrado: 0, // no hay campo en el schema
-        saldo_pendiente_usd: toUsd(saldoCop),
-        fecha_estimada_llegada: row.due_date ?? row.issue_date ?? null,
-      };
-    });
+    const pedidosAbiertos = ((importsRows as ImportRow[] | null) ?? []).map((r) => ({
+      id: r.id,
+      proveedor: r.proveedor_nombre,
+      estado: r.estado, // 'cotizacion'|'anticipo'|'produccion'|'transito'|'aduana'|'entregado'
+      precio_smm_cerrado: Number(r.precio_smm_cerrado_usd_ton ?? 0),
+      saldo_pendiente_usd: Number(r.saldo_pendiente_usd ?? 0),
+      fecha_estimada_llegada: r.fecha_estimada_llegada,
+    }));
 
-    // ====================================================================
-    // 3. Vencimientos próximos (≤ 60 días) — invoices type='compra' con due_date
-    //    cercano + cuotas de créditos pendientes.
-    // ====================================================================
+    // =====================================================================
+    // 3. Vencimientos próximos — imports con ETA en próx 60 días y saldo > 0.
+    // =====================================================================
     const today = new Date();
     const horizon = new Date();
     horizon.setDate(horizon.getDate() + 60);
     const todayIso = today.toISOString().split("T")[0];
     const horizonIso = horizon.toISOString().split("T")[0];
 
-    const { data: dueInvoices } = await admin
-      .from("invoices")
-      .select("id, counterparty_name, responsible_id, balance_pending, due_date, invoice_number")
-      .eq("user_id", ownerUserId)
-      .eq("type", "compra")
-      .gt("balance_pending", 0)
-      .not("due_date", "is", null)
-      .gte("due_date", todayIso)
-      .lte("due_date", horizonIso)
-      .order("due_date", { ascending: true });
+    const vencimientosProximos = ((importsRows as ImportRow[] | null) ?? [])
+      .filter((r) =>
+        r.fecha_estimada_llegada
+        && r.fecha_estimada_llegada >= todayIso
+        && r.fecha_estimada_llegada <= horizonIso
+        && Number(r.saldo_pendiente_usd ?? 0) > 0
+      )
+      .map((r) => ({
+        concepto: r.ref_pedido
+          ? `Saldo importación ${r.ref_pedido}`
+          : `Saldo importación ${r.id.slice(0, 8)}`,
+        monto_usd: Number(r.saldo_pendiente_usd ?? 0),
+        fecha_vencimiento: r.fecha_estimada_llegada,
+        proveedor: r.proveedor_nombre,
+      }));
 
-    const vencimientosInvoices = ((dueInvoices ?? []) as Array<{
-      id: string;
-      counterparty_name: string | null;
-      responsible_id: string | null;
-      balance_pending: number | null;
-      due_date: string;
-      invoice_number: string | null;
-    }>).map((row) => ({
-      concepto: `Factura compra ${row.invoice_number ?? row.id.slice(0, 8)}`,
-      monto_usd: toUsd(Number(row.balance_pending ?? 0)),
-      fecha_vencimiento: row.due_date,
-      proveedor:
-        row.counterparty_name
-        ?? (row.responsible_id ? respNames.get(row.responsible_id) ?? "" : "")
-        ?? "",
-    }));
-
-    // Cuotas de crédito: leer credits + credit_payments. Si la tabla
-    // credit_payments registra solo pagos hechos, las próximas cuotas se
-    // calcularían por amortización — out of scope para este snapshot.
-    // Como aproximación, devolvemos solo invoices.due_date por ahora.
-    // (Si Nico quiere proyección de cuotas, agregar acá.)
-
-    const vencimientosProximos = vencimientosInvoices;
-
-    // ====================================================================
-    // Respuesta
-    // ====================================================================
     const body = {
       smm_aluminio_actual: smmAluminio,
       trm_usd_cop: trm,
@@ -228,12 +169,10 @@ serve(async (req) => {
       _meta: {
         generated_at: new Date().toISOString(),
         source_notes: {
-          smm_aluminio_actual: "macro_indicators.indicator_type='aluminio' último period_date",
-          trm_usd_cop: "macro_indicators.indicator_type='trm' último period_date",
-          pedidos_abiertos:
-            "PROXY: invoices type='compra' con balance_pending>0. No hay módulo de importaciones aún — estado mapeado mejor-esfuerzo desde invoices.status, precio_smm_cerrado=0 (no hay campo), saldo USD = balance_pending COP / TRM actual.",
-          vencimientos_proximos:
-            "invoices type='compra' con due_date en los próximos 60 días. Cuotas de crédito proyectadas no incluidas todavía.",
+          smm_aluminio_actual: "macro_indicators.indicator_type='aluminio_lme' último period_date (Yahoo Finance ALI=F / Trading Economics)",
+          trm_usd_cop: "macro_indicators.indicator_type='trm' último period_date (datos.gov.co Superfinanciera)",
+          pedidos_abiertos: "tabla imports con estado != entregado/cancelado",
+          vencimientos_proximos: "imports con fecha_estimada_llegada en próx 60 días y saldo_pendiente_usd > 0",
         },
       },
     };

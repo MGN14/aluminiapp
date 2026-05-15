@@ -53,6 +53,7 @@ const Cotizaciones = lazy(() => import("./pages/Cotizaciones"));
 const ProductosTerminados = lazy(() => import("./pages/ProductosTerminados"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
 const CarteraOperativa = lazy(() => import("./pages/CarteraOperativa"));
+const Importaciones = lazy(() => import("./pages/Importaciones"));
 const CajaMenor = lazy(() => import("./pages/CajaMenor"));
 const InformeBanco = lazy(() => import("./pages/InformeBanco"));
 const Creditos = lazy(() => import("./pages/Creditos"));
@@ -191,6 +192,10 @@ const App = () => (
               <Route
                 path="/reportes/cartera-operativa"
                 element={<AdminRoute><CarteraOperativa /></AdminRoute>}
+              />
+              <Route
+                path="/importaciones"
+                element={<AdminRoute><Importaciones /></AdminRoute>}
               />
               <Route
                 path="/caja-menor"
