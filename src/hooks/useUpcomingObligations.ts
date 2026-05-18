@@ -167,12 +167,11 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
     return list;
   }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral, creditsData]);
 
+  // Incluye vencidas (d < 0) — no desaparecen al pasar la fecha; solo el
+  // checkbox de "pagada" las saca. El caller filtra por isPaid().
   const urgentes = useMemo(() => {
     return events
-      .filter(ev => {
-        const d = diasRestantes(ev.fecha);
-        return d >= 0 && d <= urgentWindowDays;
-      })
+      .filter(ev => diasRestantes(ev.fecha) <= urgentWindowDays)
       .sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
   }, [events, urgentWindowDays]);
 

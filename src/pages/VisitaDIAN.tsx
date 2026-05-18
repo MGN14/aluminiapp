@@ -266,32 +266,41 @@ export default function VisitaDIAN() {
         )}
 
         {/* Próximas urgentes — banner rápido antes del calendario */}
-        {urgentesTop.length > 0 && (
-          <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/20 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle className="h-4 w-4 text-orange-500" />
-              <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">
-                Próximas obligaciones (15 días)
-              </p>
+        {urgentesTop.length > 0 && (() => {
+          const hasOverdue = urgentesTop.some(ev => diasRestantes(ev.fecha) < 0);
+          return (
+            <div className={`rounded-lg border p-4 ${hasOverdue ? 'border-destructive/40 bg-destructive/5' : 'border-orange-200 bg-orange-50 dark:bg-orange-950/20'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className={`h-4 w-4 ${hasOverdue ? 'text-destructive' : 'text-orange-500'}`} />
+                <p className={`text-sm font-semibold ${hasOverdue ? 'text-destructive' : 'text-orange-700 dark:text-orange-400'}`}>
+                  {hasOverdue ? 'Obligaciones vencidas sin pagar / próximas (15 días)' : 'Próximas obligaciones (15 días)'}
+                </p>
+              </div>
+              <div className="grid md:grid-cols-2 gap-1">
+                {urgentesTop.map(ev => {
+                  const dias = diasRestantes(ev.fecha);
+                  const overdue = dias < 0;
+                  return (
+                    <div key={ev.id} className={`text-xs flex items-center gap-2 ${overdue ? 'text-destructive font-medium' : 'text-orange-700 dark:text-orange-300'}`}>
+                      <Badge variant="outline" className="text-[9px] bg-background shrink-0">
+                        {TIPO_LABEL[ev.tipo]}
+                      </Badge>
+                      <span className="truncate">
+                        {ev.descripcion} — {ev.fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                        {' '}({overdue ? `vencida hace ${Math.abs(dias)}d` : dias === 0 ? '¡hoy!' : `${dias}d`})
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {hasOverdue && (
+                <p className="text-[11px] text-destructive/80 mt-2">
+                  Las obligaciones vencidas permanecen visibles hasta que las marques como pagadas con el checkbox en el calendario.
+                </p>
+              )}
             </div>
-            <div className="grid md:grid-cols-2 gap-1">
-              {urgentesTop.map(ev => {
-                const dias = diasRestantes(ev.fecha);
-                return (
-                  <div key={ev.id} className="text-xs text-orange-700 dark:text-orange-300 flex items-center gap-2">
-                    <Badge variant="outline" className="text-[9px] bg-background shrink-0">
-                      {TIPO_LABEL[ev.tipo]}
-                    </Badge>
-                    <span className="truncate">
-                      {ev.descripcion} — {ev.fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
-                      {' '}({dias === 0 ? '¡hoy!' : `${dias}d`})
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Calendario — lo más llamativo, arriba */}
         {nitDigit !== null ? (

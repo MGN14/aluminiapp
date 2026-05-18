@@ -161,9 +161,11 @@ export default function CalendarioTributario() {
   });
   const mostradas = mostrarTodas ? filtradas : proximas.slice(0, 8);
 
+  // Incluye vencidas (d < 0) que el usuario no marcó como completadas — no
+  // desaparecen al pasar la fecha; solo el checkbox las saca.
   const urgentes = obligaciones.filter(o => {
     const d = diasRestantes(o.fecha);
-    return d >= 0 && d <= 15 && !completadas.has(o.id);
+    return d <= 15 && !completadas.has(o.id);
   });
 
   const handleNit = () => {
@@ -215,23 +217,39 @@ export default function CalendarioTributario() {
       ) : (
         <>
           {/* Resumen urgentes */}
-          {urgentes.length > 0 && (
-            <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/20 p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="h-4 w-4 text-orange-500" />
-                <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">
-                  {urgentes.length} obligación{urgentes.length > 1 ? 'es' : ''} vencen en los próximos 15 días
-                </p>
-              </div>
-              <div className="space-y-1">
-                {urgentes.map(o => (
-                  <p key={o.id} className="text-xs text-orange-600 dark:text-orange-400">
-                    • {o.descripcion} — {o.fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })} ({diasRestantes(o.fecha)} días)
+          {urgentes.length > 0 && (() => {
+            const vencidas = urgentes.filter(o => diasRestantes(o.fecha) < 0);
+            const hasOverdue = vencidas.length > 0;
+            return (
+              <div className={`rounded-lg border p-4 ${hasOverdue ? 'border-destructive/40 bg-destructive/5' : 'border-orange-200 bg-orange-50 dark:bg-orange-950/20'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className={`h-4 w-4 ${hasOverdue ? 'text-destructive' : 'text-orange-500'}`} />
+                  <p className={`text-sm font-semibold ${hasOverdue ? 'text-destructive' : 'text-orange-700 dark:text-orange-400'}`}>
+                    {hasOverdue
+                      ? `${vencidas.length} vencida${vencidas.length > 1 ? 's' : ''} sin marcar + ${urgentes.length - vencidas.length} en los próximos 15 días`
+                      : `${urgentes.length} obligación${urgentes.length > 1 ? 'es' : ''} vencen en los próximos 15 días`}
                   </p>
-                ))}
+                </div>
+                <div className="space-y-1">
+                  {urgentes.map(o => {
+                    const dias = diasRestantes(o.fecha);
+                    const overdue = dias < 0;
+                    return (
+                      <p key={o.id} className={`text-xs ${overdue ? 'text-destructive font-medium' : 'text-orange-600 dark:text-orange-400'}`}>
+                        • {o.descripcion} — {o.fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}
+                        {' '}({overdue ? `vencida hace ${Math.abs(dias)}d` : `${dias} días`})
+                      </p>
+                    );
+                  })}
+                </div>
+                {hasOverdue && (
+                  <p className="text-[11px] text-destructive/80 mt-2">
+                    Las vencidas no desaparecen — quedan visibles hasta que marques el checkbox de completada.
+                  </p>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Filtros */}
           <div className="flex items-center gap-2 flex-wrap">

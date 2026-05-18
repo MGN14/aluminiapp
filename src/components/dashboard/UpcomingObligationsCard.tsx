@@ -12,6 +12,7 @@ const MAX_ITEMS = 5;
 const UPCOMING_WINDOW_DAYS = 45;
 
 function urgencyColor(days: number): string {
+  if (days < 0) return 'text-destructive';
   if (days <= 3) return 'text-destructive';
   if (days <= 7) return 'text-orange-600 dark:text-orange-400';
   if (days <= 15) return 'text-amber-600 dark:text-amber-400';
@@ -19,20 +20,30 @@ function urgencyColor(days: number): string {
 }
 
 function urgencyBg(days: number): string {
+  if (days < 0) return 'bg-destructive/10 border-destructive/40';
   if (days <= 3) return 'bg-destructive/5 border-destructive/30';
   if (days <= 7) return 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-900/50';
   return 'bg-card border-border/50';
+}
+
+function urgencyLabel(days: number): string {
+  if (days < 0) return `Vencida hace ${Math.abs(days)}d`;
+  if (days === 0) return '¡Hoy!';
+  if (days === 1) return 'Mañana';
+  return `${days}d`;
 }
 
 export default function UpcomingObligationsCard() {
   const { events, nitDigit } = useUpcomingObligations(UPCOMING_WINDOW_DAYS);
   const { isPaid, togglePaid } = usePaidObligations();
 
+  // Mantiene vencidas no pagadas (d < 0) — solo el checkbox las saca de la lista.
+  // Ordena: vencidas primero (más vencida arriba), luego por fecha ascendente.
   const upcoming = useMemo(() => {
     return events
       .filter(ev => {
         const d = diasRestantes(ev.fecha);
-        return d >= 0 && d <= UPCOMING_WINDOW_DAYS && !isPaid(ev);
+        return d <= UPCOMING_WINDOW_DAYS && !isPaid(ev);
       })
       .sort((a, b) => a.fecha.getTime() - b.fecha.getTime())
       .slice(0, MAX_ITEMS);
@@ -93,14 +104,15 @@ export default function UpcomingObligationsCard() {
   }
 
   const hasCritical = upcoming.some(ev => diasRestantes(ev.fecha) <= 3);
+  const hasOverdue = upcoming.some(ev => diasRestantes(ev.fecha) < 0);
 
   return (
     <Link to="/visita-dian" className="block group">
-      <Card className={`overflow-hidden border hover:border-primary/30 transition-colors cursor-pointer h-full ${hasCritical ? 'border-destructive/30' : 'border-border'}`}>
+      <Card className={`overflow-hidden border hover:border-primary/30 transition-colors cursor-pointer h-full ${hasOverdue || hasCritical ? 'border-destructive/30' : 'border-border'}`}>
         <CardContent className="p-4">
           <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center gap-2">
-              {hasCritical ? (
+              {hasOverdue || hasCritical ? (
                 <AlertTriangle className="h-4 w-4 text-destructive" />
               ) : (
                 <CalendarClock className="h-4 w-4 text-muted-foreground" />
@@ -136,7 +148,7 @@ export default function UpcomingObligationsCard() {
                     {ev.descripcion}
                   </span>
                   <span className={`text-[10px] font-semibold shrink-0 ${urgencyColor(dias)}`}>
-                    {dias === 0 ? '¡Hoy!' : dias === 1 ? 'Mañana' : `${dias}d`}
+                    {urgencyLabel(dias)}
                   </span>
                   <span className="text-[10px] font-medium tabular-nums shrink-0 text-muted-foreground min-w-[58px] text-right">
                     {ev.monto != null && ev.monto > 0
