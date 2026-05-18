@@ -453,7 +453,9 @@ export default function Inventory() {
           </div>
         )}
 
-        {tab === 'inventario' && (loading ? (
+        {/* Spinner SOLO en carga inicial (sin datos). En refetches mantenemos
+            la tabla montada para no perder filtros / búsqueda / scroll. */}
+        {tab === 'inventario' && (loading && products.length === 0 ? (
           <div className="flex items-center justify-center py-32">
             <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
           </div>
