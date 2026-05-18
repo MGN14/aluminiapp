@@ -107,7 +107,17 @@ export default function AddProductModal({ open, onOpenChange, onSubmit, existing
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">{isEdit ? 'Stock actual' : 'Stock Inicial'}</Label>
-              <Input type="number" min={0} value={form.stock_system} onChange={e => setForm({ ...form, stock_system: +e.target.value })} />
+              <Input
+                type="number"
+                min={isEdit ? undefined : 0}
+                value={form.stock_system}
+                onChange={e => setForm({ ...form, stock_system: +e.target.value })}
+              />
+              {isEdit && form.stock_system < 0 && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                  Stock negativo: salidas registradas sin entradas previas. Podés guardar igual.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Stock Mínimo</Label>
