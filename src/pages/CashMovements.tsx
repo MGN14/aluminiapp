@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon, Trash2, TrendingUp, TrendingDown, Plus } from 'lucide-react';
+import { CalendarIcon, Trash2, TrendingUp, TrendingDown, Plus, Pencil, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -62,13 +62,39 @@ export default function CashMovements() {
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
-  // Form state
+  // Form state. Si editingId !== null, el form está en modo "editar" y al
+  // guardar hace UPDATE en lugar de INSERT.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [type, setType] = useState<'ingreso' | 'egreso'>('ingreso');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [notes, setNotes] = useState('');
   const [responsibleId, setResponsibleId] = useState<string>(NO_RESPONSIBLE);
+
+  const resetForm = useCallback(() => {
+    setEditingId(null);
+    setDate(new Date());
+    setType('ingreso');
+    setAmount('');
+    setCategory('');
+    setNotes('');
+    setResponsibleId(NO_RESPONSIBLE);
+  }, []);
+
+  const handleEdit = (m: CashMovement) => {
+    setEditingId(m.id);
+    setDate(m.date ? new Date(m.date + 'T00:00:00') : new Date());
+    setType(m.type === 'egreso' ? 'egreso' : 'ingreso');
+    setAmount(String(m.amount ?? ''));
+    setCategory(m.category ?? '');
+    setNotes(m.notes ?? '');
+    setResponsibleId(m.responsible_id ?? NO_RESPONSIBLE);
+    // Scroll al form arriba para que el usuario vea qué está editando.
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   const { data: responsibles = [] } = useQuery<ResponsibleOption[]>({
     queryKey: ['responsibles-cash-movements', user?.id],
@@ -125,9 +151,7 @@ export default function CashMovements() {
       if (!user) throw new Error('No autenticado');
 
       const beneficiaryName = responsibles.find(r => r.id === responsibleId)?.name ?? null;
-
-      const { error } = await supabase.from('cash_movements').insert({
-        user_id: user.id,
+      const payload = {
         date: format(date, 'yyyy-MM-dd'),
         type,
         amount: numAmount,
@@ -135,16 +159,29 @@ export default function CashMovements() {
         category: category || null,
         notes: notes.trim() || null,
         responsible_id: responsibleId,
-      });
-      if (error) throw error;
+      };
 
-      toast({ title: 'Movimiento registrado' });
-      setAmount('');
-      setCategory('');
-      setNotes('');
-      setResponsibleId(NO_RESPONSIBLE);
+      if (editingId) {
+        const { error } = await supabase
+          .from('cash_movements')
+          .update(payload)
+          .eq('id', editingId);
+        if (error) throw error;
+        toast({ title: 'Movimiento actualizado' });
+      } else {
+        const { error } = await supabase
+          .from('cash_movements')
+          .insert({ user_id: user.id, ...payload });
+        if (error) throw error;
+        toast({ title: 'Movimiento registrado' });
+      }
+
+      resetForm();
       fetchMovements();
+      // Si este movimiento estaba vinculado a remisiones, los saldos cambian.
       queryClient.invalidateQueries({ queryKey: ['operative-receivables'] });
+      queryClient.invalidateQueries({ queryKey: ['remision-payments-all'] });
+      queryClient.invalidateQueries({ queryKey: ['remision-payment-status'] });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
@@ -225,9 +262,17 @@ export default function CashMovements() {
         </div>
 
         {/* Form */}
-        <Card className="border-0 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Registrar movimiento</CardTitle>
+        <Card className={cn("border-0 shadow-sm", editingId && "ring-2 ring-primary/40")}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">
+              {editingId ? 'Editar movimiento' : 'Registrar movimiento'}
+            </CardTitle>
+            {editingId && (
+              <Button type="button" variant="ghost" size="sm" onClick={resetForm} className="h-8 gap-1">
+                <X className="h-4 w-4" />
+                Cancelar edición
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -309,10 +354,17 @@ export default function CashMovements() {
                 <Textarea placeholder="Notas adicionales..." value={notes} onChange={e => setNotes(e.target.value)} rows={1} />
               </div>
 
-              <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
+              <div className="sm:col-span-2 lg:col-span-3 flex justify-end gap-2">
+                {editingId && (
+                  <Button type="button" variant="outline" onClick={resetForm} disabled={saving}>
+                    Cancelar
+                  </Button>
+                )}
                 <Button type="submit" disabled={saving} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  {saving ? 'Guardando...' : 'Registrar movimiento'}
+                  {editingId ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                  {saving
+                    ? 'Guardando...'
+                    : editingId ? 'Guardar cambios' : 'Registrar movimiento'}
                 </Button>
               </div>
             </form>
@@ -358,7 +410,11 @@ export default function CashMovements() {
                           {m.notes && <div className="line-clamp-2">{m.notes}</div>}
                         </div>
                       )}
-                      <div className="flex justify-end pt-1 border-t border-border">
+                      <div className="flex justify-end gap-1 pt-1 border-t border-border">
+                        <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => handleEdit(m)}>
+                          <Pencil className="h-4 w-4" />
+                          <span className="text-xs">Editar</span>
+                        </Button>
                         <Button variant="ghost" size="sm" className="h-8 text-destructive gap-1.5" onClick={() => handleDelete(m.id)}>
                           <Trash2 className="h-4 w-4" />
                           <span className="text-xs">Eliminar</span>
@@ -380,7 +436,7 @@ export default function CashMovements() {
                       <TableHead>Beneficiario</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Notas</TableHead>
-                      <TableHead className="w-10"></TableHead>
+                      <TableHead className="w-20"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -414,9 +470,26 @@ export default function CashMovements() {
                         <TableCell className="text-muted-foreground text-sm">{m.category || '—'}</TableCell>
                         <TableCell className="text-muted-foreground text-sm max-w-[150px] truncate">{m.notes || '—'}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(m.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="Editar"
+                              onClick={() => handleEdit(m)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              title="Eliminar"
+                              onClick={() => handleDelete(m.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                       );
