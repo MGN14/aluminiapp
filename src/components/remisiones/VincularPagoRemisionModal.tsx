@@ -121,12 +121,45 @@ export default function VincularPagoRemisionModal({
     },
   });
 
+  // Asignaciones de TODAS las remisiones del usuario, para saber qué pagos
+  // ya están parcial o totalmente tomados en otra remisión. Sin esto el modal
+  // mostraba como "disponible" un pago que el usuario ya había vinculado a
+  // otra remisión, permitiendo doble vinculación.
+  const { data: allAssignments = [] } = useQuery({
+    queryKey: ['remision-payments-all', user?.id],
+    enabled: !!user?.id && open,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('remision_payments' as never)
+        .select('payment_kind, payment_id, amount_assigned, remision_id')
+        .eq('user_id', user!.id);
+      return ((data ?? []) as unknown as Array<{ payment_kind: string; payment_id: string; amount_assigned: number; remision_id: string }>);
+    },
+  });
+
   const linkedKey = (kind: string, paymentId: string) => `${kind}:${paymentId}`;
   const linkedSet = new Set(linked.map((l) => linkedKey(l.payment_kind, l.payment_id)));
   const totalLinked = linked.reduce((s, l) => s + Number(l.amount_assigned || 0), 0);
   const remaining = Math.max(0, remisionTotal - totalLinked);
 
+  // Mapa pago → monto ya asignado en OTRAS remisiones (excluye la actual).
+  const usedElsewhereByPayment = new Map<string, number>();
+  for (const a of allAssignments) {
+    if (a.remision_id === remisionId) continue;
+    const k = linkedKey(a.payment_kind, a.payment_id);
+    usedElsewhereByPayment.set(k, (usedElsewhereByPayment.get(k) ?? 0) + Number(a.amount_assigned || 0));
+  }
+
+  const availableOf = (p: PaymentOption): number => {
+    const usedElsewhere = usedElsewhereByPayment.get(linkedKey(p.kind, p.id)) ?? 0;
+    return Math.max(0, p.amount - usedElsewhere);
+  };
+
+  // Excluye los pagos 100% tomados por OTRAS remisiones. Los ya vinculados a
+  // esta misma remisión siguen visibles (para poder desvincular).
   const filteredPayments = payments.filter((p) => {
+    const isLinkedHere = linkedSet.has(linkedKey(p.kind, p.id));
+    if (!isLinkedHere && availableOf(p) <= 0) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return p.description.toLowerCase().includes(q) || p.date.includes(q);
@@ -146,11 +179,22 @@ export default function VincularPagoRemisionModal({
         }
         toast({ title: 'Pago desvinculado' });
       } else {
-        // Default: amount_assigned = min(monto del pago, lo que falta cobrar)
+        // Tope = lo que queda disponible del pago (después de descontar lo ya
+        // asignado a otras remisiones). Default: min(disponible, lo que falta
+        // cobrar de esta remisión).
+        const available = availableOf(p);
+        if (available <= 0) {
+          toast({
+            title: 'Pago no disponible',
+            description: 'Este pago ya está completamente vinculado a otra remisión.',
+            variant: 'destructive',
+          });
+          return;
+        }
         const customAmount = parseFloat(editingAmounts[p.id] ?? '');
         const amountToAssign = !isNaN(customAmount) && customAmount > 0
-          ? Math.min(customAmount, p.amount)
-          : Math.min(p.amount, remaining > 0 ? remaining : p.amount);
+          ? Math.min(customAmount, available)
+          : Math.min(available, remaining > 0 ? remaining : available);
 
         const { error } = await (supabase.from('remision_payments' as never) as any)
           .insert({
@@ -164,6 +208,7 @@ export default function VincularPagoRemisionModal({
         toast({ title: 'Pago vinculado' });
       }
       queryClient.invalidateQueries({ queryKey: ['remision-payments-linked'] });
+      queryClient.invalidateQueries({ queryKey: ['remision-payments-all'] });
       queryClient.invalidateQueries({ queryKey: ['remision-payment-status'] });
       queryClient.invalidateQueries({ queryKey: ['remisiones'] });
     } catch (err: any) {
@@ -230,13 +275,19 @@ export default function VincularPagoRemisionModal({
             filteredPayments.map((p) => {
               const isLinked = linkedSet.has(linkedKey(p.kind, p.id));
               const linkedAmount = linked.find((l) => l.payment_kind === p.kind && l.payment_id === p.id)?.amount_assigned;
+              const usedElsewhere = usedElsewhereByPayment.get(linkedKey(p.kind, p.id)) ?? 0;
+              const partiallyUsed = !isLinked && usedElsewhere > 0;
               return (
                 <button
                   key={`${p.kind}-${p.id}`}
                   onClick={() => handleToggle(p)}
                   disabled={saving}
                   className={`w-full flex items-center justify-between p-3 rounded-lg border text-left transition-colors ${
-                    isLinked ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-border hover:bg-muted/50'
+                    isLinked
+                      ? 'border-green-500 bg-green-50 dark:bg-green-950/20'
+                      : partiallyUsed
+                      ? 'border-amber-300 bg-amber-50/40 dark:bg-amber-950/10 hover:bg-amber-50/60'
+                      : 'border-border hover:bg-muted/50'
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -249,6 +300,11 @@ export default function VincularPagoRemisionModal({
                       <p className="text-sm font-medium truncate">{p.description}</p>
                       <p className="text-xs text-muted-foreground">
                         {formatDate(p.date)} · {p.kind === 'bank' ? 'Banco' : 'Efectivo'}
+                        {partiallyUsed && (
+                          <span className="ml-1.5 text-amber-700 dark:text-amber-400 font-medium">
+                            · {formatCurrency(usedElsewhere)} ya en otra remisión
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -258,6 +314,11 @@ export default function VincularPagoRemisionModal({
                       {isLinked && linkedAmount !== undefined && Number(linkedAmount) !== p.amount && (
                         <p className="text-[10px] text-muted-foreground">
                           asignado: {formatCurrency(Number(linkedAmount))}
+                        </p>
+                      )}
+                      {partiallyUsed && (
+                        <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                          disponible: {formatCurrency(p.amount - usedElsewhere)}
                         </p>
                       )}
                     </div>
