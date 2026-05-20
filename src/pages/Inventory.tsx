@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, History, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck, History, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import { useModuleContext } from '@/hooks/useModuleContext';
@@ -15,6 +15,7 @@ import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import PhysicalCountModal from '@/components/inventory/PhysicalCountModal';
 import MaestroProductos from '@/components/inventory/MaestroProductos';
 import EntradaInventarioModal from '@/components/inventory/EntradaInventarioModal';
+import ManageSystemsModal from '@/components/inventory/ManageSystemsModal';
 import InventoryFreshnessBanner from '@/components/inventory/InventoryFreshnessBanner';
 import AppLayout from '@/components/layout/AppLayout';
 import { usePersistedDialogOpen } from '@/hooks/usePersistedFormState';
@@ -39,6 +40,7 @@ export default function Inventory() {
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [showEntrada, setShowEntrada] = useState(false);
+  const [showSystems, setShowSystems] = useState(false);
   const [cuadreLoading, setCuadreLoading] = useState(false);
   // El modal de conteo físico persiste su estado abierto: si el usuario
   // está en medio del wizard (subiendo / mapeando / revisando el cruce) y
@@ -373,6 +375,40 @@ export default function Inventory() {
                 )}
                 Traer de Siigo
               </button>
+              {existingSystems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowSystems(true)}
+                  title="Renombrar, fusionar o borrar sistemas (limpiar duplicados)"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 36,
+                    padding: '0 14px',
+                    borderRadius: 10,
+                    background: '#fff',
+                    border: '1.5px solid rgba(0,0,0,0.08)',
+                    color: '#1d1d1f',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s, border-color 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f5f5f7';
+                    e.currentTarget.style.borderColor = 'rgba(0,0,0,0.14)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = 'rgba(0,0,0,0.08)';
+                  }}
+                >
+                  <Layers style={{ width: 14, height: 14 }} />
+                  Sistemas
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowBulk(true)}
@@ -558,6 +594,12 @@ export default function Inventory() {
         } : null}
       />
       <BulkUploadModal open={showBulk} onOpenChange={setShowBulk} onComplete={refetch} />
+      <ManageSystemsModal
+        open={showSystems}
+        onOpenChange={setShowSystems}
+        products={products}
+        onComplete={refetch}
+      />
       <EntradaInventarioModal open={showEntrada} onOpenChange={setShowEntrada} products={products} onSubmit={registerEntradaManual} />
       <PhysicalCountModal open={showPhysical} onOpenChange={setShowPhysical} onComplete={refetch} />
       <AdjustStockModal

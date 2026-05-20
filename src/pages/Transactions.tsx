@@ -395,6 +395,32 @@ export default function Transactions() {
     return result;
   }, [transactions, filters, pinnedPendingIds]);
 
+  // Totales monetarios del subconjunto filtrado — para "filtré por transporte,
+  // ¿cuánto gasté?" sin sumar a mano una por una.
+  // Usamos credit/debit directo (no amount con signo) para que sea consistente
+  // con cómo el extracto reporta cada movimiento.
+  const filteredTotals = useMemo(() => {
+    let ingresos = 0;
+    let egresos = 0;
+    for (const tx of filteredTransactions) {
+      ingresos += Number(tx.credit ?? 0);
+      egresos += Number(tx.debit ?? 0);
+    }
+    return { ingresos, egresos, neto: ingresos - egresos };
+  }, [filteredTransactions]);
+
+  // Indica si hay filtros activos (más allá del default). Sirve para sólo
+  // mostrar la suma cuando tiene sentido — sumar "todos los movimientos" del
+  // statement ya está implícito en el extracto, no aporta.
+  const hasActiveFilters = (
+    filters.estado !== defaultFilters.estado ||
+    filters.tipo !== defaultFilters.tipo ||
+    !!filters.categoryId ||
+    !!filters.responsibleId ||
+    !!filters.dateFrom ||
+    !!filters.dateTo
+  );
+
   return (
     <AppLayout>
       <TooltipProvider>
@@ -536,13 +562,37 @@ export default function Transactions() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Movimientos ({filteredTransactions.length}
-                {filteredTransactions.length !== filterCounts.total
-                  ? ` de ${filterCounts.total}`
-                  : ''})
-              </CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Movimientos ({filteredTransactions.length}
+                  {filteredTransactions.length !== filterCounts.total
+                    ? ` de ${filterCounts.total}`
+                    : ''})
+                </CardTitle>
+                {hasActiveFilters && filteredTransactions.length > 0 && (
+                  <div className="flex items-center gap-4 text-xs">
+                    <div className="flex flex-col items-end">
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Ingresos</span>
+                      <span className="font-bold text-success tabular-nums">
+                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(filteredTotals.ingresos)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Egresos</span>
+                      <span className="font-bold text-destructive tabular-nums">
+                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(filteredTotals.egresos)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-end pl-3 border-l border-border">
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Neto</span>
+                      <span className={`font-bold tabular-nums ${filteredTotals.neto >= 0 ? 'text-success' : 'text-destructive'}`}>
+                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(filteredTotals.neto)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6 sm:pt-0">
               {loading ? (

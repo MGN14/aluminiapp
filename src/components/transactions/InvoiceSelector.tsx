@@ -89,9 +89,11 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
   const fetchInvoicesWithBalances = useCallback(async () => {
     // Fetch confirmed invoices
     // Excluir las anuladas totalmente por NC: no se les puede vincular pagos.
+    // Traemos también los campos de retención para calcular el saldo igual que
+    // clientReceivables.ts (fuente de verdad de "Lo que me deben").
     const { data: rawInvoices } = await supabase
       .from('invoices')
-      .select('id, invoice_number, type, counterparty_name, issue_date, total_amount')
+      .select('id, invoice_number, type, counterparty_name, issue_date, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, retefuente_amount' as never)
       .eq('status', 'confirmed')
       .or('void_type.is.null,void_type.eq.partial')
       .order('issue_date', { ascending: false })
@@ -103,7 +105,8 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
       return;
     }
 
-    const invoiceIds = rawInvoices.map(i => i.id);
+    const rawList = rawInvoices as unknown as Array<Record<string, unknown>>;
+    const invoiceIds = rawList.map(i => i.id as string);
 
     // Fetch direct transaction payments (exclude current transaction)
     const directQuery = supabase
@@ -111,24 +114,34 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
       .select('invoice_id, amount')
       .is('deleted_at', null)
       .in('invoice_id', invoiceIds);
-    
+
     // Fetch match payments
     const matchQuery = supabase
       .from('invoice_transaction_matches')
       .select('invoice_id, matched_amount')
       .in('invoice_id', invoiceIds);
 
-    const [directRes, matchRes] = await Promise.all([directQuery, matchQuery]);
+    // Anticipos cruzados a una factura específica (initial_state_details).
+    // Sin esto, una factura con anticipo aplicado seguía mostrando el saldo
+    // completo en Conciliación, divergiendo de "Lo que me deben".
+    const anticiposQuery = supabase
+      .from('initial_state_details')
+      .select('invoice_id, amount')
+      .eq('field_type', 'anticipos_de_clientes')
+      .in('invoice_id', invoiceIds);
+
+    const [directRes, matchRes, anticiposRes] = await Promise.all([directQuery, matchQuery, anticiposQuery]);
     if (directRes.error) throw directRes.error;
     if (matchRes.error) throw matchRes.error;
+    if (anticiposRes.error) throw anticiposRes.error;
     const directPayments = directRes.data;
     const matchPayments = matchRes.data;
+    const anticiposPayments = anticiposRes.data;
 
     // Aggregate payments per invoice
     const paidByInvoice = new Map<string, number>();
     (directPayments || []).forEach(p => {
       if (p.invoice_id) {
-        // Exclude current transaction from calculation to avoid double-counting
         const current = paidByInvoice.get(p.invoice_id) || 0;
         paidByInvoice.set(p.invoice_id, current + Math.abs(p.amount ?? 0));
       }
@@ -137,24 +150,60 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
       const current = paidByInvoice.get(p.invoice_id) || 0;
       paidByInvoice.set(p.invoice_id, current + Math.abs(p.matched_amount));
     });
+    (anticiposPayments || []).forEach(p => {
+      if (p.invoice_id) {
+        const current = paidByInvoice.get(p.invoice_id) || 0;
+        paidByInvoice.set(p.invoice_id, current + Math.abs(Number(p.amount ?? 0)));
+      }
+    });
 
     // If current transaction is already linked to an invoice, subtract it from paid
     // to show the balance as if this transaction weren't yet applied
-    if (transactionId && transactionAmount != null) {
-      // Find if this transaction is in directPayments
-      const currentTxPayments = (directPayments || []).filter(p => p.invoice_id && invoiceIds.includes(p.invoice_id));
-      // We can't filter by transaction_id from the query (we only have invoice_id, amount)
-      // Instead, if invoiceId is set, subtract this transaction's amount from that invoice's paid total
-      if (invoiceId) {
-        const currentPaid = paidByInvoice.get(invoiceId) || 0;
-        paidByInvoice.set(invoiceId, Math.max(0, currentPaid - Math.abs(transactionAmount)));
-      }
+    if (transactionId && transactionAmount != null && invoiceId) {
+      const currentPaid = paidByInvoice.get(invoiceId) || 0;
+      paidByInvoice.set(invoiceId, Math.max(0, currentPaid - Math.abs(transactionAmount)));
     }
 
-    const enriched: InvoiceOption[] = rawInvoices.map(inv => {
-      const paid = paidByInvoice.get(inv.id) || 0;
-      const outstanding = Math.max(0, inv.total_amount - paid);
-      return { ...inv, outstanding };
+    // Cálculo de retenciones por factura — mismo criterio que clientReceivables.ts.
+    // VENTAS: retefuente_cliente (con fallback 2.5% para facturas legacy) +
+    //         reteica + autoretefuente, plata que el cliente retuvo y pagó a
+    //         DIAN/municipio (no vuelve al banco, no es deuda viva).
+    // COMPRAS: retefuente + reteica + autoretefuente, plata que nosotros le
+    //          retuvimos al proveedor (no se la pagamos, no es deuda viva).
+    const retencionesOf = (inv: Record<string, unknown>): number => {
+      const tipo = inv.type as string;
+      const reteica = Math.abs(Number(inv.reteica_amount ?? 0));
+      const autoretefuente = Math.abs(Number(inv.autoretefuente_amount ?? 0));
+      if (tipo === 'venta') {
+        const savedRete = Number(inv.retefuente_cliente_amount ?? 0);
+        const rawRate = inv.retefuente_cliente_rate as number | null | undefined;
+        const hasExplicitRate = rawRate !== null && rawRate !== undefined;
+        const effectiveRate = hasExplicitRate ? Number(rawRate) : 0.025;
+        const subtotalBase = Number(inv.subtotal_base ?? 0);
+        const retefuente = savedRete > 0
+          ? savedRete
+          : Math.round(subtotalBase * effectiveRate);
+        return retefuente + reteica + autoretefuente;
+      }
+      // compra: retención que nosotros le hicimos al proveedor
+      const retefuenteProv = Math.abs(Number(inv.retefuente_amount ?? 0));
+      return retefuenteProv + reteica + autoretefuente;
+    };
+
+    const enriched: InvoiceOption[] = rawList.map((inv) => {
+      const paid = paidByInvoice.get(inv.id as string) || 0;
+      const retenciones = retencionesOf(inv);
+      const totalAmount = Number(inv.total_amount ?? 0);
+      const outstanding = Math.max(0, totalAmount - paid - retenciones);
+      return {
+        id: inv.id as string,
+        invoice_number: (inv.invoice_number as string) ?? '',
+        type: (inv.type as string) ?? '',
+        counterparty_name: (inv.counterparty_name as string | null) ?? null,
+        issue_date: (inv.issue_date as string) ?? '',
+        total_amount: totalAmount,
+        outstanding,
+      };
     });
 
     setInvoices(enriched);
