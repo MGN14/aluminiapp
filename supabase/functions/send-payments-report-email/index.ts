@@ -66,6 +66,11 @@ Deno.serve(async (req) => {
       file_base64,
       file_name,
       summary,
+      // PDF opcional: cuando el dueño elige una remisión a adjuntar en el
+      // reporte, se manda también el PDF (estado de cuenta + páginas de
+      // remisión) como segundo attachment. Si no, queda solo Excel como hoy.
+      pdf_base64,
+      pdf_file_name,
     } = body ?? {};
 
     if (!to_email || !file_base64 || !file_name) {
@@ -134,7 +139,9 @@ Deno.serve(async (req) => {
     ${safeMessage}
   </div>` : ""}
   <p style="font-size: 13px; color: #64748b; margin: 18px 0 6px;">
-    Adjuntamos el Excel con el detalle completo de los movimientos.
+    ${pdf_base64
+      ? "Adjuntamos el Excel con el detalle completo y el PDF con el estado de cuenta y la remisión asociada."
+      : "Adjuntamos el Excel con el detalle completo de los movimientos."}
   </p>
   <p style="font-size: 13px; color: #64748b; margin: 6px 0;">
     Cualquier duda, respondé este correo y te contesto.
@@ -168,6 +175,11 @@ Deno.serve(async (req) => {
             content: file_base64,
             content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           },
+          ...(pdf_base64 && pdf_file_name ? [{
+            filename: pdf_file_name,
+            content: pdf_base64,
+            content_type: "application/pdf",
+          }] : []),
         ],
       }),
     });

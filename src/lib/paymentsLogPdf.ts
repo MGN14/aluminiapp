@@ -11,6 +11,28 @@ export interface PaymentsLogPdfRow {
   amount: number;
 }
 
+/** Item de una remisión adjuntada al PDF. */
+export interface RemisionPdfItem {
+  reference: string;
+  product_name: string;
+  units: number;
+  unit_cost: number; // 0 si la remisión es "solo unidades"
+  total_cost: number; // 0 si la remisión es "solo unidades"
+}
+
+/** Remisión adjunta — se renderiza en páginas extra al final del PDF.
+ *  Caso de uso: la primera vez se envía la relación de pagos junto con la
+ *  remisión que el cliente todavía no confirmó; después solo el saldo. */
+export interface RemisionPdfBlock {
+  number: string;
+  date: string; // YYYY-MM-DD
+  beneficiary: string | null;
+  notes: string | null;
+  items: RemisionPdfItem[];
+  /** Si la remisión guarda un total manual override, usarlo en vez de sumar items. */
+  totalManual: number | null;
+}
+
 export interface PaymentsLogPdfData {
   // Empresa contratante (header)
   empresaNombre: string;
@@ -37,6 +59,9 @@ export interface PaymentsLogPdfData {
   };
   // Tabla
   rows: PaymentsLogPdfRow[];
+  /** Remisión opcional — si está, se agregan páginas extra al final con el
+   *  detalle de la remisión. No cambia el cuerpo principal del reporte. */
+  remision?: RemisionPdfBlock;
 }
 
 const COLORS = {
@@ -300,6 +325,196 @@ export function generatePaymentsLogPdf(data: PaymentsLogPdfData): jsPDF {
     doc.text(fmt(totalIngresos - totalEgresos), colX.monto + colW.monto - 1, y, { align: 'right' });
   }
 
+  // Páginas extra: remisión adjunta (opcional).
+  if (data.remision) {
+    appendRemisionPages(doc, data, topMargin, bottomMargin);
+  }
+
   addAluminiaFooter(doc);
   return doc;
+}
+
+// Renderiza la remisión en una (o varias) páginas nuevas. Usa el mismo
+// look & feel del reporte: panel de KPI, tabla con headers grises, totales
+// al pie. La primera página arranca con un encabezado claro que indique al
+// cliente que es la remisión asociada al estado de cuenta anterior.
+function appendRemisionPages(
+  doc: jsPDF,
+  data: PaymentsLogPdfData,
+  topMargin: number,
+  bottomMargin: number,
+) {
+  const r = data.remision!;
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 20;
+  const hasLetterhead = !!data.letterheadDataUri;
+
+  const startNewPage = () => {
+    doc.addPage();
+    if (hasLetterhead) {
+      try {
+        doc.addImage(data.letterheadDataUri!, data.letterheadFormat ?? 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
+      } catch {}
+    }
+  };
+
+  startNewPage();
+  let y = topMargin;
+
+  // Título
+  setText(doc, COLORS.ink);
+  doc.setFont('times', 'bold');
+  doc.setFontSize(16);
+  doc.text(`Remisión ${r.number}`, marginX, y);
+  y += 6;
+  setText(doc, COLORS.muted);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  const sub: string[] = [];
+  if (r.date) sub.push(`Fecha: ${r.date}`);
+  if (r.beneficiary) sub.push(`Beneficiario: ${r.beneficiary}`);
+  doc.text(sub.join(' · '), marginX, y);
+  y += 8;
+
+  // Caja informativa: aclara la relación con el reporte de arriba.
+  setFill(doc, COLORS.panel);
+  setStroke(doc, COLORS.panelBorder);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(marginX, y, pageW - 2 * marginX, 10, 1.5, 1.5, 'FD');
+  setText(doc, COLORS.muted);
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8.5);
+  doc.text('Detalle de la remisión asociada al estado de cuenta anterior.', marginX + 4, y + 6.5);
+  y += 14;
+
+  // Notas (si hay)
+  if (r.notes && r.notes.trim()) {
+    setText(doc, COLORS.muted);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text('NOTAS', marginX, y);
+    y += 4;
+    setText(doc, COLORS.ink);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    const notesLines = doc.splitTextToSize(r.notes.trim(), pageW - 2 * marginX);
+    doc.text(notesLines, marginX, y);
+    y += notesLines.length * 4 + 4;
+  }
+
+  // Tabla items
+  const hasCosts = r.items.some(it => it.unit_cost > 0 || it.total_cost > 0);
+  const colW = hasCosts
+    ? { ref: 28, name: 75, units: 18, cost: 25, total: 29 }
+    : { ref: 36, name: 99, units: 20, cost: 0, total: 20 };
+  const colX = {
+    ref: marginX,
+    name: marginX + colW.ref,
+    units: marginX + colW.ref + colW.name,
+    cost: marginX + colW.ref + colW.name + colW.units,
+    total: marginX + colW.ref + colW.name + colW.units + colW.cost,
+  };
+
+  setFill(doc, COLORS.panel);
+  doc.rect(marginX, y, pageW - 2 * marginX, 6, 'F');
+  setText(doc, COLORS.muted);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.text('REFERENCIA', colX.ref + 1, y + 4);
+  doc.text('PRODUCTO', colX.name + 1, y + 4);
+  doc.text('UNIDADES', colX.units + colW.units - 1, y + 4, { align: 'right' });
+  if (hasCosts) {
+    doc.text('COSTO UNIT.', colX.cost + colW.cost - 1, y + 4, { align: 'right' });
+    doc.text('TOTAL', colX.total + colW.total - 1, y + 4, { align: 'right' });
+  } else {
+    // Sin costos sólo cerramos la columna TOTAL como vacía para no descuadrar.
+    doc.text('', colX.total, y + 4);
+  }
+  y += 6;
+
+  setText(doc, COLORS.ink);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  const rowH = 5.5;
+
+  let totalUnidades = 0;
+  let totalValor = 0;
+
+  for (const it of r.items) {
+    if (y + rowH > pageH - bottomMargin) {
+      startNewPage();
+      y = topMargin + 5;
+      // Re-renderizar header de tabla en página continuación
+      setFill(doc, COLORS.panel);
+      doc.rect(marginX, y, pageW - 2 * marginX, 6, 'F');
+      setText(doc, COLORS.muted);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.text('REFERENCIA', colX.ref + 1, y + 4);
+      doc.text('PRODUCTO', colX.name + 1, y + 4);
+      doc.text('UNIDADES', colX.units + colW.units - 1, y + 4, { align: 'right' });
+      if (hasCosts) {
+        doc.text('COSTO UNIT.', colX.cost + colW.cost - 1, y + 4, { align: 'right' });
+        doc.text('TOTAL', colX.total + colW.total - 1, y + 4, { align: 'right' });
+      }
+      y += 6;
+      setText(doc, COLORS.ink);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+    }
+
+    setStroke(doc, COLORS.rule);
+    doc.setLineWidth(0.1);
+    doc.line(marginX, y + rowH - 0.5, pageW - marginX, y + rowH - 0.5);
+
+    setText(doc, COLORS.ink);
+    const refTrunc = doc.splitTextToSize(it.reference ?? '', colW.ref - 2)[0] ?? '';
+    doc.text(refTrunc, colX.ref + 1, y + 3.8);
+
+    const nameTrunc = doc.splitTextToSize(it.product_name ?? '', colW.name - 2)[0] ?? '';
+    doc.text(nameTrunc, colX.name + 1, y + 3.8);
+
+    doc.text(
+      new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(it.units),
+      colX.units + colW.units - 1, y + 3.8, { align: 'right' },
+    );
+
+    if (hasCosts) {
+      setText(doc, COLORS.muted);
+      doc.text(it.unit_cost > 0 ? fmt(it.unit_cost) : '—', colX.cost + colW.cost - 1, y + 3.8, { align: 'right' });
+      setText(doc, COLORS.ink);
+      doc.setFont('helvetica', 'bold');
+      doc.text(it.total_cost > 0 ? fmt(it.total_cost) : '—', colX.total + colW.total - 1, y + 3.8, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+    }
+
+    totalUnidades += Number(it.units) || 0;
+    totalValor += Number(it.total_cost) || 0;
+    y += rowH;
+  }
+
+  // Totales al pie
+  y += 2;
+  setStroke(doc, COLORS.ink);
+  doc.setLineWidth(0.4);
+  doc.line(marginX, y, pageW - marginX, y);
+  y += 4;
+
+  setText(doc, COLORS.ink);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('TOTAL UNIDADES:', colX.units - 5, y, { align: 'right' });
+  doc.text(
+    new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(totalUnidades),
+    colX.units + colW.units - 1, y, { align: 'right' },
+  );
+
+  if (hasCosts) {
+    const valorFinal = r.totalManual != null && r.totalManual > 0 ? r.totalManual : totalValor;
+    y += 4.5;
+    doc.text('VALOR TOTAL:', colX.units - 5, y, { align: 'right' });
+    setText(doc, COLORS.brand);
+    doc.text(fmt(valorFinal), colX.total + colW.total - 1, y, { align: 'right' });
+  }
 }

@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import VincularFacturaTxModal from './VincularFacturaTxModal';
 import { useQueryClient } from '@tanstack/react-query';
-import { generatePaymentsLogPdf, type PaymentsLogPdfData, type PaymentsLogPdfRow } from '@/lib/paymentsLogPdf';
+import { generatePaymentsLogPdf, type PaymentsLogPdfData, type PaymentsLogPdfRow, type RemisionPdfBlock } from '@/lib/paymentsLogPdf';
 import type jsPDF from 'jspdf';
 
 const currentYear = new Date().getFullYear();
@@ -126,6 +126,16 @@ export default function PaymentsLogReport() {
   const [typeFilter, setTypeFilter] = useState<FilterType>('todos');
   const [counterparty, setCounterparty] = useState<string>('all'); // 'all' | <name>
   const [emailModalOpen, setEmailModalOpen] = useState(false);
+  // Remisión opcional a adjuntar al PDF/WhatsApp/email. La primera vez que se
+  // envía la rel. de pagos a un cliente se quiere incluir la remisión para
+  // que confirme el pedido; después solo el saldo. No se persiste en DB.
+  const [selectedRemisionId, setSelectedRemisionId] = useState<string | null>(null);
+  // Resetear remisión al cambiar de cliente o período: la remisión es del
+  // cliente actual, si cambia ya no aplica.
+  const handleCounterpartyChange = (v: string) => {
+    setCounterparty(v);
+    setSelectedRemisionId(null);
+  };
   // Vincular factura a movimiento desde acá: track de qué fila estamos vinculando
   const [linkingTx, setLinkingTx] = useState<PaymentRow | null>(null);
   const queryClient = useQueryClient();
@@ -813,6 +823,66 @@ export default function PaymentsLogReport() {
     enabled: !!user,
   });
 
+  // Remisiones del cliente seleccionado — para que el dueño pueda elegir cuál
+  // adjuntar al PDF/email/WhatsApp ("la primera vez se confirma con remisión,
+  // después solo el saldo"). NO filtramos por año/mes: el cliente puede
+  // querer adjuntar una remisión vieja al estado de cuenta del mes actual.
+  const { data: clientRemisiones } = useQuery({
+    queryKey: ['payments-log-client-remisiones-v2', user?.id, counterparty],
+    queryFn: async (): Promise<Array<{ id: string; number: string; date: string; total_manual: number | null; itemsTotal: number }>> => {
+      if (!user || counterparty === 'all') return [];
+
+      // Resolver respId + alias del cliente (mismo criterio que counterpartySummary).
+      const { data: resp } = await supabase
+        .from('responsibles')
+        .select('id')
+        .ilike('name', counterparty.trim())
+        .maybeSingle();
+      const respId = resp?.id ?? null;
+
+      let aliasRespIds: string[] = [];
+      if (respId) {
+        const aliasRes = await supabase
+          .from('responsible_aliases' as never)
+          .select('alias')
+          .eq('responsible_id', respId);
+        const aliasRows = (aliasRes.data as unknown as Array<{ alias: string }> | null) ?? [];
+        const aliasNames = new Set(aliasRows.map(a => normalizeName(a.alias)));
+        aliasNames.add(normalizeName(counterparty));
+        const { data: allResps } = await supabase
+          .from('responsibles')
+          .select('id, name');
+        ((allResps as Array<{ id: string; name: string }> | null) ?? []).forEach(r => {
+          if (aliasNames.has(normalizeName(r.name))) aliasRespIds.push(r.id);
+        });
+      }
+      const allRespIds = Array.from(new Set([
+        ...(respId ? [respId] : []),
+        ...aliasRespIds,
+      ]));
+
+      if (allRespIds.length === 0) return [];
+
+      const { data: rems } = await (supabase
+        .from('remisiones') as any)
+        .select('id, number, date, total_manual, remision_items(total_cost)')
+        .in('responsible_id', allRespIds)
+        .order('date', { ascending: false });
+
+      return ((rems ?? []) as Array<{
+        id: string; number: string; date: string; total_manual: number | null;
+        remision_items: Array<{ total_cost: number | null }> | null;
+      }>).map(r => ({
+        id: r.id,
+        number: r.number,
+        date: r.date,
+        total_manual: r.total_manual,
+        itemsTotal: (r.remision_items ?? []).reduce((s, it) => s + Number(it.total_cost ?? 0), 0),
+      }));
+    },
+    enabled: !!user && counterparty !== 'all',
+  });
+
   const periodoLabel = month === 0 ? `${year}` : `${MONTH_LABELS[month]} ${year}`;
   const fileSlug = counterparty !== 'all'
     ? `aluminiapp_estado_cuenta_${slugify(counterparty)}_${month === 0 ? year : `${year}-${String(month).padStart(2, '0')}`}.xlsx`
@@ -894,6 +964,37 @@ export default function PaymentsLogReport() {
       amount: r.amount,
     }));
 
+    // Si el dueño eligió una remisión para adjuntar, la traemos con items.
+    // Carga lazy: solo se hace cuando hay PDF a generar (no en cada render).
+    let remision: RemisionPdfBlock | undefined;
+    if (selectedRemisionId) {
+      const { data: remData } = await (supabase
+        .from('remisiones') as any)
+        .select('number, date, beneficiary, notes, total_manual, remision_items(reference, product_name, units, unit_cost, total_cost)')
+        .eq('id', selectedRemisionId)
+        .maybeSingle();
+      if (remData) {
+        const items = ((remData.remision_items ?? []) as Array<{
+          reference: string | null; product_name: string | null;
+          units: number | string; unit_cost: number | string; total_cost: number | string;
+        }>).map((it) => ({
+          reference: it.reference ?? '',
+          product_name: it.product_name ?? '',
+          units: Number(it.units) || 0,
+          unit_cost: Number(it.unit_cost) || 0,
+          total_cost: Number(it.total_cost) || 0,
+        }));
+        remision = {
+          number: remData.number,
+          date: remData.date,
+          beneficiary: remData.beneficiary ?? null,
+          notes: remData.notes ?? null,
+          totalManual: remData.total_manual ?? null,
+          items,
+        };
+      }
+    }
+
     const pdfData: PaymentsLogPdfData = {
       empresaNombre: (profileData as { company_name?: string | null })?.company_name || 'Mi empresa',
       empresaNit: (profileData as { company_nit?: string | null })?.company_nit ?? undefined,
@@ -916,6 +1017,7 @@ export default function PaymentsLogReport() {
           }
         : undefined,
       rows: pdfRows,
+      remision,
     };
 
     return generatePaymentsLogPdf(pdfData);
@@ -1040,7 +1142,7 @@ export default function PaymentsLogReport() {
                 <SelectItem value="egreso">Solo egresos</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={counterparty} onValueChange={setCounterparty}>
+            <Select value={counterparty} onValueChange={handleCounterpartyChange}>
               <SelectTrigger className="w-[200px] h-8 text-sm">
                 <User className="h-3.5 w-3.5 mr-1 shrink-0" />
                 <SelectValue placeholder="Todos los clientes" />
@@ -1052,6 +1154,35 @@ export default function PaymentsLogReport() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Selector remisión (opcional). Solo cuando hay cliente seleccionado
+                y existen remisiones para él. La remisión se renderiza en páginas
+                extra del PDF al final — útil la primera vez que se envía rel.
+                de pagos a un cliente para que confirme el pedido. */}
+            {counterparty !== 'all' && (clientRemisiones?.length ?? 0) > 0 && (
+              <Select
+                value={selectedRemisionId ?? 'none'}
+                onValueChange={(v) => setSelectedRemisionId(v === 'none' ? null : v)}
+              >
+                <SelectTrigger
+                  className={`w-[230px] h-8 text-sm ${selectedRemisionId ? 'border-primary/40 bg-primary/5' : ''}`}
+                  title="Adjuntar remisión al PDF/email/WhatsApp"
+                >
+                  <Receipt className="h-3.5 w-3.5 mr-1 shrink-0" />
+                  <SelectValue placeholder="Sin remisión adjunta" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin remisión adjunta</SelectItem>
+                  {(clientRemisiones ?? []).map((r) => {
+                    const total = r.total_manual != null && r.total_manual > 0 ? r.total_manual : r.itemsTotal;
+                    const label = total > 0
+                      ? `${r.number} · ${r.date} · ${formatCurrency(total)}`
+                      : `${r.number} · ${r.date}`;
+                    return <SelectItem key={r.id} value={r.id}>{label}</SelectItem>;
+                  })}
+                </SelectContent>
+              </Select>
+            )}
 
             {/* Acciones inline a la derecha en pantallas grandes; abajo en mobile */}
             <div className="flex flex-wrap items-center gap-1.5 ml-auto">
@@ -1599,6 +1730,8 @@ export default function PaymentsLogReport() {
         buildWorkbook={buildWorkbook}
         xlsxColumns={xlsxColumns}
         totalsGeneral={totals}
+        buildPdf={buildAndDownloadPdf}
+        attachRemision={!!selectedRemisionId}
       />
     </div>
   );
@@ -1646,11 +1779,17 @@ interface EmailModalProps {
   buildWorkbook: () => any[];
   xlsxColumns: any;
   totalsGeneral: { ingresos: number; egresos: number };
+  /** Genera el PDF (incluye remisión si fue elegida en el reporte). */
+  buildPdf: () => Promise<jsPDF | null>;
+  /** True si el reporte tiene una remisión seleccionada — en ese caso, además
+   *  del Excel, adjuntamos el PDF (que incluye relación de pagos + remisión). */
+  attachRemision: boolean;
 }
 
 function EmailModal({
   open, onOpenChange, rows, counterparty, counterpartySummary,
   periodoLabel, fileSlug, buildWorkbook, xlsxColumns, totalsGeneral,
+  buildPdf, attachRemision,
 }: EmailModalProps) {
   const [toEmail, setToEmail] = useState('');
   const [toName, setToName] = useState('');
@@ -1705,6 +1844,30 @@ function EmailModal({
             count: rows.length,
           };
 
+      // Si el reporte tiene una remisión seleccionada, generamos también el PDF
+      // (que ya incluye páginas extra de remisión) y lo mandamos como segundo
+      // attachment. Así el cliente recibe ambos: Excel (detalle de movs) + PDF
+      // (estado de cuenta presentable + remisión).
+      let pdfBase64: string | null = null;
+      let pdfFileName: string | null = null;
+      if (attachRemision) {
+        try {
+          const pdf = await buildPdf();
+          if (pdf) {
+            const dataUri = pdf.output('datauristring');
+            // datauristring viene como "data:application/pdf;filename=...;base64,XXX"
+            const b64Match = dataUri.match(/base64,(.+)$/);
+            if (b64Match) {
+              pdfBase64 = b64Match[1];
+              pdfFileName = fileSlug.replace(/\.xlsx$/i, '.pdf');
+            }
+          }
+        } catch (e) {
+          console.error('Generación de PDF para email falló:', e);
+          // Seguimos enviando solo el Excel — no rompemos el flujo principal.
+        }
+      }
+
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       const resp = await fetch(
@@ -1722,6 +1885,8 @@ function EmailModal({
             file_base64: base64,
             file_name: fileSlug,
             summary: counterpartySummary ? summary : null,
+            pdf_base64: pdfBase64,
+            pdf_file_name: pdfFileName,
           }),
         },
       );
@@ -1749,6 +1914,11 @@ function EmailModal({
             {counterparty
               ? `Estado de cuenta de ${counterparty} — ${periodoLabel}. ${rows.length} movimiento${rows.length !== 1 ? 's' : ''}.`
               : `Relación de pagos — ${periodoLabel}. ${rows.length} movimiento${rows.length !== 1 ? 's' : ''}.`}
+            {attachRemision && (
+              <span className="block mt-1 text-primary">
+                Se adjuntará también el PDF con la remisión seleccionada.
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
