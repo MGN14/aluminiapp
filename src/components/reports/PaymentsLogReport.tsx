@@ -268,71 +268,91 @@ export default function PaymentsLogReport() {
     queryFn: async () => {
       if (!user || counterparty === 'all') return null;
 
-      // 0. Resolver respId del responsible canónico (si existe)
-      const { data: resp } = await supabase
-        .from('responsibles')
-        .select('id')
-        .ilike('name', counterparty.trim())
-        .maybeSingle();
-      const respId: string | null = resp?.id ?? null;
+      // 0. Resolver TODOS los responsibles que correspondan al cliente.
+      //
+      // Antes usábamos `ilike('name', counterparty.trim())` que falla si el
+      // dropdown muestra "Ferromendez" pero el responsible se llama "FERROMENDEZ
+      // SAS" — el ilike sin wildcards es exact-match case-insensitive, no
+      // tolera sufijos legales ni tildes. Y si respId quedaba null, no se
+      // resolvían aliases, y la query de facturas no matcheaba nada por
+      // responsible_id.
+      //
+      // Ahora: cargamos responsibles + aliases una sola vez y comparamos por
+      // nombre NORMALIZADO (sin tildes, sin SAS/Ltda, lowercase). Cualquier
+      // responsible cuyo nombre O alias normalizado coincida con el target
+      // entra en allRespIdsForClient.
+      const targetNorm = normalizeName(counterparty);
+      const [allRespsRes, allAliasesRes] = await Promise.all([
+        supabase.from('responsibles').select('id, name'),
+        supabase.from('responsible_aliases' as never).select('responsible_id, alias'),
+      ]);
+      const allResps = ((allRespsRes.data as Array<{ id: string; name: string }> | null) ?? []);
+      const allAliases = ((allAliasesRes.data as unknown) as Array<{ responsible_id: string; alias: string }> | null) ?? [];
 
-      // 1. Buscar TODAS las facturas del cliente.
-      //   a) responsible_id = respId (vínculo exacto)
-      //   b) sin responsible_id pero counterparty_name matchea (legacy)
-      //   c) responsible_id apunta a un responsible cuyo alias = canonical
-      //      (cubre casos donde el responsible_id de la factura es legacy)
-      // Para (c) cargamos los aliases del responsible canónico y buscamos
-      // facturas con cualquiera de esos responsibles.
-      let aliasRespIds: string[] = [];
-      if (respId) {
-        const aliasRes = await supabase
-          .from('responsible_aliases' as never)
-          .select('alias')
-          .eq('responsible_id', respId);
-        const aliasRows = (aliasRes.data as unknown as Array<{ alias: string }> | null) ?? [];
-        const aliasNames = new Set<string>(aliasRows.map(a => normalizeName(a.alias)));
-        aliasNames.add(normalizeName(counterparty));
-        // Buscar responsibles cuyo nombre normalizado coincida con algún alias
-        // (cubre legacy responsibles que ya no existen pero que tenían nombres
-        // similares — ej: si "Aluminios Jh" fue absorbido como alias de del Eje)
-        const { data: allResps } = await supabase
-          .from('responsibles')
-          .select('id, name');
-        ((allResps as Array<{ id: string; name: string }> | null) ?? []).forEach(r => {
-          if (aliasNames.has(normalizeName(r.name))) aliasRespIds.push(r.id);
-        });
+      const aliasesByRespId = new Map<string, string[]>();
+      for (const a of allAliases) {
+        const arr = aliasesByRespId.get(a.responsible_id) ?? [];
+        arr.push(a.alias);
+        aliasesByRespId.set(a.responsible_id, arr);
       }
-      const allRespIdsForClient = Array.from(new Set([
-        ...(respId ? [respId] : []),
-        ...aliasRespIds,
-      ]));
 
-      const invsCollected = new Map<string, any>();
-      // (a)+(c) facturas con responsible_id en la lista del cliente
-      if (allRespIdsForClient.length > 0) {
-        const { data: linkedInvs } = await supabase
-          .from('invoices')
-          .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, retefuente_amount' as never)
-          .in('responsible_id', allRespIdsForClient)
-          // Excluir facturas anuladas totalmente por nota crédito.
-          .or('void_type.is.null,void_type.eq.partial')
-          .gte('issue_date', `${year}-01-01`)
-          .lte('issue_date', `${year}-12-31`);
-        (linkedInvs ?? []).forEach((i: any) => invsCollected.set(i.id, i));
-      }
-      // (b) Fallback ilike (facturas SIN responsible_id que matcheen por nombre)
-      const { data: fallbackInvs } = await supabase
+      const allRespIdsForClient: string[] = allResps
+        .filter(r => {
+          if (normalizeName(r.name) === targetNorm) return true;
+          const aliases = aliasesByRespId.get(r.id) ?? [];
+          return aliases.some(a => normalizeName(a) === targetNorm);
+        })
+        .map(r => r.id);
+
+      // respId es el "principal" — preferimos el que tiene match exacto por
+      // nombre. Si no, el primero por alias. Si no, null.
+      const respId: string | null =
+        allResps.find(r => normalizeName(r.name) === targetNorm)?.id
+        ?? allRespIdsForClient[0]
+        ?? null;
+
+      // BUG histórico: el código anterior usaba 2 queries:
+      //   (a) facturas con responsible_id IN canonicalIds
+      //   (b) fallback ilike PERO sólo para facturas con responsible_id=null
+      //
+      // Si las facturas tenían responsible_id puesto a un id legacy/duplicado
+      // que NO entraba en canonicalIds (ej: hay 2 responsibles "Ferromendez" y
+      // "Ferromendez SAS" sin alias), se las perdía aunque el counterparty_name
+      // dijera el nombre correcto.
+      //
+      // Fix: traemos todas las facturas del año en una sola query y filtramos
+      // client-side con el mismo criterio que initial_state_details:
+      //   match si responsible_id ∈ canonicalIds  OR
+      //   nombre normalizado del counterparty_name coincide con el target
+      //   (igual, contains o includes-al-revés — tolerante a "SAS", tildes, etc).
+      const { data: allYearInvs } = await supabase
         .from('invoices')
-        .select('id, type, total_amount, counterparty_name, responsible_id')
-        .is('responsible_id', null)
-        .ilike('counterparty_name', `%${counterparty.split(' ').slice(0, 2).join(' ')}%`)
+        .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, retefuente_amount' as never)
         // Excluir facturas anuladas totalmente por nota crédito.
         .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
-      (fallbackInvs ?? []).forEach((i: any) => {
-        if (!invsCollected.has(i.id)) invsCollected.set(i.id, i);
-      });
+
+      const canonicalSet = new Set(allRespIdsForClient);
+      const invsCollected = new Map<string, any>();
+      const allYearInvsList = ((allYearInvs as unknown) ?? []) as Array<{ id: string; responsible_id: string | null; counterparty_name: string | null }>;
+      for (const inv of allYearInvsList) {
+        // Match A: responsible_id en la lista canónica del cliente.
+        if (inv.responsible_id && canonicalSet.has(inv.responsible_id)) {
+          invsCollected.set(inv.id, inv);
+          continue;
+        }
+        // Match B: counterparty_name coincide por nombre normalizado.
+        // Capta facturas con responsible_id=null O con id legacy/duplicado
+        // que apunta a un responsible distinto.
+        const raw = (inv.counterparty_name ?? '').trim();
+        if (!raw) continue;
+        const n = normalizeName(raw);
+        if (!n) continue;
+        if (n === targetNorm || n.includes(targetNorm) || targetNorm.includes(n)) {
+          invsCollected.set(inv.id, inv);
+        }
+      }
 
       const invs = Array.from(invsCollected.values());
       const invsVenta = invs.filter((i: any) => i.type === 'venta');
@@ -459,7 +479,7 @@ export default function PaymentsLogReport() {
       //      con match exacto, contains o includes-al-revés
       // Esto cubre: "Aluminios Jh" ↔ "ALUMINIOS JH", "Aluminios Jh SAS",
       // "Aluminios JH Ltda", "Aluminios Jh.", etc.
-      const targetNorm = normalizeName(counterparty);
+      // (targetNorm ya está declarado arriba.)
       const matchByRespIdOrName = (rows: any[]): any[] => {
         return rows.filter((r) => {
           if (respId && r.responsible_id === respId) return true;
