@@ -93,7 +93,9 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     // clientReceivables.ts (fuente de verdad de "Lo que me deben").
     const { data: rawInvoices } = await supabase
       .from('invoices')
-      .select('id, invoice_number, type, counterparty_name, issue_date, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, retefuente_amount' as never)
+      // ⚠️ NO incluir `retefuente_amount` — esa columna existe en transactions,
+      // NO en invoices. Pedirla hace que toda la query falle silenciosamente.
+      .select('id, invoice_number, type, counterparty_name, issue_date, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount' as never)
       .eq('status', 'confirmed')
       .or('void_type.is.null,void_type.eq.partial')
       .order('issue_date', { ascending: false })
@@ -168,8 +170,8 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     // VENTAS: retefuente_cliente (con fallback 2.5% para facturas legacy) +
     //         reteica + autoretefuente, plata que el cliente retuvo y pagó a
     //         DIAN/municipio (no vuelve al banco, no es deuda viva).
-    // COMPRAS: retefuente + reteica + autoretefuente, plata que nosotros le
-    //          retuvimos al proveedor (no se la pagamos, no es deuda viva).
+    // COMPRAS: reteica + autoretefuente (en invoices NO existe retefuente_amount;
+    //         si en el futuro se agrega retefuente_proveedor_amount, sumarlo).
     const retencionesOf = (inv: Record<string, unknown>): number => {
       const tipo = inv.type as string;
       const reteica = Math.abs(Number(inv.reteica_amount ?? 0));
@@ -185,9 +187,9 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
           : Math.round(subtotalBase * effectiveRate);
         return retefuente + reteica + autoretefuente;
       }
-      // compra: retención que nosotros le hicimos al proveedor
-      const retefuenteProv = Math.abs(Number(inv.retefuente_amount ?? 0));
-      return retefuenteProv + reteica + autoretefuente;
+      // compra: solo reteica + autoretefuente (sin retefuente — la columna no
+      // existe en invoices y pedirla rompía todo el query silenciosamente).
+      return reteica + autoretefuente;
     };
 
     const enriched: InvoiceOption[] = rawList.map((inv) => {

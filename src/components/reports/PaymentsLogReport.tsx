@@ -325,13 +325,22 @@ export default function PaymentsLogReport() {
       //   match si responsible_id ∈ canonicalIds  OR
       //   nombre normalizado del counterparty_name coincide con el target
       //   (igual, contains o includes-al-revés — tolerante a "SAS", tildes, etc).
-      const { data: allYearInvs } = await supabase
+      // ⚠️ NO incluir `retefuente_amount` en este SELECT: esa columna existe en
+      // `transactions` pero NO en `invoices`. Si se pide, Supabase devuelve
+      // null silenciosamente y se rompe TODA la query → "Facturado: $0" en
+      // todos los clientes (bug reportado por Nico).
+      const { data: allYearInvs, error: allYearInvsError } = await supabase
         .from('invoices')
-        .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, retefuente_amount' as never)
+        .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount' as never)
         // Excluir facturas anuladas totalmente por nota crédito.
         .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', `${year}-01-01`)
         .lte('issue_date', `${year}-12-31`);
+      // Log el error explícito para que un fallo de columnas nunca más se
+      // trague en silencio dejando la rel. de pagos en cero.
+      if (allYearInvsError) {
+        console.error('[PaymentsLogReport] allYearInvs query error:', allYearInvsError);
+      }
 
       const canonicalSet = new Set(allRespIdsForClient);
       const invsCollected = new Map<string, any>();
@@ -383,14 +392,15 @@ export default function PaymentsLogReport() {
 
       // Retenciones del lado compra: lo que NOSOTROS le retuvimos al proveedor
       // y pagamos a DIAN/municipio en su nombre. No se las pagamos al
-      // proveedor, así que reducen el "saldo por pagar". Sin esto, el saldo
-      // de compra quedaba inflado (decía "le debo X" cuando ya pagué la parte
-      // descontada al estado).
+      // proveedor, así que reducen el "saldo por pagar".
+      // Nota: en `invoices` solo existen reteica_amount + autoretefuente_amount
+      // (NO retefuente_amount — esa columna es de transactions, no invoices).
+      // Si en el futuro se agrega retefuente_proveedor_amount a invoices,
+      // sumarlo acá.
       const retencionesCompra = invsCompra.reduce((s: number, i: any) => {
-        const retefuente = Math.abs(Number(i.retefuente_amount ?? 0));
         const reteica = Math.abs(Number(i.reteica_amount ?? 0));
         const autoretefuente = Math.abs(Number(i.autoretefuente_amount ?? 0));
-        return s + retefuente + reteica + autoretefuente;
+        return s + reteica + autoretefuente;
       }, 0);
 
       // 2. Encontrar TODAS las txs del cliente — vía 3 caminos:
