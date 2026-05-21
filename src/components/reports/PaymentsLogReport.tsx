@@ -1530,19 +1530,6 @@ export default function PaymentsLogReport() {
                         </span>
                       </li>
                     </ul>
-
-                    {/* Insight aparte: si despachaste más remisiones que lo
-                        facturado, hay pedidos pendientes por facturar al
-                        cliente (típicamente la primera remisión de un cliente
-                        nuevo: ya entregaste pero todavía no facturaste).
-                        Es un dato adicional al saldo (no entra en la fórmula
-                        porque las remisiones no se facturan automáticamente). */}
-                    {isVenta && remisionesPeriodo.total > facturadoLado && (
-                      <div className="mt-3 pt-2.5 border-t flex justify-between text-amber-700 dark:text-amber-500">
-                        <span className="font-medium">Pendiente por facturarles (remisiones − facturado)</span>
-                        <span className="font-bold tabular-nums">{formatCurrency(remisionesPeriodo.total - facturadoLado)}</span>
-                      </div>
-                    )}
                   </div>
                 </CardContent>
               </Card>
