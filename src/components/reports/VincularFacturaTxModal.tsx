@@ -58,6 +58,9 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   tx: TxToLink | null;
   onSuccess?: () => void;
+  /** Si la tx YA está vinculada a una factura, pasamos su id acá. El modal
+   *  preselecciona esa factura y habilita el botón "Desvincular". */
+  currentInvoiceId?: string | null;
 }
 
 function formatCOP(n: number): string {
@@ -89,7 +92,7 @@ interface CreditCandidate {
   nextCuotaDate: string | null;
 }
 
-export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSuccess }: Props) {
+export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSuccess, currentInvoiceId = null }: Props) {
   const { user } = useAuth();
   const [tab, setTab] = useState<'factura' | 'credito'>('factura');
   const [invoices, setInvoices] = useState<InvoiceCandidate[]>([]);
@@ -105,13 +108,19 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
   useEffect(() => {
     if (open) {
       setSearch('');
-      setSelectedInvoiceId(null);
+      // Si estamos en modo edición (currentInvoiceId), preseleccionamos esa
+      // factura y arrancamos en el tab de factura.
+      setSelectedInvoiceId(currentInvoiceId);
       setSelectedCreditId(null);
-      // Si la tx es egreso, abrimos primero la pestaña de crédito (caso típico
-      // de pago de cuota mensual). Si es ingreso, factura.
-      setTab(tx?.type === 'egreso' ? 'credito' : 'factura');
+      if (currentInvoiceId) {
+        setTab('factura');
+      } else {
+        // Si la tx es egreso, abrimos primero la pestaña de crédito (caso típico
+        // de pago de cuota mensual). Si es ingreso, factura.
+        setTab(tx?.type === 'egreso' ? 'credito' : 'factura');
+      }
     }
-  }, [open, tx?.type]);
+  }, [open, tx?.type, currentInvoiceId]);
 
   // Cargar facturas candidatas
   useEffect(() => {
@@ -289,6 +298,33 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
     return diff <= 0.05; // 5% tolerancia
   };
 
+  // Desvincular: setea invoice_id = null en la transacción. No toca matches
+  // ni otras tablas (los matches son agregados a parte por el conciliador).
+  const handleUnlink = async () => {
+    if (!tx) return;
+    const ok = window.confirm(
+      'Desvincular la factura de esta transacción.\n\n' +
+      'El movimiento queda sin factura asociada y deja de descontarse del saldo. ¿Continuar?',
+    );
+    if (!ok) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .update({ invoice_id: null })
+        .eq('id', tx.id);
+      if (error) throw error;
+      toast.success('Factura desvinculada');
+      onSuccess?.();
+      onOpenChange(false);
+    } catch (err: any) {
+      console.error('Error unlinking:', err);
+      toast.error(err?.message || 'No pudimos desvincular. Probá de nuevo.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!tx || !user) return;
     if (tab === 'factura') {
@@ -382,9 +418,13 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Conciliar transacción</DialogTitle>
+          <DialogTitle>
+            {currentInvoiceId ? 'Editar vinculación' : 'Conciliar transacción'}
+          </DialogTitle>
           <DialogDescription>
-            Vinculá este {tx.type === 'ingreso' ? 'cobro' : 'pago'} con una factura o un crédito.
+            {currentInvoiceId
+              ? 'Cambiá la factura asociada o desvinculá este movimiento.'
+              : `Vinculá este ${tx.type === 'ingreso' ? 'cobro' : 'pago'} con una factura o un crédito.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -595,16 +635,36 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
           </TabsContent>
         </Tabs>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2">
+          {/* Modo edición: botón Desvincular destructivo a la izquierda. */}
+          {currentInvoiceId && (
+            <Button
+              variant="ghost"
+              onClick={handleUnlink}
+              disabled={saving}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10 mr-auto"
+            >
+              Desvincular
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancelar
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || (tab === 'factura' ? !selectedInvoiceId : !selectedCreditId)}
+            disabled={
+              saving ||
+              (tab === 'factura'
+                ? !selectedInvoiceId || selectedInvoiceId === currentInvoiceId
+                : !selectedCreditId)
+            }
             className="gap-2"
           >
-            {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Vinculando…</> : <><Link2 className="h-4 w-4" /> Vincular</>}
+            {saving
+              ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando…</>
+              : currentInvoiceId
+                ? <><Link2 className="h-4 w-4" /> Cambiar factura</>
+                : <><Link2 className="h-4 w-4" /> Vincular</>}
           </Button>
         </DialogFooter>
       </DialogContent>

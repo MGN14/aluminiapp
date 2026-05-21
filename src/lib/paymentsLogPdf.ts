@@ -55,6 +55,10 @@ export interface PaymentsLogPdfData {
     facturado: number;
     saldoInicial: number;
     pagosIdentificados: number;
+    /** Retenciones (retefuente + reteica + autorete) ya descontadas del saldo.
+     *  Mostrarlas en el desglose evita que el cliente piense que el saldo
+     *  pendiente no cuadra con "facturado − pagos". */
+    retenciones?: number;
     saldoPendiente: number;
   };
   // Tabla
@@ -171,7 +175,10 @@ export function generatePaymentsLogPdf(data: PaymentsLogPdfData): jsPDF {
   // Card Saldo por cobrar
   if (data.saldoPorCobrar && data.counterparty) {
     const s = data.saldoPorCobrar;
-    const cardH = 36;
+    const showRet = (s.retenciones ?? 0) > 0;
+    // Si hay retenciones, agregamos una línea más al desglose → card un poco
+    // más alta para no encimar texto.
+    const cardH = showRet ? 42 : 36;
     setFill(doc, [254, 252, 247]);
     setStroke(doc, [230, 215, 180]);
     doc.setLineWidth(0.3);
@@ -207,6 +214,13 @@ export function generatePaymentsLogPdf(data: PaymentsLogPdfData): jsPDF {
     doc.text('Pagos identificados:', labelX, by);
     doc.text(`-${fmt(s.pagosIdentificados).replace('$ ', '$ ')}`, valueX, by, { align: 'right' });
     by += lineSpacing;
+
+    if (showRet) {
+      setText(doc, COLORS.success);
+      doc.text('Retenciones aplicadas:', labelX, by);
+      doc.text(`-${fmt(s.retenciones ?? 0)}`, valueX, by, { align: 'right' });
+      by += lineSpacing;
+    }
 
     setText(doc, COLORS.ink);
     doc.setFont('helvetica', 'bold');

@@ -96,6 +96,10 @@ function normalizeName(s: string): string {
 
 interface PaymentRow {
   id: string;
+  /** UUID de la factura actualmente vinculada (si está). Necesitamos el ID
+   *  además del invoice_ref (número) para poder cambiar/desvincular sin que
+   *  el modal tenga que resolver el número → id. */
+  invoice_id: string | null;
   // Para transactions de banco, este campo contiene el id "bank-<uuid>".
   // Para vincular a factura necesitamos el uuid limpio:
   rawTxId: string | null;
@@ -308,7 +312,7 @@ export default function PaymentsLogReport() {
       if (allRespIdsForClient.length > 0) {
         const { data: linkedInvs } = await supabase
           .from('invoices')
-          .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount' as never)
+          .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, retefuente_amount' as never)
           .in('responsible_id', allRespIdsForClient)
           // Excluir facturas anuladas totalmente por nota crédito.
           .or('void_type.is.null,void_type.eq.partial')
@@ -352,6 +356,18 @@ export default function PaymentsLogReport() {
         const retefuente = savedRete > 0
           ? savedRete
           : Math.round(Number(i.subtotal_base ?? 0) * effRate);
+        const reteica = Math.abs(Number(i.reteica_amount ?? 0));
+        const autoretefuente = Math.abs(Number(i.autoretefuente_amount ?? 0));
+        return s + retefuente + reteica + autoretefuente;
+      }, 0);
+
+      // Retenciones del lado compra: lo que NOSOTROS le retuvimos al proveedor
+      // y pagamos a DIAN/municipio en su nombre. No se las pagamos al
+      // proveedor, así que reducen el "saldo por pagar". Sin esto, el saldo
+      // de compra quedaba inflado (decía "le debo X" cuando ya pagué la parte
+      // descontada al estado).
+      const retencionesCompra = invsCompra.reduce((s: number, i: any) => {
+        const retefuente = Math.abs(Number(i.retefuente_amount ?? 0));
         const reteica = Math.abs(Number(i.reteica_amount ?? 0));
         const autoretefuente = Math.abs(Number(i.autoretefuente_amount ?? 0));
         return s + retefuente + reteica + autoretefuente;
@@ -532,7 +548,10 @@ export default function PaymentsLogReport() {
       // En el lado compra: el "total entregado" son los egresos al proveedor
       // por banco + los anticipos a proveedores del saldo inicial (linked + unlinked).
       const totalEntregadoCompra = movEgresos + anticiposProvTotal;
-      const saldoNetoCompra = totalAPagar - totalEntregadoCompra;
+      // Restamos también las retenciones de compra — son plata que pagamos a
+      // DIAN/municipio en lugar de al proveedor, así que reducen el saldo a
+      // pagar (mismo razonamiento que retencionesVenta del lado cliente).
+      const saldoNetoCompra = totalAPagar - totalEntregadoCompra - retencionesCompra;
       const pendienteCompra = saldoNetoCompra;
       // Si pagaste más de lo facturado, son anticipos a ellos (les pagaste de más)
       const excesoEntregadoCompra = saldoNetoCompra < 0 ? Math.abs(saldoNetoCompra) : 0;
@@ -556,6 +575,7 @@ export default function PaymentsLogReport() {
         anticiposClienteLinked,
         anticiposClienteTotal,
         retencionesVenta,
+        retencionesCompra,
         anticiposProvUnlinked,
         anticiposProvLinked,
         anticiposProvTotal,
@@ -725,6 +745,7 @@ export default function PaymentsLogReport() {
           : respName;
         return [{
           id: `bank-${r.id}`,
+          invoice_id: linkedInvoiceId,
           rawTxId: r.id,
           date: r.date,
           description: r.description ?? 'Sin descripción',
@@ -760,6 +781,7 @@ export default function PaymentsLogReport() {
             })
             .map((r) => ({
               id: `cash-${r.id}`,
+              invoice_id: null,
               rawTxId: null,
               date: r.date,
               description: r.notes ?? 'Movimiento en efectivo',
@@ -882,6 +904,18 @@ export default function PaymentsLogReport() {
     },
     enabled: !!user && counterparty !== 'all',
   });
+
+  // Subconjunto de remisiones del cliente que caen en el período seleccionado.
+  // Sirve para el KPI "Total remisiones (período)" — útil para validar que la
+  // suma de remisiones coincide con lo facturado en DIAN para ese cliente.
+  const remisionesPeriodo = useMemo(() => {
+    const list = (clientRemisiones ?? []).filter(r => r.date >= startDate && r.date <= endDate);
+    const total = list.reduce(
+      (s, r) => s + (r.total_manual != null && r.total_manual > 0 ? r.total_manual : r.itemsTotal),
+      0,
+    );
+    return { count: list.length, total };
+  }, [clientRemisiones, startDate, endDate]);
 
   const periodoLabel = month === 0 ? `${year}` : `${MONTH_LABELS[month]} ${year}`;
   const fileSlug = counterparty !== 'all'
@@ -1013,6 +1047,7 @@ export default function PaymentsLogReport() {
             facturado: counterpartySummary.facturado,
             saldoInicial: counterpartySummary.anticiposClienteTotal,
             pagosIdentificados: counterpartySummary.movIngresos,
+            retenciones: counterpartySummary.retencionesVenta,
             saldoPendiente: counterpartySummary.pendienteVenta,
           }
         : undefined,
@@ -1466,6 +1501,12 @@ export default function PaymentsLogReport() {
                           <span className="font-medium">{formatCurrency(counterpartySummary!.retencionesVenta)}</span>
                         </li>
                       )}
+                      {!isVenta && counterpartySummary!.retencionesCompra > 0 && (
+                        <li className="flex justify-between text-success">
+                          <span>− Retenciones aplicadas al proveedor (rete­fuente + reteica + autorete­fuente)</span>
+                          <span className="font-medium">{formatCurrency(counterpartySummary!.retencionesCompra)}</span>
+                        </li>
+                      )}
                       <li className={`flex justify-between border-t pt-1.5 mt-1 font-semibold ${colorClasses.value}`}>
                         <span>
                           = {saldo > 0 ? 'Saldo pendiente' : saldo < 0 ? 'Saldo a favor del cliente' : 'Saldo cero'}
@@ -1480,6 +1521,30 @@ export default function PaymentsLogReport() {
               </Card>
             );
           })()}
+
+          {/* Card de remisiones del cliente en el período. Muestra suma + cantidad.
+              Solo aparece si el cliente tiene al menos una remisión en el período. */}
+          {remisionesPeriodo.count > 0 && (
+            <Card className="border-primary/20 bg-primary/[0.02]">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Total remisiones a {counterparty} — {periodoLabel}
+                </CardTitle>
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Receipt className="h-4 w-4 text-primary" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums">{formatCurrency(remisionesPeriodo.total)}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {remisionesPeriodo.count} remisi{remisionesPeriodo.count === 1 ? 'ón' : 'ones'} despachada{remisionesPeriodo.count === 1 ? '' : 's'}
+                  {counterpartySummary?.facturadoVenta && counterpartySummary.facturadoVenta > 0
+                    ? ` · ${Math.round((remisionesPeriodo.total / counterpartySummary.facturadoVenta) * 100)}% del facturado`
+                    : ''}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </>
       ) : (
         // Vista general (sin cliente seleccionado).
@@ -1660,7 +1725,19 @@ export default function PaymentsLogReport() {
                         </TableCell>
                       )}
                       <TableCell className="text-xs text-muted-foreground">
-                        {r.invoice_ref ? (
+                        {r.invoice_ref && r.source === 'banco' && r.rawTxId ? (
+                          // Click sobre el chip vinculado → abre el modal en modo
+                          // edición (preseleccionada + botón "Desvincular").
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[11px] font-medium text-foreground hover:bg-primary/10 gap-1"
+                            onClick={() => setLinkingTx(r)}
+                            title="Cambiar o desvincular la factura"
+                          >
+                            <Link2 className="h-3 w-3" />#{r.invoice_ref}
+                          </Button>
+                        ) : r.invoice_ref ? (
                           <span className="inline-flex items-center gap-1 font-medium text-foreground">
                             <Link2 className="h-3 w-3" />#{r.invoice_ref}
                           </span>
@@ -1707,6 +1784,7 @@ export default function PaymentsLogReport() {
           counterparty: linkingTx.counterparty,
           responsibleId: linkingTx.responsible_id,
         } : null}
+        currentInvoiceId={linkingTx?.invoice_id ?? null}
         onSuccess={() => {
           // Invalidar queries del reporte para refrescar la fila y el saldo.
           // Las keys versionadas (v4 / v6) cambian cuando se hace bump del
