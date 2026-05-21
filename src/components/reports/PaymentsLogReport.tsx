@@ -1411,8 +1411,16 @@ export default function PaymentsLogReport() {
           {/* Saldo neto del cliente.
               Puede ser positivo (te deben pagar), 0 (al día) o negativo
               (te recibieron más de lo facturado → tenés que emitirles facturas).
-              Cambia título, color y mensaje según el signo. */}
-          {counterpartySummary!.hasInvoices && (() => {
+              Cambia título, color y mensaje según el signo.
+              Mostramos el card si el cliente tiene CUALQUIER actividad (facturas,
+              movimientos bancarios, remisiones del período o saldos iniciales).
+              Antes solo se mostraba si había facturas — clientes con remisiones
+              pero sin DIAN aún se quedaban sin saldo. */}
+          {(
+            counterpartySummary!.hasInvoices ||
+            (counterpartySummary?.movCount ?? 0) > 0 ||
+            remisionesPeriodo.count > 0
+          ) && (() => {
             const isVenta = typeFilter !== 'egreso';
             const saldo = isVenta ? counterpartySummary!.pendienteVenta : counterpartySummary!.pendienteCompra;
             // Saldo > 0 → te deben pagar (lado venta) o tenés que pagar (lado compra)
@@ -1495,14 +1503,20 @@ export default function PaymentsLogReport() {
                           <span className="font-medium">{formatCurrency(anticiposLado)}</span>
                         </li>
                       )}
-                      {isVenta && counterpartySummary!.retencionesVenta > 0 && (
-                        <li className="flex justify-between text-success">
+                      {/* Línea de retenciones: SIEMPRE visible cuando hay
+                          facturado del lado correspondiente, aunque sea 0.
+                          Antes se ocultaba si retenciones=0 y Nico no veía que
+                          el cálculo las consideraba ("no veo las retenciones
+                          restadas"). Mostrarla aunque sea 0 hace transparente
+                          la fórmula. */}
+                      {isVenta && facturadoLado > 0 && (
+                        <li className={`flex justify-between ${counterpartySummary!.retencionesVenta > 0 ? 'text-success' : ''}`}>
                           <span>− Retenciones (rete­fuente + reteica + autorete­fuente)</span>
                           <span className="font-medium">{formatCurrency(counterpartySummary!.retencionesVenta)}</span>
                         </li>
                       )}
-                      {!isVenta && counterpartySummary!.retencionesCompra > 0 && (
-                        <li className="flex justify-between text-success">
+                      {!isVenta && facturadoLado > 0 && (
+                        <li className={`flex justify-between ${counterpartySummary!.retencionesCompra > 0 ? 'text-success' : ''}`}>
                           <span>− Retenciones aplicadas al proveedor (rete­fuente + reteica + autorete­fuente)</span>
                           <span className="font-medium">{formatCurrency(counterpartySummary!.retencionesCompra)}</span>
                         </li>
@@ -1516,6 +1530,19 @@ export default function PaymentsLogReport() {
                         </span>
                       </li>
                     </ul>
+
+                    {/* Insight aparte: si despachaste más remisiones que lo
+                        facturado, hay pedidos pendientes por facturar al
+                        cliente (típicamente la primera remisión de un cliente
+                        nuevo: ya entregaste pero todavía no facturaste).
+                        Es un dato adicional al saldo (no entra en la fórmula
+                        porque las remisiones no se facturan automáticamente). */}
+                    {isVenta && remisionesPeriodo.total > facturadoLado && (
+                      <div className="mt-3 pt-2.5 border-t flex justify-between text-amber-700 dark:text-amber-500">
+                        <span className="font-medium">Pendiente por facturarles (remisiones − facturado)</span>
+                        <span className="font-bold tabular-nums">{formatCurrency(remisionesPeriodo.total - facturadoLado)}</span>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
