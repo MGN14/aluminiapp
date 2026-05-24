@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImports, type ImportRow, type ImportEstado, IMPORT_ESTADOS_ORDER, IMPORT_ESTADO_LABEL } from '@/hooks/useImports';
 import { Trash2 } from 'lucide-react';
+import ImportPaymentsSection from './ImportPaymentsSection';
 
 interface Props {
   open: boolean;
@@ -199,11 +200,20 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sm">Anticipo pagado (USD)</Label>
+              <Label className="text-sm">
+                Anticipo pagado (USD)
+                {isEdit && (
+                  <span className="ml-1 text-[10px] text-muted-foreground font-normal">
+                    (se calcula desde abonos)
+                  </span>
+                )}
+              </Label>
               <Input
                 type="number" step="0.01" min={0}
                 value={anticipo}
                 onChange={e => setAnticipo(e.target.value === '' ? '' : +e.target.value)}
+                disabled={isEdit}
+                title={isEdit ? 'Editá los abonos abajo para cambiar el total. Este campo se sincroniza solo.' : ''}
                 className="font-mono"
               />
             </div>
@@ -244,6 +254,11 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
               </div>
             </div>
           </div>
+
+          {/* Abonos (solo al editar — necesita id) */}
+          {isEdit && editing && (
+            <ImportPaymentsSection importId={editing.id} />
+          )}
 
           {/* Notas */}
           <div className="space-y-1.5">
