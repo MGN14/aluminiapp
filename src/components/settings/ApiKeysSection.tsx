@@ -184,13 +184,23 @@ export default function ApiKeysSection() {
   const snippetKey = pastedKey.trim() || "alm_live_PEGÁ_TU_KEY_ARRIBA";
   const hasRealKey = !!pastedKey.trim() && pastedKey.startsWith("alm_live_");
 
+  // Claude Desktop NO soporta type:http directo todavía — usamos mcp-remote
+  // como bridge stdio→HTTP. Se descarga solo la primera vez vía npx.
+  // ${"$"}{AUTH_HEADER} es un trick para que el ${ literal sobreviva al template literal.
+  const envPlaceholder = "${AUTH_HEADER}";
   const claudeConfig = `{
   "mcpServers": {
     "aluminia": {
-      "type": "http",
-      "url": "${MCP_URL}",
-      "headers": {
-        "Authorization": "Bearer ${snippetKey}"
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "${MCP_URL}",
+        "--header",
+        "Authorization:${envPlaceholder}"
+      ],
+      "env": {
+        "AUTH_HEADER": "Bearer ${snippetKey}"
       }
     }
   }
@@ -311,7 +321,43 @@ export default function ApiKeysSection() {
 
           {/* Instrucciones de conexión */}
           <div className="space-y-3">
-            <Label className="text-sm font-medium">Cómo conectarla</Label>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <Label className="text-sm font-medium">Cómo conectarla</Label>
+              {hasRealKey && (
+                <Badge variant="outline" className="text-[10px] gap-1 border-success/40 text-success">
+                  <Check className="h-3 w-3" />
+                  Key cargada — snippets listos para copiar
+                </Badge>
+              )}
+            </div>
+
+            {/* Input para pegar key existente (cuando ya cerraste el modal de revelación) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="paste-key" className="text-xs text-muted-foreground">
+                Pegá tu API key acá para que los snippets de abajo la incluyan automáticamente.
+                {!hasRealKey && <span className="text-warning"> Sin esto, los snippets traen un placeholder y tenés que editar a mano.</span>}
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="paste-key"
+                  value={pastedKey}
+                  onChange={(e) => setPastedKey(e.target.value.trim())}
+                  placeholder="alm_live_..."
+                  className="font-mono text-xs"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                {pastedKey && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setPastedKey("")} title="Borrar del navegador">
+                    <Eraser className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Se guarda solo en este navegador (sessionStorage). Se borra al cerrar el tab.
+              </p>
+            </div>
+
             <Tabs defaultValue="claude" className="w-full">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="claude">Claude Desktop</TabsTrigger>
@@ -320,9 +366,28 @@ export default function ApiKeysSection() {
               </TabsList>
 
               <TabsContent value="claude" className="space-y-3">
+                <div className="text-xs text-muted-foreground space-y-1.5">
+                  <p>
+                    <strong>1.</strong> En Mac, corré este comando en terminal (te crea/abre el archivo de config):
+                  </p>
+                  <div className="relative">
+                    <pre className="text-[11px] bg-muted/60 p-2 pr-16 rounded font-mono border border-border overflow-x-auto">
+{macCreateConfig}
+                    </pre>
+                    <div className="absolute top-1 right-1">
+                      <CopyButton value={macCreateConfig} />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Si ya lo tenés abierto: <code className="font-mono bg-muted px-1 rounded">{macOpenConfig}</code>
+                  </p>
+                </div>
+
                 <div className="text-xs text-muted-foreground space-y-1">
-                  <p><strong>1.</strong> Abrí Claude Desktop → Settings → Developer → "Edit Config".</p>
-                  <p><strong>2.</strong> Pegá este JSON (reemplazá la API key) y guardá:</p>
+                  <p><strong>2.</strong> Pegá este JSON adentro y guardá con <kbd className="px-1 rounded bg-muted text-[10px]">⌘S</kbd>:</p>
+                  <p className="text-[11px] text-warning">
+                    ⚠️ Si ya tenías otros servers en <code className="font-mono">mcpServers</code>, agregá "aluminia" como entrada más sin reemplazar los otros (cuidado con las comas).
+                  </p>
                 </div>
                 <div className="relative">
                   <pre className="text-xs bg-muted/60 p-3 pr-20 rounded-lg overflow-x-auto font-mono border border-border">
@@ -332,16 +397,26 @@ export default function ApiKeysSection() {
                     <CopyButton value={claudeConfig} />
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  <strong>3.</strong> Reiniciá Claude Desktop. Vas a ver "aluminia" en el menú de herramientas 🛠️.
-                  Probá preguntando: <em>"¿qué clientes me deben más plata?"</em>
-                </p>
+
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p><strong>3.</strong> Reiniciá Claude Desktop completo (no solo cerrar la ventana):</p>
+                  <div className="relative">
+                    <pre className="text-[11px] bg-muted/60 p-2 pr-16 rounded font-mono border border-border">killall Claude</pre>
+                    <div className="absolute top-1 right-1">
+                      <CopyButton value="killall Claude" />
+                    </div>
+                  </div>
+                  <p className="pt-1">
+                    <strong>4.</strong> Abrí Claude Desktop de nuevo. Vas a ver "aluminia" en el menú 🛠️ con 11 tools.
+                    Probá: <em>"Usando aluminia, dame mi resumen financiero del año"</em>
+                  </p>
+                </div>
               </TabsContent>
 
               <TabsContent value="cursor" className="space-y-3">
                 <div className="text-xs text-muted-foreground space-y-1">
                   <p><strong>1.</strong> Cursor → Settings → MCP → "Add new MCP server".</p>
-                  <p><strong>2.</strong> Usá la misma config JSON que Claude Desktop:</p>
+                  <p><strong>2.</strong> Pegá la misma config JSON:</p>
                 </div>
                 <div className="relative">
                   <pre className="text-xs bg-muted/60 p-3 pr-20 rounded-lg overflow-x-auto font-mono border border-border">
@@ -354,22 +429,38 @@ export default function ApiKeysSection() {
               </TabsContent>
 
               <TabsContent value="curl" className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Llamada directa al endpoint MCP (JSON-RPC). Útil para integrar con tus propios scripts.
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Terminal className="h-3 w-3" />
+                  Llamada directa al endpoint MCP (JSON-RPC). Útil para scripts.
                 </p>
-                <div className="relative">
-                  <pre className="text-xs bg-muted/60 p-3 pr-20 rounded-lg overflow-x-auto font-mono border border-border">
-{`curl -X POST "${MCP_URL}" \\
-  -H "Authorization: Bearer ${revealedKey?.key ?? "alm_live_TU_API_KEY"}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}
-                  </pre>
-                  <div className="absolute top-2 right-2">
-                    <CopyButton value={`curl -X POST "${MCP_URL}" -H "Authorization: Bearer ${revealedKey?.key ?? "alm_live_TU_API_KEY"}" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`} />
+
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-muted-foreground">Listar tools disponibles (legible):</p>
+                  <div className="relative">
+                    <pre className="text-xs bg-muted/60 p-3 pr-20 rounded-lg overflow-x-auto font-mono border border-border">
+{curlSnippet}
+                    </pre>
+                    <div className="absolute top-2 right-2">
+                      <CopyButton value={curlSnippet} />
+                    </div>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Para ejecutar una tool: <code className="font-mono bg-muted px-1 rounded">{`{"method":"tools/call","params":{"name":"financial_summary","arguments":{"from":"2026-01-01","to":"2026-05-31"}}}`}</code>
+
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-muted-foreground">Versión one-liner (para zsh sin saltos de línea):</p>
+                  <div className="relative">
+                    <pre className="text-xs bg-muted/60 p-3 pr-20 rounded-lg overflow-x-auto font-mono border border-border">
+{curlOneLiner}
+                    </pre>
+                    <div className="absolute top-2 right-2">
+                      <CopyButton value={curlOneLiner} />
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-muted-foreground">
+                  Para ejecutar una tool específica reemplazá el body por:<br />
+                  <code className="font-mono bg-muted px-1 rounded text-[10px] break-all">{`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"financial_summary","arguments":{"from":"2026-01-01","to":"2026-12-31"}}}`}</code>
                 </p>
               </TabsContent>
             </Tabs>
@@ -400,12 +491,21 @@ export default function ApiKeysSection() {
                 </div>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Pegala en la config JSON de Claude Desktop / Cursor (sección "Cómo conectarla" abajo).
-            </p>
+            <div className="rounded-lg border border-success/30 bg-success/5 p-3 space-y-1.5">
+              <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5 text-success" />
+                Listo, ya la cargué en los snippets de abajo
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Cerrá este aviso y andá al tab <strong>"Claude Desktop"</strong> de la sección "Cómo conectarla". El JSON ya viene con tu key embebida — solo copialo, pegalo en el archivo de config y reiniciá Claude.
+              </p>
+            </div>
           </div>
           <DialogFooter>
-            <Button onClick={() => setRevealedKey(null)}>Entendido, ya la guardé</Button>
+            <Button onClick={() => setRevealedKey(null)} className="gap-1.5">
+              <Check className="h-4 w-4" />
+              Entendido, ya la guardé
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
