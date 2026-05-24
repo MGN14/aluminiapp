@@ -129,6 +129,9 @@ function DashboardContent() {
   const [invoiceMetrics, setInvoiceMetrics] = useState<InvoiceFiscalMetrics | null>(null);
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoiceData[]>([]);
   const [cashMovements, setCashMovements] = useState<{ type: string; amount: number; date: string }[]>([]);
+  // Petty cash NO promovidos a Gerencial. PYGReport los cuenta también; sin esto
+  // el Dashboard quedaba subestimando ingresos/egresos vs Estado de Resultados.
+  const [pettyCashMovements, setPettyCashMovements] = useState<{ kind: string; amount: number; date: string }[]>([]);
   // Anticipos arrastrados de periodos anteriores (initial_state_details sin
   // factura vinculada). Solo se carga en modo gerencial. Ver useEffect abajo.
   const [previousPeriodAdvances, setPreviousPeriodAdvances] = useState<number>(0);
@@ -187,7 +190,10 @@ function DashboardContent() {
 
   useEffect(() => { fetchSalesInvoices(); }, [fetchSalesInvoices]);
 
-  // Fetch cash movements for gerencial mode
+  // Fetch cash movements for gerencial mode.
+  // CRÍTICO: excluir cash_movements promovidos desde Caja Menor (petty_cash_movement_id != null).
+  // Esos ya están contados via petty_cash_movements y sumarlos genera doble conteo.
+  // Mismo filtro que usa PYGReport.tsx para que ambas vistas cuadren.
   const fetchCashMovements = useCallback(async () => {
     if (!isGerencial) {
       setCashMovements([]);
@@ -196,11 +202,14 @@ function DashboardContent() {
 
     try {
       const { start: yearStart, end: yearEnd } = getYearRange(periodSelection.year);
-      const { data, error } = await supabase
-        .from('cash_movements')
+      // Cast a any: petty_cash_movement_id fue agregado en migración y no está
+      // en supabase/types.ts. Mismo patrón que PYGReport.tsx:359-364.
+      const { data, error } = await (supabase
+        .from('cash_movements') as any)
         .select('type, amount, date')
         .gte('date', yearStart)
         .lte('date', yearEnd)
+        .is('petty_cash_movement_id', null)
         .order('date', { ascending: true });
 
       if (error) throw error;
@@ -212,6 +221,31 @@ function DashboardContent() {
   }, [isGerencial, periodSelection.year]);
 
   useEffect(() => { fetchCashMovements(); }, [fetchCashMovements]);
+
+  // Fetch petty_cash_movements (modo gerencial). PYGReport los incluye en su
+  // total, este Dashboard también debe hacerlo para que ambos cuadren.
+  // Distinguimos kind: 'ingreso_efectivo' suma a ingresos, otros suman a egresos.
+  const fetchPettyCashMovements = useCallback(async () => {
+    if (!isGerencial) {
+      setPettyCashMovements([]);
+      return;
+    }
+    try {
+      const { start: yearStart, end: yearEnd } = getYearRange(periodSelection.year);
+      const { data, error } = await supabase
+        .from('petty_cash_movements')
+        .select('kind, amount, date')
+        .gte('date', yearStart)
+        .lte('date', yearEnd);
+      if (error) throw error;
+      setPettyCashMovements((data as { kind: string; amount: number; date: string }[]) || []);
+    } catch (e) {
+      console.error('Error fetching petty cash:', e);
+      setPettyCashMovements([]);
+    }
+  }, [isGerencial, periodSelection.year]);
+
+  useEffect(() => { fetchPettyCashMovements(); }, [fetchPettyCashMovements]);
 
   // Anticipos del periodo anterior no conciliados = la misma fórmula que usa
   // /reports/advances (AdvancesReport.tsx). Son saldos históricos de plata
@@ -330,7 +364,8 @@ function DashboardContent() {
     let totalIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((s, tx) => s + (tx.amount ?? 0), 0);
     let totalEgresos = Math.abs(periodTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((s, tx) => s + (tx.amount ?? 0), 0));
 
-    // In gerencial mode, add cash movements for the period
+    // In gerencial mode, add cash movements (sin promovidos desde caja menor) +
+    // petty_cash_movements directos. Mismo set que PYGReport.tsx para que ambos cuadren.
     if (isGerencial && cashMovements.length > 0) {
       const periodCash = cashMovements.filter(cm => {
         const d = parseLocalDate(cm.date);
@@ -339,10 +374,23 @@ function DashboardContent() {
       totalIngresos += periodCash.filter(cm => cm.type === 'ingreso').reduce((s, cm) => s + cm.amount, 0);
       totalEgresos += periodCash.filter(cm => cm.type === 'egreso').reduce((s, cm) => s + cm.amount, 0);
     }
+    if (isGerencial && pettyCashMovements.length > 0) {
+      const periodPetty = pettyCashMovements.filter(p => {
+        const d = parseLocalDate(p.date);
+        return d >= periodRange.start && d <= periodRange.end;
+      });
+      // kind='ingreso_efectivo' → suma a ingresos; otros (gasto_efectivo, cuenta_de_cobro) → egresos
+      totalIngresos += periodPetty
+        .filter(p => p.kind === 'ingreso_efectivo')
+        .reduce((s, p) => s + Math.abs(Number(p.amount) || 0), 0);
+      totalEgresos += periodPetty
+        .filter(p => p.kind !== 'ingreso_efectivo')
+        .reduce((s, p) => s + Math.abs(Number(p.amount) || 0), 0);
+    }
 
     const pendingReconcile = periodTransactions.filter(tx => !tx.responsible_id).length;
     return { saldoActual, totalIngresos, totalEgresos, pendingReconcile, transactionCount: periodTransactions.length, cuatrimestreLabel: `Q${periodSelection.quarter} ${periodSelection.year}`, periodLabel: periodRange.label };
-  }, [transactions, periodTransactions, cuatrimestre, periodRange, periodSelection, isGerencial, cashMovements]);
+  }, [transactions, periodTransactions, cuatrimestre, periodRange, periodSelection, isGerencial, cashMovements, pettyCashMovements]);
 
   // Ingresos separados por origen, para medir la brecha DIAN vs Real.
   //   Real = bankIncome + previousPeriodAdvances + cashIncome

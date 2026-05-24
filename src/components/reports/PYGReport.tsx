@@ -84,7 +84,7 @@ function useYearData(userId: string | undefined, year: number) {
           .select('id, name'),
         supabase
           .from('petty_cash_movements')
-          .select('date, amount, category_id, responsible_id')
+          .select('date, amount, category_id, responsible_id, kind')
           .gte('date', `${year}-01-01`)
           .lte('date', `${year}-12-31`),
         // Pagos de créditos del año — sólo el componente interés (gasto financiero)
@@ -104,26 +104,33 @@ function useYearData(userId: string | undefined, year: number) {
       const responsibles: ResponsibleInfo[] = (respRes.data || []) as ResponsibleInfo[];
       const respMap = new Map(responsibles.map(r => [r.id, r]));
 
-      // Inyectamos petty_cash_movements como transacciones virtuales tipo egreso
-      // para que la logica de PYG las procese como gastos junto al resto.
+      // Inyectamos petty_cash_movements como transacciones virtuales. Distinguimos
+      // kind: 'ingreso_efectivo' (comprobante de pago al cliente) → ingreso, el
+      // resto (gasto_efectivo, cuenta_de_cobro) → egreso. Sin esto, los ingresos
+      // en efectivo se contaban como egreso e inflaban gastos del PyG.
       const pettyAsTx: TransactionRow[] = ((pcRes.data ?? []) as Array<{
         date: string;
         amount: number | null;
         category_id: string | null;
         responsible_id: string | null;
-      }>).map((m) => ({
-        date: m.date,
-        amount: -Math.abs(Number(m.amount) || 0),
-        type: 'egreso',
-        category_id: m.category_id,
-        responsible_id: m.responsible_id,
-        has_iva: false,
-        iva_amount: 0,
-        has_retefuente: false,
-        retefuente_amount: 0,
-        has_reteica: false,
-        reteica_amount: 0,
-      }));
+        kind: string | null;
+      }>).map((m) => {
+        const isIngreso = m.kind === 'ingreso_efectivo';
+        const absAmt = Math.abs(Number(m.amount) || 0);
+        return {
+          date: m.date,
+          amount: isIngreso ? absAmt : -absAmt,
+          type: (isIngreso ? 'ingreso' : 'egreso') as 'ingreso' | 'egreso',
+          category_id: m.category_id,
+          responsible_id: m.responsible_id,
+          has_iva: false,
+          iva_amount: 0,
+          has_retefuente: false,
+          retefuente_amount: 0,
+          has_reteica: false,
+          reteica_amount: 0,
+        };
+      });
 
       // Inyectamos credit_payments.interest_paid como gasto financiero virtual.
       // El capital pagado NO entra (no es gasto, reduce pasivo).
