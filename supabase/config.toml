@@ -76,3 +76,6 @@ verify_jwt = false
 
 [functions.public-snapshot]
 verify_jwt = false
+
+[functions.export-zip]
+verify_jwt = false

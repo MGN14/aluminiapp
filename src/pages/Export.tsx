@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import writeXlsxFile from 'write-excel-file';
 import { toast as sonnerToast } from 'sonner';
 import EnviarExportModal from '@/components/export/EnviarExportModal';
+import BackupZipCard from '@/components/export/BackupZipCard';
 import { useAuth } from '@/hooks/useAuth';
 
 interface StatementOption {
@@ -549,6 +550,9 @@ export default function Export() {
           transactionCount={transactions.length}
           buildWorkbookBlob={buildWorkbookBlob}
         />
+
+        {/* BLOQUE 2.5 – Backup ZIP completo (analizable con IA) */}
+        <BackupZipCard />
 
         {/* BLOQUE 3 – Intro reportes */}
         <div className="space-y-2">
