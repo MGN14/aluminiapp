@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import VincularPagoModal from './VincularPagoModal';
 import AcordarPagoModal from '@/components/expected-payments/AcordarPagoModal';
 import AgingReportTable from '@/components/collection/AgingReportTable';
+import PaymentLinkModal from '@/components/collection/PaymentLinkModal';
 import {
   calculateAllClientReceivables,
   type ClientReceivable,
@@ -50,6 +51,7 @@ export default function AccountsReceivableReport() {
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
   const [showPagadasByClient, setShowPagadasByClient] = useState<Set<string>>(new Set());
   const [vincularInvoice, setVincularInvoice] = useState<VincularInvoiceTarget | null>(null);
+  const [paymentLinkInvoice, setPaymentLinkInvoice] = useState<{ id: string; invoice_number: string | null; counterparty_name: string | null; pending: number } | null>(null);
   const [acordarTarget, setAcordarTarget] = useState<{
     invoice?: { id: string; invoice_number: string; pending: number };
     responsible?: { id: string; name: string };
@@ -289,6 +291,12 @@ export default function AccountsReceivableReport() {
                           invoice: { id: inv.id, invoice_number: inv.invoice_number, pending: inv.pending_invoice },
                           responsible: client.client_id.startsWith('__name:') ? undefined : { id: client.client_id, name: client.client_name },
                         })}
+                        onLinkPagoInvoice={(inv) => setPaymentLinkInvoice({
+                          id: inv.id,
+                          invoice_number: inv.invoice_number,
+                          counterparty_name: client.client_name,
+                          pending: inv.pending_invoice,
+                        })}
                         onAcordarCliente={() => setAcordarTarget({
                           responsible: client.client_id.startsWith('__name:') ? undefined : { id: client.client_id, name: client.client_name },
                         })}
@@ -360,6 +368,12 @@ export default function AccountsReceivableReport() {
           responsible={acordarTarget?.responsible ?? null}
           onSuccess={() => { refetch(); }}
         />
+
+        <PaymentLinkModal
+          open={!!paymentLinkInvoice}
+          onOpenChange={(v) => { if (!v) setPaymentLinkInvoice(null); }}
+          invoice={paymentLinkInvoice}
+        />
       </div>
     </TooltipProvider>
   );
@@ -368,6 +382,7 @@ export default function AccountsReceivableReport() {
 // ============================================================================
 // Sub-component: una fila por cliente + drill-down a sus facturas.
 // ============================================================================
+/** Pasada a ClientRow → InvoiceLineRow para abrir el modal de link Wompi. */
 interface ClientRowProps {
   client: ClientReceivable;
   isExpanded: boolean;
@@ -376,10 +391,11 @@ interface ClientRowProps {
   onTogglePagadas: () => void;
   onVincularInvoice: (inv: InvoiceLine) => void;
   onAcordarInvoice: (inv: InvoiceLine) => void;
+  onLinkPagoInvoice: (inv: InvoiceLine) => void;
   onAcordarCliente: () => void;
 }
 
-function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas, onVincularInvoice, onAcordarInvoice, onAcordarCliente }: ClientRowProps) {
+function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas, onVincularInvoice, onAcordarInvoice, onLinkPagoInvoice, onAcordarCliente }: ClientRowProps) {
   const facturado = client.facturado_venta;
   const cobrado = client.cobrado_banco;
   const anticipos = client.anticipos_total;
@@ -442,6 +458,7 @@ function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas,
                       inv={inv}
                       onVincular={() => onVincularInvoice(inv)}
                       onAcordar={() => onAcordarInvoice(inv)}
+                      onLinkPago={() => onLinkPagoInvoice(inv)}
                     />
                   ))}
                 </div>
@@ -533,9 +550,10 @@ interface InvoiceLineRowProps {
   paid?: boolean;
   onVincular?: () => void;
   onAcordar?: () => void;
+  onLinkPago?: () => void;
 }
 
-function InvoiceLineRow({ inv, paid = false, onVincular, onAcordar }: InvoiceLineRowProps) {
+function InvoiceLineRow({ inv, paid = false, onVincular, onAcordar, onLinkPago }: InvoiceLineRowProps) {
   return (
     <div
       className={cn(
@@ -598,6 +616,17 @@ function InvoiceLineRow({ inv, paid = false, onVincular, onAcordar }: InvoiceLin
               >
                 <CalendarClock className="h-2.5 w-2.5" />
                 Acordar cobro
+              </Button>
+            )}
+            {onLinkPago && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[10px] gap-1 text-success hover:bg-success/10 justify-end"
+                onClick={(e) => { e.stopPropagation(); onLinkPago(); }}
+              >
+                <Link2 className="h-2.5 w-2.5" />
+                Link Wompi
               </Button>
             )}
           </div>

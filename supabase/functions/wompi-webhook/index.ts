@@ -156,18 +156,86 @@ serve(async (req) => {
       return new Response("OK", { status: 200 });
     }
 
+    // Reference: parseamos para detectar si es PAGO DE SUSCRIPCIÓN o PAGO DE FACTURA.
+    // - Suscripción: `aluminia-{plan}-{uuid}-{timestamp}-{sig16}`
+    // - Factura:     `invoice-{invoice_uuid}-{user_uuid}-{timestamp}-{sig16}`
+    const reference: string = verifyData?.data?.reference || transaction?.reference || "";
+
+    // === RAMA INVOICE: pago de factura por cliente final ===
+    const invoiceRefMatch = reference.match(
+      /^invoice-([a-f0-9-]{36})-([a-f0-9-]{36})-(\d+)-([a-f0-9]{16})$/,
+    );
+    if (invoiceRefMatch) {
+      const [, refInvoiceId, refUserId, refTimestamp, refSig] = invoiceRefMatch;
+      const expectedSig = await computeReferenceSig(
+        `${refInvoiceId}-${refUserId}-${refTimestamp}`,
+        eventsSecret,
+      );
+      if (expectedSig !== refSig) {
+        logStep("Invoice reference sig mismatch", { expected: expectedSig, got: refSig });
+        return new Response("Invalid reference signature", { status: 401 });
+      }
+      logStep("Invoice payment detected", { invoiceId: refInvoiceId, userId: refUserId, amountCop: (verifiedAmount ?? 0) / 100 });
+
+      // Idempotencia: si ya registramos este transactionId para esta factura, no duplicamos
+      const { data: existingTx } = await supabase
+        .from("transactions")
+        .select("id")
+        .eq("user_id", refUserId)
+        .eq("invoice_id", refInvoiceId)
+        .ilike("notes", `%[Wompi:${transactionId}]%`)
+        .limit(1)
+        .maybeSingle();
+      if (existingTx) {
+        logStep("Webhook replay ignored (invoice tx already exists)", { transactionId, existingTxId: existingTx.id });
+        return new Response("OK", { status: 200 });
+      }
+
+      // Insertar transacción de ingreso vinculada a la factura
+      // El sistema de cartera (clientReceivables) descuenta esto automáticamente.
+      const amountCop = (verifiedAmount ?? 0) / 100;
+      const today = new Date().toISOString().slice(0, 10);
+      const noteTag = `[Wompi:${transactionId}] Pago factura vía link Wompi.`;
+      const { error: txErr } = await supabase.from("transactions").insert({
+        user_id: refUserId,
+        invoice_id: refInvoiceId,
+        date: today,
+        description: `Pago Wompi factura — Ref ${reference.slice(0, 60)}`,
+        amount: amountCop,
+        credit: amountCop,
+        debit: null,
+        type: "ingreso",
+        notes: noteTag,
+      });
+      if (txErr) {
+        logStep("Error inserting invoice tx", { error: txErr.message });
+        return new Response("Error registering payment", { status: 500 });
+      }
+
+      // Notificar al owner (best-effort, no bloquea)
+      fetch(`${supabaseUrl}/functions/v1/notify-founder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({
+          event_type: "invoice_paid_wompi",
+          user_id: refUserId,
+          props: { invoice_id: refInvoiceId, amount_cop: amountCop, transaction_id: transactionId, reference: reference.slice(0, 80) },
+        }),
+      }).catch(() => {});
+
+      return new Response("OK", { status: 200 });
+    }
+
+    // === RAMA SUSCRIPCIÓN: validar monto y matcher de plan ===
     if (verifiedAmount !== PLAN_AMOUNT_CENTS) {
       logStep("Amount mismatch", { expected: PLAN_AMOUNT_CENTS, got: verifiedAmount });
       return new Response("Amount mismatch", { status: 400 });
     }
 
-    // Step 3: Find user via HMAC-signed reference.
+    // Step 3: Find user via HMAC-signed reference (suscripción).
     // El reference se genera server-side en create-wompi-checkout firmando
     // `${userId}-${plan}-${timestamp}` con WOMPI_EVENTS_SECRET y anexando 16 hex.
     // Formato: `aluminia-{plan}-{uuid}-{timestamp}-{sig16}`
-    // Descartamos customer_references.user_id porque lo rellena el pagador
-    // (manipulable) y payment_link_id porque apunta al mismo dato inseguro.
-    const reference: string = verifyData?.data?.reference || transaction?.reference || "";
     const refMatch = reference.match(
       /^aluminia-(basico|empresarial)-([a-f0-9-]{36})-(\d+)-([a-f0-9]{16})$/
     );

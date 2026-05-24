@@ -94,3 +94,6 @@ verify_jwt = false
 
 [functions.weekly-collection-report]
 verify_jwt = false
+
+[functions.create-invoice-payment-link]
+verify_jwt = false
