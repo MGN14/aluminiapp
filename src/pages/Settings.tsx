@@ -18,6 +18,7 @@ import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import SiigoConnectionCard from '@/components/settings/SiigoConnectionCard';
 import QuotationDefaultsCard from '@/components/settings/QuotationDefaultsCard';
+import ApiKeysSection from '@/components/settings/ApiKeysSection';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mail, Building2, Shield, LogOut, Key, Save, ClipboardList, Pencil, Crown, Sparkles, Rocket, ArrowUpRight, Zap, Clock } from 'lucide-react';
 
@@ -386,6 +387,9 @@ export default function Settings() {
 
         {/* Conexiones contables/fiscales */}
         <SiigoConnectionCard />
+
+        {/* Conexión MCP / API para Claude, ChatGPT, etc. */}
+        <ApiKeysSection />
 
         {/* Seguridad */}
         <Card>
