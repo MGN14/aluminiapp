@@ -573,7 +573,9 @@ function DashboardContent() {
 
             <div className={metricCardClass} style={metricCardStyle(2)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
               <div className="flex items-center justify-between">
-                <p style={metricLabelStyle}>Resultado Neto</p>
+                <p style={metricLabelStyle} title="Ingresos − Egresos del periodo, sin restar impuestos. Para utilidad neta después de impuestos, mirá el Estado de Resultados.">
+                  Resultado del periodo
+                </p>
                 <div
                   style={iconWrapStyle(
                     isPositive ? 'oklch(0.43 0.14 155 / 0.10)' : 'oklch(0.52 0.18 25 / 0.08)',
@@ -588,7 +590,7 @@ function DashboardContent() {
               </div>
               <p className={metricValueClass} style={metricValueStyle(isPositive ? BRAND : DANGER)}>{formatCurrency(neto)}</p>
               <span style={{ fontSize: 12, color: '#6e6e73', marginTop: 10, display: 'block' }}>
-                {periodRange.label}
+                {periodRange.label} · antes de impuestos
               </span>
             </div>
           </div>

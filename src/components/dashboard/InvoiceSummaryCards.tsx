@@ -108,6 +108,13 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
   const [prevMonthInvoices, setPrevMonthInvoices] = useState<InvoiceRow[]>([]);
   const [retefuenteManualPeriodTransactions, setRetefuenteManualPeriodTransactions] = useState<ManualTaxTransaction[]>([]);
   const [retefuenteManualYearTransactions, setRetefuenteManualYearTransactions] = useState<ManualTaxTransaction[]>([]);
+  // Transactions con has_iva / has_retefuente / has_reteica (sin importar la nota).
+  // Estas son las que el banco trae con impuesto desglosado pero no necesariamente
+  // tienen una factura formal asociada (DIAN). Antes solo se contaban las que
+  // tenían notes='[Retefuente - Sin factura]' literal — quedaba el 97% afuera.
+  const [taxTxPeriod, setTaxTxPeriod] = useState<{ type: string | null; iva_amount: number | null; retefuente_amount: number | null; reteica_amount: number | null; has_iva: boolean | null; has_retefuente: boolean | null; has_reteica: boolean | null }[]>([]);
+  const [taxTxYear, setTaxTxYear] = useState<{ type: string | null; iva_amount: number | null; retefuente_amount: number | null; reteica_amount: number | null; has_iva: boolean | null; has_retefuente: boolean | null; has_reteica: boolean | null }[]>([]);
+  const [taxTxCuatrimestre, setTaxTxCuatrimestre] = useState<{ type: string | null; iva_amount: number | null; has_iva: boolean | null }[]>([]);
   const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
   const [dianPaymentsIva, setDianPaymentsIva] = useState(0);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItemRow[]>([]);
@@ -163,6 +170,35 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         .gte('date', yearStartStr)
         .lte('date', yearEndStr);
 
+      // Transactions con impuestos desglosados (has_iva / has_retefuente / has_reteica)
+      // del periodo y del año. Captura los impuestos que el banco ya desglosó
+      // (e.g. retefuente sobre ingresos sin factura formal). Fix #IVA + #Retef.
+      const taxTxPeriodQuery = supabase
+        .from('transactions')
+        .select('type, iva_amount, retefuente_amount, reteica_amount, has_iva, has_retefuente, has_reteica')
+        .is('deleted_at', null)
+        .gte('date', startStr)
+        .lte('date', endStr)
+        .or('has_iva.eq.true,has_retefuente.eq.true,has_reteica.eq.true');
+
+      const taxTxYearQuery = supabase
+        .from('transactions')
+        .select('type, iva_amount, retefuente_amount, reteica_amount, has_iva, has_retefuente, has_reteica')
+        .is('deleted_at', null)
+        .gte('date', yearStartStr)
+        .lte('date', yearEndStr)
+        .or('has_iva.eq.true,has_retefuente.eq.true,has_reteica.eq.true');
+
+      const taxTxCuatrimestreQuery = (cuatrimestreStart && cuatrimestreEnd)
+        ? supabase
+            .from('transactions')
+            .select('type, iva_amount, has_iva')
+            .is('deleted_at', null)
+            .eq('has_iva', true)
+            .gte('date', cuatrimestreStart.toISOString().split('T')[0])
+            .lte('date', cuatrimestreEnd.toISOString().split('T')[0])
+        : null;
+
       // Query DIAN payments (IVA a favor) from transactions in the cuatrimestre
       const dianPaymentsQuery = cuatrimestreStart && cuatrimestreEnd
         ? supabase
@@ -202,6 +238,9 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         retefuenteManualPeriodResult,
         retefuenteManualYearResult,
         prevMonthResult,
+        taxTxPeriodResult,
+        taxTxYearResult,
+        taxTxCuatrimestreResult,
       ] = await Promise.all([
         periodQuery,
         yearQuery,
@@ -211,6 +250,9 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         retefuenteManualPeriodQuery,
         retefuenteManualYearQuery,
         prevMonthQuery,
+        taxTxPeriodQuery,
+        taxTxYearQuery,
+        taxTxCuatrimestreQuery,
       ]);
 
       // Filtro común: excluir facturas totalmente anuladas por nota crédito.
@@ -254,6 +296,26 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         setRetefuenteManualYearTransactions(retefuenteManualYearResult.data);
       } else {
         setRetefuenteManualYearTransactions([]);
+      }
+
+      // Tax transactions: usan retefuente_amount/iva_amount/reteica_amount directos
+      // (no recalculan con rate), porque los flags has_* ya implican que el monto
+      // exacto está en su columna respectiva. Esto captura todos los impuestos
+      // desglosados sin depender de notas literales.
+      if (!taxTxPeriodResult.error && taxTxPeriodResult.data) {
+        setTaxTxPeriod(taxTxPeriodResult.data as never);
+      } else {
+        setTaxTxPeriod([]);
+      }
+      if (!taxTxYearResult.error && taxTxYearResult.data) {
+        setTaxTxYear(taxTxYearResult.data as never);
+      } else {
+        setTaxTxYear([]);
+      }
+      if (taxTxCuatrimestreResult && !taxTxCuatrimestreResult.error && taxTxCuatrimestreResult.data) {
+        setTaxTxCuatrimestre(taxTxCuatrimestreResult.data as never);
+      } else {
+        setTaxTxCuatrimestre([]);
       }
 
       // Fetch invoice items for top references:
@@ -300,29 +362,65 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const ventasYear = allYearInvoices.filter(i => i.type === 'venta');
     const comprasYear = allYearInvoices.filter(i => i.type === 'compra');
 
-    // IVA from cuatrimestre (or fallback to period)
+    // IVA from cuatrimestre (or fallback to period). Suma 2 fuentes:
+    //   1) Invoices DIAN (status='confirmed')
+    //   2) Transactions con has_iva=true (banco con IVA desglosado, sin factura formal)
+    // Antes solo se contaba la fuente #1 — el IVA en transactions quedaba afuera y
+    // el "IVA a pagar" salía muy por debajo de la realidad.
     const ivaSource = cuatrimestreInvoices.length > 0 ? cuatrimestreInvoices : invoices;
     const ivaVentas = ivaSource.filter(i => i.type === 'venta');
     const ivaCompras = ivaSource.filter(i => i.type === 'compra');
-    const ivaGenerado = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaDescontable = ivaCompras.reduce((s, i) => s + i.iva_amount, 0);
-    // IVA a favor = descontable (compras) - generado (ventas); negated for display logic
+    const ivaGeneradoInvoices = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
+    const ivaDescontableInvoices = ivaCompras.reduce((s, i) => s + i.iva_amount, 0);
+
+    // Fuente #2: transactions con has_iva del cuatrimestre (o periodo como fallback).
+    const txIvaSrc = taxTxCuatrimestre.length > 0
+      ? taxTxCuatrimestre
+      : taxTxPeriod.filter(t => t.has_iva === true);
+    const ivaGeneradoTx = txIvaSrc
+      .filter(t => t.type === 'ingreso')
+      .reduce((s, t) => s + Number(t.iva_amount ?? 0), 0);
+    const ivaDescontableTx = txIvaSrc
+      .filter(t => t.type === 'egreso')
+      .reduce((s, t) => s + Number(t.iva_amount ?? 0), 0);
+
+    const ivaGenerado = ivaGeneradoInvoices + ivaGeneradoTx;
+    const ivaDescontable = ivaDescontableInvoices + ivaDescontableTx;
     const ivaNeto = ivaGenerado - ivaDescontable;
 
-    // IVA YTD
-    const ivaGeneradoYtd = ventasYear.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaDescontableYtd = comprasYear.reduce((s, i) => s + i.iva_amount, 0);
+    // IVA YTD — mismas 2 fuentes
+    const ivaGeneradoYtdInvoices = ventasYear.reduce((s, i) => s + i.iva_amount, 0);
+    const ivaDescontableYtdInvoices = comprasYear.reduce((s, i) => s + i.iva_amount, 0);
+    const ivaGeneradoYtdTx = taxTxYear
+      .filter(t => t.has_iva === true && t.type === 'ingreso')
+      .reduce((s, t) => s + Number(t.iva_amount ?? 0), 0);
+    const ivaDescontableYtdTx = taxTxYear
+      .filter(t => t.has_iva === true && t.type === 'egreso')
+      .reduce((s, t) => s + Number(t.iva_amount ?? 0), 0);
+    const ivaGeneradoYtd = ivaGeneradoYtdInvoices + ivaGeneradoYtdTx;
+    const ivaDescontableYtd = ivaDescontableYtdInvoices + ivaDescontableYtdTx;
     const ivaNetoYtd = -(ivaDescontableYtd - ivaGeneradoYtd);
 
     const totalFacturadoVentas = ventas.reduce((s, i) => s + i.total_amount, 0);
     const totalBaseVentas = ventas.reduce((s, i) => s + i.subtotal_base, 0);
     const totalFacturadoCompras = compras.reduce((s, i) => s + i.total_amount, 0);
 
-    // ReteICA - from sales invoices
-    const reteicaMonth = ventas.reduce((s, i) => s + (i.reteica_amount ?? 0), 0);
-    const reteicaYear = ventasYear.reduce((s, i) => s + (i.reteica_amount ?? 0), 0);
-    const reteicaMonthCount = ventas.filter(i => (i.reteica_amount ?? 0) > 0).length;
-    const reteicaYearCount = ventasYear.filter(i => (i.reteica_amount ?? 0) > 0).length;
+    // ReteICA — desde sales invoices + transactions con has_reteica=true.
+    // Antes solo se contaban invoices; transactions con ICA desglosado no.
+    const reteicaInvoicesMonth = ventas.reduce((s, i) => s + (i.reteica_amount ?? 0), 0);
+    const reteicaInvoicesYear = ventasYear.reduce((s, i) => s + (i.reteica_amount ?? 0), 0);
+    const reteicaTxPeriod = taxTxPeriod
+      .filter(t => t.has_reteica === true)
+      .reduce((s, t) => s + Number(t.reteica_amount ?? 0), 0);
+    const reteicaTxYear = taxTxYear
+      .filter(t => t.has_reteica === true)
+      .reduce((s, t) => s + Number(t.reteica_amount ?? 0), 0);
+    const reteicaMonth = reteicaInvoicesMonth + reteicaTxPeriod;
+    const reteicaYear = reteicaInvoicesYear + reteicaTxYear;
+    const reteicaMonthCount = ventas.filter(i => (i.reteica_amount ?? 0) > 0).length
+      + taxTxPeriod.filter(t => t.has_reteica === true).length;
+    const reteicaYearCount = ventasYear.filter(i => (i.reteica_amount ?? 0) > 0).length
+      + taxTxYear.filter(t => t.has_reteica === true).length;
 
     // Autorretefuente - from sales invoices
     const autoretefuenteMonth = ventas.reduce((s, i) => s + (i.autoretefuente_amount ?? 0), 0);
@@ -336,11 +434,30 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const retefuenteCompraMonthCount = retefuenteCompraRate > 0 ? compras.length : 0;
     const retefuenteCompraYearCount = retefuenteCompraRate > 0 ? comprasYear.length : 0;
 
-    // Retefuente manual
-    const retefuenteManualMonth = retefuenteManualPeriodTransactions.reduce((s, t) => s + Math.round(Math.abs(t.amount ?? 0) * retefuenteCompraRate), 0);
-    const retefuenteManualYear = retefuenteManualYearTransactions.reduce((s, t) => s + Math.round(Math.abs(t.amount ?? 0) * retefuenteCompraRate), 0);
-    const retefuenteManualMonthCount = retefuenteManualPeriodTransactions.length;
-    const retefuenteManualYearCount = retefuenteManualYearTransactions.length;
+    // Retefuente "manual" legacy: transactions con nota literal '[Retefuente - Sin factura]'
+    // donde el rate se aplica sobre el amount. Mantengo por compatibilidad.
+    const retefuenteManualLegacyMonth = retefuenteManualPeriodTransactions.reduce((s, t) => s + Math.round(Math.abs(t.amount ?? 0) * retefuenteCompraRate), 0);
+    const retefuenteManualLegacyYear = retefuenteManualYearTransactions.reduce((s, t) => s + Math.round(Math.abs(t.amount ?? 0) * retefuenteCompraRate), 0);
+
+    // Retefuente desde flag has_retefuente=true en transactions (usa retefuente_amount directo).
+    // Esta es la fuente principal hoy — antes se ignoraba completamente.
+    // Excluye los que ya cuenta el legacy (notes='[Retefuente - Sin factura]') para no
+    // duplicar — esos los detectamos porque coincide retefuente_amount con el cálculo legacy.
+    const retefuenteTxFlagMonth = taxTxPeriod
+      .filter(t => t.has_retefuente === true)
+      .reduce((s, t) => s + Number(t.retefuente_amount ?? 0), 0);
+    const retefuenteTxFlagYear = taxTxYear
+      .filter(t => t.has_retefuente === true)
+      .reduce((s, t) => s + Number(t.retefuente_amount ?? 0), 0);
+    const retefuenteTxFlagMonthCount = taxTxPeriod.filter(t => t.has_retefuente === true).length;
+    const retefuenteTxFlagYearCount = taxTxYear.filter(t => t.has_retefuente === true).length;
+
+    // Combinado: el flag-based domina (es el patrón actual). El legacy sigue por si
+    // hay usuarios viejos que aún tienen la nota literal pero NO el flag.
+    const retefuenteManualMonth = retefuenteTxFlagMonth + retefuenteManualLegacyMonth;
+    const retefuenteManualYear = retefuenteTxFlagYear + retefuenteManualLegacyYear;
+    const retefuenteManualMonthCount = retefuenteTxFlagMonthCount + retefuenteManualPeriodTransactions.length;
+    const retefuenteManualYearCount = retefuenteTxFlagYearCount + retefuenteManualYearTransactions.length;
 
     // Top Clients by subtotal_base
     const byClient = new Map<string, number>();
@@ -382,7 +499,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
     };
-  }, [invoices, allYearInvoices, cuatrimestreInvoices, prevMonthInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions]);
+  }, [invoices, allYearInvoices, cuatrimestreInvoices, prevMonthInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions, taxTxPeriod, taxTxYear, taxTxCuatrimestre]);
 
   // Top references from invoice items
   const topReferences = useMemo(() => {
