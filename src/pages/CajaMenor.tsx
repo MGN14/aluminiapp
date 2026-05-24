@@ -441,7 +441,7 @@ export default function CajaMenor() {
                                 r.kind === 'cuenta_de_cobro'
                                   ? 'Generar cuenta de cobro'
                                   : r.kind === 'ingreso_efectivo'
-                                    ? 'Generar comprobante de ingreso'
+                                    ? 'Generar comprobante de pago para el cliente'
                                     : 'Generar comprobante de pago'
                               }
                             >

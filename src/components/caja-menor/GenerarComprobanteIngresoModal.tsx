@@ -270,7 +270,7 @@ export default function GenerarComprobanteIngresoModal({ movement, open, onOpenC
 
       const pdf = generateComprobanteIngresoPdf(data);
       const safePagador = pagador.nombre.replace(/\s+/g, '-').toLowerCase();
-      const filename = `comprobante-ingreso-${data.numeroConsecutivo}-${safePagador}.pdf`;
+      const filename = `comprobante-pago-${data.numeroConsecutivo}-${safePagador}.pdf`;
       pdf.save(filename);
 
       await queryClient.invalidateQueries({ queryKey: ['petty-cash-movements'] });
@@ -297,10 +297,10 @@ export default function GenerarComprobanteIngresoModal({ movement, open, onOpenC
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ReceiptText className="h-5 w-5 text-success" />
-            Generar comprobante de ingreso
+            Generar comprobante de pago
           </DialogTitle>
           <DialogDescription className="text-xs">
-            PDF que le entregás al pagador como constancia de que recibiste el dinero. Editá los datos antes de descargar — se guardan automáticamente.
+            PDF para enviarle al cliente como constancia de que recibiste su pago. Editá los datos antes de descargar — se guardan automáticamente.
           </DialogDescription>
         </DialogHeader>
 
@@ -325,7 +325,7 @@ export default function GenerarComprobanteIngresoModal({ movement, open, onOpenC
               <Input
                 value={consecutivoEditable}
                 onChange={(e) => setConsecutivoEditable(e.target.value)}
-                placeholder="CI-2026-0001"
+                placeholder="CP-2026-0001"
                 className="font-mono text-sm"
               />
             </div>

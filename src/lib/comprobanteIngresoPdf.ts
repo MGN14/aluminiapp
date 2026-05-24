@@ -133,7 +133,7 @@ export function generateComprobanteIngresoPdf(data: ComprobanteIngresoData): jsP
   setText(doc, COLORS.ink);
   doc.setFont('times', 'bold');
   doc.setFontSize(20);
-  doc.text('COMPROBANTE DE INGRESO', pageW / 2, y, { align: 'center' });
+  doc.text('COMPROBANTE DE PAGO', pageW / 2, y, { align: 'center' });
 
   // Línea decorativa
   y += 3;
