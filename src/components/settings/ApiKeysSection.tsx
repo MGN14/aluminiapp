@@ -24,7 +24,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Sparkles, Copy, Check, KeyRound, Loader2, Plus, Trash2, Bot } from "lucide-react";
+import { Sparkles, Copy, Check, KeyRound, Loader2, Plus, Trash2, Bot, Terminal, Eraser } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -109,6 +109,23 @@ export default function ApiKeysSection() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [revealedKey, setRevealedKey] = useState<{ key: string; name: string } | null>(null);
+  // Key plaintext que el usuario pegó para personalizar los snippets de conexión.
+  // sessionStorage (no localStorage): se borra al cerrar el tab por seguridad.
+  const [pastedKey, setPastedKey] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return sessionStorage.getItem("aluminia.mcp.keyForSnippets") ?? "";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (pastedKey) sessionStorage.setItem("aluminia.mcp.keyForSnippets", pastedKey);
+    else sessionStorage.removeItem("aluminia.mcp.keyForSnippets");
+  }, [pastedKey]);
+
+  // Cuando se crea una key nueva la usamos automáticamente en los snippets.
+  useEffect(() => {
+    if (revealedKey?.key) setPastedKey(revealedKey.key);
+  }, [revealedKey?.key]);
 
   const visibleKeys = keys.filter((k) => !k.revoked_at);
 
@@ -162,29 +179,32 @@ export default function ApiKeysSection() {
   if (ownerLoading) return null;
   if (isCollaborator) return null; // colaboradores no ven esta sección
 
-  const claudeConfig = revealedKey
-    ? `{
+  // Key a inyectar en los snippets. Si el usuario no pegó nada, mostramos
+  // placeholder visible en mayúsculas para que se note que debe reemplazar.
+  const snippetKey = pastedKey.trim() || "alm_live_PEGÁ_TU_KEY_ARRIBA";
+  const hasRealKey = !!pastedKey.trim() && pastedKey.startsWith("alm_live_");
+
+  const claudeConfig = `{
   "mcpServers": {
     "aluminia": {
       "type": "http",
       "url": "${MCP_URL}",
       "headers": {
-        "Authorization": "Bearer ${revealedKey.key}"
-      }
-    }
-  }
-}`
-    : `{
-  "mcpServers": {
-    "aluminia": {
-      "type": "http",
-      "url": "${MCP_URL}",
-      "headers": {
-        "Authorization": "Bearer alm_live_TU_API_KEY_AQUI"
+        "Authorization": "Bearer ${snippetKey}"
       }
     }
   }
 }`;
+
+  const curlSnippet = `curl -X POST "${MCP_URL}" \\
+  -H "Authorization: Bearer ${snippetKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
+
+  const curlOneLiner = `curl -X POST "${MCP_URL}" -H "Authorization: Bearer ${snippetKey}" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
+
+  const macOpenConfig = `open -e ~/Library/Application\\ Support/Claude/claude_desktop_config.json`;
+  const macCreateConfig = `mkdir -p ~/Library/Application\\ Support/Claude && touch ~/Library/Application\\ Support/Claude/claude_desktop_config.json && open -e ~/Library/Application\\ Support/Claude/claude_desktop_config.json`;
 
   return (
     <>

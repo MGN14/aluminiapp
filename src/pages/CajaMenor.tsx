@@ -22,6 +22,7 @@ import { usePromotePettyCashMovement } from '@/hooks/usePromotePettyCashMovement
 import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
 import RegistrarIngresoModal from '@/components/caja-menor/RegistrarIngresoModal';
 import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
+import GenerarComprobanteIngresoModal from '@/components/caja-menor/GenerarComprobanteIngresoModal';
 import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
 import EditarMovimientoModal from '@/components/caja-menor/EditarMovimientoModal';
 import { generatePettyCashClosingPdf } from '@/lib/pettyCashClosingPdf';
@@ -307,6 +308,8 @@ export default function CajaMenor() {
                     <div className="flex flex-wrap items-center gap-1.5">
                       {r.kind === 'cuenta_de_cobro' ? (
                         <Badge variant="outline" className="text-[10px] gap-1"><Receipt className="h-3 w-3" />Cuenta cobro</Badge>
+                      ) : r.kind === 'ingreso_efectivo' ? (
+                        <Badge variant="outline" className="text-[10px] gap-1 border-success/40 text-success"><Receipt className="h-3 w-3" />Ingreso</Badge>
                       ) : (
                         <Badge variant="outline" className="text-[10px]">Efectivo</Badge>
                       )}
@@ -372,6 +375,11 @@ export default function CajaMenor() {
                               <Receipt className="h-3 w-3" />
                               Cuenta de cobro
                             </Badge>
+                          ) : r.kind === 'ingreso_efectivo' ? (
+                            <Badge variant="outline" className="text-[10px] gap-1 border-success/40 text-success">
+                              <Receipt className="h-3 w-3" />
+                              Ingreso
+                            </Badge>
                           ) : (
                             <Badge variant="outline" className="text-[10px]">Efectivo</Badge>
                           )}
@@ -429,7 +437,13 @@ export default function CajaMenor() {
                               size="sm"
                               className="h-8 gap-1.5 text-primary hover:text-primary"
                               onClick={() => setPdfMovement(r)}
-                              title={r.kind === 'cuenta_de_cobro' ? 'Generar cuenta de cobro' : 'Generar comprobante de pago'}
+                              title={
+                                r.kind === 'cuenta_de_cobro'
+                                  ? 'Generar cuenta de cobro'
+                                  : r.kind === 'ingreso_efectivo'
+                                    ? 'Generar comprobante de ingreso'
+                                    : 'Generar comprobante de pago'
+                              }
                             >
                               <FileDown className="h-3.5 w-3.5" />
                               PDF
@@ -560,11 +574,22 @@ export default function CajaMenor() {
           </Card>
         )}
 
-        <GenerarCuentaDeCobroModal
-          movement={pdfMovement}
-          open={pdfMovement !== null}
-          onOpenChange={(o) => !o && setPdfMovement(null)}
-        />
+        {/* Router de PDF según kind del movimiento:
+            - ingreso_efectivo → Comprobante de ingreso (recibo de caja)
+            - cuenta_de_cobro / gasto_efectivo → Cuenta de cobro / Comprobante de pago */}
+        {pdfMovement?.kind === 'ingreso_efectivo' ? (
+          <GenerarComprobanteIngresoModal
+            movement={pdfMovement}
+            open={pdfMovement !== null}
+            onOpenChange={(o) => !o && setPdfMovement(null)}
+          />
+        ) : (
+          <GenerarCuentaDeCobroModal
+            movement={pdfMovement}
+            open={pdfMovement !== null}
+            onOpenChange={(o) => !o && setPdfMovement(null)}
+          />
+        )}
 
         <CerrarCajaModal
           open={closeModalOpen}
