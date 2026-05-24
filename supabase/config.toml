@@ -85,3 +85,12 @@ verify_jwt = false
 
 [functions.mcp]
 verify_jwt = false
+
+[functions.score-collection-clients]
+verify_jwt = false
+
+[functions.draft-collection-message]
+verify_jwt = false
+
+[functions.weekly-collection-report]
+verify_jwt = false

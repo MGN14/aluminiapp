@@ -98,7 +98,7 @@ const movementItemsGerencial: NavItem[] = [
 const reportItems: NavItem[] = [
   { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3, hasGerencialVariant: true, permKey: 'estado_resultados' },
   { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt, permKey: 'anticipos' },
-  { title: 'Lo que me deben', url: '/reportes/cuentas-por-cobrar', icon: Users, hideInGerencial: true, permKey: 'cuentas_por_cobrar' },
+  { title: 'Módulo de Cobranza', url: '/reportes/cuentas-por-cobrar', icon: Users, hideInGerencial: true, permKey: 'cuentas_por_cobrar' },
   { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins, permKey: 'cuentas_por_pagar' },
   { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet, permKey: 'flujo_caja' },
   { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks, permKey: 'relacion_pagos' },

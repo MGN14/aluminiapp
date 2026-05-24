@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { cn } from '@/lib/utils';
 import VincularPagoModal from './VincularPagoModal';
 import AcordarPagoModal from '@/components/expected-payments/AcordarPagoModal';
+import AgingReportTable from '@/components/collection/AgingReportTable';
 import {
   calculateAllClientReceivables,
   type ClientReceivable,
@@ -124,7 +125,7 @@ export default function AccountsReceivableReport() {
           <CardHeader className="pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-2">
-                <CardTitle className="text-lg">Lo que me deben</CardTitle>
+                <CardTitle className="text-lg">Módulo de Cobranza</CardTitle>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Info className="h-4 w-4 text-muted-foreground cursor-help" />
@@ -221,14 +222,17 @@ export default function AccountsReceivableReport() {
           )}
         </div>
 
-        {/* Tabla por cliente */}
+        {/* Aging report + scores IA + touchpoints (módulo de cobranza nuevo) */}
+        <AgingReportTable year={year} />
+
+        {/* Tabla por cliente (vista clásica con detalle de facturas) */}
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" />
                 <CardTitle className="text-sm font-medium">
-                  Saldo por cliente ({clientsConDeuda.length})
+                  Detalle de facturas por cliente ({clientsConDeuda.length})
                 </CardTitle>
               </div>
             </div>

@@ -279,6 +279,62 @@ const TOOLS_SCHEMA = [
       },
     },
   },
+  {
+    name: "aging_report",
+    description: "Aging report: distribuye el saldo pendiente por cliente en buckets de envejecimiento (Corriente, 1-30, 31-60, 61-90, >90 días vencidos).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        year: { type: "number", description: "Año fiscal. Default = año actual." },
+      },
+    },
+  },
+  {
+    name: "get_collection_score",
+    description: "Score IA de probabilidad de pago (0-100) + categoría + acción recomendada para un cliente específico. Usa el cache calculado por el cron diario.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        client_name: { type: "string", description: "Nombre del cliente." },
+      },
+      required: ["client_name"],
+    },
+  },
+  {
+    name: "top_collection_priorities",
+    description: "Top N clientes a priorizar para cobranza hoy: los que más deben + más vencido + peor score. Devuelve la 'bandeja del día'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Default 10, max 50." },
+      },
+    },
+  },
+  {
+    name: "register_collection_touchpoint",
+    description: "Registra un contacto con un cliente (llamada, email, WhatsApp, etc.) con su outcome. Útil para que la IA registre acciones tomadas en bandeja.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        client_name: { type: "string" },
+        channel: { type: "string", enum: ["llamada","email","whatsapp","sms","visita","reunion","otro"] },
+        outcome: { type: "string", enum: ["contactado","no_contesto","prometio_pago","compromiso_parcial","disputa","sin_respuesta","otro"] },
+        notes: { type: "string", description: "Notas opcionales del contacto." },
+      },
+      required: ["client_name", "channel", "outcome"],
+    },
+  },
+  {
+    name: "list_recent_touchpoints",
+    description: "Lista los últimos N touchpoints registrados, opcionalmente filtrados por cliente.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        client_name: { type: "string", description: "Filtra por cliente (opcional)." },
+        limit: { type: "number", description: "Default 20, max 200." },
+      },
+    },
+  },
 ];
 
 // ===========================================================================
@@ -529,6 +585,217 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       total_pending: round2(total),
       invoices: data ?? [],
     };
+  },
+
+  async aging_report(db, userId, args) {
+    const year = (typeof args.year === "number" ? args.year : new Date().getFullYear());
+    const { data, error } = await db.from("invoices")
+      .select("id, counterparty_name, responsible_id, issue_date, due_date, dias_credito, balance_pending")
+      .eq("user_id", userId)
+      .eq("type", "venta")
+      .is("voided_at", null)
+      .gt("balance_pending", 0)
+      .gte("issue_date", `${year}-01-01`)
+      .lte("issue_date", `${year}-12-31`);
+    if (error) throw new Error(error.message);
+
+    const today = new Date();
+    type Bucket = { corriente: number; d1_30: number; d31_60: number; d61_90: number; d90_plus: number; total: number; oldest_overdue_days: number };
+    const groups = new Map<string, Bucket & { name: string }>();
+    const totalBuckets: Bucket = { corriente: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90_plus: 0, total: 0, oldest_overdue_days: 0 };
+
+    for (const inv of (data ?? []) as any[]) {
+      const pending = Number(inv.balance_pending) || 0;
+      if (pending <= 0) continue;
+      const issue = new Date(inv.issue_date);
+      let venc = issue;
+      if (inv.due_date) venc = new Date(inv.due_date);
+      else if (inv.dias_credito) { venc = new Date(issue); venc.setDate(venc.getDate() + inv.dias_credito); }
+      const daysOverdue = Math.floor((today.getTime() - venc.getTime()) / 86400000);
+      const name = inv.counterparty_name ?? "(sin nombre)";
+      const key = name;
+      const g = groups.get(key) ?? { name, corriente: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90_plus: 0, total: 0, oldest_overdue_days: 0 };
+      if (daysOverdue <= 0) g.corriente += pending;
+      else if (daysOverdue <= 30) g.d1_30 += pending;
+      else if (daysOverdue <= 60) g.d31_60 += pending;
+      else if (daysOverdue <= 90) g.d61_90 += pending;
+      else g.d90_plus += pending;
+      g.total += pending;
+      if (daysOverdue > g.oldest_overdue_days) g.oldest_overdue_days = daysOverdue;
+      groups.set(key, g);
+    }
+
+    const clients = [...groups.values()]
+      .sort((a, b) => b.oldest_overdue_days - a.oldest_overdue_days || b.total - a.total)
+      .map(g => ({
+        client_name: g.name,
+        oldest_overdue_days: g.oldest_overdue_days,
+        corriente: round2(g.corriente),
+        d1_30: round2(g.d1_30),
+        d31_60: round2(g.d31_60),
+        d61_90: round2(g.d61_90),
+        d90_plus: round2(g.d90_plus),
+        total: round2(g.total),
+      }));
+
+    for (const c of clients) {
+      totalBuckets.corriente += c.corriente;
+      totalBuckets.d1_30 += c.d1_30;
+      totalBuckets.d31_60 += c.d31_60;
+      totalBuckets.d61_90 += c.d61_90;
+      totalBuckets.d90_plus += c.d90_plus;
+      totalBuckets.total += c.total;
+    }
+
+    const safeDiv = (n: number, d: number) => d > 0 ? Math.round((n / d) * 1000) / 10 : 0;
+
+    return {
+      year,
+      totals: {
+        corriente: round2(totalBuckets.corriente),
+        d1_30: round2(totalBuckets.d1_30),
+        d31_60: round2(totalBuckets.d31_60),
+        d61_90: round2(totalBuckets.d61_90),
+        d90_plus: round2(totalBuckets.d90_plus),
+        total: round2(totalBuckets.total),
+      },
+      pct: {
+        corriente: safeDiv(totalBuckets.corriente, totalBuckets.total),
+        d1_30: safeDiv(totalBuckets.d1_30, totalBuckets.total),
+        d31_60: safeDiv(totalBuckets.d31_60, totalBuckets.total),
+        d61_90: safeDiv(totalBuckets.d61_90, totalBuckets.total),
+        d90_plus: safeDiv(totalBuckets.d90_plus, totalBuckets.total),
+        vencido_total: safeDiv(totalBuckets.d1_30 + totalBuckets.d31_60 + totalBuckets.d61_90 + totalBuckets.d90_plus, totalBuckets.total),
+      },
+      clients,
+    };
+  },
+
+  async get_collection_score(db, userId, args) {
+    const name = String(args.client_name ?? "").trim();
+    if (!name) throw new Error("client_name requerido");
+    const { data, error } = await db.from("client_collection_scores")
+      .select("client_name, score, category, reasoning, recommended_action, total_owed, oldest_overdue_days, invoices_count, scored_at")
+      .eq("user_id", userId)
+      .ilike("client_name", `%${name}%`)
+      .order("scored_at", { ascending: false })
+      .limit(5);
+    if (error) throw new Error(error.message);
+    return {
+      query: name,
+      matches: data ?? [],
+      note: data?.length === 0 ? "Sin score calculado todavía. Pedile al usuario que toque 'Recalcular scores IA' en el Módulo de Cobranza." : null,
+    };
+  },
+
+  async top_collection_priorities(db, userId, args) {
+    const limit = Math.min(clampLimit(args.limit, 10), 50);
+    // Estrategia: facturas más viejas + score bajo si existe
+    const { data: invs, error } = await db.from("invoices")
+      .select("counterparty_name, responsible_id, issue_date, due_date, dias_credito, balance_pending")
+      .eq("user_id", userId)
+      .eq("type", "venta")
+      .is("voided_at", null)
+      .gt("balance_pending", 0);
+    if (error) throw new Error(error.message);
+
+    const today = new Date();
+    const byClient = new Map<string, { name: string; total: number; oldest: number; invoices_count: number }>();
+    for (const inv of (invs ?? []) as any[]) {
+      const pending = Number(inv.balance_pending) || 0;
+      if (pending <= 0) continue;
+      const issue = new Date(inv.issue_date);
+      let venc = issue;
+      if (inv.due_date) venc = new Date(inv.due_date);
+      else if (inv.dias_credito) { venc = new Date(issue); venc.setDate(venc.getDate() + inv.dias_credito); }
+      const overdue = Math.floor((today.getTime() - venc.getTime()) / 86400000);
+      const name = inv.counterparty_name ?? "(sin nombre)";
+      const c = byClient.get(name) ?? { name, total: 0, oldest: 0, invoices_count: 0 };
+      c.total += pending;
+      c.invoices_count += 1;
+      if (overdue > c.oldest) c.oldest = overdue;
+      byClient.set(name, c);
+    }
+
+    // Traer scores
+    const { data: scores } = await db.from("client_collection_scores")
+      .select("client_name, score, category, recommended_action")
+      .eq("user_id", userId);
+    const scoreByName = new Map<string, any>();
+    for (const s of (scores ?? []) as any[]) {
+      scoreByName.set(s.client_name.toLowerCase(), s);
+    }
+
+    const priorities = [...byClient.values()]
+      .map(c => {
+        const s = scoreByName.get(c.name.toLowerCase());
+        // Score de prioridad: vencimiento + monto - confianza_pago
+        const urgency = Math.min(100, c.oldest); // 0-100
+        const confidence = s?.score ?? 50; // default 50 si sin score
+        const priorityScore = urgency + (100 - confidence) + Math.min(50, c.total / 1000000); // ad-hoc
+        return {
+          client_name: c.name,
+          total_owed: round2(c.total),
+          oldest_overdue_days: c.oldest,
+          invoices_count: c.invoices_count,
+          ai_score: s?.score ?? null,
+          ai_category: s?.category ?? null,
+          ai_recommended_action: s?.recommended_action ?? null,
+          priority_score: round2(priorityScore),
+        };
+      })
+      .sort((a, b) => b.priority_score - a.priority_score)
+      .slice(0, limit);
+
+    return {
+      generated_at: new Date().toISOString(),
+      priorities,
+      note: "Ordenado por urgencia (días vencido + monto + score IA inverso). Atender de arriba abajo.",
+    };
+  },
+
+  async register_collection_touchpoint(db, userId, args) {
+    const validChannels = ["llamada","email","whatsapp","sms","visita","reunion","otro"];
+    const validOutcomes = ["contactado","no_contesto","prometio_pago","compromiso_parcial","disputa","sin_respuesta","otro"];
+    const clientName = String(args.client_name ?? "").trim();
+    const channel = String(args.channel ?? "");
+    const outcome = String(args.outcome ?? "");
+    if (!clientName) throw new Error("client_name requerido");
+    if (!validChannels.includes(channel)) throw new Error(`channel inválido. Opciones: ${validChannels.join(", ")}`);
+    if (!validOutcomes.includes(outcome)) throw new Error(`outcome inválido. Opciones: ${validOutcomes.join(", ")}`);
+
+    // Buscar responsible_id si existe
+    const { data: resp } = await db.from("responsibles")
+      .select("id")
+      .eq("user_id", userId)
+      .ilike("name", clientName)
+      .limit(1)
+      .maybeSingle();
+
+    const { data, error } = await db.from("collection_touchpoints").insert({
+      user_id: userId,
+      responsible_id: resp?.id ?? null,
+      client_name: clientName,
+      channel,
+      outcome,
+      notes: args.notes ? String(args.notes) : null,
+    }).select("id, contacted_at").single();
+
+    if (error) throw new Error(error.message);
+    return { success: true, touchpoint_id: data?.id, contacted_at: data?.contacted_at };
+  },
+
+  async list_recent_touchpoints(db, userId, args) {
+    const limit = clampLimit(args.limit, 20);
+    let q = db.from("collection_touchpoints")
+      .select("client_name, channel, outcome, notes, contacted_at")
+      .eq("user_id", userId)
+      .order("contacted_at", { ascending: false })
+      .limit(limit);
+    if (args.client_name) q = q.ilike("client_name", `%${args.client_name}%`);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return { count: data?.length ?? 0, touchpoints: data ?? [] };
   },
 };
 
