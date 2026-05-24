@@ -306,17 +306,25 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     // IVA solo desde invoices DIAN (status='confirmed'). NO sumar transactions
     // con has_iva: esas son el reflejo bancario del cobro de la misma factura,
     // contarlas duplica el IVA. Las invoices son la fuente fiscal canónica.
+    //
+    // ivaGenerado/ivaDescontable: del cuatrimestre actual (para mostrar detalle)
     const ivaSource = cuatrimestreInvoices.length > 0 ? cuatrimestreInvoices : invoices;
     const ivaVentas = ivaSource.filter(i => i.type === 'venta');
     const ivaCompras = ivaSource.filter(i => i.type === 'compra');
     const ivaGenerado = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
     const ivaDescontable = ivaCompras.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaNeto = ivaGenerado - ivaDescontable;
 
-    // IVA YTD — misma fuente única (invoices)
+    // IVA YTD (acumulado del año): incluye implícitamente el saldo a favor
+    // arrastrado de cuatrimestres anteriores. En Colombia, el saldo a favor de
+    // un cuatrimestre se imputa al siguiente automáticamente (no se pierde).
+    // Por eso ivaNeto = YTD, no del cuatrimestre aislado.
     const ivaGeneradoYtd = ventasYear.reduce((s, i) => s + i.iva_amount, 0);
     const ivaDescontableYtd = comprasYear.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaNetoYtd = -(ivaDescontableYtd - ivaGeneradoYtd);
+    const ivaNetoYtd = ivaGeneradoYtd - ivaDescontableYtd;
+
+    // ivaNeto que ve el dashboard: saldo VIVO (YTD acumulado, con arrastre).
+    // Si ivaNeto > 0 → a pagar este cuatrimestre. Si < 0 → saldo a favor.
+    const ivaNeto = ivaNetoYtd;
 
     const totalFacturadoVentas = ventas.reduce((s, i) => s + i.total_amount, 0);
     const totalBaseVentas = ventas.reduce((s, i) => s + i.subtotal_base, 0);

@@ -625,11 +625,15 @@ function DashboardContent() {
               </div>
               <div className="flex items-center text-xs text-muted-foreground mt-1 gap-1">
                 <Calendar className="h-3 w-3" />
-                {cuatrimestre.label}
+                Acumulado año {periodSelection.year}
               </div>
               <div className="flex items-start gap-1 mt-3 p-2 bg-muted/40 rounded-lg text-[10px] text-muted-foreground">
                 <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                <span>Estimado desde facturas confirmadas.</span>
+                <span>
+                  Saldo vivo a hoy = IVA generado YTD − IVA descontable YTD.
+                  Incluye el saldo a favor arrastrado de cuatrimestres anteriores
+                  (en Colombia se imputa automáticamente al siguiente cuatrimestre).
+                </span>
               </div>
             </CardContent>
           </Card>
