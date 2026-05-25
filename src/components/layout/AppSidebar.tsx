@@ -28,6 +28,7 @@ import {
   Sparkles,
   Boxes,
   Ship,
+  Mail,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -112,6 +113,7 @@ const reportItemsGerencial: NavItem[] = [
 
 const exportItems: NavItem[] = [
   { title: 'Exportar movimientos', url: '/export', icon: Download, permKey: 'exportar' },
+  { title: 'Campañas Email', url: '/admin/campaigns', icon: Mail, founderOnly: true },
   { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true, permKey: 'informe_dian' },
 ];
 

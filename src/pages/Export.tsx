@@ -14,8 +14,6 @@ import { toast as sonnerToast } from 'sonner';
 import EnviarExportModal from '@/components/export/EnviarExportModal';
 import BackupZipCard from '@/components/export/BackupZipCard';
 import { useAuth } from '@/hooks/useAuth';
-import { useSubscription } from '@/hooks/useSubscription';
-import { Link } from 'react-router-dom';
 
 interface StatementOption {
   id: string;
@@ -32,7 +30,6 @@ interface StatementOption {
 export default function Export() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const { isAdmin, isFounder } = useSubscription();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [statements, setStatements] = useState<StatementOption[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -635,62 +632,6 @@ export default function Export() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Herramientas Admin (solo founder/admin) */}
-        {(isAdmin || isFounder) && (
-          <Card className="border-primary/30 bg-primary/[0.02]">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldAlert className="h-5 w-5 text-primary" />
-                Herramientas Admin
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/30 ml-1">
-                  Solo founder
-                </span>
-              </CardTitle>
-              <CardDescription>
-                Acciones avanzadas que solo vos como administrador podés ejecutar.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Link
-                  to="/admin/campaigns"
-                  className="flex items-start gap-3 p-4 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors group"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20">
-                    <Mail className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground">Campañas de Email</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Envío masivo a usuarios (todos / por plan / lista custom). MVP con Resend.
-                    </p>
-                    <p className="text-xs text-primary mt-1.5 group-hover:underline inline-flex items-center gap-1">
-                      Abrir <ArrowRight className="h-3 w-3" />
-                    </p>
-                  </div>
-                </Link>
-                <Link
-                  to="/founder"
-                  className="flex items-start gap-3 p-4 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors group"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0 group-hover:bg-accent/20">
-                    <Sparkles className="h-5 w-5 text-accent" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground">Panel Founder</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Analytics de Nico IA, evolución de prompts, métricas internas.
-                    </p>
-                    <p className="text-xs text-accent mt-1.5 group-hover:underline inline-flex items-center gap-1">
-                      Abrir <ArrowRight className="h-3 w-3" />
-                    </p>
-                  </div>
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Disclaimer */}
         <Card className="border-muted bg-muted/30">
