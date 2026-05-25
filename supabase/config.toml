@@ -100,3 +100,6 @@ verify_jwt = false
 
 [functions.auto-match-pending]
 verify_jwt = false
+
+[functions.match-bank-payments]
+verify_jwt = false
