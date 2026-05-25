@@ -9,6 +9,7 @@ import { parseLocalDate } from '@/lib/dateUtils';
 import {
   ChartFilterBar, useChartFilterBool, useChartFilterParam, type FilterControlSpec,
 } from '@/components/dashboard/ChartFilterBar';
+import { useCashflowForecastDaily } from '@/hooks/useCashflowForecast';
 
 interface CashFlowTx {
   date: string;
@@ -54,6 +55,8 @@ interface CashRow {
   bucketKey: string;
   label: string;
   balance: number;
+  /** Solo presente para filas FUTURAS (proyección). null para histórico. */
+  projectedBalance: number | null;
   delta: number;
   positiveArea: number | null;
   negativeArea: number | null;
@@ -67,6 +70,10 @@ export function CashFlowChart({ transactions, periodStart, periodEnd, periodLabe
     CHART_ID, 'granularity', 'daily', ['daily', 'weekly', 'monthly'],
   );
   const [showZones, setShowZones] = useChartFilterBool(CHART_ID, 'zones', true);
+  const [showForecast, setShowForecast] = useChartFilterBool(CHART_ID, 'forecast', true);
+
+  // Forecast diario (próximos 60 días). Solo se muestra si granularity=daily.
+  const forecast = useCashflowForecastDaily(60);
 
   const dailySeries = useMemo(() => {
     if (transactions.length === 0) return [];
@@ -143,7 +150,7 @@ export function CashFlowChart({ transactions, periodStart, periodEnd, periodLabe
           : b.date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
       const isMarker = granularity === 'daily' && Math.abs(b.maxAbsAmount) > markerThreshold && markerThreshold > 0;
       return {
-        bucketKey: b.key, label, balance: b.balance, delta,
+        bucketKey: b.key, label, balance: b.balance, projectedBalance: null, delta,
         positiveArea: showZones && delta >= 0 ? b.balance : null,
         negativeArea: showZones && delta < 0 ? b.balance : null,
         marker: isMarker ? b.balance : null,
@@ -153,6 +160,37 @@ export function CashFlowChart({ transactions, periodStart, periodEnd, periodLabe
     });
   }, [dailySeries, granularity, showZones, markerThreshold]);
 
+  // Anexar filas de PROYECCIÓN al final (solo si granularity=daily y showForecast).
+  // El primer punto proyectado conecta visualmente con el último real (clonado).
+  const rowsWithForecast: CashRow[] = useMemo(() => {
+    if (granularity !== 'daily' || !showForecast || !forecast.data || forecast.data.length === 0) {
+      return rows;
+    }
+    if (rows.length === 0) return rows;
+    const lastReal = rows[rows.length - 1];
+    // Bridge: el último real recibe también projectedBalance para que las líneas se toquen
+    const bridged = [...rows];
+    bridged[bridged.length - 1] = { ...lastReal, projectedBalance: lastReal.balance };
+
+    const forecastRows: CashRow[] = forecast.data.slice(1).map((d) => {
+      const date = new Date(d.fecha + 'T00:00:00');
+      const label = date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+      return {
+        bucketKey: `forecast-${d.fecha}`,
+        label,
+        balance: NaN, // no histórico
+        projectedBalance: d.cumulative_balance,
+        delta: d.net,
+        positiveArea: null,
+        negativeArea: null,
+        marker: null,
+        markerKind: null,
+        markerAmount: 0,
+      };
+    });
+    return [...bridged, ...forecastRows];
+  }, [rows, forecast.data, granularity, showForecast]);
+
   const controls: FilterControlSpec[] = [
     {
       kind: 'toggle', id: 'granularity', label: 'Granularidad', value: granularity, onChange: setGranularity,
@@ -161,6 +199,7 @@ export function CashFlowChart({ transactions, periodStart, periodEnd, periodLabe
       ],
     },
     { kind: 'switch', id: 'zones', label: 'Zonas color', value: showZones, onChange: setShowZones },
+    ...(granularity === 'daily' ? [{ kind: 'switch' as const, id: 'forecast', label: 'Proyección 60d', value: showForecast, onChange: setShowForecast }] : []),
   ];
 
   if (rows.length === 0) {
@@ -192,7 +231,7 @@ export function CashFlowChart({ transactions, periodStart, periodEnd, periodLabe
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={rows} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
+          <ComposedChart data={rowsWithForecast} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
             <defs>
               <linearGradient id="cashflow-positive" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={CHART_COLORS.income} stopOpacity={0.32} />
@@ -242,7 +281,10 @@ export function CashFlowChart({ transactions, periodStart, periodEnd, periodLabe
               <Area type="monotone" dataKey="positiveArea" stroke="none" fill="url(#cashflow-positive)" isAnimationActive={false} connectNulls={false} />
               <Area type="monotone" dataKey="negativeArea" stroke="none" fill="url(#cashflow-negative)" isAnimationActive={false} connectNulls={false} />
             </>)}
-            <Line type="monotone" dataKey="balance" name="Saldo" stroke={CHART_COLORS.income} strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} />
+            <Line type="monotone" dataKey="balance" name="Saldo" stroke={CHART_COLORS.income} strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} connectNulls={false} />
+            {granularity === 'daily' && showForecast && (
+              <Line type="monotone" dataKey="projectedBalance" name="Proyección" stroke="oklch(0.6 0.2 250)" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls={false} />
+            )}
             {granularity === 'daily' && (
               <Scatter dataKey="marker" fill={CHART_COLORS.income}
                 shape={(props: { cx?: number; cy?: number; payload?: CashRow }) => {

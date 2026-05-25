@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, Wallet, Calendar, BarChart3, Zap, Flag } from 'lucide-react';
 import { MONTH_LABELS_SHORT } from '@/lib/constants';
+import CashflowForecastPanel from './CashflowForecastPanel';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -185,10 +186,17 @@ export default function NicoPronosticos() {
 
   return (
     <div className="space-y-5">
-      {/* Confianza */}
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      {/* NUEVO: panel de cashflow forecast basado en data real (promesas, facturas, créditos) */}
+      <CashflowForecastPanel />
+
+      {/* Pronóstico clásico (promedio ponderado + tendencia) — mantiene la vista existente */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground pt-4 border-t border-border">
         <Zap className="h-3.5 w-3.5 text-accent" />
-        <span>Pronóstico basado en promedio ponderado + tendencia · Confianza: <strong>{pronosticos.confianza}%</strong></span>
+        <span>
+          <strong>Pronóstico clásico</strong> (estadístico): promedio ponderado + tendencia ·
+          Confianza: <strong>{pronosticos.confianza}%</strong>.
+          Más simple que el de arriba pero útil para comparar.
+        </span>
       </div>
 
       {/* Alertas */}

@@ -226,9 +226,9 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
           severidad: pct > 50 ? 'alert' : 'warning',
           confianza: 90,
           preguntaNico: `¿Cómo puedo optimizar mis gastos en "${catNombre}" que representan el ${pct.toFixed(0)}% de mis egresos?`,
-          automatable: true,
-          suggestedKeyword: catNombre.toUpperCase(),
-          suggestedType: 'egreso',
+          // automatable: false — este es un INSIGHT estratégico, no una regla de matching.
+          // El nombre de la categoría no aparece literalmente en descripciones bancarias,
+          // así que crear una "regla" con keyword=categoría no matchearía nada.
         });
       }
     }
@@ -345,8 +345,8 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         severidad: pctSinCat > 40 ? 'alert' : 'warning',
         confianza: 100,
         preguntaNico: `¿Cuáles son las transacciones sin categorizar más importantes que debería clasificar primero?`,
-        automatable: true,
-        suggestedType: 'egreso',
+        // automatable: false — métrica estadística, no es matcheable a regla.
+        // Para arreglar esto, el user debe ir a /transactions y categorizar manualmente.
       });
     }
 
@@ -395,12 +395,18 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
     });
   };
 
-  // High-confidence automatable patterns (suggestions for rules)
-  // Excluye patrones que ya tienen regla creada — viven en el módulo Reglas
+  // High-confidence AUTOMATABLE patterns (convertibles a reglas de matching).
+  // Requieren keyword + tipo de movimiento que matchee descripción bancaria real.
+  // Excluye patrones que ya tienen regla creada — viven en el módulo Reglas.
   const sugerencias = patrones.filter(p => p.automatable && p.confianza >= 90 && !hasExistingRule(p));
 
+  // High-confidence INSIGHTS (no son reglas — son análisis estratégicos).
+  // Ej: "margen bajo", "concentración cliente", "categoría dominante".
+  // Tienen confianza alta pero NO se convierten en regla; van con CTA distinto.
+  const insightsClave = patrones.filter(p => !p.automatable && p.confianza >= 90);
+
   // IDs de patrones ya mostrados arriba en "alta confianza" — para deduplicar abajo
-  const sugerenciasIds = new Set(sugerencias.map(p => p.id));
+  const sugerenciasIds = new Set([...sugerencias.map(p => p.id), ...insightsClave.map(p => p.id)]);
 
   const openCrearRegla = (p: Patron) => {
     setReglaModal({
@@ -478,6 +484,54 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
               {rules.filter(r => r.active).length} regla{rules.filter(r => r.active).length > 1 ? 's' : ''} activa{rules.filter(r => r.active).length > 1 ? 's' : ''} — se aplican automáticamente al subir extracto
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── INSIGHTS ESTRATÉGICOS DE ALTA CONFIANZA ─────────────── */}
+      {/* Estos no son reglas — son alertas/análisis que requieren decisión humana */}
+      {insightsClave.length > 0 && (
+        <div className="rounded-xl border border-accent/30 bg-accent/5 overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-3 bg-accent/10 border-b border-accent/20">
+            <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center shrink-0">
+              <AlertTriangle className="h-4 w-4 text-accent" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-accent">
+                {insightsClave.length} insight{insightsClave.length > 1 ? 's' : ''} estratégico{insightsClave.length > 1 ? 's' : ''} con alta confianza
+              </p>
+              <p className="text-xs text-accent/70">
+                No son reglas automatizables — son análisis que requieren tu decisión. Preguntale a Nico cómo accionar.
+              </p>
+            </div>
+          </div>
+          <div className="divide-y divide-accent/10">
+            {insightsClave.map(p => {
+              const SevIcon = SEV_CONFIG[p.severidad].icon;
+              return (
+                <div key={p.id} className="flex items-start gap-3 px-4 py-3">
+                  <SevIcon className={`h-4 w-4 shrink-0 mt-0.5 ${SEV_CONFIG[p.severidad].color}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                      <span className="text-sm font-medium text-foreground">{p.titulo}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent font-medium">
+                        {p.confianza}% confianza
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{p.descripcion}</p>
+                  </div>
+                  {p.preguntaNico && onPreguntarNico && (
+                    <button
+                      onClick={() => onPreguntarNico(p.preguntaNico!)}
+                      className="shrink-0 flex items-center gap-1 text-xs text-accent hover:text-accent/80 font-medium transition-colors h-8"
+                    >
+                      Preguntarle a Nico
+                      <ChevronRight className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
