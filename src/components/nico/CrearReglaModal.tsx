@@ -53,6 +53,7 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
   const [categoryId, setCategoryId] = useState('');
   const [responsibleId, setResponsibleId] = useState('');
   const [autoConciliate, setAutoConciliate] = useState(true);
+  const [keywordIsRegex, setKeywordIsRegex] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Pre-fill from editRule (priority) or patron when modal opens
@@ -69,6 +70,7 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
       setCategoryId(editRule.category_id ?? '');
       setResponsibleId(editRule.responsible_id ?? '');
       setAutoConciliate(editRule.auto_conciliate ?? true);
+      setKeywordIsRegex((editRule as { keyword_is_regex?: boolean }).keyword_is_regex ?? false);
     } else {
       setName(patron?.titulo ?? '');
       setKeyword(patron?.suggestedKeyword ?? '');
@@ -80,6 +82,7 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
       setCategoryId('');
       setResponsibleId('');
       setAutoConciliate(true);
+      setKeywordIsRegex(false);
     }
   }, [open, patron, editRule]);
 
@@ -123,7 +126,17 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
     try {
       const categoryIdClean = categoryId && categoryId !== '__none__' ? categoryId : undefined;
       const responsibleIdClean = responsibleId && responsibleId !== '__none__' ? responsibleId : undefined;
-      const payload: NewReconciliationRule = {
+      // Si es regex, validar que compile (evitar guardar regex inválido que rompa el trigger)
+      if (keywordIsRegex && keyword.trim()) {
+        try {
+          new RegExp(keyword.trim(), 'i');
+        } catch (e) {
+          toast.error('Regex inválido: ' + (e as Error).message);
+          setSaving(false);
+          return;
+        }
+      }
+      const payload: NewReconciliationRule & { keyword_is_regex?: boolean } = {
         name: name.trim(),
         pattern_ref: editRule?.pattern_ref ?? patron?.id,
         keyword: keyword.trim(),
@@ -137,6 +150,7 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
         responsible_id: responsibleIdClean,
         responsible_name: responsibleIdClean ? responsibles.find(r => r.id === responsibleIdClean)?.name : undefined,
         auto_conciliate: autoConciliate,
+        keyword_is_regex: keywordIsRegex,
       };
 
       if (isEdit && editRule) {
@@ -194,16 +208,30 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
 
           {/* Keyword */}
           <div>
-            <Label className="text-sm font-medium">Palabra clave en la descripción bancaria *</Label>
+            <Label className="text-sm font-medium">
+              {keywordIsRegex ? 'Regex (case-insensitive) *' : 'Palabra clave en la descripción bancaria *'}
+            </Label>
             <Input
               value={keyword}
-              onChange={e => setKeyword(e.target.value.toUpperCase())}
-              placeholder="Ej: NETFLIX, CLARO, ARRIENDO..."
-              className="mt-1.5 font-mono uppercase"
+              onChange={e => setKeyword(keywordIsRegex ? e.target.value : e.target.value.toUpperCase())}
+              placeholder={keywordIsRegex ? 'Ej: PAGO.*ALUMINIOS|FERR' : 'Ej: NETFLIX, CLARO, ARRIENDO...'}
+              className={`mt-1.5 font-mono ${keywordIsRegex ? '' : 'uppercase'}`}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Si la transacción contiene esta palabra, Nico aplica la regla automáticamente (sin distinguir mayúsculas)
+              {keywordIsRegex
+                ? 'Regex POSIX (ej: "ALUMINIOS|FERR" matchea cualquiera de los dos). Sin distinguir mayúsculas.'
+                : 'Si la transacción contiene esta palabra, Nico aplica la regla automáticamente (sin distinguir mayúsculas).'}
             </p>
+            <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded bg-muted/40 border border-border">
+              <Switch
+                id="regex-toggle"
+                checked={keywordIsRegex}
+                onCheckedChange={setKeywordIsRegex}
+              />
+              <Label htmlFor="regex-toggle" className="text-xs cursor-pointer">
+                Usar regex (avanzado) — para patrones complejos con OR / wildcards
+              </Label>
+            </div>
           </div>
 
           {/* Type */}

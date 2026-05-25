@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMatchStats } from '@/hooks/useMatchStats';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -23,7 +24,9 @@ function formatCOP(n: number) {
 }
 
 export default function NicoReglas() {
-  const { rules, isLoading, toggleRule, deleteRule, applyRulesToAllUserTransactions } = useReconciliationRules();
+  const { rules, isLoading, toggleRule, deleteRule, applyRulesToAllUserTransactions, applyPendingRulesViaRPC } = useReconciliationRules();
+  // Stats de auto-matches (últimos 30 días) — leídos de transaction_match_log
+  const matchStats = useMatchStats();
   const [editRule, setEditRule] = useState<ReconciliationRule | undefined>();
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ReconciliationRule | undefined>();
@@ -42,19 +45,26 @@ export default function NicoReglas() {
     setLastResult(null);
     setApplyProgress({ current: 0, total: 0 });
     try {
-      const result = await applyRulesToAllUserTransactions((current, total) => {
-        setApplyProgress({ current, total });
+      // RPC en DB: 10-50x más rápido que iterar en JS, y respeta la misma
+      // lógica que el trigger AFTER INSERT (consistencia 1:1).
+      const stats = await applyPendingRulesViaRPC(5000);
+      setLastResult({
+        total: stats.processed,
+        categorized: stats.matched,
+        skipped: stats.processed - stats.matched,
+        errors: 0,
       });
-      setLastResult(result);
-      if (result.categorized > 0) {
-        toast.success(`${result.categorized} transacciones categorizadas automáticamente.`);
-      } else if (result.total === 0) {
-        toast.info('No había transacciones sin categoría para procesar.');
-      } else {
-        toast.info(`${result.total} transacciones revisadas; ninguna coincidió con tus reglas.`);
-      }
     } catch (e: any) {
-      toast.error('Error aplicando reglas: ' + (e?.message ?? 'intenta de nuevo'));
+      // Fallback al método legacy en TS por si el RPC no existe (DB sin migration)
+      console.warn('RPC apply_pending_rules_for_user falló, usando fallback TS:', e?.message);
+      try {
+        const result = await applyRulesToAllUserTransactions((current, total) => {
+          setApplyProgress({ current, total });
+        });
+        setLastResult(result);
+      } catch (e2: any) {
+        toast.error('Error aplicando reglas: ' + (e2?.message ?? 'intenta de nuevo'));
+      }
     } finally {
       setApplyingAll(false);
       setApplyProgress(null);
@@ -109,6 +119,34 @@ export default function NicoReglas() {
 
   return (
     <div className="space-y-3">
+      {/* Stats de auto-matching (últimos 30 días) */}
+      {matchStats.data && matchStats.data.total_last_30d > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div className="p-2 rounded border border-success/30 bg-success/5">
+            <p className="text-muted-foreground">🤖 Auto al INSERT</p>
+            <p className="font-bold font-mono">{matchStats.data.by_source.trigger}</p>
+          </div>
+          <div className="p-2 rounded border border-primary/30 bg-primary/5">
+            <p className="text-muted-foreground">📥 Al subir CSV</p>
+            <p className="font-bold font-mono">{matchStats.data.by_source.manual}</p>
+          </div>
+          <div className="p-2 rounded border border-warning/30 bg-warning/5">
+            <p className="text-muted-foreground">🔁 Cron retroactivo</p>
+            <p className="font-bold font-mono">{matchStats.data.by_source.retro_cron}</p>
+          </div>
+          <div className="p-2 rounded border border-border bg-card">
+            <p className="text-muted-foreground">✋ Botón manual</p>
+            <p className="font-bold font-mono">{matchStats.data.by_source.frontend}</p>
+          </div>
+          <div className="col-span-2 sm:col-span-4 text-[11px] text-muted-foreground italic">
+            <strong>{matchStats.data.total_last_30d}</strong> auto-matches en los últimos 30 días
+            {matchStats.data.last_match_at && (
+              <> · último: {new Date(matchStats.data.last_match_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Zap className="h-3.5 w-3.5 text-success" />
@@ -174,6 +212,11 @@ export default function NicoReglas() {
                   >
                     {rule.tx_type}
                   </Badge>
+                  {rule.keyword_is_regex && (
+                    <Badge variant="outline" className="border-primary/40 text-primary text-[10px]" title="Esta regla usa regex avanzado">
+                      regex
+                    </Badge>
+                  )}
                   {rule.match_count > 0 && (
                     <span className="text-[10px] text-muted-foreground">
                       Aplicada {rule.match_count} {rule.match_count === 1 ? 'vez' : 'veces'}

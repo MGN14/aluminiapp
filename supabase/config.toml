@@ -97,3 +97,6 @@ verify_jwt = false
 
 [functions.create-invoice-payment-link]
 verify_jwt = false
+
+[functions.auto-match-pending]
+verify_jwt = false

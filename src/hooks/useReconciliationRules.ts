@@ -11,6 +11,8 @@ export interface ReconciliationRule {
   description?: string;
   pattern_ref?: string;
   keyword?: string;
+  /** Si true, keyword se interpreta como regex POSIX (case-insensitive en backend) */
+  keyword_is_regex?: boolean;
   amount_min?: number;
   amount_max?: number;
   day_min?: number;
@@ -32,6 +34,7 @@ export interface NewReconciliationRule {
   description?: string;
   pattern_ref?: string;
   keyword?: string;
+  keyword_is_regex?: boolean;
   amount_min?: number;
   amount_max?: number;
   day_min?: number;
@@ -60,9 +63,18 @@ export function matchesRule(
   if (rule.day_min != null && day < rule.day_min) return false;
   if (rule.day_max != null && day > rule.day_max) return false;
   if (rule.keyword) {
-    const kw = normalizeForMatch(rule.keyword);
     const desc = normalizeForMatch(tx.description ?? '');
-    if (!desc.includes(kw)) return false;
+    if (rule.keyword_is_regex) {
+      try {
+        const re = new RegExp(rule.keyword, 'i');
+        if (!re.test(desc)) return false;
+      } catch {
+        return false; // regex inválido = no matchea (proteger UI)
+      }
+    } else {
+      const kw = normalizeForMatch(rule.keyword);
+      if (!desc.includes(kw)) return false;
+    }
   }
   return true;
 }
@@ -354,6 +366,28 @@ export function useReconciliationRules() {
     return applied;
   };
 
+  /**
+   * Aplica reglas RETROACTIVAMENTE a TX sin matchear vía RPC en DB.
+   * Mucho más rápido que applyRulesToAllUserTransactions (que itera en JS).
+   * Usa la función SQL apply_pending_rules_for_user implementada en migration auto_matching_v2.
+   */
+  const applyPendingRulesViaRPC = async (limit = 5000): Promise<{ processed: number; matched: number }> => {
+    const { data, error } = await (supabase as any).rpc('apply_pending_rules_for_user', {
+      p_user_id: user?.id ?? null,
+      p_limit: limit,
+      p_source: 'frontend',
+    });
+    if (error) throw error;
+    const stats = data as { processed: number; matched: number };
+    qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
+    if (stats?.matched > 0) {
+      toast.success(`${stats.matched} de ${stats.processed} transacciones categorizadas automáticamente`);
+    } else if (stats?.processed > 0) {
+      toast.info(`Procesadas ${stats.processed} transacciones — ninguna matcheó una regla activa`);
+    }
+    return stats ?? { processed: 0, matched: 0 };
+  };
+
   return {
     rules,
     isLoading,
@@ -364,5 +398,6 @@ export function useReconciliationRules() {
     applyRulesToStatement,
     applyRulesToTransactions,
     applyRulesToAllUserTransactions,
+    applyPendingRulesViaRPC,
   };
 }
