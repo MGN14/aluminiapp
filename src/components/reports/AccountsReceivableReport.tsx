@@ -19,6 +19,7 @@ import AcordarPagoModal from '@/components/expected-payments/AcordarPagoModal';
 import AgingReportTable from '@/components/collection/AgingReportTable';
 import PaymentLinkModal from '@/components/collection/PaymentLinkModal';
 import BankMatchSuggestionsCard from '@/components/collection/BankMatchSuggestionsCard';
+import MatchLearningCard from '@/components/collection/MatchLearningCard';
 import {
   calculateAllClientReceivables,
   type ClientReceivable,
@@ -227,6 +228,9 @@ export default function AccountsReceivableReport() {
 
         {/* Auto-matching banco → factura (sugerencias pendientes) */}
         <BankMatchSuggestionsCard />
+
+        {/* Aprendizaje pasivo del matching (solo se muestra con histórico) */}
+        <MatchLearningCard />
 
         {/* Aging report + scores IA + touchpoints (módulo de cobranza nuevo) */}
         <AgingReportTable year={year} />
