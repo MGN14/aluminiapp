@@ -19,6 +19,7 @@ import {
   Filter,
   ArrowDown,
   ArrowUp,
+  Search,
   X,
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
@@ -39,6 +40,8 @@ export interface TransactionFilterState {
   dateTo: Date | undefined;
   sortOrder: SortOrder;
   amountSortOrder: SortOrder | null;
+  /** Búsqueda libre por descripción (substring case-insensitive). */
+  descSearch: string;
 }
 
 interface TransactionFiltersProps {
@@ -62,6 +65,7 @@ export const defaultFilters: TransactionFilterState = {
   dateTo: undefined,
   sortOrder: 'asc',
   amountSortOrder: null,
+  descSearch: '',
 };
 
 export default function TransactionFilters({ filters, onFiltersChange, counts, categories, responsibles }: TransactionFiltersProps) {
@@ -76,6 +80,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
     filters.tipo !== 'todos' ||
     filters.categoryId !== null ||
     filters.responsibleId !== null ||
+    (filters.descSearch ?? '').trim() !== '' ||
     filters.dateFrom !== undefined ||
     filters.dateTo !== undefined;
 
@@ -103,6 +108,30 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
 
   return (
     <div className="space-y-3">
+      {/* Búsqueda por descripción */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={filters.descSearch ?? ''}
+            onChange={(e) => update({ descSearch: e.target.value })}
+            placeholder="Buscar por descripción (ej: 4x1000, NEQUI, transferencia...)"
+            className="w-full h-8 pl-8 pr-8 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring/30"
+          />
+          {(filters.descSearch ?? '').length > 0 && (
+            <button
+              type="button"
+              onClick={() => update({ descSearch: '' })}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              title="Limpiar búsqueda"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Filter Row */}
       <div className="flex items-center gap-2 flex-wrap">
         <Filter className="h-4 w-4 text-muted-foreground shrink-0" />

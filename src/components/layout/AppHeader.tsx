@@ -17,6 +17,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useNico } from '@/hooks/useNicoContext';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useDataOwner } from '@/hooks/useDataOwner';
 
 const BRAND = 'oklch(0.43 0.14 155)';
 const BRAND_DIM = 'oklch(0.43 0.14 155 / 0.10)';
@@ -51,6 +52,12 @@ export default function AppHeader() {
   const { openNico } = useNico();
   const { mode, setMode } = useModuleContext();
   const { isAdmin } = useSubscription();
+  // El toggle DIAN/Gerencial debe verse para CUALQUIER owner, no solo admin/founder.
+  // Pika (creacionesmarvel) es owner normal y reportó no verlo → bug histórico
+  // donde el gate era isAdmin (true solo para founder + admins explícitos en user_roles).
+  const { isCollaborator } = useDataOwner();
+  // Use this to gate the module toggle so all owners see it, but collaborators NEVER do.
+  const canSeeModuleToggle = !isCollaborator;
   const [companyInitial, setCompanyInitial] = useState<string | null>(null);
   const location = useLocation();
   // Antes: setInterval(500ms) re-rendereaba el header constantemente para
@@ -191,8 +198,8 @@ export default function AppHeader() {
           </kbd>
         </button>
 
-        {/* Module toggle — admin only */}
-        {isAdmin && (
+        {/* Module toggle — owners (no colaboradores) */}
+        {canSeeModuleToggle && (
           <div
             className="hidden md:flex"
             style={{

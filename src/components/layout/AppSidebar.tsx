@@ -592,7 +592,8 @@ export default function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
-              {isAdmin && (
+              {/* Colaboradores: cualquier owner (no colab) puede invitar a su equipo */}
+              {!isCollaborator && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild isActive={currentPath === '/colaboradores'}>
                     <NavLink
@@ -618,7 +619,8 @@ export default function AppSidebar() {
           borderTop: '1px solid rgba(0,0,0,0.07)',
         }}
       >
-        {isAdmin && (
+        {/* Ajustes: cualquier owner (no colab) configura SU empresa */}
+        {!isCollaborator && (
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild isActive={currentPath === '/settings'}>

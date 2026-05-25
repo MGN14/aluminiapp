@@ -369,6 +369,15 @@ export default function Transactions() {
       result = result.filter(tx => parseLocalDate(tx.date) <= to);
     }
 
+    // Description search (substring case-insensitive, normalize accents)
+    if ((filters.descSearch ?? '').trim()) {
+      const q = filters.descSearch.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      result = result.filter(tx => {
+        const desc = (tx.description ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        return desc.includes(q);
+      });
+    }
+
     // Sort logic
     if (filters.amountSortOrder) {
       // Sort by signed amount: ingreso=credit (positivo), egreso=debit (negativo).

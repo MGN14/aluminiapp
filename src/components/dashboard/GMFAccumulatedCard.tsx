@@ -16,15 +16,27 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-// Helper to detect GMF/4x1000 transactions
+// Helper to detect GMF/4x1000 transactions.
+// Captura variantes con espacios variables: "4x1000", "4 x 1000", "4 x mil",
+// "4 por mil", "4 por 1000", "cuatro por mil", "imp gobierno 4x1000",
+// "gravamen movimientos financieros", "REV IMPTO GOBIERNO 4X1000", etc.
 export function isGMFTransaction(description: string): boolean {
-  const desc = description.toLowerCase();
+  if (!description) return false;
+  const desc = description.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  // Regex que matchea "4 [espacios opcionales] x|por [espacios] (1000|mil)"
+  if (/4\s*[x×*]\s*(1000|1\.000|mil)\b/.test(desc)) return true;
+  if (/4\s*por\s*(1000|1\.000|mil)\b/.test(desc)) return true;
+  if (/cuatro\s*(x|por)\s*(1000|mil)\b/.test(desc)) return true;
+
   return (
-    desc.includes('4x1000') ||
     desc.includes('gmf') ||
-    desc.includes('impto gobierno 4x1000') ||
-    desc.includes('gravamen movimientos financieros') ||
-    desc.includes('impuesto gmf')
+    desc.includes('gravamen movimiento') || // captura "movimiento" y "movimientos"
+    desc.includes('impuesto gmf') ||
+    desc.includes('imp gmf') ||
+    desc.includes('impto gobierno') ||
+    desc.includes('imp gobierno') ||
+    desc.includes('imp. gobierno')
   );
 }
 
