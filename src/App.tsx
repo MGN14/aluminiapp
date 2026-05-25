@@ -54,6 +54,7 @@ const ProductosTerminados = lazy(() => import("./pages/ProductosTerminados"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
 const CarteraOperativa = lazy(() => import("./pages/CarteraOperativa"));
 const Importaciones = lazy(() => import("./pages/Importaciones"));
+const Campaigns = lazy(() => import("./pages/admin/Campaigns"));
 const CajaMenor = lazy(() => import("./pages/CajaMenor"));
 const InformeBanco = lazy(() => import("./pages/InformeBanco"));
 const Creditos = lazy(() => import("./pages/Creditos"));
@@ -265,6 +266,7 @@ const App = () => (
               />
               {/* Rutas viejas redirigen a tabs del Founder (deep-link compat) */}
               <Route path="/admin/analytics" element={<Navigate to="/founder?tab=analytics" replace />} />
+              <Route path="/admin/campaigns" element={<AdminRoute><Campaigns /></AdminRoute>} />
               <Route path="/nico/evolution" element={<Navigate to="/founder?tab=evolution" replace />} />
               <Route
                 path="/coming-soon"
