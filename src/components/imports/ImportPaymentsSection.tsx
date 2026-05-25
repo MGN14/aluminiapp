@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useImportPayments, fetchTrmForDate, type ImportPaymentTipo } from '@/hooks/useImportPayments';
-import { Trash2, Plus, RefreshCw, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Trash2, Plus, RefreshCw, CheckCircle2, AlertCircle, Loader2, Link2 } from 'lucide-react';
 
 interface Props {
   importId: string;
@@ -28,7 +28,7 @@ const fmtTrm = (n: number) =>
 const todayIso = () => new Date().toISOString().split('T')[0];
 
 export default function ImportPaymentsSection({ importId }: Props) {
-  const { payments, isLoading, liquidation, create, remove } = useImportPayments(importId);
+  const { payments, isLoading, liquidation, availableTransactions, create, remove } = useImportPayments(importId);
 
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayIso());
@@ -38,6 +38,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
   const [notes, setNotes] = useState('');
   const [autoTrmLoading, setAutoTrmLoading] = useState(false);
   const [trmSource, setTrmSource] = useState<'auto' | 'manual'>('auto');
+  const [transactionId, setTransactionId] = useState<string>('');
 
   // Auto-fetch TRM cuando cambia la fecha (solo si trmSource es auto)
   useEffect(() => {
@@ -59,6 +60,32 @@ export default function ImportPaymentsSection({ importId }: Props) {
     setTipo('parcial');
     setNotes('');
     setTrmSource('auto');
+    setTransactionId('');
+  };
+
+  // Cuando el usuario selecciona una transaction bancaria, autofill fecha + USD.
+  // El USD se calcula desde el COP de la tx dividido por la TRM (que se autofetcha).
+  const handleSelectTransaction = async (txId: string) => {
+    setTransactionId(txId);
+    if (!txId || txId === '__none__') return;
+    const tx = availableTransactions.find(t => t.id === txId);
+    if (!tx) return;
+    setFecha(tx.date);
+    setTrmSource('auto');
+    setAutoTrmLoading(true);
+    const trmValue = await fetchTrmForDate(tx.date);
+    setAutoTrmLoading(false);
+    if (trmValue) {
+      setTrm(trmValue);
+      // USD = COP / TRM. Amount es negativo (egreso), tomamos abs.
+      const cop = Math.abs(tx.amount);
+      const usd = Math.round((cop / trmValue) * 100) / 100;
+      setAmountUsd(usd);
+    }
+    // Pre-fill notes con descripción del banco si está vacío
+    if (!notes.trim() && tx.description) {
+      setNotes(`Vinculado a: ${tx.description.slice(0, 100)}`);
+    }
   };
 
   const handleAdd = async () => {
@@ -70,6 +97,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
       trm: +trm,
       tipo,
       notes: notes.trim() || null,
+      transaction_id: transactionId && transactionId !== '__none__' ? transactionId : null,
     });
     resetForm();
     setShowForm(false);
@@ -155,7 +183,14 @@ export default function ImportPaymentsSection({ importId }: Props) {
                 <tr key={p.id} className="border-b border-border/50 hover:bg-muted/30">
                   <td className="py-1.5 pr-2 font-mono">{p.fecha}</td>
                   <td className="py-1.5 pr-2">
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">{TIPO_LABEL[p.tipo]}</Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">{TIPO_LABEL[p.tipo]}</Badge>
+                      {p.transaction_id && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 gap-0.5 border-success/40 text-success" title="Vinculado a movimiento bancario">
+                          <Link2 className="h-2.5 w-2.5" />
+                        </Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="py-1.5 pr-2 text-right font-mono">${fmtUsd(p.amount_usd)}</td>
                   <td className="py-1.5 pr-2 text-right font-mono text-muted-foreground">{fmtTrm(p.trm)}</td>
@@ -192,6 +227,47 @@ export default function ImportPaymentsSection({ importId }: Props) {
       ) : (
         <div className="space-y-2 p-3 rounded border border-primary/30 bg-card">
           <p className="text-xs font-semibold">Nuevo abono</p>
+
+          {/* Dropdown: vincular a transaction bancaria existente (opcional) */}
+          <div className="space-y-1">
+            <Label className="text-[11px] flex items-center gap-1">
+              <Link2 className="h-3 w-3" />
+              Vincular a movimiento bancario (opcional)
+            </Label>
+            <Select value={transactionId || '__none__'} onValueChange={handleSelectTransaction}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Sin vincular — abono manual" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                <SelectItem value="__none__">— Sin vincular (abono manual) —</SelectItem>
+                {availableTransactions.length === 0 ? (
+                  <SelectItem value="__empty__" disabled>
+                    No hay egresos bancarios disponibles
+                  </SelectItem>
+                ) : (
+                  availableTransactions.slice(0, 100).map((tx) => (
+                    <SelectItem key={tx.id} value={tx.id}>
+                      <span className="text-xs">
+                        <span className="font-mono">{tx.date}</span> ·{' '}
+                        <span className="font-mono text-destructive">
+                          ${fmtCop(Math.abs(tx.amount))}
+                        </span>{' '}
+                        — {tx.description.slice(0, 60)}
+                        {tx.description.length > 60 ? '…' : ''}
+                      </span>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            {transactionId && transactionId !== '__none__' && (
+              <p className="text-[10px] text-success flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                Fecha y USD auto-completados desde el movimiento bancario.
+              </p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div className="space-y-1">
               <Label className="text-[11px]">Fecha</Label>

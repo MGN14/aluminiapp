@@ -15,8 +15,20 @@ export interface ImportPaymentRow {
   amount_cop: number; // generated
   tipo: ImportPaymentTipo;
   notes: string | null;
+  /** Si está vinculado a una transaction bancaria real (transferencia al exterior). */
+  transaction_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Transaction bancaria candidata para vincular a un abono de importación. */
+export interface UnlinkedBankTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: number; // negativo si es egreso
+  // null si no tiene categoría aún
+  category_name: string | null;
 }
 
 export interface ImportLiquidation {
@@ -96,6 +108,7 @@ export function useImportPayments(importId: string | null | undefined) {
       trm: number;
       tipo?: ImportPaymentTipo;
       notes?: string | null;
+      transaction_id?: string | null;
     }) => {
       if (!user || !importId) throw new Error('No auth o import');
       const { error } = await supabase.from('import_payments' as never).insert({
@@ -106,6 +119,7 @@ export function useImportPayments(importId: string | null | undefined) {
         trm: input.trm,
         tipo: input.tipo ?? 'parcial',
         notes: input.notes ?? null,
+        transaction_id: input.transaction_id ?? null,
       } as never);
       if (error) throw error;
     },
@@ -126,6 +140,7 @@ export function useImportPayments(importId: string | null | undefined) {
       trm?: number;
       tipo?: ImportPaymentTipo;
       notes?: string | null;
+      transaction_id?: string | null;
     }) => {
       const { id, ...patch } = input;
       const { error } = await supabase
@@ -154,10 +169,52 @@ export function useImportPayments(importId: string | null | undefined) {
     },
   });
 
+  // Transactions bancarias disponibles para vincular a un nuevo abono.
+  // Filtramos: type='egreso' (transferencias al exterior), NO eliminadas,
+  // y que NO estén ya vinculadas a otro import_payment.
+  const availableTransactionsQuery = useQuery<UnlinkedBankTransaction[]>({
+    queryKey: ['import-payments-available-tx', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      if (!user) return [];
+
+      // 1. Transactions egreso del último año
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      const { data: txs, error: txErr } = await supabase
+        .from('transactions')
+        .select('id, date, description, amount, categories:category_id(name)')
+        .eq('type', 'egreso')
+        .is('deleted_at', null)
+        .gte('date', oneYearAgo.toISOString().slice(0, 10))
+        .order('date', { ascending: false })
+        .limit(500);
+      if (txErr || !txs) return [];
+
+      // 2. IDs ya vinculadas a import_payments
+      const { data: linked } = await supabase
+        .from('import_payments' as never)
+        .select('transaction_id')
+        .not('transaction_id', 'is', null);
+      const linkedIds = new Set(((linked as unknown) as { transaction_id: string }[])?.map(r => r.transaction_id) ?? []);
+
+      return (txs as any[])
+        .filter(t => !linkedIds.has(t.id))
+        .map(t => ({
+          id: t.id,
+          date: t.date,
+          description: t.description ?? '',
+          amount: Number(t.amount) || 0,
+          category_name: t.categories?.name ?? null,
+        }));
+    },
+  });
+
   return {
     payments: paymentsQuery.data ?? [],
     isLoading: paymentsQuery.isLoading,
     liquidation: liquidationQuery.data ?? null,
+    availableTransactions: availableTransactionsQuery.data ?? [],
     create,
     update,
     remove,
