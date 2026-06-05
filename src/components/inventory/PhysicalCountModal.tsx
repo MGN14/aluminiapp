@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,9 +11,10 @@ import { useDropzone } from 'react-dropzone';
 import {
   detectPhysicalMapping, buildPhysicalRows, markPhysicalDuplicates,
   crossReferenceWithInventory, type PhysicalColumnMapping, type PhysicalField,
-  type PhysicalCountRow, type ExistingProduct, type MasterProduct, PHYSICAL_COLUMN_ALIASES,
+  type PhysicalCountRow, type ExistingProduct, type MasterProduct, type AliasRow, PHYSICAL_COLUMN_ALIASES,
 } from '@/lib/physicalCountUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/transactions/SearchableSelect';
 import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 
 interface Props {
@@ -67,6 +68,9 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
   const setResult = (r: { updated: number; notFound: number; errors: number }) =>
     setWizard((w) => ({ ...w, result: r }));
   const [uploading, setUploading] = useState(false);
+  // Inventario contable en memoria — alimenta el selector de asignación manual
+  // de las filas "No encontrada".
+  const [inventory, setInventory] = useState<ExistingProduct[]>([]);
 
   const reset = () => {
     setWizard(INITIAL);
@@ -141,13 +145,53 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
       .select('ref_siigo, ref_local, ref_proveedor_a, ref_proveedor_b, ref_proveedor_c')
       .eq('active', true);
 
+    // Alias guardados (mapeos código bodega -> Siigo confirmados antes).
+    const { data: aliasRows } = await (supabase as any)
+      .from('product_aliases')
+      .select('alias, ref_siigo');
+
+    const existingList = (existing || []) as ExistingProduct[];
+    setInventory(existingList);
+
     const crossed = crossReferenceWithInventory(
       withDups,
-      (existing || []) as ExistingProduct[],
+      existingList,
       (master || []) as MasterProduct[],
+      (aliasRows || []) as AliasRow[],
     );
     setRows(crossed);
     setStep('preview');
+  };
+
+  // Asigna manualmente una fila "No encontrada" a un producto del inventario
+  // contable. Guarda el alias (persistente) y cruza la fila al instante.
+  const handleAssign = async (rowIdx: number, refSiigo: string | null) => {
+    if (!refSiigo || !user) return;
+    const product = inventory.find(p => p.reference.toLowerCase() === refSiigo.toLowerCase());
+    const target = rows[rowIdx];
+    if (!product || !target) return;
+
+    const { error } = await (supabase as any)
+      .from('product_aliases')
+      .upsert(
+        { user_id: user.id, alias: target.referencia, ref_siigo: product.reference },
+        { onConflict: 'user_id,alias' },
+      );
+    if (error) {
+      toast({ title: 'No se pudo guardar el mapeo', description: error.message, variant: 'destructive' });
+      return;
+    }
+
+    setRows(rows.map((r, i) => i === rowIdx ? {
+      ...r,
+      status: 'matched' as const,
+      existingProductId: product.id,
+      existingStock: product.stock_system,
+      difference: product.stock_system - r.unidades_fisicas,
+      issues: [],
+      suggestions: undefined,
+    } : r));
+    toast({ title: 'Mapeo guardado', description: `${target.referencia} → ${product.reference}. La próxima vez cruza solo.` });
   };
 
   const handleImport = async () => {
@@ -194,6 +238,21 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
   const notFoundCount = rows.filter(r => r.status === 'not_found').length;
   const errorCount = rows.filter(r => r.status === 'error').length;
   const dupCount = rows.filter(r => r.status === 'duplicate').length;
+
+  // Opciones del selector de asignación manual (todo el inventario contable).
+  const baseOptions = useMemo(
+    () => inventory.map(p => ({ value: p.reference, label: `${p.reference}${p.name ? ' · ' + p.name : ''}` })),
+    [inventory],
+  );
+  const optionsForRow = (r: PhysicalCountRow) => {
+    const sugg = r.suggestions ?? [];
+    if (!sugg.length) return baseOptions;
+    const suggRefs = new Set(sugg.map(s => s.reference));
+    return [
+      ...sugg.map(s => ({ value: s.reference, label: `⭐ ${s.reference}${s.name ? ' · ' + s.name : ''}` })),
+      ...baseOptions.filter(o => !suggRefs.has(o.value)),
+    ];
+  };
 
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
 
@@ -389,14 +448,24 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
                         {r.difference !== undefined ? (r.difference > 0 ? `+${r.difference}` : r.difference === 0 ? '0' : r.difference) : '—'}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={`text-[10px] ${
-                          r.status === 'matched' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                          r.status === 'not_found' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
-                          r.status === 'duplicate' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
-                          'bg-destructive/10 text-destructive border-destructive/30'
-                        }`}>
-                          {r.status === 'matched' ? 'OK' : r.status === 'not_found' ? 'No encontrada' : r.status === 'duplicate' ? 'Duplicada' : r.issues[0]}
-                        </Badge>
+                        {r.status === 'not_found' ? (
+                          <SearchableSelect
+                            options={optionsForRow(r)}
+                            value={null}
+                            onChange={(v) => handleAssign(i, v)}
+                            placeholder="Asignar a Siigo…"
+                            allowEmpty={false}
+                            triggerClassName="h-7 w-[170px] border-amber-500/40 text-amber-600"
+                          />
+                        ) : (
+                          <Badge variant="outline" className={`text-[10px] ${
+                            r.status === 'matched' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                            r.status === 'duplicate' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                            'bg-destructive/10 text-destructive border-destructive/30'
+                          }`}>
+                            {r.status === 'matched' ? 'OK' : r.status === 'duplicate' ? 'Duplicada' : r.issues[0]}
+                          </Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -412,22 +481,21 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
               const pct = rows.length > 0 ? (notFoundCount / rows.length) * 100 : 0;
               const isCritical = pct >= 30 || notFoundCount >= 15;
               return isCritical ? (
-                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-1.5">
+                <div className="text-xs text-amber-600 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-1.5">
                   <p className="font-semibold flex items-center gap-1.5">
                     <AlertTriangle className="h-4 w-4" />
-                    {notFoundCount} de {rows.length} referencias ({Math.round(pct)}%) no existen en tu inventario
+                    {notFoundCount} de {rows.length} referencias ({Math.round(pct)}%) no cruzaron automáticamente
                   </p>
-                  <p className="text-destructive/80">
-                    El cruce ya traduce automáticamente los colores (-2 Blanco, -3 Negro, -0 Crudo) y el "-5" de
-                    Siigo vía el maestro. Si aun así estas referencias no aparecen, es porque <strong>esos productos
-                    no existen en tu inventario contable de Siigo</strong> — cargalos en Siigo (o por carga masiva
-                    de inventario) y volvé a intentar el conteo.
+                  <p className="text-amber-600/90">
+                    Usá el selector <strong>"Asignar a Siigo"</strong> de cada fila para mapearla a su código
+                    contable — el mapeo queda <strong>guardado para siempre</strong> y la próxima vez cruza sola.
+                    Las que de verdad no existan en Siigo las vas a poder marcar "por solucionar" (próximo paso).
                   </p>
                 </div>
               ) : (
                 <div className="text-xs text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
-                  <p className="font-medium">⚠️ {notFoundCount} referencias no existen en el inventario contable de Siigo</p>
-                  <p className="text-muted-foreground mt-1">Estas referencias serán ignoradas. Primero cárgalas desde Siigo.</p>
+                  <p className="font-medium">⚠️ {notFoundCount} referencia(s) no cruzaron automáticamente</p>
+                  <p className="text-muted-foreground mt-1">Asignalas a su código Siigo con el selector de cada fila — el mapeo queda guardado.</p>
                 </div>
               );
             })()}

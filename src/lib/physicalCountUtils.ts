@@ -26,6 +26,8 @@ export interface PhysicalCountRow {
   existingProductId?: string;
   existingStock?: number;
   difference?: number;
+  /** Candidatos parecidos del inventario contable, para las no encontradas. */
+  suggestions?: ExistingProduct[];
 }
 
 function normalize(text: string): string {
@@ -130,24 +132,76 @@ export interface MasterProduct {
   ref_proveedor_c: string | null;
 }
 
+/** Alias persistente: código de bodega -> código Siigo (tabla product_aliases). */
+export interface AliasRow {
+  alias: string;
+  ref_siigo: string;
+}
+
+// ── Similitud entre referencias (para sugerir coincidencias) ──
+function normRef(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function bigrams(s: string): Set<string> {
+  const out = new Set<string>();
+  if (s.length <= 1) { if (s) out.add(s); return out; }
+  for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
+  return out;
+}
+
+/** Score 0..~1 entre dos referencias: Jaccard de bigramas + bonus substring/prefijo. */
+function refSimilarity(a: string, b: string): number {
+  const x = normRef(a), y = normRef(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  const base = (x.includes(y) || y.includes(x)) ? 0.8 : 0;
+  const bx = bigrams(x), by = bigrams(y);
+  let inter = 0;
+  for (const g of bx) if (by.has(g)) inter++;
+  const jaccard = inter / (bx.size + by.size - inter || 1);
+  let p = 0;
+  while (p < x.length && p < y.length && x[p] === y[p]) p++;
+  const prefixBonus = p >= 3 ? 0.15 : 0;
+  return Math.max(base, jaccard) + prefixBonus;
+}
+
+/** Top candidatos del inventario contable parecidos a `ref`. */
+export function suggestMatches(
+  ref: string,
+  existingProducts: ExistingProduct[],
+  limit = 5,
+): ExistingProduct[] {
+  return existingProducts
+    .map(p => ({ p, score: refSimilarity(ref, p.reference) }))
+    .filter(s => s.score >= 0.3)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(s => s.p);
+}
+
 /**
- * Cruza el conteo físico contra el inventario contable (Siigo), resolviendo
- * la diferencia de formato entre ambos:
- *   - Siigo usa un código por producto, con sufijo "-5" y SIN color (ej: 38x38-5).
- *   - El conteo físico viene POR COLOR: sin sufijo (38x38), -2 Blanco, -3 Negro,
- *     -0 Crudo.
- * El maestro (product_master) tiene esa equivalencia precargada (ref_local +
- * proveedores A/B/C apuntando a la ref_siigo). Acá la usamos para que el
- * bodeguero cuente con su referencia de color y el sistema la reconozca sin
- * cuadre manual. Como varios colores del mismo producto resuelven a la misma
- * ref Siigo, el import (handleImport) suma sus unidades.
+ * Cruza el conteo físico contra el inventario contable (Siigo).
+ * Orden de resolución: directo -> alias guardado -> maestro (colores) ->
+ * algorítmico (quita color -0/-2/-3, prueba base+"-5"). Las que no resuelven
+ * traen `suggestions` (candidatos parecidos) para que el usuario asigne el
+ * mapeo a mano; ese mapeo se guarda como alias y la próxima vez cruza solo.
  */
 export function crossReferenceWithInventory(
   rows: PhysicalCountRow[],
   existingProducts: ExistingProduct[],
-  masterProducts: MasterProduct[] = []
+  masterProducts: MasterProduct[] = [],
+  aliases: AliasRow[] = [],
 ): PhysicalCountRow[] {
   const productMap = new Map(existingProducts.map(p => [p.reference.toLowerCase().trim(), p]));
+
+  // Alias guardados: código bodega (lower) -> ref_siigo (lower).
+  const aliasResolve = new Map<string, string>();
+  for (const a of aliases) {
+    const k = (a.alias ?? '').toString().toLowerCase().trim();
+    const v = (a.ref_siigo ?? '').toString().toLowerCase().trim();
+    if (k && v) aliasResolve.set(k, v);
+  }
 
   // Cualquier columna de referencia del maestro -> ref_siigo canónica (lower).
   const masterResolve = new Map<string, string>();
@@ -160,18 +214,19 @@ export function crossReferenceWithInventory(
     }
   }
 
-  // Resuelve una referencia del conteo a un producto del inventario contable.
   const resolveProduct = (rawRef: string): ExistingProduct | undefined => {
     const r = rawRef.toLowerCase().trim();
     if (!r) return undefined;
     // 1) Match directo contra Siigo.
     let p = productMap.get(r);
     if (p) return p;
-    // 2) Vía maestro: ref física (color) -> ref_siigo -> Siigo.
+    // 2) Alias guardado por el usuario (mapeo confirmado).
+    const aliasTo = aliasResolve.get(r);
+    if (aliasTo && (p = productMap.get(aliasTo))) return p;
+    // 3) Vía maestro: ref física (color) -> ref_siigo -> Siigo.
     const canon = masterResolve.get(r);
     if (canon && (p = productMap.get(canon))) return p;
-    // 3) Fallback algorítmico: quitar color (-0/-2/-3), volver a la base y
-    //    probar base+"-5" (formato Siigo). Cubre productos aún no en el maestro.
+    // 4) Fallback algorítmico: quitar color (-0/-2/-3), probar base + "-5".
     const base = r.replace(/-[023]$/, '');
     const canonBase = masterResolve.get(base);
     if (canonBase && (p = productMap.get(canonBase))) return p;
@@ -184,7 +239,12 @@ export function crossReferenceWithInventory(
     if (r.status === 'error') return r;
     const product = resolveProduct(r.referencia);
     if (!product) {
-      return { ...r, status: 'not_found' as const, issues: [...r.issues, 'No encontrada en inventario contable'] };
+      return {
+        ...r,
+        status: 'not_found' as const,
+        issues: [...r.issues, 'No encontrada en inventario contable'],
+        suggestions: suggestMatches(r.referencia, existingProducts, 5),
+      };
     }
     const diff = product.stock_system - r.unidades_fisicas;
     return {
