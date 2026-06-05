@@ -121,15 +121,68 @@ export interface ExistingProduct {
   name: string;
 }
 
+/** Fila del maestro de productos usada para traducir referencias por color. */
+export interface MasterProduct {
+  ref_siigo: string;
+  ref_local: string | null;
+  ref_proveedor_a: string | null;
+  ref_proveedor_b: string | null;
+  ref_proveedor_c: string | null;
+}
+
+/**
+ * Cruza el conteo físico contra el inventario contable (Siigo), resolviendo
+ * la diferencia de formato entre ambos:
+ *   - Siigo usa un código por producto, con sufijo "-5" y SIN color (ej: 38x38-5).
+ *   - El conteo físico viene POR COLOR: sin sufijo (38x38), -2 Blanco, -3 Negro,
+ *     -0 Crudo.
+ * El maestro (product_master) tiene esa equivalencia precargada (ref_local +
+ * proveedores A/B/C apuntando a la ref_siigo). Acá la usamos para que el
+ * bodeguero cuente con su referencia de color y el sistema la reconozca sin
+ * cuadre manual. Como varios colores del mismo producto resuelven a la misma
+ * ref Siigo, el import (handleImport) suma sus unidades.
+ */
 export function crossReferenceWithInventory(
   rows: PhysicalCountRow[],
-  existingProducts: ExistingProduct[]
+  existingProducts: ExistingProduct[],
+  masterProducts: MasterProduct[] = []
 ): PhysicalCountRow[] {
-  const productMap = new Map(existingProducts.map(p => [p.reference.toLowerCase(), p]));
+  const productMap = new Map(existingProducts.map(p => [p.reference.toLowerCase().trim(), p]));
+
+  // Cualquier columna de referencia del maestro -> ref_siigo canónica (lower).
+  const masterResolve = new Map<string, string>();
+  for (const m of masterProducts) {
+    const target = (m.ref_siigo ?? '').toString().toLowerCase().trim();
+    if (!target) continue;
+    for (const v of [m.ref_siigo, m.ref_local, m.ref_proveedor_a, m.ref_proveedor_b, m.ref_proveedor_c]) {
+      const k = (v ?? '').toString().toLowerCase().trim();
+      if (k) masterResolve.set(k, target);
+    }
+  }
+
+  // Resuelve una referencia del conteo a un producto del inventario contable.
+  const resolveProduct = (rawRef: string): ExistingProduct | undefined => {
+    const r = rawRef.toLowerCase().trim();
+    if (!r) return undefined;
+    // 1) Match directo contra Siigo.
+    let p = productMap.get(r);
+    if (p) return p;
+    // 2) Vía maestro: ref física (color) -> ref_siigo -> Siigo.
+    const canon = masterResolve.get(r);
+    if (canon && (p = productMap.get(canon))) return p;
+    // 3) Fallback algorítmico: quitar color (-0/-2/-3), volver a la base y
+    //    probar base+"-5" (formato Siigo). Cubre productos aún no en el maestro.
+    const base = r.replace(/-[023]$/, '');
+    const canonBase = masterResolve.get(base);
+    if (canonBase && (p = productMap.get(canonBase))) return p;
+    if ((p = productMap.get(`${base}-5`))) return p;
+    if ((p = productMap.get(base))) return p;
+    return undefined;
+  };
 
   return rows.map(r => {
     if (r.status === 'error') return r;
-    const product = productMap.get(r.referencia.toLowerCase());
+    const product = resolveProduct(r.referencia);
     if (!product) {
       return { ...r, status: 'not_found' as const, issues: [...r.issues, 'No encontrada en inventario contable'] };
     }

@@ -11,7 +11,7 @@ import { useDropzone } from 'react-dropzone';
 import {
   detectPhysicalMapping, buildPhysicalRows, markPhysicalDuplicates,
   crossReferenceWithInventory, type PhysicalColumnMapping, type PhysicalField,
-  type PhysicalCountRow, type ExistingProduct, PHYSICAL_COLUMN_ALIASES,
+  type PhysicalCountRow, type ExistingProduct, type MasterProduct, PHYSICAL_COLUMN_ALIASES,
 } from '@/lib/physicalCountUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePersistedFormState } from '@/hooks/usePersistedFormState';
@@ -127,13 +127,25 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
     const parsed = buildPhysicalRows(rawRows, mapping, 2);
     const withDups = markPhysicalDuplicates(parsed);
 
-    // Fetch existing products
+    // Fetch existing products (inventario contable Siigo)
     const { data: existing } = await supabase
       .from('inventory_products')
       .select('id, reference, stock_system, name')
       .eq('active', true);
 
-    const crossed = crossReferenceWithInventory(withDups, (existing || []) as ExistingProduct[]);
+    // Fetch maestro para traducir referencias por color (-2/-3/-0/sin sufijo)
+    // a la ref_siigo (-5) del inventario contable. Sin esto, un conteo por
+    // color nunca matchea el código colorless de Siigo.
+    const { data: master } = await (supabase as any)
+      .from('product_master')
+      .select('ref_siigo, ref_local, ref_proveedor_a, ref_proveedor_b, ref_proveedor_c')
+      .eq('active', true);
+
+    const crossed = crossReferenceWithInventory(
+      withDups,
+      (existing || []) as ExistingProduct[],
+      (master || []) as MasterProduct[],
+    );
     setRows(crossed);
     setStep('preview');
   };
@@ -406,10 +418,10 @@ export default function PhysicalCountModal({ open, onOpenChange, onComplete }: P
                     {notFoundCount} de {rows.length} referencias ({Math.round(pct)}%) no existen en tu inventario
                   </p>
                   <p className="text-destructive/80">
-                    Un porcentaje tan alto suele indicar que el <strong>Maestro de Productos está desactualizado</strong> —
-                    por ejemplo, si cambiaste el formato de las referencias en Siigo (como agregar "-5") pero no
-                    re-sincronizaste el inventario. Revisá que el Maestro tenga las referencias con el mismo formato
-                    que el archivo de conteo antes de continuar.
+                    El cruce ya traduce automáticamente los colores (-2 Blanco, -3 Negro, -0 Crudo) y el "-5" de
+                    Siigo vía el maestro. Si aun así estas referencias no aparecen, es porque <strong>esos productos
+                    no existen en tu inventario contable de Siigo</strong> — cargalos en Siigo (o por carga masiva
+                    de inventario) y volvé a intentar el conteo.
                   </p>
                 </div>
               ) : (
