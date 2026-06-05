@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, History, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import { useModuleContext } from '@/hooks/useModuleContext';
@@ -527,53 +527,6 @@ export default function Inventory() {
               <InventoryTable products={products} onAdjust={openAdjust} onEdit={openEdit} onAddMovement={openMovement} onDelete={handleDeleteProduct} isGerencial={isGerencial} />
             </div>
 
-            {/* Historial de ajustes */}
-            {movements.filter((m: any) => ['ajuste', 'salida'].includes(m.movement_type) && m.notes && m.notes.includes('[') ).length > 0 && (
-              <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '320ms' }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <History className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-medium text-muted-foreground">Historial de ajustes con motivo</h3>
-                </div>
-                <div className="rounded-xl border overflow-hidden">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-muted/50">
-                        <th className="text-left px-3 py-2 font-semibold">Fecha</th>
-                        <th className="text-left px-3 py-2 font-semibold">Producto</th>
-                        <th className="text-left px-3 py-2 font-semibold">Motivo</th>
-                        <th className="text-right px-3 py-2 font-semibold">Cantidad</th>
-                        <th className="text-right px-3 py-2 font-semibold">Tipo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {movements
-                        .filter((m: any) => ['ajuste', 'salida', 'entrada'].includes(m.movement_type) && m.notes)
-                        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                        .slice(0, 20)
-                        .map((m: any) => {
-                          const producto = products.find((p: any) => p.id === m.product_id);
-                          const date = new Date(m.created_at);
-                          return (
-                            <tr key={m.id} className="border-t border-border">
-                              <td className="px-3 py-2 text-muted-foreground">{date.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}</td>
-                              <td className="px-3 py-2 font-medium">{producto?.reference || '—'}</td>
-                              <td className="px-3 py-2 text-muted-foreground">{m.notes}</td>
-                              <td className="text-right px-3 py-2 font-mono">{m.quantity}</td>
-                              <td className="text-right px-3 py-2">
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                  m.movement_type === 'entrada' ? 'bg-green-100 text-green-700' :
-                                  m.movement_type === 'salida' ? 'bg-red-100 text-red-700' :
-                                  'bg-muted text-muted-foreground'
-                                }`}>{m.movement_type}</span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
           </>
         ))}
       </div>
