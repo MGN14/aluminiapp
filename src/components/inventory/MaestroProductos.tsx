@@ -118,7 +118,8 @@ export default function MaestroProductos() {
     XLSX.writeFile(wb, 'Maestro_Productos_AluminIA.xlsx');
   };
 
-  const [search, setSearch] = useState('');
+  // Persistido: la búsqueda del maestro sobrevive si cambia de tab/pestaña.
+  const [search, setSearch] = usePersistedFormState<string>('maestro-productos:search:v1', '');
   // El modal de agregar/editar producto también se reabre solo si Nico
   // estaba en medio de tipear y se refresca / cambia de tab.
   const [modalOpen, setModalOpen] = usePersistedDialogOpen('maestro-productos:form:open');

@@ -18,7 +18,7 @@ import EntradaInventarioModal from '@/components/inventory/EntradaInventarioModa
 import ManageSystemsModal from '@/components/inventory/ManageSystemsModal';
 import InventoryFreshnessBanner from '@/components/inventory/InventoryFreshnessBanner';
 import AppLayout from '@/components/layout/AppLayout';
-import { usePersistedDialogOpen } from '@/hooks/usePersistedFormState';
+import { usePersistedDialogOpen, usePersistedFormState } from '@/hooks/usePersistedFormState';
 
 type Tab = 'inventario' | 'maestro';
 
@@ -36,7 +36,9 @@ export default function Inventory() {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
   }, [products]);
-  const [tab, setTab] = useState<Tab>('inventario');
+  // Persistido en sessionStorage: si Nico cambia de pestaña/app y vuelve, el
+  // tab (Inventario / Maestro) se mantiene en vez de resetear a 'inventario'.
+  const [tab, setTab] = usePersistedFormState<Tab>('inventario:tab:v1', 'inventario');
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [showEntrada, setShowEntrada] = useState(false);
