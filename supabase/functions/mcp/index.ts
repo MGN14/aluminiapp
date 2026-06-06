@@ -231,6 +231,28 @@ const TOOLS_SCHEMA = [
     inputSchema: { type: "object", properties: {} },
   },
   {
+    name: "inventory_valued",
+    description: "Inventario VALORIZADO: valor total del stock (stock × costo unitario) desde inventory_products. Devuelve valor a stock contable (Siigo) y a conteo físico, conteo de productos y top por valor. Explica cuánto efectivo está inmovilizado en mercancía.",
+    inputSchema: { type: "object", properties: { limit: { type: "number", description: "Top N productos por valor (default 20)." } } },
+  },
+  {
+    name: "pyg",
+    description: "Estado de resultados (P&G) AGREGADO del período por grupo de reporte (ingresos, costos, gastos, impuestos), con utilidad bruta / EBITDA / utilidad neta, desglose por categoría, y el IVA mostrado APARTE (generado − descontable = por pagar, como cuenta de balance, no como gasto). Base caja (transacciones bancarias). Coincide con el P&G de la app.",
+    inputSchema: {
+      type: "object",
+      properties: { from: { type: "string", description: "YYYY-MM-DD" }, to: { type: "string", description: "YYYY-MM-DD" } },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "accounts_payable",
+    description: "Cuentas por pagar (CxP): lo que le debés a tus proveedores. Saldo REAL de facturas de compra (total − pagado − retenciones), agrupado por proveedor con corriente vs vencido y días del más viejo. Excluye NC totales.",
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "number", description: "Top N proveedores por saldo (default 100)." } },
+    },
+  },
+  {
     name: "top_clients_by_revenue",
     description: "Top N clientes por facturación en el período (agrupado por counterparty_name).",
     inputSchema: {
@@ -451,6 +473,59 @@ async function loadReceivables(
   });
 }
 
+// CxP: saldo real de facturas de COMPRA (lo que le debés a proveedores).
+// Espejo de loadReceivables: total − pagado − retenciones (compra = reteica +
+// autoretefuente; no hay retefuente de proveedor en invoices). Excluye NC totales.
+interface PayableInvoice {
+  id: string; supplier: string; issue_date: string; due_date: string | null;
+  dias_credito: number | null; total_amount: number; paid: number; saldo: number;
+}
+
+async function loadPayables(
+  db: SupabaseClient, userId: string, opts: { from?: string; to?: string } = {},
+): Promise<PayableInvoice[]> {
+  let q = db.from("invoices")
+    .select("id, counterparty_name, issue_date, due_date, dias_credito, total_amount, reteica_amount, autoretefuente_amount, void_type, type")
+    .eq("user_id", userId)
+    .eq("type", "compra")
+    .or("void_type.is.null,void_type.eq.partial");
+  if (opts.from) q = q.gte("issue_date", opts.from);
+  if (opts.to) q = q.lte("issue_date", opts.to);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  const invoices = (data ?? []) as Record<string, unknown>[];
+  if (invoices.length === 0) return [];
+  const ids = invoices.map((i) => i.id as string);
+  const [directRes, matchRes] = await Promise.all([
+    db.from("transactions").select("invoice_id, amount").eq("user_id", userId).is("deleted_at", null).in("invoice_id", ids),
+    db.from("invoice_transaction_matches").select("invoice_id, matched_amount").in("invoice_id", ids),
+  ]);
+  const paidById = new Map<string, number>();
+  const addPaid = (id: unknown, amt: unknown) => {
+    if (!id) return;
+    const k = id as string;
+    paidById.set(k, (paidById.get(k) ?? 0) + Math.abs(Number(amt ?? 0)));
+  };
+  for (const r of (directRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.amount);
+  for (const r of (matchRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.matched_amount);
+  return invoices.map((i) => {
+    const total = Number(i.total_amount ?? 0);
+    const paid = paidById.get(i.id as string) ?? 0;
+    const retenciones = invoiceRetenciones(i); // rama compra: reteica + autoretefuente
+    const saldo = Math.max(0, total - paid - retenciones);
+    return {
+      id: i.id as string,
+      supplier: (i.counterparty_name as string) ?? "(sin nombre)",
+      issue_date: i.issue_date as string,
+      due_date: (i.due_date as string | null) ?? null,
+      dias_credito: (i.dias_credito as number | null) ?? null,
+      total_amount: round2(total),
+      paid: round2(paid),
+      saldo: round2(saldo),
+    };
+  });
+}
+
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   async list_invoices(db, userId, args) {
     const limit = clampLimit(args.limit, 100);
@@ -588,6 +663,145 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       petty_cash_balance: round2(pettyBalance),
       total: round2(cashBalance + pettyBalance),
       note: "Suma de todo el histórico (entradas - salidas). No incluye saldos bancarios.",
+    };
+  },
+
+  async inventory_valued(db, userId, args) {
+    const topN = clampLimit(args.limit, 20);
+    const { data, error } = await db.from("inventory_products")
+      .select("reference, name, stock_system, stock_physical, cost_per_unit, system")
+      .eq("user_id", userId)
+      .eq("active", true);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as Record<string, unknown>[];
+    let valueSystem = 0, valuePhysical = 0;
+    const items = rows.map((p) => {
+      const cost = Number(p.cost_per_unit ?? 0);
+      const ss = Number(p.stock_system ?? 0);
+      const sp = p.stock_physical === null || p.stock_physical === undefined ? null : Number(p.stock_physical);
+      const vS = ss * cost;
+      valueSystem += vS;
+      if (sp !== null) valuePhysical += sp * cost;
+      return {
+        reference: p.reference, name: p.name, system: p.system,
+        stock_system: ss, stock_physical: sp, cost_per_unit: round2(cost),
+        value_system: round2(vS),
+      };
+    });
+    items.sort((a, b) => b.value_system - a.value_system);
+    return {
+      product_count: rows.length,
+      inventory_value_system: round2(valueSystem),
+      inventory_value_physical: round2(valuePhysical),
+      top_by_value: items.slice(0, topN),
+      note: "Valorizado = stock × costo unitario (inventory_products). value_system usa stock contable (Siigo); value_physical usa el último conteo físico donde exista. Es el efectivo inmovilizado en mercancía.",
+    };
+  },
+
+  async pyg(db, userId, args) {
+    const from = String(args.from ?? "");
+    const to = String(args.to ?? "");
+    if (!from || !to) throw new Error("from y to son requeridos");
+
+    const { data: cats } = await db.from("categories")
+      .select("id, name, report_group").eq("user_id", userId);
+    const catMap = new Map<string, { name: string; rg: string }>();
+    for (const c of (cats ?? []) as Record<string, unknown>[]) {
+      catMap.set(c.id as string, { name: (c.name as string) ?? "", rg: (c.report_group as string) ?? "otros" });
+    }
+
+    const { data: txs, error } = await db.from("transactions")
+      .select("type, amount, category_id, has_retefuente, retefuente_amount, has_reteica, reteica_amount")
+      .eq("user_id", userId).is("deleted_at", null)
+      .gte("date", from).lte("date", to);
+    if (error) throw new Error(error.message);
+
+    const groups: Record<string, number> = { ingresos: 0, costos_operacionales: 0, gastos_operativos: 0, impuestos: 0, otros: 0 };
+    const byCat = new Map<string, { categoria: string; grupo: string; monto: number }>();
+    let taxFromFlags = 0;
+    for (const t of (txs ?? []) as Record<string, unknown>[]) {
+      const amt = Math.abs(Number(t.amount ?? 0));
+      const cat = t.category_id ? catMap.get(t.category_id as string) : null;
+      let rg = cat?.rg ?? (t.type === "ingreso" ? "ingresos" : t.type === "egreso" ? "gastos_operativos" : "otros");
+      if (!(rg in groups)) rg = "otros";
+      groups[rg] += amt;
+      const ckey = (t.category_id as string) ?? `__${rg}`;
+      const cur = byCat.get(ckey) ?? { categoria: cat?.name ?? `(sin categoría: ${rg})`, grupo: rg, monto: 0 };
+      cur.monto += amt;
+      byCat.set(ckey, cur);
+      if (rg !== "impuestos") {
+        if (t.has_retefuente && Number(t.retefuente_amount ?? 0) > 0) taxFromFlags += Number(t.retefuente_amount);
+        if (t.has_reteica && Number(t.reteica_amount ?? 0) > 0) taxFromFlags += Number(t.reteica_amount);
+      }
+    }
+    groups.impuestos += taxFromFlags;
+
+    const { data: ivaInvs } = await db.from("invoices")
+      .select("type, iva_amount").eq("user_id", userId)
+      .or("void_type.is.null,void_type.eq.partial")
+      .gte("issue_date", from).lte("issue_date", to);
+    let ivaGenerado = 0, ivaDescontable = 0;
+    for (const i of (ivaInvs ?? []) as Record<string, unknown>[]) {
+      const iva = Number(i.iva_amount ?? 0);
+      if (i.type === "venta") ivaGenerado += iva;
+      else if (i.type === "compra") ivaDescontable += iva;
+    }
+
+    const utilidadBruta = groups.ingresos - groups.costos_operacionales;
+    const ebitda = utilidadBruta - groups.gastos_operativos;
+    const utilidadNeta = ebitda - groups.impuestos;
+    return {
+      period: { from, to },
+      basis: "caja (transacciones bancarias)",
+      ingresos: round2(groups.ingresos),
+      costos_operacionales: round2(groups.costos_operacionales),
+      utilidad_bruta: round2(utilidadBruta),
+      gastos_operativos: round2(groups.gastos_operativos),
+      ebitda: round2(ebitda),
+      impuestos: round2(groups.impuestos),
+      otros: round2(groups.otros),
+      utilidad_neta: round2(utilidadNeta),
+      iva: {
+        generado: round2(ivaGenerado),
+        descontable: round2(ivaDescontable),
+        por_pagar: round2(ivaGenerado - ivaDescontable),
+        note: "IVA por pagar = generado − descontable. Es cuenta de BALANCE (no gasto). Se muestra aparte; la utilidad_neta de arriba mantiene el criterio actual de la app.",
+      },
+      por_categoria: [...byCat.values()].sort((a, b) => b.monto - a.monto).map((c) => ({ ...c, monto: round2(c.monto) })),
+      note: "Base caja (transacciones bancarias del período). Impuestos incluye retefuente/reteica de flags. No incluye caja menor.",
+    };
+  },
+
+  async accounts_payable(db, userId, args) {
+    const limit = clampLimit(args.limit, 100);
+    const all = await loadPayables(db, userId);
+    const pending = all.filter((i) => i.saldo > 0);
+    const today = new Date();
+    const bySupplier = new Map<string, { supplier: string; total: number; corriente: number; vencido: number; oldest_overdue_days: number; invoices_count: number }>();
+    let totalOwed = 0;
+    for (const inv of pending) {
+      totalOwed += inv.saldo;
+      const issue = new Date(inv.issue_date);
+      let venc = issue;
+      if (inv.due_date) venc = new Date(inv.due_date);
+      else if (inv.dias_credito) { venc = new Date(issue); venc.setDate(venc.getDate() + inv.dias_credito); }
+      const overdue = Math.floor((today.getTime() - venc.getTime()) / 86400000);
+      const g = bySupplier.get(inv.supplier) ?? { supplier: inv.supplier, total: 0, corriente: 0, vencido: 0, oldest_overdue_days: 0, invoices_count: 0 };
+      g.total += inv.saldo;
+      g.invoices_count += 1;
+      if (overdue > 0) g.vencido += inv.saldo; else g.corriente += inv.saldo;
+      if (overdue > g.oldest_overdue_days) g.oldest_overdue_days = overdue;
+      bySupplier.set(inv.supplier, g);
+    }
+    const suppliers = [...bySupplier.values()]
+      .sort((a, b) => b.total - a.total)
+      .slice(0, limit)
+      .map((s) => ({ ...s, total: round2(s.total), corriente: round2(s.corriente), vencido: round2(s.vencido) }));
+    return {
+      total_owed: round2(totalOwed),
+      pending_invoices: pending.length,
+      suppliers,
+      note: "Cuentas por pagar: saldo real de facturas de compra (total − pagado − retenciones). Excluye facturas anuladas totalmente por NC.",
     };
   },
 
