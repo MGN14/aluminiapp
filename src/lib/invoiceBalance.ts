@@ -9,8 +9,8 @@
 // tres saldos cuadren SIEMPRE.
 //
 // Comportamiento (idéntico al que ya tenían — refactor sin cambio funcional):
-//   VENTA:  retefuente_cliente (con fallback 2.5% para facturas legacy sin tasa
-//           explícita) + reteica + autoretefuente.
+//   VENTA:  retefuente_cliente (SOLO si está explícito: monto cargado o tasa
+//           a mano — sin fallback automático de 2.5%) + reteica + autoretefuente.
 //   COMPRA: solo reteica + autoretefuente. En `invoices` NO existe el retefuente
 //           del proveedor (pedir `retefuente_amount` rompe el query: esa columna
 //           vive en transactions).
@@ -43,10 +43,17 @@ export function invoiceRetenciones(inv: Record<string, unknown>): RetencionBreak
     const savedRete = Number(inv.retefuente_cliente_amount ?? 0);
     const rawRate = inv.retefuente_cliente_rate as number | null | undefined;
     const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-    const effectiveRate = hasExplicitRate ? Number(rawRate) : 0.025;
-    retefuente = savedRete > 0
-      ? savedRete
-      : Math.round(Number(inv.subtotal_base ?? 0) * effectiveRate);
+    // Solo se resta retefuente cuando está EXPLÍCITO: un monto cargado
+    // (típicamente de Siigo) o una tasa cargada a mano. Se quitó el fallback
+    // automático del 2.5% que asumía que TODO cliente retiene — falso para
+    // clientes que NO son agentes de retención (Aluminios y Amortiguadores La 11,
+    // Cristian, etc.): les inventaba una retención fantasma y les bajaba el
+    // saldo. Ahora funciona igual que reteica/autoretefuente: explícito o cero.
+    if (savedRete > 0) {
+      retefuente = savedRete;
+    } else if (hasExplicitRate) {
+      retefuente = Math.round(Number(inv.subtotal_base ?? 0) * Number(rawRate));
+    }
   }
 
   return { retefuente, reteica, autoretefuente, total: retefuente + reteica + autoretefuente };

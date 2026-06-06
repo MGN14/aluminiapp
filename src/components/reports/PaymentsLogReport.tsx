@@ -27,6 +27,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import writeXlsxFile from 'write-excel-file';
 import { supabase } from '@/integrations/supabase/client';
+import { invoiceRetenciones } from '@/lib/invoiceBalance';
 import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -372,23 +373,12 @@ export default function PaymentsLogReport() {
       const invIds = invs.map((i: any) => i.id);
 
       // Retenciones del lado venta: el cliente retuvo plata y la pagó a DIAN/
-      // municipio en vez de pagártela al banco. Por lo tanto se descuentan del
-      // saldo (no son deuda viva). reteica + autoretefuente: auto-detect por
-      // amount > 0 (cliente no agente retenedor → quedan en 0). retefuente
-      // mantiene comportamiento legacy (default 2.5% si rate=null) para no
-      // inflar facturas viejas.
-      const retencionesVenta = invsVenta.reduce((s: number, i: any) => {
-        const savedRete = Number(i.retefuente_cliente_amount ?? 0);
-        const rawRate = i.retefuente_cliente_rate;
-        const hasRate = rawRate !== null && rawRate !== undefined;
-        const effRate = hasRate ? Number(rawRate) : 0.025;
-        const retefuente = savedRete > 0
-          ? savedRete
-          : Math.round(Number(i.subtotal_base ?? 0) * effRate);
-        const reteica = Math.abs(Number(i.reteica_amount ?? 0));
-        const autoretefuente = Math.abs(Number(i.autoretefuente_amount ?? 0));
-        return s + retefuente + reteica + autoretefuente;
-      }, 0);
+      // municipio en vez de pagártela al banco → se descuentan del saldo (no son
+      // deuda viva). Fórmula compartida (lib/invoiceBalance), la misma que
+      // cobranza/conciliación/anticipos: retefuente SOLO si es explícito (sin el
+      // fallback 2.5% que inventaba retención a clientes que no retienen) +
+      // reteica + autoretefuente.
+      const retencionesVenta = invsVenta.reduce((s: number, i: any) => s + invoiceRetenciones(i).total, 0);
 
       // Retenciones del lado compra: lo que NOSOTROS le retuvimos al proveedor
       // y pagamos a DIAN/municipio en su nombre. No se las pagamos al

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { invoiceRetenciones } from '@/lib/invoiceBalance';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Receipt, Banknote, ShoppingCart, Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -114,11 +115,11 @@ export function useOperationalData(year: number): OperationalData {
         let pendingCount = 0;
         invoicesRes.data.forEach(inv => {
           const paid = payments.get(inv.id) || 0;
-          const savedRetefuente = (inv as any).retefuente_cliente_amount ?? 0;
-          const rawRate = (inv as any).retefuente_cliente_rate;
-          const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-          const effectiveRate = hasExplicitRate ? rawRate : 0.025;
-          const retefuenteCliente = savedRetefuente > 0 ? savedRetefuente : Math.round(((inv as any).subtotal_base ?? 0) * effectiveRate);
+          // Retenciones — fórmula compartida (lib/invoiceBalance), sin el fallback
+          // 2.5% fantasma. Esta query no trae reteica/autoretefuente, así que la
+          // función devuelve solo retefuente explícito (comportamiento previo de
+          // este card, menos la retención inventada).
+          const retefuenteCliente = invoiceRetenciones(inv as unknown as Record<string, unknown>).total;
           const pending = Math.max(0, inv.total_amount - paid - retefuenteCliente);
           if (pending > 0) { pendingTotal += pending; pendingCount++; }
         });
