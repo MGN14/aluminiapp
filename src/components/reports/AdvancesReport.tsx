@@ -115,7 +115,10 @@ export default function AdvancesReport() {
       // anticipos porque ya no son facturación válida.
       const { data: invoicesRaw } = await supabase
         .from('invoices')
-        .select('id, invoice_number, counterparty_name, total_amount, issue_date')
+        // ⚠️ NO pedir `retefuente_amount` — esa columna vive en transactions, no
+        // en invoices; pedirla rompe el query en silencio. Sí existen los
+        // retefuente_cliente_*. Mismos campos que clientReceivables.ts (cobranza).
+        .select('id, invoice_number, counterparty_name, total_amount, issue_date, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount' as never)
         .eq('type', 'venta')
         .or('void_type.is.null,void_type.eq.partial')
         .order('issue_date', { ascending: false })
@@ -155,10 +158,28 @@ export default function AdvancesReport() {
           appliedById.set(a.invoice_id, (appliedById.get(a.invoice_id) ?? 0) + Math.abs(Number(a.amount ?? 0)));
         }
       }
+      // Retenciones de VENTA — MISMO criterio que clientReceivables.ts (fuente de
+      // verdad de cobranza) e InvoiceSelector (conciliación): retefuente_cliente
+      // (con fallback 2.5% para facturas legacy sin tasa) + reteica +
+      // autoretefuente. Plata que el cliente retuvo y pagó a DIAN/municipio, no
+      // vuelve al banco → no es saldo vivo. Idéntico para que anticipos cuadre.
+      const ventaRetenciones = (inv: any): number => {
+        const savedRete = Number(inv.retefuente_cliente_amount ?? 0);
+        const rawRate = inv.retefuente_cliente_rate;
+        const hasExplicitRate = rawRate !== null && rawRate !== undefined;
+        const effectiveRate = hasExplicitRate ? Number(rawRate) : 0.025;
+        const retefuente = savedRete > 0
+          ? savedRete
+          : Math.round(Number(inv.subtotal_base ?? 0) * effectiveRate);
+        const reteica = Math.abs(Number(inv.reteica_amount ?? 0));
+        const autoretefuente = Math.abs(Number(inv.autoretefuente_amount ?? 0));
+        return retefuente + reteica + autoretefuente;
+      };
       const invoicesWithPending = (invoicesRaw ?? []).map((i: any) => {
         const applied = appliedById.get(i.id) ?? 0;
-        const pending = Math.max(0, Number(i.total_amount ?? 0) - applied);
-        return { ...i, applied, pending };
+        const retenciones = ventaRetenciones(i);
+        const pending = Math.max(0, Number(i.total_amount ?? 0) - applied - retenciones);
+        return { ...i, applied, retenciones, pending };
       });
 
       return {
