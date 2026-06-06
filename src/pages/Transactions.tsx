@@ -667,6 +667,7 @@ export default function Transactions() {
                         <TableHead className="w-[170px]">Categoría</TableHead>
                         <TableHead className="w-[170px]">Beneficiario</TableHead>
                         <TableHead className="w-[140px]">#Factura</TableHead>
+                        <TableHead className="w-[120px]">Naturaleza</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

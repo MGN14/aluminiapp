@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { MONTH_NAMES, type ReportGroup } from '@/types/transaction';
+import { MONTH_NAMES, isOperativo, type ReportGroup } from '@/types/transaction';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 
@@ -70,9 +70,9 @@ function useYearData(userId: string | undefined, year: number) {
       if (!userId) return null;
 
       const [txRes, catRes, respRes, pcRes, cpRes, credRes] = await Promise.all([
-        supabase
-          .from('transactions')
-          .select('date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount')
+        (supabase
+          .from('transactions') as any)
+          .select('date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount, movement_nature')
           .is('deleted_at', null)
           .gte('date', `${year}-01-01`)
           .lte('date', `${year}-12-31`),
@@ -283,6 +283,8 @@ function buildMonthlyData(
   const taxFromFlags = new Array(12).fill(0);
 
   for (const tx of transactions) {
+    // Traspasos/devoluciones/préstamos/aportes no entran al P&G operativo.
+    if (!isOperativo((tx as any).movement_nature)) continue;
     const m = parseLocalDate(tx.date).getMonth();
     const absAmount = Math.abs(tx.amount ?? 0);
 

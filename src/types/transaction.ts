@@ -6,6 +6,23 @@ export type TransactionType = 'compra' | 'venta';
 export type IvaType = 'credito' | 'debito' | null;
 export type OperationalType = 'ingreso' | 'costo' | 'gasto_operativo' | 'impuesto' | 'transferencia' | 'ajuste' | 'otros';
 
+// Naturaleza del movimiento — se setea en conciliación y la respetan TODOS los
+// cálculos (dashboard, P&G, cashflow, API). NULL/operativo = ingreso/egreso real.
+export type MovementNature = 'operativo' | 'traspaso' | 'devolucion' | 'prestamo' | 'aporte';
+
+export const MOVEMENT_NATURES: { value: MovementNature; label: string }[] = [
+  { value: 'operativo', label: 'Operativo' },
+  { value: 'traspaso', label: 'Traspaso entre cuentas' },
+  { value: 'devolucion', label: 'Devolución / DIAN' },
+  { value: 'prestamo', label: 'Préstamo' },
+  { value: 'aporte', label: 'Aporte de socio' },
+];
+
+/** true si el movimiento cuenta como ingreso/egreso real del negocio. */
+export function isOperativo(nature: string | null | undefined): boolean {
+  return !nature || nature === 'operativo';
+}
+
 export interface Transaction {
   id: string;
   statement_id: string;
@@ -22,6 +39,7 @@ export interface Transaction {
   responsible_id: string | null;
   transaction_type: TransactionType; // Legacy, auto-set by trigger
   operational_type: OperationalType | null;
+  movement_nature?: MovementNature | null;
   has_iva: boolean;
   iva_rate: number;
   iva_amount: number;

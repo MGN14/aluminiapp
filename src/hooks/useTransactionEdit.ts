@@ -69,7 +69,9 @@ export function useTransactionEdit(
     try {
       const { error } = await supabase
         .from('transactions')
-        .update(updates)
+        // `as never`: movement_nature es columna nueva (migración) aún no en los
+        // tipos generados de Supabase. El resto de campos siguen tipados arriba.
+        .update(updates as never)
         .eq('id', localTransaction.id);
 
       if (error) throw error;

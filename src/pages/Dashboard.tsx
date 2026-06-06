@@ -9,7 +9,7 @@ import { useModuleContext } from '@/hooks/useModuleContext';
 import NicoLogo from '@/components/nico/NicoLogo';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { getCuatrimestreForPeriod, isDIANPayment, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
+import { getCuatrimestreForPeriod, isDIANPayment, isOperativo, MONTH_NAMES, Category, Responsible } from '@/types/transaction';
 import { parseLocalDate, getYearRange } from '@/lib/dateUtils';
 import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 import { UnifiedPeriodFilter, PeriodSelection, getPeriodDateRange } from '@/components/dashboard/UnifiedPeriodFilter';
@@ -322,7 +322,7 @@ function DashboardContent() {
 
   const fetchTransactions = useCallback(async () => {
     try {
-      let query = supabase.from('transactions').select(`id, date, description, amount, balance, category, category_id, responsible_id, invoice_id, notes, transaction_type, type, has_iva, has_retefuente, has_reteica, iva_amount, iva_type, retefuente_amount, reteica_amount, operative_receivable_assigned, categories!transactions_category_id_fkey(name)`).is('deleted_at', null).order('date', { ascending: true });
+      let query = (supabase.from('transactions') as any).select(`id, date, description, amount, balance, category, category_id, responsible_id, invoice_id, notes, transaction_type, type, has_iva, has_retefuente, has_reteica, iva_amount, iva_type, retefuente_amount, reteica_amount, movement_nature, operative_receivable_assigned, categories!transactions_category_id_fkey(name)`).is('deleted_at', null).order('date', { ascending: true });
       if (dashLimits.historyMonths && dashLimits.historyMonths > 0) {
         const cutoff = new Date();
         cutoff.setMonth(cutoff.getMonth() - dashLimits.historyMonths);
@@ -361,8 +361,10 @@ function DashboardContent() {
     if (transactions.length === 0 && cashMovements.length === 0) return { saldoActual: 0, totalIngresos: 0, totalEgresos: 0, pendingReconcile: 0, transactionCount: 0, cuatrimestreLabel: cuatrimestre.label, periodLabel: periodRange.label };
     const sortedByDate = [...periodTransactions].sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime());
     const saldoActual = sortedByDate[0]?.balance ?? 0;
-    let totalIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((s, tx) => s + (tx.amount ?? 0), 0);
-    let totalEgresos = Math.abs(periodTransactions.filter(tx => (tx.amount ?? 0) < 0).reduce((s, tx) => s + (tx.amount ?? 0), 0));
+    // Solo operativos cuentan como ingreso/egreso real. Traspasos, devoluciones,
+    // préstamos y aportes (movement_nature) se excluyen (no inflan la utilidad).
+    let totalIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0 && isOperativo((tx as any).movement_nature)).reduce((s, tx) => s + (tx.amount ?? 0), 0);
+    let totalEgresos = Math.abs(periodTransactions.filter(tx => (tx.amount ?? 0) < 0 && isOperativo((tx as any).movement_nature)).reduce((s, tx) => s + (tx.amount ?? 0), 0));
 
     // In gerencial mode, add cash movements (sin promovidos desde caja menor) +
     // petty_cash_movements directos. Mismo set que PYGReport.tsx para que ambos cuadren.

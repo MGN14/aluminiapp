@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo } from 'react';
-import { Transaction, Category, Responsible, SimpleTransactionType, SIMPLE_TYPES } from '@/types/transaction';
+import { Transaction, Category, Responsible, SimpleTransactionType, SIMPLE_TYPES, MOVEMENT_NATURES } from '@/types/transaction';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 import { TableCell, TableRow } from '@/components/ui/table';
@@ -85,6 +85,10 @@ export default function TransactionRow({
 
   const handleTypeChange = (type: SimpleTransactionType) => {
     updateField({ type });
+  };
+
+  const handleNatureChange = (nature: string) => {
+    updateField({ movement_nature: nature as Transaction['movement_nature'] });
   };
 
   const handleInvoiceChange = async (
@@ -342,6 +346,25 @@ export default function TransactionRow({
           transactionId={localTransaction.id}
           onChange={handleInvoiceChange}
         />
+      </TableCell>
+
+      {/* Naturaleza del movimiento — operativo vs traspaso/devolución/préstamo/aporte */}
+      <TableCell className="w-[120px]">
+        <Select
+          value={localTransaction.movement_nature ?? 'operativo'}
+          onValueChange={handleNatureChange}
+        >
+          <SelectTrigger className="h-7 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {MOVEMENT_NATURES.map((n) => (
+              <SelectItem key={n.value} value={n.value}>
+                <span className="text-xs">{n.label}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </TableCell>
     </TableRow>
   );
