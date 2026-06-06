@@ -270,6 +270,27 @@ const TOOLS_SCHEMA = [
     inputSchema: { type: "object", properties: {} },
   },
   {
+    name: "list_categories",
+    description: "Maestra de categorías: id, nombre y grupo de reporte (ingresos/costos_operacionales/gastos_operativos/impuestos/otros). Para mapear category_id → nombre y agrupar.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_suppliers",
+    description: "Maestra de proveedores (responsibles tipo proveedor): nombre, NIT, contacto.",
+    inputSchema: {
+      type: "object",
+      properties: { search: { type: "string", description: "Búsqueda por nombre o NIT." }, limit: { type: "number", description: "Default 200, max 500." } },
+    },
+  },
+  {
+    name: "list_products",
+    description: "Maestra de productos (inventory_products): referencia, nombre, unidad, costo unitario, stock contable/físico, sistema.",
+    inputSchema: {
+      type: "object",
+      properties: { search: { type: "string", description: "Búsqueda por referencia o nombre." }, limit: { type: "number", description: "Default 200, max 500." } },
+    },
+  },
+  {
     name: "top_clients_by_revenue",
     description: "Top N clientes por facturación en el período (agrupado por counterparty_name).",
     inputSchema: {
@@ -614,7 +635,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   async list_transactions(db, userId, args) {
     const limit = clampLimit(args.limit, 100);
     let q = db.from("transactions")
-      .select("id, date, description, type, amount, debit, credit, has_iva, iva_amount, has_retefuente, retefuente_amount, category_id, responsible_id, notes")
+      .select("id, date, description, type, amount, debit, credit, has_iva, iva_amount, has_retefuente, retefuente_amount, category_id, responsible_id, movement_nature, notes")
       .eq("user_id", userId)
       .is("deleted_at", null)
       .order("date", { ascending: false })
@@ -632,7 +653,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     const to = String(args.to ?? "");
     if (!from || !to) throw new Error("from y to son requeridos");
     const { data, error } = await db.from("transactions")
-      .select("type, amount, debit, credit, iva_amount, retefuente_amount")
+      .select("type, amount, debit, credit, iva_amount, retefuente_amount, movement_nature")
       .eq("user_id", userId)
       .is("deleted_at", null)
       .gte("date", from)
@@ -640,10 +661,14 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     if (error) throw new Error(error.message);
     const txs = data ?? [];
     let totalIngresos = 0, totalEgresos = 0, totalIva = 0, totalRetefuente = 0;
+    let noOpIngresos = 0, noOpEgresos = 0;
     for (const t of txs) {
       const amt = Math.abs(Number(t.amount ?? t.credit ?? t.debit ?? 0));
-      if (t.type === "ingreso") totalIngresos += amt;
-      else if (t.type === "egreso") totalEgresos += amt;
+      // Solo cuentan como ingreso/egreso REAL los operativos. Traspasos,
+      // devoluciones, préstamos y aportes se reportan aparte (no inflan).
+      const operativo = !t.movement_nature || t.movement_nature === "operativo";
+      if (t.type === "ingreso") { if (operativo) totalIngresos += amt; else noOpIngresos += amt; }
+      else if (t.type === "egreso") { if (operativo) totalEgresos += amt; else noOpEgresos += amt; }
       totalIva += Number(t.iva_amount ?? 0);
       totalRetefuente += Number(t.retefuente_amount ?? 0);
     }
@@ -653,6 +678,11 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       total_ingresos: round2(totalIngresos),
       total_egresos: round2(totalEgresos),
       neto: round2(totalIngresos - totalEgresos),
+      no_operativo: {
+        ingresos: round2(noOpIngresos),
+        egresos: round2(noOpEgresos),
+        note: "Traspasos / devoluciones / préstamos / aportes (movement_nature ≠ operativo). EXCLUIDOS de ingresos/egresos reales de arriba.",
+      },
       total_iva: round2(totalIva),
       total_retefuente: round2(totalRetefuente),
     };
@@ -728,7 +758,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     }
 
     const { data: txs, error } = await db.from("transactions")
-      .select("type, amount, category_id, has_retefuente, retefuente_amount, has_reteica, reteica_amount")
+      .select("type, amount, category_id, has_retefuente, retefuente_amount, has_reteica, reteica_amount, movement_nature")
       .eq("user_id", userId).is("deleted_at", null)
       .gte("date", from).lte("date", to);
     if (error) throw new Error(error.message);
@@ -736,8 +766,11 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     const groups: Record<string, number> = { ingresos: 0, costos_operacionales: 0, gastos_operativos: 0, impuestos: 0, otros: 0 };
     const byCat = new Map<string, { categoria: string; grupo: string; monto: number }>();
     let taxFromFlags = 0;
+    let noOperativo = 0;
     for (const t of (txs ?? []) as Record<string, unknown>[]) {
       const amt = Math.abs(Number(t.amount ?? 0));
+      // Traspasos/devoluciones/préstamos/aportes NO entran al P&G operativo.
+      if (t.movement_nature && t.movement_nature !== "operativo") { noOperativo += amt; continue; }
       const cat = t.category_id ? catMap.get(t.category_id as string) : null;
       let rg = cat?.rg ?? (t.type === "ingreso" ? "ingresos" : t.type === "egreso" ? "gastos_operativos" : "otros");
       if (!(rg in groups)) rg = "otros";
@@ -777,6 +810,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       ebitda: round2(ebitda),
       impuestos: round2(groups.impuestos),
       otros: round2(groups.otros),
+      no_operativo: round2(noOperativo),
       utilidad_neta: round2(utilidadNeta),
       iva: {
         generado: round2(ivaGenerado),
@@ -900,6 +934,50 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       accounts,
       note: "Saldo al cierre del último extracto cargado por cuenta (bank_statements.saldo_actual). 'as_of' indica la fecha de ese cierre. Si subiste el extracto del mes, este es tu saldo bancario.",
     };
+  },
+
+  async list_categories(db, userId) {
+    const { data, error } = await db.from("categories")
+      .select("id, name, report_group, active")
+      .eq("user_id", userId)
+      .order("name", { ascending: true });
+    if (error) throw new Error(error.message);
+    return { count: data?.length ?? 0, categories: data ?? [] };
+  },
+
+  async list_suppliers(db, userId, args) {
+    const limit = clampLimit(args.limit, 200);
+    let q = db.from("responsibles")
+      .select("id, name, nit, tipo_documento, email, phone, ciudad, responsible_type, active")
+      .eq("user_id", userId)
+      .eq("active", true)
+      .ilike("responsible_type", "%proveedor%")
+      .order("name", { ascending: true })
+      .limit(limit);
+    if (args.search) {
+      const s = String(args.search);
+      q = q.or(`name.ilike.%${s}%,nit.ilike.%${s}%`);
+    }
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return { count: data?.length ?? 0, suppliers: data ?? [] };
+  },
+
+  async list_products(db, userId, args) {
+    const limit = clampLimit(args.limit, 200);
+    let q = db.from("inventory_products")
+      .select("reference, name, unit, cost_per_unit, stock_system, stock_physical, system, active")
+      .eq("user_id", userId)
+      .eq("active", true)
+      .order("reference", { ascending: true })
+      .limit(limit);
+    if (args.search) {
+      const s = String(args.search);
+      q = q.or(`reference.ilike.%${s}%,name.ilike.%${s}%`);
+    }
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return { count: data?.length ?? 0, products: data ?? [] };
   },
 
   async top_clients_by_revenue(db, userId, args) {
