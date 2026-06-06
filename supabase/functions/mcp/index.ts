@@ -253,6 +253,23 @@ const TOOLS_SCHEMA = [
     },
   },
   {
+    name: "list_cash_movements",
+    description: "Detalle de movimientos de EFECTIVO (caja menor): fecha, tipo (ingreso/gasto/cuenta de cobro), monto, concepto y categoría. Filtrable por período. Devuelve también totales de ingresos/egresos en efectivo del período. (Antes la API solo daba el saldo agregado.)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "YYYY-MM-DD (filtra por date)." },
+        to: { type: "string", description: "YYYY-MM-DD" },
+        limit: { type: "number", description: "Máximo de filas de detalle (default 100, max 500)." },
+      },
+    },
+  },
+  {
+    name: "bank_balance",
+    description: "Saldo bancario actual por cuenta: toma el saldo al cierre del último extracto cargado de cada cuenta (bank_statements.saldo_actual) + el total entre cuentas. Es 'cuánto tenés hoy en el banco', no flujos.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
     name: "top_clients_by_revenue",
     description: "Top N clientes por facturación en el período (agrupado por counterparty_name).",
     inputSchema: {
@@ -802,6 +819,86 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       pending_invoices: pending.length,
       suppliers,
       note: "Cuentas por pagar: saldo real de facturas de compra (total − pagado − retenciones). Excluye facturas anuladas totalmente por NC.",
+    };
+  },
+
+  async list_cash_movements(db, userId, args) {
+    const limit = clampLimit(args.limit, 100);
+    const { data: cats } = await db.from("categories").select("id, name").eq("user_id", userId);
+    const catName = new Map<string, string>();
+    for (const c of (cats ?? []) as Record<string, unknown>[]) catName.set(c.id as string, (c.name as string) ?? "");
+
+    // Traemos hasta MAX_LIMIT del período para que los totales sean exactos;
+    // el detalle se corta a `limit`. (Caja menor rara vez supera eso.)
+    let q = db.from("petty_cash_movements")
+      .select("date, kind, amount, concept, notes, category_id, numero_consecutivo")
+      .eq("user_id", userId)
+      .order("date", { ascending: false })
+      .limit(MAX_LIMIT);
+    if (args.from) q = q.gte("date", String(args.from));
+    if (args.to) q = q.lte("date", String(args.to));
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    const all = (data ?? []) as Record<string, unknown>[];
+
+    let ingresos = 0, egresos = 0;
+    const movimientos = all.map((m) => {
+      const amount = round2(Number(m.amount ?? 0));
+      const kind = String(m.kind ?? "");
+      if (kind === "ingreso_efectivo") ingresos += amount; else egresos += amount;
+      return {
+        date: m.date,
+        kind,
+        amount,
+        concept: m.concept ?? null,
+        category: m.category_id ? (catName.get(m.category_id as string) ?? null) : null,
+        consecutivo: m.numero_consecutivo ?? null,
+        notes: m.notes ?? null,
+      };
+    });
+
+    return {
+      count: all.length,
+      period: { from: args.from ?? null, to: args.to ?? null },
+      total_ingresos_efectivo: round2(ingresos),
+      total_egresos_efectivo: round2(egresos),
+      neto_efectivo: round2(ingresos - egresos),
+      movimientos: movimientos.slice(0, limit),
+      truncated: all.length > limit,
+      note: "Detalle de caja menor (petty_cash_movements). kind='ingreso_efectivo' suma; otros (gasto_efectivo, cuenta_de_cobro) restan. Totales sobre todo el período; 'movimientos' corta a limit.",
+    };
+  },
+
+  async bank_balance(db, userId) {
+    const { data, error } = await db.from("bank_statements")
+      .select("bank_name, account_number, display_name, saldo_actual, period_end, statement_month, statement_year")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .order("period_end", { ascending: false, nullsFirst: false })
+      .order("statement_year", { ascending: false, nullsFirst: false })
+      .order("statement_month", { ascending: false, nullsFirst: false });
+    if (error) throw new Error(error.message);
+
+    // Por cuenta (bank_name + account_number) nos quedamos con el extracto más
+    // reciente (el primero, por el order de arriba) y su saldo_actual.
+    const latestByAccount = new Map<string, Record<string, unknown>>();
+    for (const s of (data ?? []) as Record<string, unknown>[]) {
+      const key = `${s.bank_name ?? ""}__${s.account_number ?? ""}`;
+      if (!latestByAccount.has(key)) latestByAccount.set(key, s);
+    }
+    const accounts = [...latestByAccount.values()].map((s) => ({
+      bank_name: s.bank_name,
+      account_number: s.account_number ?? null,
+      display_name: s.display_name ?? null,
+      saldo_actual: round2(Number(s.saldo_actual ?? 0)),
+      as_of: (s.period_end as string | null) ??
+        (s.statement_year && s.statement_month ? `${s.statement_year}-${String(s.statement_month).padStart(2, "0")}` : null),
+    }));
+    const total = accounts.reduce((sum, a) => sum + a.saldo_actual, 0);
+    return {
+      total_bank_balance: round2(total),
+      accounts,
+      note: "Saldo al cierre del último extracto cargado por cuenta (bank_statements.saldo_actual). 'as_of' indica la fecha de ese cierre. Si subiste el extracto del mes, este es tu saldo bancario.",
     };
   },
 
