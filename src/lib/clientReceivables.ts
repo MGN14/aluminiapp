@@ -23,6 +23,7 @@
 // saldo_neto < 0 → saldo a favor del cliente (le debemos / hay anticipo vivo).
 
 import { supabase } from '@/integrations/supabase/client';
+import { invoiceRetenciones } from './invoiceBalance';
 
 // Normalización fuerte de nombres (copiada de PaymentsLogReport para mantener
 // criterio idéntico de matching).
@@ -204,19 +205,10 @@ export async function calculateAllClientReceivables(
     }
     if (!clientId) clientId = '__unknown';
 
-    const savedRete = Number((inv.retefuente_cliente_amount as number | null) ?? 0);
-    const rawRate = inv.retefuente_cliente_rate as number | null | undefined;
-    const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-    const effectiveRate = hasExplicitRate ? Number(rawRate) : 0.025;
-    const retefuente = savedRete > 0
-      ? savedRete
-      : Math.round(Number(inv.subtotal_base ?? 0) * effectiveRate);
-    // reteica + autoretefuente: solo descontar si están explícitamente
-    // cargados en la factura (auto-detect por amount > 0). Facturas a clientes
-    // que NO son agentes retenedores tienen estos campos en 0/null.
-    const reteica = Math.abs(Number(inv.reteica_amount ?? 0));
-    const autoretefuente = Math.abs(Number(inv.autoretefuente_amount ?? 0));
-    const retenciones_total = retefuente + reteica + autoretefuente;
+    // Retenciones — fórmula compartida (lib/invoiceBalance) para que cobranza,
+    // conciliación y anticipos cuadren siempre. Acá `inv` no trae `type` → la
+    // función asume 'venta', idéntico al cálculo que vivía inline antes.
+    const { retefuente, reteica, autoretefuente, total: retenciones_total } = invoiceRetenciones(inv);
 
     const issueDate = inv.issue_date as string;
     const daysSince = Math.max(0, Math.floor((today.getTime() - new Date(issueDate).getTime()) / 86400000));

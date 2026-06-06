@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { invoiceRetenciones } from '@/lib/invoiceBalance';
 import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -158,26 +159,11 @@ export default function AdvancesReport() {
           appliedById.set(a.invoice_id, (appliedById.get(a.invoice_id) ?? 0) + Math.abs(Number(a.amount ?? 0)));
         }
       }
-      // Retenciones de VENTA — MISMO criterio que clientReceivables.ts (fuente de
-      // verdad de cobranza) e InvoiceSelector (conciliación): retefuente_cliente
-      // (con fallback 2.5% para facturas legacy sin tasa) + reteica +
-      // autoretefuente. Plata que el cliente retuvo y pagó a DIAN/municipio, no
-      // vuelve al banco → no es saldo vivo. Idéntico para que anticipos cuadre.
-      const ventaRetenciones = (inv: any): number => {
-        const savedRete = Number(inv.retefuente_cliente_amount ?? 0);
-        const rawRate = inv.retefuente_cliente_rate;
-        const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-        const effectiveRate = hasExplicitRate ? Number(rawRate) : 0.025;
-        const retefuente = savedRete > 0
-          ? savedRete
-          : Math.round(Number(inv.subtotal_base ?? 0) * effectiveRate);
-        const reteica = Math.abs(Number(inv.reteica_amount ?? 0));
-        const autoretefuente = Math.abs(Number(inv.autoretefuente_amount ?? 0));
-        return retefuente + reteica + autoretefuente;
-      };
+      // Retenciones — fórmula compartida (lib/invoiceBalance), la misma que
+      // cobranza y conciliación. Acá todas las facturas son de venta.
       const invoicesWithPending = (invoicesRaw ?? []).map((i: any) => {
         const applied = appliedById.get(i.id) ?? 0;
-        const retenciones = ventaRetenciones(i);
+        const retenciones = invoiceRetenciones(i).total;
         const pending = Math.max(0, Number(i.total_amount ?? 0) - applied - retenciones);
         return { ...i, applied, retenciones, pending };
       });

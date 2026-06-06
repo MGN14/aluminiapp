@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { FileText, Search, X, ShieldCheck, Receipt, Plus, Wallet, CreditCard } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { suggestPaymentSplit, summarizeCredit, type AmortizationType } from '@/lib/amortization';
+import { invoiceRetenciones } from '@/lib/invoiceBalance';
 
 interface InvoiceOption {
   id: string;
@@ -166,35 +167,12 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
       paidByInvoice.set(invoiceId, Math.max(0, currentPaid - Math.abs(transactionAmount)));
     }
 
-    // Cálculo de retenciones por factura — mismo criterio que clientReceivables.ts.
-    // VENTAS: retefuente_cliente (con fallback 2.5% para facturas legacy) +
-    //         reteica + autoretefuente, plata que el cliente retuvo y pagó a
-    //         DIAN/municipio (no vuelve al banco, no es deuda viva).
-    // COMPRAS: reteica + autoretefuente (en invoices NO existe retefuente_amount;
-    //         si en el futuro se agrega retefuente_proveedor_amount, sumarlo).
-    const retencionesOf = (inv: Record<string, unknown>): number => {
-      const tipo = inv.type as string;
-      const reteica = Math.abs(Number(inv.reteica_amount ?? 0));
-      const autoretefuente = Math.abs(Number(inv.autoretefuente_amount ?? 0));
-      if (tipo === 'venta') {
-        const savedRete = Number(inv.retefuente_cliente_amount ?? 0);
-        const rawRate = inv.retefuente_cliente_rate as number | null | undefined;
-        const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-        const effectiveRate = hasExplicitRate ? Number(rawRate) : 0.025;
-        const subtotalBase = Number(inv.subtotal_base ?? 0);
-        const retefuente = savedRete > 0
-          ? savedRete
-          : Math.round(subtotalBase * effectiveRate);
-        return retefuente + reteica + autoretefuente;
-      }
-      // compra: solo reteica + autoretefuente (sin retefuente — la columna no
-      // existe en invoices y pedirla rompía todo el query silenciosamente).
-      return reteica + autoretefuente;
-    };
-
     const enriched: InvoiceOption[] = rawList.map((inv) => {
       const paid = paidByInvoice.get(inv.id as string) || 0;
-      const retenciones = retencionesOf(inv);
+      // Retenciones — fórmula compartida (lib/invoiceBalance). Maneja venta
+      // (retefuente_cliente + reteica + autoretefuente) y compra (solo reteica +
+      // autoretefuente) según inv.type, idéntico al cálculo previo.
+      const retenciones = invoiceRetenciones(inv).total;
       const totalAmount = Number(inv.total_amount ?? 0);
       const outstanding = Math.max(0, totalAmount - paid - retenciones);
       return {
