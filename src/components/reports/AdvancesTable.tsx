@@ -28,6 +28,10 @@ interface Invoice {
   counterparty_name: string | null;
   total_amount: number;
   issue_date: string;
+  /** Saldo pendiente por cobrar (total − aplicado). Lo calcula AdvancesReport
+   *  y viaja en el prop; el dropdown lo mostraba como total, no como saldo. */
+  pending?: number;
+  applied?: number;
 }
 
 interface AdvancesTableProps {
@@ -220,13 +224,28 @@ export default function AdvancesTable({
                                 <SelectValue placeholder="Seleccionar factura" />
                               </SelectTrigger>
                               <SelectContent>
-                                {invoices.map((inv) => (
-                                  <SelectItem key={inv.id} value={inv.id}>
-                                    <span className="text-xs">
-                                      {inv.invoice_number} — {inv.counterparty_name || 'Sin nombre'} ({formatCurrency(inv.total_amount)})
-                                    </span>
-                                  </SelectItem>
-                                ))}
+                                {invoices.map((inv) => {
+                                  // Mostrar SALDO pendiente (no el total) — el usuario
+                                  // necesita ver cuánto falta cobrar de cada factura.
+                                  const pending = Number(inv.pending ?? inv.total_amount ?? 0);
+                                  const total = Number(inv.total_amount ?? 0);
+                                  const isPaid = pending <= 0;
+                                  return (
+                                    <SelectItem key={inv.id} value={inv.id} disabled={isPaid}>
+                                      <span className="text-xs flex flex-col gap-0.5">
+                                        <span className="font-medium">
+                                          {inv.invoice_number} — {inv.counterparty_name || 'Sin nombre'}
+                                        </span>
+                                        <span className={isPaid ? 'text-success' : 'text-destructive'}>
+                                          {isPaid ? 'Sin saldo (ya pagada)' : `Saldo: ${formatCurrency(pending)}`}
+                                          {!isPaid && total !== pending && (
+                                            <span className="text-muted-foreground"> · de {formatCurrency(total)}</span>
+                                          )}
+                                        </span>
+                                      </span>
+                                    </SelectItem>
+                                  );
+                                })}
                               </SelectContent>
                             </Select>
                           ) : (
