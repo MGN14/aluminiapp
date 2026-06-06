@@ -404,14 +404,15 @@ Deno.serve(async (req) => {
 
       salesInvoices.forEach((inv: any) => {
         const paid = payments.get(inv.id) || 0;
-        // Subtract retefuente cliente (same logic as CxC report)
+        // Subtract retefuente cliente — SOLO si es explícito (sin fallback 2.5%
+        // fantasma: clientes que no retienen no deben perder saldo). Mismo
+        // criterio que cobranza/anticipos.
         const savedRetefuente = inv.retefuente_cliente_amount ?? 0;
         const rawRate = inv.retefuente_cliente_rate;
         const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-        const effectiveRate = hasExplicitRate ? rawRate : 0.025;
         const retefuenteCliente = savedRetefuente > 0
           ? savedRetefuente
-          : Math.round((inv.subtotal_base ?? 0) * effectiveRate);
+          : hasExplicitRate ? Math.round((inv.subtotal_base ?? 0) * Number(rawRate)) : 0;
 
         const totalDeducted = paid + retefuenteCliente;
         const pending = Math.max(0, inv.total_amount - totalDeducted);

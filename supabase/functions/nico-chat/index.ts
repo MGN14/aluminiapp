@@ -484,14 +484,14 @@ serve(async (req) => {
       const total = inv.total_amount ?? 0;
       const paid = paymentsByInvoice.get(inv.id) || 0;
       
-      // FIXED: Deduct retefuente (same logic as CFO insights)
+      // Deduct retefuente — SOLO si es explícito (sin fallback 2.5% fantasma).
+      // Mismo criterio que cobranza/anticipos/CFO insights.
       const savedRetefuente = inv.retefuente_cliente_amount ?? 0;
       const rawRate = inv.retefuente_cliente_rate;
       const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-      const effectiveRate = hasExplicitRate ? rawRate : 0.025;
       const retefuenteCliente = savedRetefuente > 0
         ? savedRetefuente
-        : Math.round((inv.subtotal_base ?? 0) * effectiveRate);
+        : hasExplicitRate ? Math.round((inv.subtotal_base ?? 0) * Number(rawRate)) : 0;
       
       const totalDeducted = paid + retefuenteCliente;
       const saldo = Math.max(0, total - totalDeducted);
@@ -962,7 +962,7 @@ Transacciones sin factura: ${unmatchedTxCount}
 
 CUENTAS POR COBRAR (facturas de venta pendientes + saldo inicial):
 Total por cobrar: ${fmt(totalPorCobrar)} (${cuentasPorCobrar.length} facturas pendientes${initialCxC > 0 ? ` + ${fmt(initialCxC)} saldo inicial` : ""})
-NOTA: Se descuentan pagos directos, matches manuales, anticipos vinculados y retefuente del cliente (2.5% si no tiene tasa explícita).
+NOTA: Se descuentan pagos directos, matches manuales, anticipos vinculados y retefuente del cliente (solo cuando está explícito en la factura).
 ${cuentasPorCobrar.slice(0, 8).map((c, i) => `${i + 1}. ${c.cliente} — Factura ${c.factura}: Saldo ${fmt(c.saldo)} (emitida ${c.fecha}${c.vencimiento ? `, vence ${c.vencimiento}` : ""})`).join("\n") || "Sin facturas pendientes de cobro"}
 
 CUENTAS POR PAGAR (facturas de compra pendientes + saldo inicial):
