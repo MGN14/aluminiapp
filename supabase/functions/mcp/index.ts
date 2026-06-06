@@ -191,7 +191,7 @@ const TOOLS_SCHEMA = [
   },
   {
     name: "get_client_balance",
-    description: "Saldo pendiente de un cliente (suma de balance_pending de sus facturas no anuladas).",
+    description: "Saldo REAL pendiente de un cliente: neto de pagos, anticipos vinculados y retenciones (igual que la pantalla de Cartera, NO el crudo balance_pending). Excluye facturas anuladas totalmente por nota crédito.",
     inputSchema: {
       type: "object",
       properties: {
@@ -271,7 +271,7 @@ const TOOLS_SCHEMA = [
   },
   {
     name: "list_pending_payments",
-    description: "Facturas con saldo pendiente (balance_pending > 0) ordenadas por fecha de vencimiento.",
+    description: "Facturas con saldo REAL pendiente (> 0, neto de pagos/anticipos/retenciones; excluye NC totales) ordenadas por vencimiento. total_pending = cartera total real (coincide con la pantalla).",
     inputSchema: {
       type: "object",
       properties: {
@@ -353,6 +353,104 @@ function clampLimit(n: unknown, def: number): number {
   return Math.min(Math.floor(num), MAX_LIMIT);
 }
 
+// ---------------------------------------------------------------------------
+// FUENTE DE VERDAD DE CARTERA (igual que la pantalla, no el crudo balance_pending)
+// ---------------------------------------------------------------------------
+// `invoices.balance_pending` NO se mantiene al día (queda ≈ al total facturado),
+// por eso la cartera del MCP salía ~5x inflada. Acá replicamos el cálculo de
+// la app (lib/clientReceivables.ts + lib/invoiceBalance.ts):
+//   saldo = total_amount − pagado − retenciones, excluyendo NC totales.
+//   pagado = transactions.invoice_id + invoice_transaction_matches + anticipos vinculados.
+//   retenciones = retefuente (solo si explícito) + reteica + autoretefuente.
+
+interface ReceivableInvoice {
+  id: string;
+  counterparty_name: string;
+  responsible_id: string | null;
+  issue_date: string;
+  due_date: string | null;
+  dias_credito: number | null;
+  total_amount: number;
+  paid: number;
+  retenciones: number;
+  saldo: number;
+  void_type: string | null;
+}
+
+function invoiceRetenciones(inv: Record<string, unknown>): number {
+  const reteica = Math.abs(Number(inv.reteica_amount ?? 0));
+  const autoretefuente = Math.abs(Number(inv.autoretefuente_amount ?? 0));
+  const tipo = (inv.type as string | null | undefined) ?? "venta";
+  let retefuente = 0;
+  if (tipo === "venta") {
+    const savedRete = Number(inv.retefuente_cliente_amount ?? 0);
+    const rawRate = inv.retefuente_cliente_rate as number | null | undefined;
+    if (savedRete > 0) retefuente = savedRete;
+    else if (rawRate !== null && rawRate !== undefined) {
+      retefuente = Math.round(Number(inv.subtotal_base ?? 0) * Number(rawRate));
+    }
+  }
+  return retefuente + reteica + autoretefuente;
+}
+
+async function loadReceivables(
+  db: SupabaseClient,
+  userId: string,
+  opts: { from?: string; to?: string; clientName?: string } = {},
+): Promise<ReceivableInvoice[]> {
+  let q = db.from("invoices")
+    .select("id, counterparty_name, responsible_id, issue_date, due_date, dias_credito, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, void_type, type")
+    .eq("user_id", userId)
+    .eq("type", "venta")
+    // Excluir facturas anuladas TOTALMENTE por nota crédito (mismo criterio que la app).
+    .or("void_type.is.null,void_type.eq.partial");
+  if (opts.from) q = q.gte("issue_date", opts.from);
+  if (opts.to) q = q.lte("issue_date", opts.to);
+  if (opts.clientName) q = q.ilike("counterparty_name", `%${opts.clientName}%`);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  const invoices = (data ?? []) as Record<string, unknown>[];
+  if (invoices.length === 0) return [];
+  const ids = invoices.map((i) => i.id as string);
+
+  // Pagos: directos + matches + anticipos vinculados. Todo scopeado a las
+  // facturas del usuario (ids ya son del user) — service_role ignora RLS.
+  const [directRes, matchRes, antRes] = await Promise.all([
+    db.from("transactions").select("invoice_id, amount").eq("user_id", userId).is("deleted_at", null).in("invoice_id", ids),
+    db.from("invoice_transaction_matches").select("invoice_id, matched_amount").in("invoice_id", ids),
+    db.from("initial_state_details").select("invoice_id, amount").eq("field_type", "anticipos_de_clientes").in("invoice_id", ids),
+  ]);
+  const paidById = new Map<string, number>();
+  const addPaid = (id: unknown, amt: unknown) => {
+    if (!id) return;
+    const k = id as string;
+    paidById.set(k, (paidById.get(k) ?? 0) + Math.abs(Number(amt ?? 0)));
+  };
+  for (const r of (directRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.amount);
+  for (const r of (matchRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.matched_amount);
+  for (const r of (antRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.amount);
+
+  return invoices.map((i) => {
+    const total = Number(i.total_amount ?? 0);
+    const paid = paidById.get(i.id as string) ?? 0;
+    const retenciones = invoiceRetenciones(i);
+    const saldo = Math.max(0, total - paid - retenciones);
+    return {
+      id: i.id as string,
+      counterparty_name: (i.counterparty_name as string) ?? "(sin nombre)",
+      responsible_id: (i.responsible_id as string | null) ?? null,
+      issue_date: i.issue_date as string,
+      due_date: (i.due_date as string | null) ?? null,
+      dias_credito: (i.dias_credito as number | null) ?? null,
+      total_amount: round2(total),
+      paid: round2(paid),
+      retenciones: round2(retenciones),
+      saldo: round2(saldo),
+      void_type: (i.void_type as string | null) ?? null,
+    };
+  });
+}
+
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   async list_invoices(db, userId, args) {
     const limit = clampLimit(args.limit, 100);
@@ -408,21 +506,16 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   async get_client_balance(db, userId, args) {
     const name = String(args.client_name ?? "").trim();
     if (!name) throw new Error("client_name es requerido");
-    const { data, error } = await db.from("invoices")
-      .select("id, invoice_number, issue_date, due_date, total_amount, balance_pending, status")
-      .eq("user_id", userId)
-      .is("voided_at", null)
-      .ilike("counterparty_name", `%${name}%`);
-    if (error) throw new Error(error.message);
-    const invoices = data ?? [];
-    const totalBalance = invoices.reduce((s, i) => s + (Number(i.balance_pending) || 0), 0);
-    const totalInvoiced = invoices.reduce((s, i) => s + (Number(i.total_amount) || 0), 0);
+    const invoices = await loadReceivables(db, userId, { clientName: name });
+    const totalSaldo = invoices.reduce((s, i) => s + i.saldo, 0);
+    const totalInvoiced = invoices.reduce((s, i) => s + i.total_amount, 0);
     return {
       client_search: name,
       invoice_count: invoices.length,
-      total_invoiced: totalBalance + (totalInvoiced - totalBalance), // == totalInvoiced
-      total_balance_pending: totalBalance,
-      invoices_pending: invoices.filter((i) => Number(i.balance_pending) > 0),
+      total_invoiced: round2(totalInvoiced),
+      total_balance_pending: round2(totalSaldo),
+      invoices_pending: invoices.filter((i) => i.saldo > 0),
+      note: "Saldo REAL: neto de pagos, anticipos vinculados y retenciones; excluye facturas anuladas totalmente por nota crédito. Coincide con la pantalla de Cartera (ya no usa el crudo balance_pending).",
     };
   },
 
@@ -504,20 +597,14 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     if (!from || !to) throw new Error("from y to son requeridos");
     const limit = Math.min(clampLimit(args.limit, 10), 50);
 
-    const { data, error } = await db.from("invoices")
-      .select("counterparty_name, total_amount, balance_pending")
-      .eq("user_id", userId)
-      .is("voided_at", null)
-      .gte("issue_date", from)
-      .lte("issue_date", to);
-    if (error) throw new Error(error.message);
+    const data = await loadReceivables(db, userId, { from, to });
 
     const map = new Map<string, { total: number; pending: number; count: number }>();
-    for (const inv of data ?? []) {
-      const key = (inv.counterparty_name as string) ?? "(sin nombre)";
+    for (const inv of data) {
+      const key = inv.counterparty_name;
       const cur = map.get(key) ?? { total: 0, pending: 0, count: 0 };
-      cur.total += Number(inv.total_amount ?? 0);
-      cur.pending += Number(inv.balance_pending ?? 0);
+      cur.total += inv.total_amount;
+      cur.pending += inv.saldo;
       cur.count += 1;
       map.set(key, cur);
     }
@@ -571,41 +658,34 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
 
   async list_pending_payments(db, userId, args) {
     const limit = clampLimit(args.limit, 50);
-    const { data, error } = await db.from("invoices")
-      .select("id, invoice_number, counterparty_name, issue_date, due_date, total_amount, balance_pending, status")
-      .eq("user_id", userId)
-      .is("voided_at", null)
-      .gt("balance_pending", 0)
-      .order("due_date", { ascending: true, nullsFirst: false })
-      .limit(limit);
-    if (error) throw new Error(error.message);
-    const total = (data ?? []).reduce((s, i) => s + Number(i.balance_pending ?? 0), 0);
+    const all = await loadReceivables(db, userId);
+    const pending = all.filter((i) => i.saldo > 0);
+    const total = pending.reduce((s, i) => s + i.saldo, 0);
+    const sorted = pending.sort((a, b) => {
+      const da = a.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY;
+      const dbb = b.due_date ? new Date(b.due_date).getTime() : Number.POSITIVE_INFINITY;
+      return da - dbb;
+    }).slice(0, limit);
     return {
-      count: data?.length ?? 0,
+      count: sorted.length,
       total_pending: round2(total),
-      invoices: data ?? [],
+      total_pending_invoices: pending.length,
+      invoices: sorted,
+      note: "Saldo REAL neto (pagos + anticipos + retenciones); excluye NC totales. total_pending = cartera total; invoices = primeras N por vencimiento.",
     };
   },
 
   async aging_report(db, userId, args) {
     const year = (typeof args.year === "number" ? args.year : new Date().getFullYear());
-    const { data, error } = await db.from("invoices")
-      .select("id, counterparty_name, responsible_id, issue_date, due_date, dias_credito, balance_pending")
-      .eq("user_id", userId)
-      .eq("type", "venta")
-      .is("voided_at", null)
-      .gt("balance_pending", 0)
-      .gte("issue_date", `${year}-01-01`)
-      .lte("issue_date", `${year}-12-31`);
-    if (error) throw new Error(error.message);
+    const data = await loadReceivables(db, userId, { from: `${year}-01-01`, to: `${year}-12-31` });
 
     const today = new Date();
     type Bucket = { corriente: number; d1_30: number; d31_60: number; d61_90: number; d90_plus: number; total: number; oldest_overdue_days: number };
     const groups = new Map<string, Bucket & { name: string }>();
     const totalBuckets: Bucket = { corriente: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90_plus: 0, total: 0, oldest_overdue_days: 0 };
 
-    for (const inv of (data ?? []) as any[]) {
-      const pending = Number(inv.balance_pending) || 0;
+    for (const inv of data) {
+      const pending = Number(inv.saldo) || 0;
       if (pending <= 0) continue;
       const issue = new Date(inv.issue_date);
       let venc = issue;
@@ -691,18 +771,12 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   async top_collection_priorities(db, userId, args) {
     const limit = Math.min(clampLimit(args.limit, 10), 50);
     // Estrategia: facturas más viejas + score bajo si existe
-    const { data: invs, error } = await db.from("invoices")
-      .select("counterparty_name, responsible_id, issue_date, due_date, dias_credito, balance_pending")
-      .eq("user_id", userId)
-      .eq("type", "venta")
-      .is("voided_at", null)
-      .gt("balance_pending", 0);
-    if (error) throw new Error(error.message);
+    const invs = await loadReceivables(db, userId);
 
     const today = new Date();
     const byClient = new Map<string, { name: string; total: number; oldest: number; invoices_count: number }>();
-    for (const inv of (invs ?? []) as any[]) {
-      const pending = Number(inv.balance_pending) || 0;
+    for (const inv of invs) {
+      const pending = Number(inv.saldo) || 0;
       if (pending <= 0) continue;
       const issue = new Date(inv.issue_date);
       let venc = issue;
