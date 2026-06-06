@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { isOperativo } from '@/types/transaction';
 import { supabase } from '@/integrations/supabase/client';
 import { getYearRangeExclusive } from '@/lib/dateUtils';
 import {
@@ -96,9 +97,9 @@ export function useFinancialHealthScore(year: number, _month?: number) {
       const { start: yearStart, nextStart: nextYearStart } = getYearRangeExclusive(year);
 
       const [txResult, invoiceResult, matchesResult, initialStateResult, advanceDetailsResult, categoriesResult, responsiblesResult, allAdvanceDetailsResult, inventoryResult] = await Promise.all([
-        supabase
-          .from('transactions')
-          .select('id, date, responsible_id, invoice_id, notes, category_id, amount, type')
+        (supabase
+          .from('transactions') as any)
+          .select('id, date, responsible_id, invoice_id, notes, category_id, amount, type, movement_nature')
           .is('deleted_at', null)
           .gte('date', yearStart)
           .lt('date', nextYearStart),
@@ -288,10 +289,10 @@ export function useFinancialHealthScore(year: number, _month?: number) {
         const ventanaFinStr = `${ventanaFin.getFullYear()}-${String(ventanaFin.getMonth() + 1).padStart(2, '0')}-01`;
         const txVentana = transactions.filter(t => t.date >= ventanaInicioStr && t.date < ventanaFinStr);
         const ingresosVentana = txVentana
-          .filter(t => (t.amount ?? 0) > 0)
+          .filter(t => (t.amount ?? 0) > 0 && isOperativo((t as any).movement_nature))
           .reduce((s, t) => s + (t.amount ?? 0), 0);
         const egresosVentana = txVentana
-          .filter(t => (t.amount ?? 0) < 0)
+          .filter(t => (t.amount ?? 0) < 0 && isOperativo((t as any).movement_nature))
           .reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
         const gastoNetoMensual = (egresosVentana - ingresosVentana) / monthsLookback;
 

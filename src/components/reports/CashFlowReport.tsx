@@ -11,6 +11,7 @@
 // `isGerencial`.
 
 import { useMemo, useState } from 'react';
+import { isOperativo } from '@/types/transaction';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -84,15 +85,16 @@ function useBankFlow(userId: string | undefined, year: number) {
       if (!userId) return [] as FlowRow[];
       // Pedimos hasta el final del año actual y todo lo previo, para arrancar
       // con saldo inicial acumulado.
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('date, type, amount')
+      const { data, error } = await (supabase
+        .from('transactions') as any)
+        .select('date, type, amount, movement_nature')
         .is('deleted_at', null)
         .lte('date', `${year}-12-31`)
         .in('type', ['ingreso', 'egreso']);
       if (error) throw error;
-      return (data ?? [])
-        .filter(r => r.amount != null && Number(r.amount) !== 0)
+      // Solo operativos: traspasos/devoluciones/préstamos/aportes no son flujo real.
+      return ((data ?? []) as any[])
+        .filter(r => r.amount != null && Number(r.amount) !== 0 && isOperativo(r.movement_nature))
         .map((r): FlowRow => ({
           date: r.date,
           type: r.type as string,

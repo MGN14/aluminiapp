@@ -228,7 +228,8 @@ export function calculateFinancialHealthMetrics(
 
   // ========== 2. FACTURACIÓN SOPORTADA ==========
   // Use actual confirmed sales invoice totals vs total income + initial advances
-  const ingresosTx = transactions.filter((tx) => (tx.amount ?? 0) > 0);
+  // Solo operativos (excluye traspasos/devoluciones/préstamos/aportes).
+  const ingresosTx = transactions.filter((tx) => (tx.amount ?? 0) > 0 && (!(tx as any).movement_nature || (tx as any).movement_nature === 'operativo'));
   const totalIngresosMonto = ingresosTx.reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
   const facturacionVentas = salesInvoices.reduce((sum, inv) => sum + (inv.total_amount ?? 0), 0);
   const baseFacturacion = totalIngresosMonto + initialAnticiposClientes;
