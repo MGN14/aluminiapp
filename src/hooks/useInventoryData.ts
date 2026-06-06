@@ -91,8 +91,12 @@ export interface InventoryMetrics {
   lastPhysicalCountAt: string | null;
 }
 
-function classifyStatus(daysOfInventory: number, avgDailySales: number): InventoryStatus {
-  if (avgDailySales <= 0) return 'exceso'; // no sales = stuck
+function classifyStatus(daysOfInventory: number, avgDailySales: number, stock: number): InventoryStatus {
+  // Sin stock NO puede haber exceso (antes una ref con 0 en Siigo y sin ventas
+  // caía en 'exceso', incoherente). Si hay demanda y no hay stock → agotado
+  // (crítico); si no hay demanda ni stock, no hay nada que gestionar → sano.
+  if (stock <= 0) return avgDailySales > 0 ? 'critico' : 'sano';
+  if (avgDailySales <= 0) return 'exceso'; // stock parado que no rota = exceso
   if (daysOfInventory < 15) return 'critico';
   if (daysOfInventory <= 45) return 'alerta';
   if (daysOfInventory <= 90) return 'sano';
@@ -279,7 +283,10 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         const compareBase = dataSource === 'gerencial' ? teorico : p.stock_system;
 
         const avgDailySales = recentSales / 30;
-        const daysOfInventory = avgDailySales > 0 ? compareBase / avgDailySales : 999;
+        // Stock 0 → 0 días de cobertura (antes daba 999, "cobertura infinita",
+        // que no tiene sentido para algo que no tenés). Con stock y sin ventas
+        // sí es 999 (cobertura infinita real: stock parado).
+        const daysOfInventory = compareBase <= 0 ? 0 : (avgDailySales > 0 ? compareBase / avgDailySales : 999);
         const totalSales30d = recentSales;
         const avgStock = compareBase > 0 ? compareBase : 1;
         const rotation = totalSales30d / avgStock;
@@ -294,7 +301,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
           difference,
           days_of_inventory: Math.round(daysOfInventory),
           rotation: Math.round(rotation * 100) / 100,
-          status: classifyStatus(daysOfInventory, avgDailySales),
+          status: classifyStatus(daysOfInventory, avgDailySales, compareBase),
           avg_daily_sales: Math.round(avgDailySales * 100) / 100,
         };
       });
