@@ -178,24 +178,26 @@ export default function StatementUpload() {
 
     try {
       const parseBody = JSON.stringify({ file_path: filePath, statement_id: statementId });
-      // Auto-detección de banco: probamos Davivienda primero. La función
-      // devuelve { not_davivienda: true } de forma grácil para cualquier otra
-      // cosa (incluido Bancolombia o si no pudo extraer texto) → ahí caemos al
-      // parser de Bancolombia, que queda intacto. Si Davivienda lo detecta pero
-      // falla (cuadre/insert), devuelve { error } y NO caemos (mostramos el error).
-      let response = await fetchWithAuthRetry(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-davivienda-pdf`,
+      const post = (fn: string) => fetchWithAuthRetry(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${fn}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: parseBody },
-        'parse-davivienda-pdf'
+        fn,
       );
-      const daviRouted = await response.clone().json().catch(() => ({} as any));
-      if (daviRouted?.not_davivienda || (!response.ok && !daviRouted?.error)) {
-        response = await fetchWithAuthRetry(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-bancolombia-pdf`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: parseBody },
-          'parse-bancolombia-pdf'
-        );
+
+      // Auto-detección de banco, RESILIENTE: probamos Davivienda primero, pero si
+      // la función no está desplegada (404), tira CORS/red, o devuelve
+      // not_davivienda → caemos a Bancolombia (que queda 100% intacto). Solo
+      // usamos la respuesta de Davivienda si efectivamente la manejó: éxito, o un
+      // error EXPLÍCITO de Davivienda (ej. el cuadre no coincide).
+      let response: Response | null = null;
+      try {
+        const davi = await post('parse-davivienda-pdf');
+        const routed = await davi.clone().json().catch(() => ({} as any));
+        if (!routed?.not_davivienda && (davi.ok || routed?.error)) response = davi;
+      } catch {
+        // Davivienda no disponible (no desplegada / red / CORS) → fallback.
       }
+      if (!response) response = await post('parse-bancolombia-pdf');
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

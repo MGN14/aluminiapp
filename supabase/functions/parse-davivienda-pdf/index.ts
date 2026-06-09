@@ -11,7 +11,10 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getDocument } from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
+// NOTA: pdfjs se importa LAZY dentro de extractText (no a nivel módulo) para que
+// un fallo de carga en el runtime Deno NO tumbe el arranque de la función. Si
+// pdfjs no carga, extractText lanza → el handler devuelve not_davivienda y el
+// cliente cae a Bancolombia (flujo intacto).
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -88,6 +91,7 @@ function parseDavivienda(text: string) {
 
 // pdfjs: reconstruye líneas agrupando items por coordenada Y.
 async function extractText(data: Uint8Array, password: string): Promise<string> {
+  const { getDocument } = await import("https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs");
   const doc = await getDocument({ data, password, useSystemFonts: true, isEvalSupported: false }).promise;
   let out = "";
   for (let p = 1; p <= doc.numPages; p++) {
