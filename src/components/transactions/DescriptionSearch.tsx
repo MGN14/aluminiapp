@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { normalizeDesc } from '@/lib/descriptionMatch';
 
 export interface DescriptionOption {
   description: string;
   count: number;
   /** Suma de montos (con signo: ingreso +, egreso −) de esa descripción. */
   total: number;
+  /** Cuántas variantes de texto se agruparon bajo esta entrada (≥2 = fusionadas). */
+  variantCount?: number;
 }
 
 function fmt(n: number) {
@@ -14,8 +17,6 @@ function fmt(n: number) {
     style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0,
   }).format(n);
 }
-
-const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 interface Props {
   value: string;
@@ -42,8 +43,8 @@ export default function DescriptionSearch({ value, onChange, options }: Props) {
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  const nq = norm(value.trim());
-  const filtered = (nq ? options.filter((o) => norm(o.description).includes(nq)) : options).slice(0, 60);
+  const nq = normalizeDesc(value);
+  const filtered = (nq ? options.filter((o) => normalizeDesc(o.description).includes(nq)) : options).slice(0, 60);
 
   return (
     <div ref={wrapRef} className="relative flex-1 max-w-md">
@@ -75,7 +76,17 @@ export default function DescriptionSearch({ value, onChange, options }: Props) {
               onClick={() => { onChange(o.description); setOpen(false); }}
               className="w-full flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg text-left hover:bg-muted transition-colors"
             >
-              <span className="text-xs truncate flex-1" title={o.description}>{o.description}</span>
+              <span className="text-xs flex-1 min-w-0 flex items-center gap-1.5" title={o.description}>
+                <span className="truncate">{o.description}</span>
+                {(o.variantCount ?? 1) > 1 && (
+                  <span
+                    className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-primary/10 text-primary px-1.5 py-px text-[9px] font-medium"
+                    title={`${o.variantCount} descripciones parecidas agrupadas`}
+                  >
+                    <Layers className="h-2.5 w-2.5" />{o.variantCount}
+                  </span>
+                )}
+              </span>
               <span className="shrink-0 flex items-center gap-2">
                 <span className="text-[10px] text-muted-foreground tabular-nums">{o.count}×</span>
                 <span className={cn('text-xs font-semibold tabular-nums', o.total >= 0 ? 'text-success' : 'text-destructive')}>

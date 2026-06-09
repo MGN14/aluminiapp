@@ -35,6 +35,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
 import { AnimatedNumber } from '@/components/ui/animated-number';
 import { cn } from '@/lib/utils';
+import { normalizeDesc, isNoiseAmount } from '@/lib/descriptionMatch';
 
 const copFmt = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
@@ -289,8 +290,13 @@ export default function Transactions() {
 
       const { data, error } = await query;
       if (error) throw error;
-      
-      setTransactions((data as Transaction[]) || []);
+
+      // REGLA automática: ocultar movimientos cuyo monto es 0, redondea a 0, o no
+      // es numérico (ajustes de interés de centavos, "FIN ESTADO CUENTA", etc.).
+      // Se aplica a TODO extracto que se suba, para cualquier usuario — no es un
+      // hide manual. Un solo chokepoint: afecta conteos, totales, dropdown y tabla.
+      const clean = ((data as Transaction[]) || []).filter((tx) => !isNoiseAmount(tx.amount));
+      setTransactions(clean);
     } catch (error) {
       console.error('Error fetching transactions:', error);
     } finally {
@@ -317,17 +323,29 @@ export default function Transactions() {
   // Descripciones distintas (parseadas) con conteo y suma — para el dropdown del
   // buscador por descripción. Sobre TODAS las transacciones del set actual.
   const descriptionOptions = useMemo(() => {
-    const map = new Map<string, { count: number; total: number }>();
+    // Agrupamos por descripción NORMALIZADA → las parecidas (difieren solo en
+    // puntuación/espacios/acentos) se integran en una sola entrada. El label es
+    // la variante más frecuente; variantCount indica cuántas formas se fusionaron.
+    const groups = new Map<string, { variants: Map<string, number>; count: number; total: number }>();
     for (const tx of transactions) {
       const d = (tx.description ?? '').trim();
       if (!d) continue;
-      const cur = map.get(d) ?? { count: 0, total: 0 };
-      cur.count += 1;
-      cur.total += Number(tx.amount ?? 0);
-      map.set(d, cur);
+      const key = normalizeDesc(d);
+      if (!key) continue;
+      const g = groups.get(key) ?? { variants: new Map<string, number>(), count: 0, total: 0 };
+      g.count += 1;
+      g.total += Number(tx.amount ?? 0);
+      g.variants.set(d, (g.variants.get(d) ?? 0) + 1);
+      groups.set(key, g);
     }
-    return [...map.entries()]
-      .map(([description, v]) => ({ description, count: v.count, total: v.total }))
+    return [...groups.values()]
+      .map((g) => {
+        let rep = ''; let best = -1;
+        for (const [desc, c] of g.variants) {
+          if (c > best || (c === best && desc.length < rep.length)) { best = c; rep = desc; }
+        }
+        return { description: rep, count: g.count, total: g.total, variantCount: g.variants.size };
+      })
       .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   }, [transactions]);
 
@@ -391,13 +409,11 @@ export default function Transactions() {
       result = result.filter(tx => parseLocalDate(tx.date) <= to);
     }
 
-    // Description search (substring case-insensitive, normalize accents)
+    // Description search — normalizado (ignora puntuación/espacios/acentos) para
+    // que al elegir una descripción agrupada matchee TODAS sus variantes.
     if ((filters.descSearch ?? '').trim()) {
-      const q = filters.descSearch.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-      result = result.filter(tx => {
-        const desc = (tx.description ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-        return desc.includes(q);
-      });
+      const q = normalizeDesc(filters.descSearch);
+      if (q) result = result.filter(tx => normalizeDesc(tx.description).includes(q));
     }
 
     // Sort logic
