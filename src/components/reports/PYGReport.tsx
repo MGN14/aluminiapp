@@ -63,9 +63,9 @@ function formatMarginPct(value: number, base: number): string | null {
   return `${pct.toFixed(1)}%`;
 }
 
-function useYearData(userId: string | undefined, year: number) {
+function useYearData(userId: string | undefined, year: number, includePetty: boolean) {
   return useQuery({
-    queryKey: ['pyg-report-v4', userId, year],
+    queryKey: ['pyg-report-v4', userId, year, includePetty],
     queryFn: async () => {
       if (!userId) return null;
 
@@ -177,7 +177,11 @@ function useYearData(userId: string | undefined, year: number) {
       const allResponsibles = [...responsibles, ...virtualResponsibles];
       const allRespMap = new Map(allResponsibles.map(r => [r.id, r]));
 
-      const allTransactions = [...(txRes.data as TransactionRow[]), ...pettyAsTx, ...creditInterestAsTx];
+      // Caja menor ("Yolis") solo entra al PyG en Modo Gerencial: es efectivo no
+      // necesariamente legalizado, no debe inflar la vista fiscal (DIAN). En DIAN
+      // se omite; en Gerencial entra (y los cash_movements promovidos se excluyen
+      // aparte para no doble-contar).
+      const allTransactions = [...(txRes.data as TransactionRow[]), ...(includePetty ? pettyAsTx : []), ...creditInterestAsTx];
 
       return {
         transactions: allTransactions,
@@ -347,10 +351,11 @@ export default function PYGReport() {
   const [compare, setCompare] = useState(false);
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
 
-  const { data: currentData, isLoading: loadingCurrent } = useYearData(user?.id, year);
+  const { data: currentData, isLoading: loadingCurrent } = useYearData(user?.id, year, isGerencial);
   const { data: previousData, isLoading: loadingPrevious } = useYearData(
     compare ? user?.id : undefined,
-    year - 1
+    year - 1,
+    isGerencial
   );
   const { data: fiscalExposure } = useFiscalExposure(user?.id, year);
 

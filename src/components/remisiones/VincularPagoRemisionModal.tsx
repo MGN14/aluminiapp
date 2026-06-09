@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Search, Banknote, Landmark, CheckCircle, X, AlertCircle } from 'lucide-react';
+import { Search, Banknote, Landmark, Wallet, CheckCircle, X, AlertCircle } from 'lucide-react';
 
 interface Props {
   remisionId: string;
@@ -22,12 +22,18 @@ interface Props {
 
 interface PaymentOption {
   id: string;
-  kind: 'bank' | 'cash';
+  kind: 'bank' | 'cash' | 'petty_cash';
   date: string;
   amount: number;
   description: string;
   responsible_id: string | null;
 }
+
+const KIND_META: Record<PaymentOption['kind'], { label: string }> = {
+  bank: { label: 'Banco' },
+  cash: { label: 'Efectivo' },
+  petty_cash: { label: 'Caja menor' },
+};
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -66,7 +72,7 @@ export default function VincularPagoRemisionModal({
     enabled: !!user?.id && open,
     queryFn: async () => {
       if (!user?.id) return [];
-      const [bankRes, cashRes] = await Promise.all([
+      const [bankRes, cashRes, pettyRes] = await Promise.all([
         supabase
           .from('transactions')
           .select('id, date, description, credit, responsible_id')
@@ -80,6 +86,15 @@ export default function VincularPagoRemisionModal({
           .eq('type', 'ingreso')
           .order('date', { ascending: false })
           .limit(200),
+        // Ingresos de caja menor ("Yolis") NO promovidos aún a cash_movements
+        // (cash_movement_id null) — los promovidos ya salen como 'cash' arriba,
+        // así no duplicamos el mismo dinero.
+        (supabase.from('petty_cash_movements') as any)
+          .select('id, date, amount, concept, notes, responsible_id, kind, cash_movement_id')
+          .eq('kind', 'ingreso_efectivo')
+          .is('cash_movement_id', null)
+          .order('date', { ascending: false })
+          .limit(200),
       ]);
       const bank: PaymentOption[] = (bankRes.data ?? []).map((b: any) => ({
         id: b.id, kind: 'bank', date: b.date, amount: Number(b.credit) || 0,
@@ -89,7 +104,11 @@ export default function VincularPagoRemisionModal({
         id: c.id, kind: 'cash', date: c.date, amount: Number(c.amount) || 0,
         description: c.description || 'Movimiento en efectivo', responsible_id: c.responsible_id,
       }));
-      return [...bank, ...cash].sort((a, b) => b.date.localeCompare(a.date));
+      const petty: PaymentOption[] = (pettyRes.data ?? []).map((m: any) => ({
+        id: m.id, kind: 'petty_cash', date: m.date, amount: Number(m.amount) || 0,
+        description: m.concept || m.notes || 'Ingreso caja menor', responsible_id: m.responsible_id,
+      }));
+      return [...bank, ...cash, ...petty].sort((a, b) => b.date.localeCompare(a.date));
     },
   });
 
@@ -311,13 +330,15 @@ export default function VincularPagoRemisionModal({
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     {p.kind === 'bank' ? (
                       <Landmark className="h-4 w-4 shrink-0 text-blue-500" />
+                    ) : p.kind === 'petty_cash' ? (
+                      <Wallet className="h-4 w-4 shrink-0 text-purple-500" />
                     ) : (
                       <Banknote className="h-4 w-4 shrink-0 text-amber-500" />
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{p.description}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatDate(p.date)} · {p.kind === 'bank' ? 'Banco' : 'Efectivo'}
+                        {formatDate(p.date)} · {KIND_META[p.kind].label}
                         {partiallyUsed && (
                           <span className="ml-1.5 text-amber-700 dark:text-amber-400 font-medium">
                             · {formatCurrency(usedElsewhere)} ya en otra remisión
