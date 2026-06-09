@@ -177,18 +177,25 @@ export default function StatementUpload() {
     })();
 
     try {
-      const response = await fetchWithAuthRetry(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-bancolombia-pdf`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            file_path: filePath,
-            statement_id: statementId,
-          }),
-        },
-        'parse-bancolombia-pdf'
+      const parseBody = JSON.stringify({ file_path: filePath, statement_id: statementId });
+      // Auto-detección de banco: probamos Davivienda primero. La función
+      // devuelve { not_davivienda: true } de forma grácil para cualquier otra
+      // cosa (incluido Bancolombia o si no pudo extraer texto) → ahí caemos al
+      // parser de Bancolombia, que queda intacto. Si Davivienda lo detecta pero
+      // falla (cuadre/insert), devuelve { error } y NO caemos (mostramos el error).
+      let response = await fetchWithAuthRetry(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-davivienda-pdf`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: parseBody },
+        'parse-davivienda-pdf'
       );
+      const daviRouted = await response.clone().json().catch(() => ({} as any));
+      if (daviRouted?.not_davivienda || (!response.ok && !daviRouted?.error)) {
+        response = await fetchWithAuthRetry(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-bancolombia-pdf`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: parseBody },
+          'parse-bancolombia-pdf'
+        );
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

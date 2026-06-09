@@ -8,6 +8,9 @@ project_id = "flmelenvmvhsogtzjjow"
 [functions.parse-bancolombia-pdf]
 verify_jwt = false
 
+[functions.parse-davivienda-pdf]
+verify_jwt = false
+
 [functions.parse-bancolombia-csv]
 verify_jwt = false
 
