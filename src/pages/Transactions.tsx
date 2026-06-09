@@ -33,6 +33,11 @@ import { Badge } from '@/components/ui/badge';
 import { FileText, Loader2, AlertCircle, Users, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
+import { AnimatedNumber } from '@/components/ui/animated-number';
+import { cn } from '@/lib/utils';
+
+const copFmt = (n: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
 // ─── Persistencia de filtros en sessionStorage ───
 // Chrome/Safari pueden "discard" pestañas inactivas para liberar memoria.
@@ -448,14 +453,18 @@ export default function Transactions() {
     (filters.descSearch ?? '').trim() !== ''
   );
 
+  const reconciledPct = filterCounts.total > 0
+    ? Math.round((filterCounts.conciliadas / filterCounts.total) * 100)
+    : 0;
+
   return (
     <AppLayout>
       <TooltipProvider>
         <div className="max-w-full mx-auto space-y-4 px-4">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Transacciones</h1>
-              <p className="text-muted-foreground">
+              <h1 className="text-[26px] font-semibold tracking-tight text-foreground">Conciliación bancaria</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">
                 Edita y clasifica tus movimientos bancarios
               </p>
             </div>
@@ -548,32 +557,49 @@ export default function Transactions() {
             </div>
           </div>
 
-          {/* Reconciliation progress */}
-          <div style={{
-            background:'#fff', borderRadius:14,
-            border:'1.5px solid rgba(0,0,0,0.07)',
-            padding:'14px 20px', marginBottom:14,
-            display:'flex', alignItems:'center', gap:20,
-            boxShadow:'0 1px 3px rgba(0,0,0,0.06)',
-          }}>
-            <div>
-              <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.8px',color:'#a1a1a6',marginBottom:4}}>Conciliadas</div>
-              <div style={{fontSize:22,fontWeight:700,color:'oklch(0.43 0.14 155)'}}>{filterCounts.conciliadas}</div>
-              <div style={{fontSize:11,color:'#a1a1a6'}}>de {filterCounts.total}</div>
-            </div>
-            <div style={{width:1,height:44,background:'rgba(0,0,0,0.07)'}}/>
-            <div>
-              <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.8px',color:'#a1a1a6',marginBottom:4}}>Pendientes</div>
-              <div style={{fontSize:22,fontWeight:700,color:'oklch(0.65 0.15 65)'}}>{filterCounts.pendientes}</div>
-            </div>
-            <div style={{width:1,height:44,background:'rgba(0,0,0,0.07)'}}/>
-            <div style={{flex:2}}>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#6e6e73',marginBottom:6}}>
-                <span>Progreso de conciliación</span>
-                <span style={{fontWeight:700}}>{filterCounts.total > 0 ? Math.round((filterCounts.conciliadas / filterCounts.total) * 100) : 0}%</span>
+          {/* Reconciliation progress — Apple glass card con números animados */}
+          <div className="relative overflow-hidden rounded-2xl border border-black/[0.06] bg-gradient-to-br from-white via-white to-slate-50/60 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-950 shadow-[0_1px_3px_rgba(0,0,0,0.06)] px-5 py-4">
+            {/* sheen sutil */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-black/[0.06] to-transparent" />
+            <div className="flex items-center gap-5 flex-wrap">
+              <div className="min-w-[88px]">
+                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Conciliadas</div>
+                <div className="text-[28px] leading-none font-bold tabular-nums" style={{ color: 'oklch(0.43 0.14 155)' }}>
+                  <AnimatedNumber value={filterCounts.conciliadas} />
+                </div>
+                <div className="text-[11px] text-muted-foreground/70 mt-1">de {filterCounts.total}</div>
               </div>
-              <div style={{height:8,background:'#f5f5f7',borderRadius:99,overflow:'hidden'}}>
-                <div style={{height:'100%',background:'oklch(0.43 0.14 155)',borderRadius:99,width:`${filterCounts.total > 0 ? Math.round((filterCounts.conciliadas / filterCounts.total) * 100) : 0}%`,transition:'width 0.6s cubic-bezier(0.16,1,0.3,1)'}}/>
+
+              <div className="h-11 w-px bg-border/70" />
+
+              <div className="min-w-[80px]">
+                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Pendientes</div>
+                <div className="text-[28px] leading-none font-bold tabular-nums" style={{ color: filterCounts.pendientes > 0 ? 'oklch(0.65 0.15 65)' : 'oklch(0.43 0.14 155)' }}>
+                  <AnimatedNumber value={filterCounts.pendientes} />
+                </div>
+                <div className="text-[11px] text-muted-foreground/70 mt-1">{filterCounts.pendientes === 0 && filterCounts.total > 0 ? 'todo al día' : 'por asignar'}</div>
+              </div>
+
+              <div className="h-11 w-px bg-border/70" />
+
+              <div className="flex-1 min-w-[220px]">
+                <div className="flex items-center justify-between text-[11px] mb-2">
+                  <span className="text-muted-foreground/80 font-medium">Progreso de conciliación</span>
+                  <span className="font-bold text-foreground tabular-nums text-sm">
+                    <AnimatedNumber value={reconciledPct} />%
+                  </span>
+                </div>
+                <div className="h-2.5 rounded-full bg-muted/70 overflow-hidden">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${reconciledPct}%`,
+                      background: 'linear-gradient(90deg, oklch(0.43 0.14 155), oklch(0.58 0.15 155))',
+                      boxShadow: '0 0 8px oklch(0.43 0.14 155 / 0.35)',
+                      transition: 'width 0.7s cubic-bezier(0.16,1,0.3,1)',
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -588,7 +614,7 @@ export default function Transactions() {
             descriptionOptions={descriptionOptions}
           />
 
-          <Card>
+          <Card className="rounded-2xl border-black/[0.06] shadow-[0_1px_3px_rgba(0,0,0,0.05)] overflow-hidden">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -599,24 +625,21 @@ export default function Transactions() {
                     : ''})
                 </CardTitle>
                 {hasActiveFilters && filteredTransactions.length > 0 && (
-                  <div className="flex items-center gap-4 text-xs">
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Ingresos</span>
-                      <span className="font-bold text-success tabular-nums">
-                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(filteredTotals.ingresos)}
-                      </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex flex-col items-end rounded-xl border border-success/20 bg-success/[0.06] px-3 py-1.5 min-w-[96px]">
+                      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Ingresos</span>
+                      <AnimatedNumber value={filteredTotals.ingresos} format={copFmt} className="font-bold text-success tabular-nums text-sm" />
                     </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Egresos</span>
-                      <span className="font-bold text-destructive tabular-nums">
-                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(filteredTotals.egresos)}
-                      </span>
+                    <div className="flex flex-col items-end rounded-xl border border-destructive/20 bg-destructive/[0.06] px-3 py-1.5 min-w-[96px]">
+                      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Egresos</span>
+                      <AnimatedNumber value={filteredTotals.egresos} format={copFmt} className="font-bold text-destructive tabular-nums text-sm" />
                     </div>
-                    <div className="flex flex-col items-end pl-3 border-l border-border">
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Neto</span>
-                      <span className={`font-bold tabular-nums ${filteredTotals.neto >= 0 ? 'text-success' : 'text-destructive'}`}>
-                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(filteredTotals.neto)}
-                      </span>
+                    <div className={cn(
+                      'flex flex-col items-end rounded-xl border px-3 py-1.5 min-w-[96px]',
+                      filteredTotals.neto >= 0 ? 'border-success/30 bg-success/[0.08]' : 'border-destructive/30 bg-destructive/[0.08]'
+                    )}>
+                      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Neto</span>
+                      <AnimatedNumber value={filteredTotals.neto} format={copFmt} className={cn('font-bold tabular-nums text-sm', filteredTotals.neto >= 0 ? 'text-success' : 'text-destructive')} />
                     </div>
                   </div>
                 )}
