@@ -110,6 +110,95 @@ function parseDavivienda(text: string) {
   return { month, year, summary, transactions, computed: { cred: Math.round(cred * 100) / 100, deb: Math.round(deb * 100) / 100 }, balances_match };
 }
 
+// ---------------------------------------------------------------------------
+// Fallback UNIVERSAL con IA (Gemini sobre el TEXTO ya desencriptado).
+// ---------------------------------------------------------------------------
+// El regex cubre los formatos conocidos (gratis, instantáneo). Si un usuario
+// sube un Davivienda con un layout distinto, el regex falla y SIN esto quedaría
+// en "contactá a soporte" — inaceptable para un producto self-service. La IA
+// generaliza a cualquier variante; el cuadre sigue de guarda (Σ vs resumen, o la
+// identidad contable saldo_anterior + créditos − débitos = nuevo_saldo): si no
+// reconcilia, NO insertamos. Así CUALQUIER extracto Davivienda entra solo.
+interface DaviSummary { saldo_anterior: number | null; total_abonos: number | null; total_cargos: number | null; saldo_actual: number | null; saldo_promedio: number | null; }
+
+function numOrNull(v: unknown): number | null {
+  const n = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+function extractJson(s: string): any {
+  const t = s.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  try { return JSON.parse(t); } catch (_) { /* intentar bloque {...} */ }
+  const m = t.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch (_) { /* no-op */ } }
+  return null;
+}
+function normDate(raw: unknown, year: number | null): string {
+  const s = String(raw ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?/);
+  if (m) {
+    const dd = m[1].padStart(2, "0"), mm = m[2].padStart(2, "0");
+    const yy = m[3] ? (m[3].length === 2 ? "20" + m[3] : m[3]) : String(year ?? new Date().getFullYear());
+    return `${yy}-${mm}-${dd}`;
+  }
+  return s;
+}
+
+// Cuadre ESTRICTO (sin vacuidad): exige que al menos UNA validación real pase.
+function crossCheck(summary: DaviSummary, txs: DaviTx[]) {
+  const cred = txs.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const deb = txs.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+  const sumOk = summary.total_abonos != null && summary.total_cargos != null &&
+    Math.abs(summary.total_abonos - cred) <= 1 && Math.abs(summary.total_cargos - deb) <= 1;
+  const identityOk = summary.saldo_anterior != null && summary.saldo_actual != null &&
+    Math.abs(summary.saldo_anterior + cred - deb - summary.saldo_actual) <= 1;
+  return { cred: Math.round(cred * 100) / 100, deb: Math.round(deb * 100) / 100, balances_match: sumOk || identityOk };
+}
+
+async function geminiExtract(text: string): Promise<{ summary: DaviSummary; transactions: DaviTx[]; period: { month: number | null; year: number | null } } | null> {
+  const KEY = Deno.env.get("GEMINI_API_KEY");
+  if (!KEY) return null;
+  const system = "Sos un extractor de datos de extractos bancarios Davivienda (Colombia). Respondé SOLO con JSON válido, sin markdown ni texto extra.";
+  const user = [
+    "Extraé del texto de este extracto Davivienda EXACTAMENTE este JSON:",
+    '{"periodo":{"mes":<1-12|null>,"anio":<YYYY|null>},"saldo_anterior":<num>,"mas_creditos":<num>,"menos_debitos":<num>,"nuevo_saldo":<num>,"transacciones":[{"fecha":"YYYY-MM-DD","valor":<num con signo>,"dcto":"<doc|>","descripcion":"<texto>"}]}',
+    "REGLAS: 'valor' POSITIVO si es crédito/abono/consignación/nota crédito (entra plata), NEGATIVO si es débito/cargo/retiro/nota débito (sale plata). Montos como número plano (sin $, sin separador de miles, punto decimal). Una entrada por movimiento. NO inventes datos; si un campo no aparece, null. 'mas_creditos' = suma de abonos del resumen; 'menos_debitos' = suma de cargos.",
+    "TEXTO DEL EXTRACTO:",
+    text.slice(0, 60000),
+  ].join("\n");
+  for (const model of ["gemini-2.0-flash", "gemini-2.5-flash"]) {
+    try {
+      const res = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, temperature: 0, messages: [{ role: "system", content: system }, { role: "user", content: user }] }),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (typeof content !== "string") continue;
+      const parsed = extractJson(content);
+      if (!parsed) continue;
+      const year = numOrNull(parsed?.periodo?.anio);
+      const txs: DaviTx[] = (Array.isArray(parsed.transacciones) ? parsed.transacciones : []).map((t: any) => {
+        const amount = Math.round((numOrNull(t.valor) ?? 0) * 100) / 100;
+        const description = String(t.descripcion ?? "").trim().replace(/\s+/g, " ");
+        return { date: normDate(t.fecha, year), description, dcto: String(t.dcto ?? "").trim(), amount, raw_line: `${t.fecha ?? ""} ${t.valor ?? ""} ${t.dcto ?? ""} ${description}`.trim() };
+      }).filter((t: DaviTx) => t.amount !== 0 && /^\d{4}-\d{2}-\d{2}$/.test(t.date));
+      if (!txs.length) continue;
+      const summary: DaviSummary = {
+        saldo_anterior: numOrNull(parsed.saldo_anterior),
+        total_abonos: numOrNull(parsed.mas_creditos),
+        total_cargos: numOrNull(parsed.menos_debitos),
+        saldo_actual: numOrNull(parsed.nuevo_saldo),
+        saldo_promedio: null,
+      };
+      return { summary, transactions: txs, period: { month: numOrNull(parsed?.periodo?.mes), year } };
+    } catch (_) { /* siguiente modelo */ }
+  }
+  return null;
+}
+
 // pdfjs: reconstruye líneas agrupando items por coordenada Y.
 async function extractText(data: Uint8Array, password: string): Promise<string> {
   // unpdf = pdfjs empaquetado para serverless/Deno SIN canvas. (pdfjs-dist
@@ -182,22 +271,45 @@ serve(async (req) => {
       // Encriptado y ninguna clave funcionó → pedirla al usuario (NO caer a
       // Bancolombia, que tampoco puede leer un PDF cifrado).
       if (sawPasswordError) {
-        return json({ needs_password: true, error: "El extracto está protegido. Ingresá la contraseña (suele ser el NIT del titular, sin dígito de verificación)." });
+        return json({ needs_password: true, error: "El extracto está protegido. Ingresá la contraseña (suele ser el NIT del titular; probá con y sin dígito de verificación)." });
       }
       return json({ not_davivienda: true, reason: "no se pudo extraer texto (¿escaneado?)" });
     }
 
     if (detectBank(text) !== "davivienda") return json({ not_davivienda: true, reason: "no es un extracto Davivienda" });
 
-    // Es Davivienda → parsear
-    const r = parseDavivienda(text);
+    // Es Davivienda → parsear (determinístico primero: gratis e instantáneo)
+    let r = parseDavivienda(text);
+    let usedAI = false;
+
+    // FALLBACK UNIVERSAL: si el regex no cubre este layout (0 tx o descuadre), la
+    // IA parsea el texto ya desencriptado y el cuadre estricto valida. Así un
+    // formato Davivienda que nunca vi igual entra solo, sin "acudir a soporte".
+    if (r.transactions.length === 0 || !r.balances_match) {
+      const ai = await geminiExtract(text);
+      if (ai && ai.transactions.length) {
+        const xc = crossCheck(ai.summary, ai.transactions);
+        if (xc.balances_match) {
+          r = {
+            month: ai.period.month ?? r.month,
+            year: ai.period.year ?? r.year,
+            summary: { ...ai.summary, saldo_promedio: r.summary.saldo_promedio ?? null },
+            transactions: ai.transactions,
+            computed: { cred: xc.cred, deb: xc.deb },
+            balances_match: true,
+          };
+          usedAI = true;
+        }
+      }
+    }
+
     if (r.transactions.length === 0) {
-      await supabase.from("bank_statements").update({ processing_error: "Davivienda detectado pero no se hallaron transacciones (revisar extracción de texto)." }).eq("id", statementId);
-      return json({ error: "Davivienda detectado pero sin transacciones. Contactanos con el archivo." }, 422);
+      await supabase.from("bank_statements").update({ processing_error: "Davivienda detectado pero no se hallaron transacciones (regex+IA)." }).eq("id", statementId);
+      return json({ error: "Detectamos un extracto Davivienda pero no pudimos leer los movimientos. Volvé a descargarlo desde tu banca virtual como PDF original (no una foto ni un escaneo) y subilo de nuevo." }, 422);
     }
     if (!r.balances_match) {
-      await supabase.from("bank_statements").update({ processing_error: `Cuadre Davivienda no coincide: parser créditos ${r.computed.cred} / débitos ${r.computed.deb} vs extracto ${r.summary.total_abonos}/${r.summary.total_cargos}.` }).eq("id", statementId);
-      return json({ error: "Davivienda: el cuadre no coincide con el resumen del extracto. No insertamos para no meter datos errados.", computed: r.computed, summary: r.summary }, 422);
+      await supabase.from("bank_statements").update({ processing_error: `Cuadre Davivienda no coincide (regex+IA): créditos ${r.computed.cred} / débitos ${r.computed.deb} vs ${r.summary.total_abonos}/${r.summary.total_cargos}.` }).eq("id", statementId);
+      return json({ error: "Leímos el extracto pero las sumas no cuadran con el resumen del banco; no insertamos para no cargar datos errados. Verificá que sea el PDF original de Davivienda y volvé a intentar.", computed: r.computed, summary: r.summary }, 422);
     }
 
     // Insertar transacciones (sin inferencia de categoría — el usuario concilia luego)
@@ -233,7 +345,7 @@ serve(async (req) => {
       processed: true, processing_error: null,
     }).eq("id", statementId);
 
-    return json({ bank: "davivienda", transactions_count: inserted?.length ?? 0, balances_match: true });
+    return json({ bank: "davivienda", transactions_count: inserted?.length ?? 0, balances_match: true, via: usedAI ? "ia" : "regex" });
   } catch (err) {
     // Cualquier error inesperado → graceful fallback a Bancolombia.
     return json({ not_davivienda: true, reason: `error inesperado: ${(err as Error).message}` });

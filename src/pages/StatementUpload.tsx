@@ -200,7 +200,7 @@ export default function StatementUpload() {
         // Extracto protegido y la clave recordada no sirvió (o no había):
         // pedimos la clave (suele ser el NIT), reintentamos y la recordamos.
         if (routed?.needs_password) {
-          const pwd = window.prompt('Este extracto de Davivienda está protegido. Ingresá la contraseña (suele ser el NIT del titular, sin dígito de verificación):');
+          const pwd = window.prompt('Este extracto de Davivienda está protegido. Ingresá la contraseña (suele ser el NIT del titular; podés escribirlo con o sin dígito de verificación):');
           if (pwd) {
             davi = await post('parse-davivienda-pdf', { password: pwd });
             routed = await davi.clone().json().catch(() => ({} as any));
