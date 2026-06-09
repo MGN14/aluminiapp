@@ -91,8 +91,11 @@ function parseDavivienda(text: string) {
 
 // pdfjs: reconstruye líneas agrupando items por coordenada Y.
 async function extractText(data: Uint8Array, password: string): Promise<string> {
-  const { getDocument } = await import("https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs");
-  const doc = await getDocument({ data, password, useSystemFonts: true, isEvalSupported: false }).promise;
+  // unpdf = pdfjs empaquetado para serverless/Deno SIN canvas. (pdfjs-dist
+  // directo NO compila en Deno: intenta cargar canvas.node nativo.)
+  // getDocumentProxy pasa las opciones a getDocument → soporta `password`.
+  const { getDocumentProxy } = await import("https://esm.sh/unpdf");
+  const doc = await getDocumentProxy(data, { password });
   let out = "";
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
