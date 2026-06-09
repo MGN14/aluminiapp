@@ -36,9 +36,16 @@ import { Link } from 'react-router-dom';
 import { AnimatedNumber } from '@/components/ui/animated-number';
 import { cn } from '@/lib/utils';
 import { normalizeDesc, isNoiseAmount } from '@/lib/descriptionMatch';
+import { useColumnWidths, ColResizer } from '@/components/transactions/columnResize';
 
 const copFmt = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+
+// Anchos por defecto de las columnas de la tabla (px). El usuario los redimensiona
+// arrastrando el borde; se guardan en localStorage.
+const TX_COL_DEFAULTS: Record<string, number> = {
+  fecha: 80, desc: 300, monto: 112, tipo: 92, categoria: 184, beneficiario: 184, factura: 152, naturaleza: 132,
+};
 
 // ─── Persistencia de filtros en sessionStorage ───
 // Chrome/Safari pueden "discard" pestañas inactivas para liberar memoria.
@@ -473,6 +480,9 @@ export default function Transactions() {
     ? Math.round((filterCounts.conciliadas / filterCounts.total) * 100)
     : 0;
 
+  // Anchos de columna redimensionables (Excel-like), persistidos.
+  const { widths: colWidths, startResize, total: colTotal } = useColumnWidths(TX_COL_DEFAULTS, 'aluminia_tx_colwidths_v1');
+
   return (
     <AppLayout>
       <TooltipProvider>
@@ -686,11 +696,21 @@ export default function Transactions() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <Table className="table-fixed w-full">
+                  <Table className="table-fixed" style={{ width: colTotal, minWidth: '100%' }}>
+                    <colgroup>
+                      <col style={{ width: colWidths.fecha }} />
+                      <col style={{ width: colWidths.desc }} />
+                      <col style={{ width: colWidths.monto }} />
+                      <col style={{ width: colWidths.tipo }} />
+                      <col style={{ width: colWidths.categoria }} />
+                      <col style={{ width: colWidths.beneficiario }} />
+                      <col style={{ width: colWidths.factura }} />
+                      <col style={{ width: colWidths.naturaleza }} />
+                    </colgroup>
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead
-                          className="w-[72px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
+                          className="relative w-[72px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
                           onClick={() => setFilters({ ...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
                           title="Click para invertir orden por fecha"
                         >
@@ -700,10 +720,11 @@ export default function Transactions() {
                               ? <ArrowUp className="h-3 w-3 text-primary" />
                               : <ArrowDown className="h-3 w-3 text-primary" />}
                           </span>
+                          <ColResizer onMouseDown={(e) => startResize('fecha', e)} />
                         </TableHead>
-                        <TableHead>Descripción</TableHead>
+                        <TableHead className="relative">Descripción<ColResizer onMouseDown={(e) => startResize('desc', e)} /></TableHead>
                         <TableHead
-                          className="text-right w-[100px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
+                          className="relative text-right w-[100px] cursor-pointer select-none hover:bg-muted/70 transition-colors"
                           onClick={() => {
                             const next = filters.amountSortOrder === null
                               ? 'desc'
@@ -720,12 +741,13 @@ export default function Transactions() {
                             {filters.amountSortOrder === 'asc' && <ArrowUp className="h-3 w-3 text-primary" />}
                             {filters.amountSortOrder === null && <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />}
                           </span>
+                          <ColResizer onMouseDown={(e) => startResize('monto', e)} />
                         </TableHead>
-                        <TableHead className="w-[80px]">Tipo</TableHead>
-                        <TableHead className="w-[170px]">Categoría</TableHead>
-                        <TableHead className="w-[170px]">Beneficiario</TableHead>
-                        <TableHead className="w-[140px]">#Factura</TableHead>
-                        <TableHead className="w-[120px]">Naturaleza</TableHead>
+                        <TableHead className="relative w-[80px]">Tipo<ColResizer onMouseDown={(e) => startResize('tipo', e)} /></TableHead>
+                        <TableHead className="relative w-[170px]">Categoría<ColResizer onMouseDown={(e) => startResize('categoria', e)} /></TableHead>
+                        <TableHead className="relative w-[170px]">Beneficiario<ColResizer onMouseDown={(e) => startResize('beneficiario', e)} /></TableHead>
+                        <TableHead className="relative w-[140px]">#Factura<ColResizer onMouseDown={(e) => startResize('factura', e)} /></TableHead>
+                        <TableHead className="relative w-[120px]">Naturaleza<ColResizer onMouseDown={(e) => startResize('naturaleza', e)} /></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
