@@ -36,7 +36,7 @@ interface TransactionRowProps {
 }
 
 function formatCurrency(value: number | null) {
-  if (value === null || value === undefined) return '-';
+  if (value === null || value === undefined || value === 0) return '—';
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',
     currency: 'COP',

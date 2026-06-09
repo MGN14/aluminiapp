@@ -26,6 +26,7 @@ import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Category, Responsible } from '@/types/transaction';
+import DescriptionSearch, { DescriptionOption } from './DescriptionSearch';
 
 export type EstadoFilter = 'todas' | 'pendientes' | 'conciliadas';
 export type TipoFilter = 'todos' | 'ingresos' | 'egresos';
@@ -54,6 +55,7 @@ interface TransactionFiltersProps {
   };
   categories: Category[];
   responsibles: Responsible[];
+  descriptionOptions: DescriptionOption[];
 }
 
 export const defaultFilters: TransactionFilterState = {
@@ -68,7 +70,7 @@ export const defaultFilters: TransactionFilterState = {
   descSearch: '',
 };
 
-export default function TransactionFilters({ filters, onFiltersChange, counts, categories, responsibles }: TransactionFiltersProps) {
+export default function TransactionFilters({ filters, onFiltersChange, counts, categories, responsibles, descriptionOptions }: TransactionFiltersProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   const update = (partial: Partial<TransactionFilterState>) => {
@@ -108,28 +110,13 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
 
   return (
     <div className="space-y-3">
-      {/* Búsqueda por descripción */}
+      {/* Búsqueda por descripción — dropdown de descripciones parseadas + texto libre */}
       <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-          <input
-            type="text"
-            value={filters.descSearch ?? ''}
-            onChange={(e) => update({ descSearch: e.target.value })}
-            placeholder="Buscar por descripción (ej: 4x1000, NEQUI, transferencia...)"
-            className="w-full h-8 pl-8 pr-8 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring/30"
-          />
-          {(filters.descSearch ?? '').length > 0 && (
-            <button
-              type="button"
-              onClick={() => update({ descSearch: '' })}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              title="Limpiar búsqueda"
-            >
-              ×
-            </button>
-          )}
-        </div>
+        <DescriptionSearch
+          value={filters.descSearch ?? ''}
+          onChange={(v) => update({ descSearch: v })}
+          options={descriptionOptions}
+        />
       </div>
 
       {/* Filter Row */}

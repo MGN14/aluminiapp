@@ -16,7 +16,10 @@ interface Props {
 }
 
 function formatCurrency(value: number | null) {
-  if (value === null || value === undefined) return '-';
+  // Ocultamos los ceros: en un movimiento bancario el débito O el crédito es 0
+  // (nunca ambos), y el saldo suele no venir. Mostrar "$0" llena el detalle de
+  // ceros sin valor. '—' = "no aplica".
+  if (value === null || value === undefined || value === 0) return '—';
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',
     currency: 'COP',

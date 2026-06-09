@@ -309,6 +309,23 @@ export default function Transactions() {
     return { total, pendientes, conciliadas };
   }, [transactions]);
 
+  // Descripciones distintas (parseadas) con conteo y suma — para el dropdown del
+  // buscador por descripción. Sobre TODAS las transacciones del set actual.
+  const descriptionOptions = useMemo(() => {
+    const map = new Map<string, { count: number; total: number }>();
+    for (const tx of transactions) {
+      const d = (tx.description ?? '').trim();
+      if (!d) continue;
+      const cur = map.get(d) ?? { count: 0, total: 0 };
+      cur.count += 1;
+      cur.total += Number(tx.amount ?? 0);
+      map.set(d, cur);
+    }
+    return [...map.entries()]
+      .map(([description, v]) => ({ description, count: v.count, total: v.total }))
+      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  }, [transactions]);
+
   const filteredStatements = useMemo(() => {
     if (selectedYear === 'all') return statements;
     const year = Number(selectedYear);
@@ -427,7 +444,8 @@ export default function Transactions() {
     !!filters.categoryId ||
     !!filters.responsibleId ||
     !!filters.dateFrom ||
-    !!filters.dateTo
+    !!filters.dateTo ||
+    (filters.descSearch ?? '').trim() !== ''
   );
 
   return (
@@ -567,6 +585,7 @@ export default function Transactions() {
             counts={filterCounts}
             categories={categories}
             responsibles={responsibles}
+            descriptionOptions={descriptionOptions}
           />
 
           <Card>
