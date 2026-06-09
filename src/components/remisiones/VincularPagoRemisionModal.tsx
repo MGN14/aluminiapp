@@ -56,13 +56,16 @@ export default function VincularPagoRemisionModal({
   const [saving, setSaving] = useState(false);
   const [editingAmounts, setEditingAmounts] = useState<Record<string, string>>({});
 
-  // Pagos disponibles: ingresos bancarios (credit > 0) + cash_movements (ingreso)
+  // Pagos disponibles: ingresos bancarios (credit > 0) + cash_movements (ingreso).
+  // Traemos TODOS y filtramos por cliente en el RENDER (no en la query): así el
+  // toggle "Ver todos" es instantáneo y podemos mostrar CUÁNTOS pagos esconde el
+  // filtro de cliente. Antes el pre-filtro vivía acá y escondía pagos sin avisar
+  // → parecía que "no se podía agregar más de un pago a la remisión".
   const { data: payments = [] } = useQuery<PaymentOption[]>({
-    queryKey: ['payments-for-remision', user?.id, remisionResponsibleId, showAll],
+    queryKey: ['payments-for-remision', user?.id],
     enabled: !!user?.id && open,
     queryFn: async () => {
       if (!user?.id) return [];
-
       const [bankRes, cashRes] = await Promise.all([
         supabase
           .from('transactions')
@@ -78,33 +81,15 @@ export default function VincularPagoRemisionModal({
           .order('date', { ascending: false })
           .limit(200),
       ]);
-
       const bank: PaymentOption[] = (bankRes.data ?? []).map((b: any) => ({
-        id: b.id,
-        kind: 'bank',
-        date: b.date,
-        amount: Number(b.credit) || 0,
-        description: b.description || '—',
-        responsible_id: b.responsible_id,
+        id: b.id, kind: 'bank', date: b.date, amount: Number(b.credit) || 0,
+        description: b.description || '—', responsible_id: b.responsible_id,
       }));
       const cash: PaymentOption[] = (cashRes.data ?? []).map((c: any) => ({
-        id: c.id,
-        kind: 'cash',
-        date: c.date,
-        amount: Number(c.amount) || 0,
-        description: c.description || 'Movimiento en efectivo',
-        responsible_id: c.responsible_id,
+        id: c.id, kind: 'cash', date: c.date, amount: Number(c.amount) || 0,
+        description: c.description || 'Movimiento en efectivo', responsible_id: c.responsible_id,
       }));
-      const all = [...bank, ...cash].sort((a, b) => b.date.localeCompare(a.date));
-
-      // Pre-filtro por cliente de la remision
-      if (showAll || (!remisionResponsibleId && !remisionBeneficiary)) return all;
-      const benef = remisionBeneficiary?.trim().toLowerCase();
-      return all.filter((p) => {
-        if (remisionResponsibleId && p.responsible_id === remisionResponsibleId) return true;
-        if (benef && p.description.toLowerCase().includes(benef)) return true;
-        return false;
-      });
+      return [...bank, ...cash].sort((a, b) => b.date.localeCompare(a.date));
     },
   });
 
@@ -155,15 +140,39 @@ export default function VincularPagoRemisionModal({
     return Math.max(0, p.amount - usedElsewhere);
   };
 
-  // Excluye los pagos 100% tomados por OTRAS remisiones. Los ya vinculados a
-  // esta misma remisión siguen visibles (para poder desvincular).
-  const filteredPayments = payments.filter((p) => {
+  // Filtro por cliente de la remisión (opt-in vía "Ver todos"). Los pagos en
+  // efectivo suelen tener descripción genérica → no matchean al beneficiario,
+  // por eso quedaban ocultos. Ahora se cuentan y se muestran con un toque.
+  const benef = remisionBeneficiary?.trim().toLowerCase();
+  const hasClientFilter = !!(remisionResponsibleId || remisionBeneficiary);
+  const matchesClient = (p: PaymentOption) => {
+    if (!hasClientFilter) return true;
+    if (remisionResponsibleId && p.responsible_id === remisionResponsibleId) return true;
+    if (benef && p.description.toLowerCase().includes(benef)) return true;
+    return false;
+  };
+
+  // Base: excluye pagos 100% tomados por OTRAS remisiones. Los ya vinculados a
+  // ESTA remisión siguen visibles (para desvincular), aunque no matcheen cliente.
+  const passesBase = (p: PaymentOption) => {
     const isLinkedHere = linkedSet.has(linkedKey(p.kind, p.id));
-    if (!isLinkedHere && availableOf(p) <= 0) return false;
+    return isLinkedHere || availableOf(p) > 0;
+  };
+  const passesSearch = (p: PaymentOption) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return p.description.toLowerCase().includes(q) || p.date.includes(q);
+  };
+  const filteredPayments = payments.filter((p) => {
+    if (!passesBase(p)) return false;
+    const isLinkedHere = linkedSet.has(linkedKey(p.kind, p.id));
+    if (!isLinkedHere && !showAll && !matchesClient(p)) return false;
+    return passesSearch(p);
   });
+  // Cuántos pagos disponibles esconde HOY el filtro de cliente (para el botón).
+  const hiddenByClient = !showAll && hasClientFilter
+    ? payments.filter((p) => passesBase(p) && !linkedSet.has(linkedKey(p.kind, p.id)) && !matchesClient(p) && passesSearch(p)).length
+    : 0;
 
   const handleToggle = async (p: PaymentOption) => {
     if (!user?.id) return;
@@ -251,15 +260,15 @@ export default function VincularPagoRemisionModal({
               className="pl-9"
             />
           </div>
-          {(remisionResponsibleId || remisionBeneficiary) && (
+          {hasClientFilter && (
             <div className="flex items-center justify-between gap-2 text-xs">
               <span className="text-muted-foreground">
                 {showAll
                   ? 'Mostrando TODOS los pagos disponibles'
                   : `Filtrando pagos de "${remisionBeneficiary || 'cliente de la remisión'}"`}
               </span>
-              <button type="button" onClick={() => setShowAll((v) => !v)} className="text-primary hover:underline">
-                {showAll ? 'Solo del cliente' : 'Ver todos'}
+              <button type="button" onClick={() => setShowAll((v) => !v)} className="text-primary hover:underline font-medium">
+                {showAll ? 'Solo del cliente' : `Ver todos${hiddenByClient ? ` (+${hiddenByClient})` : ''}`}
               </button>
             </div>
           )}
@@ -269,7 +278,16 @@ export default function VincularPagoRemisionModal({
           {filteredPayments.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground text-sm">
               <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              No hay pagos disponibles para vincular.
+              {hiddenByClient > 0 ? (
+                <>
+                  No hay pagos de este cliente.{' '}
+                  <button type="button" onClick={() => setShowAll(true)} className="text-primary hover:underline font-medium">
+                    Ver los {hiddenByClient} pagos de otros clientes
+                  </button>
+                </>
+              ) : (
+                'No hay pagos disponibles para vincular.'
+              )}
             </div>
           ) : (
             filteredPayments.map((p) => {

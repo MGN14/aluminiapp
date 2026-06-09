@@ -278,6 +278,23 @@ export default function Remisiones() {
     return s + (r.total_manual ? Number(r.total_manual) : itemsValor);
   }, 0);
 
+  // Facturado vs despachado (solo ventas — las compras no llevan factura de venta
+  // vinculada). Dedup por factura: una factura puede enlazar varias remisiones, no
+  // la contamos dos veces. Sale de la MISMA query del módulo (remision_invoices),
+  // así que cambia al mover remisiones entre DIAN/Gerencial — no es histórico.
+  const facturasVinculadas = new Map<string, number>();
+  let despachadoFacturable = 0;
+  for (const r of remisiones as any[]) {
+    if (r.remision_type === 'compra') continue;
+    const itemsValor = (r.remision_items || []).reduce((si: number, i: any) => si + Number(i.total_cost || 0), 0);
+    despachadoFacturable += r.total_manual ? Number(r.total_manual) : itemsValor;
+    for (const ri of (r.remision_invoices || [])) {
+      if (ri?.invoices?.id) facturasVinculadas.set(ri.invoices.id, Number(ri.invoices.total_amount || 0));
+    }
+  }
+  const totalFacturado = [...facturasVinculadas.values()].reduce((s, v) => s + v, 0);
+  const sinFacturar = Math.max(0, despachadoFacturable - totalFacturado);
+
   const moverRemision = remisiones.find((r: any) => r.id === moverId) as any;
 
   // Estado de cobro y KPIs gerenciales (solo en Modo Gerencial)
@@ -311,7 +328,7 @@ export default function Remisiones() {
           </div>
         </div>
 
-        <div className={`grid grid-cols-1 ${effectiveGerencial ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'} gap-4`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`}>
           <Card className="border-0 shadow-sm"><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Total Remisiones</p>
             <p className="text-2xl font-bold">{totalRemisiones}</p>
@@ -321,9 +338,22 @@ export default function Remisiones() {
             <p className="text-2xl font-bold">{totalUnidades.toLocaleString('es-CO')}</p>
           </CardContent></Card>
           <Card className="border-0 shadow-sm"><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Valor Total</p>
+            <p className="text-sm text-muted-foreground">{effectiveGerencial ? 'Valor Total' : 'Despachado'}</p>
             <p className="text-2xl font-bold">{formatCurrency(totalValor)}</p>
           </CardContent></Card>
+          {!effectiveGerencial && (
+            <Card className="border-0 shadow-sm"><CardContent className="pt-6">
+              <p className="text-sm text-muted-foreground">Facturado</p>
+              <p className="text-2xl font-bold">{formatCurrency(totalFacturado)}</p>
+              <p className="text-[11px] mt-1">
+                {sinFacturar > 1 ? (
+                  <span className="text-amber-600 dark:text-amber-400">Sin facturar: {formatCurrency(sinFacturar)}</span>
+                ) : (
+                  <span className="text-emerald-600 dark:text-emerald-400">Todo facturado ✓</span>
+                )}
+              </p>
+            </CardContent></Card>
+          )}
           {effectiveGerencial && paymentStatus && (
             <Card className="border-0 shadow-sm border-amber-200 bg-amber-50/40 dark:bg-amber-950/10">
               <CardContent className="pt-6">
