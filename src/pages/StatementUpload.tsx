@@ -188,16 +188,25 @@ export default function StatementUpload() {
       // not_davivienda → caemos a Bancolombia (que queda 100% intacto). Solo
       // usamos la respuesta de Davivienda si efectivamente la manejó: éxito, o un
       // error EXPLÍCITO de Davivienda (ej. el cuadre no coincide).
+      // Clave recordada (localStorage) para NO pedirla en cada extracto. Es el
+      // NIT del titular (no un secreto fuerte — está en toda factura), scope al
+      // origen de la app. Se guarda recién cuando una clave funciona.
+      const PWD_KEY = 'davivienda:pdf-password';
       let response: Response | null = null;
       try {
-        let davi = await post('parse-davivienda-pdf');
+        const remembered = (() => { try { return localStorage.getItem(PWD_KEY) || undefined; } catch { return undefined; } })();
+        let davi = await post('parse-davivienda-pdf', remembered ? { password: remembered } : undefined);
         let routed = await davi.clone().json().catch(() => ({} as any));
-        // Extracto protegido: pedimos la clave (suele ser el NIT) y reintentamos.
+        // Extracto protegido y la clave recordada no sirvió (o no había):
+        // pedimos la clave (suele ser el NIT), reintentamos y la recordamos.
         if (routed?.needs_password) {
           const pwd = window.prompt('Este extracto de Davivienda está protegido. Ingresá la contraseña (suele ser el NIT del titular, sin dígito de verificación):');
           if (pwd) {
             davi = await post('parse-davivienda-pdf', { password: pwd });
             routed = await davi.clone().json().catch(() => ({} as any));
+            if (davi.ok && !routed?.needs_password && !routed?.not_davivienda) {
+              try { localStorage.setItem(PWD_KEY, pwd); } catch { /* quota/priv mode: igual funciona, solo no recuerda */ }
+            }
           }
         }
         if (!routed?.not_davivienda && (davi.ok || routed?.error)) response = davi;

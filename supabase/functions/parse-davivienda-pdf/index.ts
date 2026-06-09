@@ -45,6 +45,28 @@ function detectBank(text: string): "davivienda" | "bancolombia" | null {
   return null;
 }
 
+// Dígito de verificación del NIT (algoritmo DIAN). Ej: 901445759 → 1.
+function nitCheckDigit(nit: string): string {
+  const weights = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71];
+  const digits = nit.split("").reverse();
+  let sum = 0;
+  for (let i = 0; i < digits.length && i < weights.length; i++) sum += parseInt(digits[i], 10) * weights[i];
+  const mod = sum % 11;
+  return String(mod > 1 ? 11 - mod : mod);
+}
+
+// El password del extracto es el NIT, pero la forma cambia por banco: Davivienda
+// usa el NIT CON dígito de verificación (10 díg), Bancolombia SIN (9 díg).
+// Probamos ambas formas derivadas del NIT guardado (calculamos / quitamos el DV).
+function nitVariants(raw: string): string[] {
+  const d = (raw ?? "").replace(/\D/g, "");
+  if (!d) return [];
+  const out = new Set<string>([d]);
+  if (d.length >= 2) out.add(d.slice(0, -1));          // sin último dígito (por si trae DV)
+  if (d.length <= 11) out.add(d + nitCheckDigit(d));   // con DV calculado (forma Davivienda)
+  return [...out].filter(Boolean);
+}
+
 interface DaviTx { date: string; description: string; dcto: string; amount: number; raw_line: string; }
 
 function parseDavivienda(text: string) {
@@ -139,8 +161,11 @@ serve(async (req) => {
     // Claves a probar: la que el usuario ingresó (prompt) → vacía → NIT del perfil.
     const providedPwd = ((body.password as string) ?? "").toString();
     const { data: prof } = await supabase.from("profiles").select("company_nit").eq("user_id", statement.user_id).maybeSingle();
-    const nit = (prof?.company_nit ?? "").toString().replace(/\D/g, "");
-    const candidates = [providedPwd, "", nit].filter((p, i, a) => a.indexOf(p) === i);
+    // Claves a probar: la del usuario (prompt) → vacía → el NIT del perfil en
+    // TODAS sus formas (con y sin dígito de verificación) → así Davivienda (10
+    // díg) y Bancolombia (9 díg) funcionan sin que el usuario piense en el DV.
+    const candidates = [providedPwd, "", ...nitVariants((prof?.company_nit ?? "").toString())]
+      .filter((p, i, a) => p != null && a.indexOf(p) === i);
 
     let text = "";
     let sawPasswordError = false;
