@@ -28,7 +28,8 @@ const SPANISH_MONTHS: Record<string, number> = {
   enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
   julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
 };
-const TX_LINE = /^(\d{2})\s+(\d{2})\s+\$\s*([\d.,]+)([+-])\s+(\d{3,4})\s+(.*)$/;
+// Regex GLOBAL (flag g) + \s (incluye \n) → tolerante a saltos de línea.
+const TX_GLOBAL = /(\d{2})\s+(\d{2})\s+\$\s*([\d.,]+)\s*([+-])\s+(\d{3,4})\s+/g;
 
 function daviNumber(raw: string): number {
   return parseFloat(raw.replace(/,/g, "")) || 0;
@@ -59,26 +60,24 @@ function parseDavivienda(text: string) {
     saldo_promedio: moneyField(text, "Saldo Promedio"),
   };
 
-  const lines = text.split("\n");
+  // Regex GLOBAL (tolerante a saltos de línea — unpdf reconstruye distinto que
+  // pypdf). La descripción va desde el header de la transacción hasta la
+  // siguiente (o un pie tipo Saldo/Total). Captura multilínea solo.
   const transactions: DaviTx[] = [];
-  let inTable = false;
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!inTable) { if (/Fecha\s+Valor\s+Doc/i.test(line)) inTable = true; continue; }
-    if (/^(Saldo|Total|P[áa]gina|www\.|Banco Davivienda)/i.test(line)) { if (transactions.length) break; continue; }
-    const m = line.match(TX_LINE);
-    if (m) {
-      const yyyy = year ?? new Date().getFullYear();
-      transactions.push({
-        date: `${yyyy}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`,
-        description: m[6].trim(),
-        dcto: m[5],
-        amount: Math.round(daviNumber(m[3]) * (m[4] === "-" ? -1 : 1) * 100) / 100,
-        raw_line: line,
-      });
-    } else if (transactions.length && line) {
-      transactions[transactions.length - 1].description += " " + line;
-    }
+  const matches = [...text.matchAll(TX_GLOBAL)];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const start = (m.index ?? 0) + m[0].length;
+    const end = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+    const description = text.slice(start, end).split(/\b(?:Saldo|Total|P[áa]gina|www\.)\b/i)[0].trim().replace(/\s+/g, " ");
+    const yyyy = year ?? new Date().getFullYear();
+    transactions.push({
+      date: `${yyyy}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`,
+      description,
+      dcto: m[5],
+      amount: Math.round(daviNumber(m[3]) * (m[4] === "-" ? -1 : 1) * 100) / 100,
+      raw_line: (m[0].trim() + " " + description).trim(),
+    });
   }
 
   const cred = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);

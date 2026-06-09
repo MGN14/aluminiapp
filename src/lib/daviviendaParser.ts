@@ -70,8 +70,11 @@ function parseMoneyField(text: string, label: string): number | null {
   return m ? parseDaviviendaNumber(m[1]) : null;
 }
 
-// fila de transacción: "02 03 $ 14,104,000.00- 4286 Retiro Efectivo ..."
-const TX_LINE = /^(\d{2})\s+(\d{2})\s+\$\s*([\d.,]+)([+-])\s+(\d{3,4})\s+(.*)$/;
+// Transacción: "DD MM $ N,NNN.NN±  DOC  descripción...". Regex GLOBAL (flag g)
+// con \s (incluye \n) → TOLERANTE a saltos de línea. La extracción de texto del
+// PDF (pypdf / pdfjs / unpdf) reconstruye las líneas distinto, así que NO
+// dependemos de ellas: escaneamos el texto entero buscando el patrón.
+const TX_GLOBAL = /(\d{2})\s+(\d{2})\s+\$\s*([\d.,]+)\s*([+-])\s+(\d{3,4})\s+/g;
 
 export function parseDaviviendaStatement(text: string): DaviviendaStatement {
   // --- Período ---
@@ -87,40 +90,28 @@ export function parseDaviviendaStatement(text: string): DaviviendaStatement {
   const saldo_actual = parseMoneyField(text, 'Nuevo Saldo');
   const saldo_promedio = parseMoneyField(text, 'Saldo Promedio');
 
-  // --- Transacciones ---
-  const lines = text.split('\n');
+  // --- Transacciones (regex global) ---
+  // La descripción de cada transacción es el texto que va desde el fin de su
+  // header (DD MM $ N± DOC) hasta el inicio de la siguiente transacción (o un
+  // pie tipo "Saldo/Total"). Así capturamos descripciones multilínea solas.
   const transactions: DaviviendaTransaction[] = [];
-  let inTable = false;
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!inTable) {
-      if (/Fecha\s+Valor\s+Doc/i.test(line)) inTable = true;
-      continue;
-    }
-    // Cortar la tabla si llegamos a un pie/sección posterior.
-    if (/^(Saldo|Total|P[áa]gina|www\.|Banco Davivienda)/i.test(line)) {
-      if (transactions.length > 0) break;
-      continue;
-    }
-    const m = line.match(TX_LINE);
-    if (m) {
-      const day = m[1];
-      const mon = m[2];
-      const amountAbs = parseDaviviendaNumber(m[3]);
-      const sign = m[4] === '-' ? -1 : 1;
-      const yyyy = year ?? new Date().getFullYear();
-      transactions.push({
-        date: `${yyyy}-${mon.padStart(2, '0')}-${day.padStart(2, '0')}`,
-        description: m[6].trim(),
-        dcto: m[5],
-        amount: Math.round(amountAbs * sign * 100) / 100,
-        raw_line: line,
-      });
-    } else if (transactions.length > 0 && line) {
-      // Continuación de la descripción de la transacción anterior.
-      transactions[transactions.length - 1].description += ' ' + line;
-    }
+  const matches = [...text.matchAll(TX_GLOBAL)];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const start = (m.index ?? 0) + m[0].length;
+    const end = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+    const description = text.slice(start, end)
+      .split(/\b(?:Saldo|Total|P[áa]gina|www\.)\b/i)[0]
+      .trim().replace(/\s+/g, ' ');
+    const sign = m[4] === '-' ? -1 : 1;
+    const yyyy = year ?? new Date().getFullYear();
+    transactions.push({
+      date: `${yyyy}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`,
+      description,
+      dcto: m[5],
+      amount: Math.round(parseDaviviendaNumber(m[3]) * sign * 100) / 100,
+      raw_line: (m[0].trim() + ' ' + description).trim(),
+    });
   }
 
   const total_creditos = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
