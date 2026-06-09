@@ -137,17 +137,31 @@ serve(async (req) => {
     if (dlErr || !fileData) return json({ not_davivienda: true, reason: "no se pudo descargar el PDF" });
     const bytes = new Uint8Array(await fileData.arrayBuffer());
 
-    // NIT de la empresa (para extractos encriptados como los de MGN)
+    // Claves a probar: la que el usuario ingresó (prompt) → vacía → NIT del perfil.
+    const providedPwd = ((body.password as string) ?? "").toString();
     const { data: prof } = await supabase.from("profiles").select("company_nit").eq("user_id", statement.user_id).maybeSingle();
     const nit = (prof?.company_nit ?? "").toString().replace(/\D/g, "");
+    const candidates = [providedPwd, "", nit].filter((p, i, a) => a.indexOf(p) === i);
 
-    // Desencriptar + extraer texto: probar clave vacía → NIT. Si nada funciona,
-    // caemos a Bancolombia (graceful).
     let text = "";
-    for (const pwd of ["", nit].filter((p, i) => i === 0 || p)) {
-      try { text = await extractText(bytes, pwd); if (text.trim().length > 50) break; } catch (_e) { /* probar siguiente */ }
+    let sawPasswordError = false;
+    for (const pwd of candidates) {
+      try {
+        text = await extractText(bytes, pwd);
+        if (text.trim().length > 50) break;
+      } catch (e) {
+        const msg = `${(e as Error)?.name ?? ""} ${(e as Error)?.message ?? ""}`.toLowerCase();
+        if (msg.includes("password") || msg.includes("encrypt")) sawPasswordError = true;
+      }
     }
-    if (text.trim().length <= 50) return json({ not_davivienda: true, reason: "no se pudo extraer texto (¿escaneado o clave?)" });
+    if (text.trim().length <= 50) {
+      // Encriptado y ninguna clave funcionó → pedirla al usuario (NO caer a
+      // Bancolombia, que tampoco puede leer un PDF cifrado).
+      if (sawPasswordError) {
+        return json({ needs_password: true, error: "El extracto está protegido. Ingresá la contraseña (suele ser el NIT del titular, sin dígito de verificación)." });
+      }
+      return json({ not_davivienda: true, reason: "no se pudo extraer texto (¿escaneado?)" });
+    }
 
     if (detectBank(text) !== "davivienda") return json({ not_davivienda: true, reason: "no es un extracto Davivienda" });
 

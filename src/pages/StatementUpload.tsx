@@ -177,10 +177,9 @@ export default function StatementUpload() {
     })();
 
     try {
-      const parseBody = JSON.stringify({ file_path: filePath, statement_id: statementId });
-      const post = (fn: string) => fetchWithAuthRetry(
+      const post = (fn: string, extra?: Record<string, unknown>) => fetchWithAuthRetry(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${fn}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: parseBody },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_path: filePath, statement_id: statementId, ...extra }) },
         fn,
       );
 
@@ -191,8 +190,16 @@ export default function StatementUpload() {
       // error EXPLÍCITO de Davivienda (ej. el cuadre no coincide).
       let response: Response | null = null;
       try {
-        const davi = await post('parse-davivienda-pdf');
-        const routed = await davi.clone().json().catch(() => ({} as any));
+        let davi = await post('parse-davivienda-pdf');
+        let routed = await davi.clone().json().catch(() => ({} as any));
+        // Extracto protegido: pedimos la clave (suele ser el NIT) y reintentamos.
+        if (routed?.needs_password) {
+          const pwd = window.prompt('Este extracto de Davivienda está protegido. Ingresá la contraseña (suele ser el NIT del titular, sin dígito de verificación):');
+          if (pwd) {
+            davi = await post('parse-davivienda-pdf', { password: pwd });
+            routed = await davi.clone().json().catch(() => ({} as any));
+          }
+        }
         if (!routed?.not_davivienda && (davi.ok || routed?.error)) response = davi;
       } catch {
         // Davivienda no disponible (no desplegada / red / CORS) → fallback.
