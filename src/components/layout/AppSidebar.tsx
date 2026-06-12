@@ -29,6 +29,7 @@ import {
   Boxes,
   Ship,
   Mail,
+  HardHat,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -69,6 +70,10 @@ interface NavItem {
    *  bloquea acceso a otros admins igual, pero esconderlo del menú evita
    *  confusión. */
   founderOnly?: boolean;
+  /** SOLO visible para admin/owner. Para items cuya ruta usa AdminRoute:
+   *  sin este flag, un colaborador ve el item, hace clic y la ruta lo
+   *  rebota a /dashboard — parece un bug. */
+  adminOnly?: boolean;
   /** Key del permiso de colaborador. Si está seteado y el user es colaborador
    *  sin acceso al módulo, el ítem se oculta del sidebar. Admin bypassea. */
   permKey?: ModuleKey;
@@ -88,8 +93,10 @@ const movementItems: NavItem[] = [
   { title: 'Inventarios', url: '/inventarios', icon: Package, permKey: 'inventarios' },
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },
   { title: 'Productos terminados', url: '/productos-terminados', icon: Boxes, permKey: 'cotizaciones' },
-  // Visible en ambos modos; AdminRoute en App.tsx restringe a admin/owner.
-  { title: 'Importaciones', url: '/importaciones', icon: Ship },
+  { title: 'Nómina', url: '/nomina', icon: HardHat, permKey: 'nomina' },
+  // Visible en ambos modos. adminOnly: la ruta usa AdminRoute — sin el flag,
+  // un colaborador veía el item y al hacer clic lo rebotaba a /dashboard.
+  { title: 'Importaciones', url: '/importaciones', icon: Ship, adminOnly: true },
 ];
 
 const movementItemsGerencial: NavItem[] = [
@@ -305,6 +312,7 @@ interface SectionProps {
   currentSearch: string;
   isGerencial: boolean;
   isFounder: boolean;
+  isAdmin: boolean;
   hasModule: (key: ModuleKey) => boolean;
 }
 
@@ -317,12 +325,14 @@ function SidebarSection({
   currentSearch,
   isGerencial,
   isFounder,
+  isAdmin,
   hasModule,
 }: SectionProps) {
   const baseItems = isGerencial ? items.filter((item) => !item.hideInGerencial) : items;
   const merged = isGerencial && gerencialItems ? [...baseItems, ...gerencialItems] : baseItems;
   const allItems = merged
     .filter((item) => !item.founderOnly || isFounder)
+    .filter((item) => !item.adminOnly || isAdmin)
     .filter((item) => !item.permKey || hasModule(item.permKey));
 
   if (allItems.length === 0) return null;
@@ -525,6 +535,7 @@ export default function AppSidebar() {
           currentSearch={currentSearch}
           isGerencial={isGerencial}
           isFounder={isFounder}
+          isAdmin={isAdmin}
           hasModule={hasModule}
         />
         <SidebarSection
@@ -536,6 +547,7 @@ export default function AppSidebar() {
           currentSearch={currentSearch}
           isGerencial={isGerencial}
           isFounder={isFounder}
+          isAdmin={isAdmin}
           hasModule={hasModule}
         />
         <SidebarSection
@@ -547,6 +559,7 @@ export default function AppSidebar() {
           currentSearch={currentSearch}
           isGerencial={isGerencial}
           isFounder={isFounder}
+          isAdmin={isAdmin}
           hasModule={hasModule}
         />
         <SidebarSection
@@ -557,6 +570,7 @@ export default function AppSidebar() {
           currentSearch={currentSearch}
           isGerencial={isGerencial}
           isFounder={isFounder}
+          isAdmin={isAdmin}
           hasModule={hasModule}
         />
 
@@ -570,6 +584,7 @@ export default function AppSidebar() {
             currentSearch={currentSearch}
             isGerencial={isGerencial}
             isFounder={isFounder}
+            isAdmin={isAdmin}
             hasModule={hasModule}
           />
         )}

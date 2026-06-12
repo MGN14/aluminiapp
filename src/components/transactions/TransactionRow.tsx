@@ -20,6 +20,7 @@ import { es } from 'date-fns/locale';
 import { Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTransactionEdit } from '@/hooks/useTransactionEdit';
+import SaveStatusIndicator from './SaveStatusIndicator';
 import { SearchableSelect } from './SearchableSelect';
 import InvoiceSelector, { InvoiceTag } from './InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
@@ -245,8 +246,14 @@ export default function TransactionRow({
         background: 'oklch(0.65 0.15 65 / 0.03)',
       } : {}}
     >
-      <TableCell className="font-medium text-sm w-[72px]">
+      <TableCell className="font-medium text-sm w-[72px] relative">
         {format(parseLocalDate(localTransaction.date), 'dd MMM', { locale: es })}
+        {/* Feedback del guardado optimista: si falla (red, RLS), el usuario
+            se entera acá en vez de creer que quedó conciliado. Overlay
+            absoluto para no cambiar la altura de la fila al aparecer. */}
+        <div className="absolute left-2 bottom-0.5 pointer-events-auto">
+          <SaveStatusIndicator status={status} errorMessage={errorMessage} />
+        </div>
       </TableCell>
 
       <TableCell>

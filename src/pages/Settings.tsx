@@ -15,6 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import PaymentMethodCard from '@/components/subscription/PaymentMethodCard';
 import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
+import BusinessAboutSection from '@/components/settings/BusinessAboutSection';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import SiigoConnectionCard from '@/components/settings/SiigoConnectionCard';
 import QuotationDefaultsCard from '@/components/settings/QuotationDefaultsCard';
@@ -377,6 +378,15 @@ export default function Settings() {
           <TaxSettingsCard />
           <LetterheadSection />
         </div>
+
+        {/* Acerca del negocio — alimenta el Informe para Banco y el contexto
+            de Nico IA. El form existía pero nunca estaba montado: los campos
+            quedaban siempre null y degradaban ambos consumidores. */}
+        <Card>
+          <CardContent className="pt-6">
+            <BusinessAboutSection />
+          </CardContent>
+        </Card>
 
         {/* Categorías deducibles + Estado financiero inicial — full width c/u */}
         <CategoriesDeductibleSettings />

@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Info, Loader2 } from 'lucide-react';
+import { FixDatesButton } from '@/components/statements/StatementPeriodEditor';
 
 const BANKS = [
   'Bancolombia',
@@ -302,6 +303,33 @@ export default function StatementConfigModal({
               <span className="text-muted-foreground text-xs block mb-0.5">Nombre generado:</span>
               <span className="font-semibold text-foreground">{previewName}</span>
             </div>
+          )}
+
+          {/* Reparación de fechas: si el banco/OCR asignó mal el año a las
+              transacciones de este extracto, el RPC las re-fecha al periodo
+              configurado. Solo en modo edición (el extracto ya existe).
+              OJO: el RPC lee mes/año DESDE LA DB, no de los selects — por eso
+              pasamos los valores iniciales (persistidos) y bloqueamos el botón
+              si el form está sucio, para que nunca re-feche al periodo viejo
+              mientras el toast confirma el nuevo. */}
+          {initialMonth && initialYear && (
+            monthNum === initialMonth && yearNum === initialYear ? (
+              <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2">
+                <FixDatesButton
+                  statementId={statementId}
+                  statementMonth={initialMonth}
+                  statementYear={initialYear}
+                />
+                <span className="text-[11px] text-muted-foreground leading-snug">
+                  Re-fecha las transacciones cuyo año no coincide con el del extracto.
+                </span>
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground rounded-md border border-border px-3 py-2">
+                Cambiaste el periodo: guardá la configuración primero y volvé a abrir
+                este modal para corregir las fechas de las transacciones.
+              </p>
+            )
           )}
 
           <Button

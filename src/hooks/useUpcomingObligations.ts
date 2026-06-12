@@ -123,6 +123,10 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
         const y = base.getFullYear();
         const m = base.getMonth() + offset;
         const d = new Date(y, m, 1);
+        // Respetar los meses configurados (ej: prima solo jun/dic, cesantías
+        // solo feb). Antes este filtro no existía y toda obligación aparecía
+        // los 12 meses aunque `meses` dijera otra cosa.
+        if (ob.meses && ob.meses.length > 0 && !ob.meses.includes(String(d.getMonth() + 1))) continue;
         const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
         const day = Math.min(ob.dia_mes, lastDay);
         const fecha = new Date(d.getFullYear(), d.getMonth(), day, 12, 0, 0);

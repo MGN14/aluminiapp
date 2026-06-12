@@ -337,6 +337,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = useCallback(async (email: string, password: string, fullName: string, captchaToken?: string) => {
     authLog('signUp_attempt', { email });
+    // Un signup siempre crea sesión persistente: pisa cualquier 'false' viejo
+    // del checkbox "Recordarme" de un login anterior en este navegador. Sin
+    // esto, la cuenta nueva caería en sessionStorage y "se desloguearía sola".
+    try { localStorage.setItem('aluminia_remember_me', 'true'); } catch { /* noop */ }
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -369,6 +373,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     manualSignOut.current = true;
     clearLastActiveAt();
     await supabase.auth.signOut();
+    // Resetear "Recordarme" al default: el flag es por-login, no debe
+    // sobrevivir al usuario que lo desmarcó y afectar al próximo login.
+    try { localStorage.setItem('aluminia_remember_me', 'true'); } catch { /* noop */ }
   }, []);
 
   const clearSessionExpired = useCallback(() => {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible, getCurrentCuatrimestre, getCurrentMonth } from '@/types/transaction';
@@ -10,7 +11,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Download, FileSpreadsheet, Loader2, ShieldAlert, ArrowRight, AlertTriangle, FileDown, Mail, CheckCircle, Landmark, Scale, AlertCircle, Send, ChevronDown, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import writeXlsxFile from 'write-excel-file';
-import { toast as sonnerToast } from 'sonner';
 import EnviarExportModal from '@/components/export/EnviarExportModal';
 import BackupZipCard from '@/components/export/BackupZipCard';
 import { useAuth } from '@/hooks/useAuth';
@@ -30,6 +30,7 @@ interface StatementOption {
 export default function Export() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [statements, setStatements] = useState<StatementOption[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -581,9 +582,10 @@ export default function Export() {
               <Button
                 variant="outline"
                 className="w-full"
-                onClick={() => sonnerToast.info('Próximamente disponible')}
+                onClick={() => navigate('/informe-banco')}
               >
-                Generar informe para banco
+                Abrir Informe para Banco
+                <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </CardContent>
           </Card>
@@ -602,9 +604,10 @@ export default function Export() {
               <Button
                 variant="outline"
                 className="w-full"
-                onClick={() => sonnerToast.info('Próximamente disponible')}
+                onClick={() => navigate('/financial-health')}
               >
-                Generar informe DIAN
+                Abrir Informe DIAN
+                <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </CardContent>
           </Card>

@@ -8,9 +8,57 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
+// ── "Recordarme" ────────────────────────────────────────────────────────────
+// El checkbox del Login escribe este flag ANTES de signIn. Default: recordar
+// (comportamiento histórico de la app). Si el usuario lo desmarca, el token
+// vive en sessionStorage → la sesión muere al cerrar la pestaña/navegador.
+const REMEMBER_KEY = 'aluminia_remember_me';
+
+function rememberEnabled(): boolean {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+// Storage adapter dual: lee de ambos (para no romper sesiones existentes al
+// cambiar la preferencia) y escribe en el storage que dicte el flag, limpiando
+// el otro para que no queden tokens viejos colgados.
+const authStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return sessionStorage.getItem(key) ?? localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      if (rememberEnabled()) {
+        localStorage.setItem(key, value);
+        sessionStorage.removeItem(key);
+      } else {
+        sessionStorage.setItem(key, value);
+        localStorage.removeItem(key);
+      }
+    } catch {
+      /* private mode / quota: la sesión sigue en memoria */
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
+    } catch {
+      /* noop */
+    }
+  },
+};
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage,
+    storage: authStorage,
     persistSession: true,
     autoRefreshToken: true,
     // Implicit flow: recovery/magic links carry tokens in the URL hash instead of

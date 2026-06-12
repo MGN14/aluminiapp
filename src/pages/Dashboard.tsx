@@ -36,6 +36,7 @@ import EvasionGapCard from '@/components/dashboard/EvasionGapCard';
 import { calculateEvasionGap } from '@/lib/evasionGap';
 import TrialChecklist from '@/components/subscription/TrialChecklist';
 import DashboardCustomizeModal from '@/components/dashboard/DashboardCustomizeModal';
+import KpiGerencialStrip from '@/components/dashboard/KpiGerencialStrip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -128,6 +129,7 @@ function DashboardContent() {
   const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_city: null, reteica_rate: 0 });
   const [invoiceMetrics, setInvoiceMetrics] = useState<InvoiceFiscalMetrics | null>(null);
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoiceData[]>([]);
+  const [prevYearSalesInvoices, setPrevYearSalesInvoices] = useState<SalesInvoiceData[]>([]);
   const [cashMovements, setCashMovements] = useState<{ type: string; amount: number; date: string }[]>([]);
   // Petty cash NO promovidos a Gerencial. PYGReport los cuenta también; sin esto
   // el Dashboard quedaba subestimando ingresos/egresos vs Estado de Resultados.
@@ -180,12 +182,21 @@ function DashboardContent() {
   const fetchSalesInvoices = useCallback(async () => {
     try {
       const { start: yearStart, end: yearEnd } = getYearRange(periodSelection.year);
+      const { start: prevStart, end: prevEnd } = getYearRange(periodSelection.year - 1);
       // .or('void_type.is.null,void_type.eq.partial') excluye las anuladas
       // totalmente por nota crédito — siguen en Siigo pero ya no facturación.
-      const { data, error } = await supabase.from('invoices').select('id, issue_date, total_amount, counterparty_name, responsible_id').eq('status', 'confirmed').eq('type', 'venta').gte('issue_date', yearStart).lte('issue_date', yearEnd).or('void_type.is.null,void_type.eq.partial').order('issue_date', { ascending: true });
-      if (error) throw error;
-      setSalesInvoices((data as SalesInvoiceData[]) || []);
-    } catch (error) { console.error('Error fetching sales invoices:', error); setSalesInvoices([]); }
+      // El año anterior se trae junto para el comparativo YoY del chart de
+      // facturación (BilledByMonthChart ya soportaba prevYearData; nunca se
+      // le pasaba la serie).
+      const [curRes, prevRes] = await Promise.all([
+        supabase.from('invoices').select('id, issue_date, total_amount, counterparty_name, responsible_id').eq('status', 'confirmed').eq('type', 'venta').gte('issue_date', yearStart).lte('issue_date', yearEnd).or('void_type.is.null,void_type.eq.partial').order('issue_date', { ascending: true }),
+        supabase.from('invoices').select('id, issue_date, total_amount, counterparty_name, responsible_id').eq('status', 'confirmed').eq('type', 'venta').gte('issue_date', prevStart).lte('issue_date', prevEnd).or('void_type.is.null,void_type.eq.partial').order('issue_date', { ascending: true }),
+      ]);
+      if (curRes.error) throw curRes.error;
+      setSalesInvoices((curRes.data as SalesInvoiceData[]) || []);
+      // Si la query del año previo falla, el chart simplemente no ofrece YoY.
+      setPrevYearSalesInvoices(prevRes.error ? [] : ((prevRes.data as SalesInvoiceData[]) || []));
+    } catch (error) { console.error('Error fetching sales invoices:', error); setSalesInvoices([]); setPrevYearSalesInvoices([]); }
   }, [periodSelection.year]);
 
   useEffect(() => { fetchSalesInvoices(); }, [fetchSalesInvoices]);
@@ -474,6 +485,25 @@ function DashboardContent() {
     return months;
   }, [salesInvoices, periodSelection.year]);
 
+  // Serie del año anterior para el toggle "Comparar {año-1}" del chart de
+  // facturación — clave para distinguir caída estacional de problema real.
+  const prevBilledByMonthData = useMemo(() => {
+    const months = Array.from({ length: 12 }, (_, i) => ({
+      month: MONTH_NAMES[i].slice(0, 3),
+      monthKey: `${periodSelection.year - 1}-${String(i + 1).padStart(2, '0')}`,
+      total: 0,
+      count: 0,
+    }));
+    prevYearSalesInvoices.forEach(inv => {
+      const mi = parseLocalDate(inv.issue_date).getMonth();
+      if (mi >= 0 && mi < 12) {
+        months[mi].total += inv.total_amount || 0;
+        months[mi].count += 1;
+      }
+    });
+    return months;
+  }, [prevYearSalesInvoices, periodSelection.year]);
+
   const expensesByCategoryData = useMemo(() => {
     const cat: Record<string, { value: number; count: number }> = {};
     periodTransactions.forEach(tx => {
@@ -599,6 +629,11 @@ function DashboardContent() {
         </DashboardBlock>
       );
     },
+    kpiGerencial: (idx: number) => (
+      <DashboardBlock id="kpiGerencial" customization={customization} index={idx}>
+        <KpiGerencialStrip />
+      </DashboardBlock>
+    ),
     invoiceTax: (idx: number) => (
       <DashboardBlock id="invoiceTax" customization={customization} index={idx}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 auto-rows-fr">
@@ -844,7 +879,7 @@ function DashboardContent() {
     chartsBilling: (idx: number) => (
       <DashboardBlock id="chartsBilling" customization={customization} index={idx}>
         <div className="grid gap-6 lg:grid-cols-2">
-          <BilledByMonthChart data={billedByMonthData} year={periodSelection.year} />
+          <BilledByMonthChart data={billedByMonthData} prevYearData={prevBilledByMonthData} year={periodSelection.year} />
           <BilledByClientMonthChart salesInvoices={salesInvoices} year={periodSelection.year} />
         </div>
       </DashboardBlock>

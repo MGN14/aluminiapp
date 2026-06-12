@@ -52,7 +52,10 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
+  // Default true = comportamiento histórico (sesión persistente). Desmarcado,
+  // el client de Supabase guarda el token en sessionStorage y la sesión muere
+  // al cerrar el navegador. Ver authStorage en integrations/supabase/client.ts.
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -129,6 +132,10 @@ export default function Login() {
       return;
     }
 
+    // El flag debe quedar escrito ANTES del signIn: el storage adapter del
+    // client lo lee al persistir el token de la nueva sesión.
+    try { localStorage.setItem('aluminia_remember_me', rememberMe ? 'true' : 'false'); } catch { /* noop */ }
+
     const { error } = await signIn(email, password, captchaToken);
 
     if (error) {
@@ -153,6 +160,7 @@ export default function Login() {
   const handleGoogleSignIn = async () => {
     setError('');
     setGoogleLoading(true);
+    try { localStorage.setItem('aluminia_remember_me', rememberMe ? 'true' : 'false'); } catch { /* noop */ }
     // OAuth directo contra Supabase (sin pasar por el package de Lovable,
     // que apuntaba a la infra vieja). Supabase maneja el redirect al
     // consent screen de Google y vuelve a /dashboard con la sesión lista.

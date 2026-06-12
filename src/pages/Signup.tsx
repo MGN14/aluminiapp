@@ -288,6 +288,9 @@ export default function Signup() {
   const handleGoogleSignIn = async () => {
     setError('');
     setGoogleLoading(true);
+    // Signup con Google = sesión persistente: pisa un 'false' viejo del
+    // checkbox "Recordarme" de un login anterior (ver client.ts authStorage).
+    try { localStorage.setItem('aluminia_remember_me', 'true'); } catch { /* noop */ }
     // OAuth directo contra Supabase (sin pasar por Lovable).
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',

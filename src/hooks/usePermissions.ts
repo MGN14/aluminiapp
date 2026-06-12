@@ -9,6 +9,10 @@ type PermissionMap = Record<string, AccessLevel>;
 interface UsePermissionsResult {
   isAdmin: boolean;
   loading: boolean;
+  /** true si la ÚLTIMA carga de permisos falló (red, RLS) — distinto de
+   *  "colaborador sin permisos". Los gates deben ofrecer reintentar, no
+   *  tratar el error como denegación definitiva. */
+  error: boolean;
   hasModule: (key: ModuleKey) => boolean;
   canEdit: (key: ModuleKey) => boolean;
   refetch: () => Promise<void>;
@@ -31,8 +35,10 @@ export function usePermissions(): UsePermissionsResult {
   const { isAdmin, loading: subLoading } = useSubscription();
   const [perms, setPerms] = useState<PermissionMap | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const fetchPerms = useCallback(async () => {
+    setError(false);
     if (!user) {
       setPerms({});
       setLoading(false);
@@ -79,6 +85,9 @@ export function usePermissions(): UsePermissionsResult {
       }
     } catch (e) {
       console.error('[usePermissions] error fetching permissions:', e);
+      // Error ≠ "sin permisos": marcamos el flag para que RequireModule
+      // ofrezca reintentar en vez de brickear la app con "sin módulos".
+      setError(true);
       setPerms({});
     } finally {
       setLoading(false);
@@ -110,6 +119,7 @@ export function usePermissions(): UsePermissionsResult {
   return {
     isAdmin,
     loading: loading || subLoading,
+    error,
     hasModule,
     canEdit,
     refetch: fetchPerms,

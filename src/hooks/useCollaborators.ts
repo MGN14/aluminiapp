@@ -20,6 +20,7 @@ export const MODULE_KEYS = [
   { key: 'remisiones', label: 'Remisiones', group: 'movimientos' as ModuleGroup, description: 'Notas de despacho a clientes' },
   { key: 'cotizaciones', label: 'Cotizaciones', group: 'movimientos' as ModuleGroup, description: 'Cotizar ventanas/puertas y enviarlas por email o WhatsApp' },
   { key: 'creditos', label: 'Créditos', group: 'movimientos' as ModuleGroup, description: 'Préstamos bancarios y amortización' },
+  { key: 'nomina', label: 'Nómina', group: 'movimientos' as ModuleGroup, description: 'Nómina mensual y provisión de prestaciones sociales' },
   // Reportes (granulares — un permiso por reporte, no uno solo agrupado)
   { key: 'estado_resultados', label: 'Estado de resultados (PYG)', group: 'reportes' as ModuleGroup, description: 'Pérdidas y ganancias del negocio' },
   { key: 'anticipos', label: 'Anticipos', group: 'reportes' as ModuleGroup, description: 'Anticipos a proveedores y de clientes' },
@@ -68,6 +69,7 @@ const DEFAULT_PERMISSIONS: Record<ModuleKey, AccessLevel> = {
   remisiones: 'none',
   cotizaciones: 'none',
   creditos: 'none',
+  nomina: 'none',
   estado_resultados: 'none',
   anticipos: 'none',
   cuentas_por_cobrar: 'none',

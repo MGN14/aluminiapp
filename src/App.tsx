@@ -58,6 +58,7 @@ const Campaigns = lazy(() => import("./pages/admin/Campaigns"));
 const CajaMenor = lazy(() => import("./pages/CajaMenor"));
 const InformeBanco = lazy(() => import("./pages/InformeBanco"));
 const Creditos = lazy(() => import("./pages/Creditos"));
+const Nomina = lazy(() => import("./pages/Nomina"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -133,9 +134,12 @@ const App = () => (
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/contact" element={<Contact />} />
+              {/* RequireModule (no ProtectedRoute pelado): el permiso 'dashboard'
+                  de colaboradores ahora se aplica de verdad. Si está denegado,
+                  RequireModule redirige al primer módulo permitido. */}
               <Route
                 path="/dashboard"
-                element={<ProtectedRoute><Dashboard /></ProtectedRoute>}
+                element={<RequireModule moduleKey="dashboard"><Dashboard /></RequireModule>}
               />
               <Route
                 path="/admin"
@@ -209,6 +213,10 @@ const App = () => (
               <Route
                 path="/creditos"
                 element={<RequireModule moduleKey="creditos"><Creditos /></RequireModule>}
+              />
+              <Route
+                path="/nomina"
+                element={<RequireModule moduleKey="nomina"><Nomina /></RequireModule>}
               />
               {/* Legacy redirect */}
               <Route
