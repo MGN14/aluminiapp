@@ -229,6 +229,8 @@ export default function Signup() {
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  // Cloudflare caído: fail-open de UI (el server-side sigue mandando).
+  const [captchaUnavailable, setCaptchaUnavailable] = useState(false);
   const { signUp, signOut, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -250,12 +252,12 @@ export default function Signup() {
       setError('Las contraseñas no coinciden. Revisá el campo de confirmación.');
       return;
     }
-    if (!captchaToken) {
+    if (!captchaToken && !captchaUnavailable) {
       setError('Por favor completa la verificación anti-bot.');
       return;
     }
     setLoading(true);
-    const { error } = await signUp(email, password, fullName, captchaToken);
+    const { error } = await signUp(email, password, fullName, captchaToken || undefined);
     if (error) {
       setCaptchaToken(null);
       setCaptchaResetKey((k) => k + 1);
@@ -263,7 +265,9 @@ export default function Signup() {
       if (msg.includes('already registered') || msg.includes('already been registered')) {
         msg = 'Este correo ya está registrado. Intenta iniciar sesión.';
       } else if (msg.toLowerCase().includes('captcha')) {
-        msg = 'La verificación anti-bot falló. Inténtalo de nuevo.';
+        msg = captchaUnavailable
+          ? 'Cloudflare (anti-bot) está caído y el servidor aún exige la verificación. Reintentá en unos minutos.'
+          : 'La verificación anti-bot falló. Inténtalo de nuevo.';
       }
       setError(msg);
       setLoading(false);
@@ -727,15 +731,33 @@ export default function Signup() {
             >
               <TurnstileWidget
                 resetKey={captchaResetKey}
-                onVerify={setCaptchaToken}
+                onVerify={(t) => { setCaptchaToken(t); setCaptchaUnavailable(false); }}
                 onExpire={() => setCaptchaToken(null)}
                 onError={() => setCaptchaToken(null)}
+                onUnavailable={() => setCaptchaUnavailable(true)}
               />
+              {captchaUnavailable && !captchaToken && (
+                <p
+                  style={{
+                    marginTop: 8,
+                    fontSize: 12,
+                    color: '#b45309',
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    border: '1px solid rgba(245, 158, 11, 0.25)',
+                    borderRadius: 10,
+                    padding: '8px 12px',
+                    textAlign: 'center',
+                  }}
+                >
+                  La verificación anti-bot de Cloudflare no está disponible.
+                  Podés crear tu cuenta igual.
+                </p>
+              )}
             </div>
 
             <button
               type="submit"
-              disabled={loading || !captchaToken}
+              disabled={loading || (!captchaToken && !captchaUnavailable)}
               style={{
                 width: '100%',
                 height: 50,
@@ -746,8 +768,8 @@ export default function Signup() {
                 fontSize: 15,
                 fontWeight: 600,
                 fontFamily: FONT_STACK,
-                cursor: loading || !captchaToken ? 'not-allowed' : 'pointer',
-                opacity: loading || !captchaToken ? 0.55 : 1,
+                cursor: loading || (!captchaToken && !captchaUnavailable) ? 'not-allowed' : 'pointer',
+                opacity: loading || (!captchaToken && !captchaUnavailable) ? 0.55 : 1,
                 transition: 'transform 0.15s, background 0.15s, box-shadow 0.15s',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -755,7 +777,7 @@ export default function Signup() {
                 gap: 8,
               }}
               onMouseEnter={(e) => {
-                if (loading || !captchaToken) return;
+                if (loading || (!captchaToken && !captchaUnavailable)) return;
                 e.currentTarget.style.transform = 'scale(1.01)';
                 e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.18)';
               }}

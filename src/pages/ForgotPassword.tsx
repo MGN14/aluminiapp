@@ -17,6 +17,8 @@ export default function ForgotPassword() {
   const [sent, setSent] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  // Cloudflare caído: fail-open de UI (el server-side sigue mandando).
+  const [captchaUnavailable, setCaptchaUnavailable] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,7 +35,7 @@ export default function ForgotPassword() {
       return;
     }
 
-    if (!captchaToken) {
+    if (!captchaToken && !captchaUnavailable) {
       setError('Por favor completa la verificación anti-bot.');
       return;
     }
@@ -139,12 +141,18 @@ export default function ForgotPassword() {
 
                 <TurnstileWidget
                   resetKey={captchaResetKey}
-                  onVerify={setCaptchaToken}
+                  onVerify={(t) => { setCaptchaToken(t); setCaptchaUnavailable(false); }}
                   onExpire={() => setCaptchaToken(null)}
                   onError={() => setCaptchaToken(null)}
+                  onUnavailable={() => setCaptchaUnavailable(true)}
                 />
+                {captchaUnavailable && !captchaToken && (
+                  <p className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2 text-center">
+                    La verificación anti-bot de Cloudflare no está disponible. Podés continuar igual.
+                  </p>
+                )}
 
-                <Button type="submit" className="w-full h-11" disabled={loading || !captchaToken}>
+                <Button type="submit" className="w-full h-11" disabled={loading || (!captchaToken && !captchaUnavailable)}>
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
