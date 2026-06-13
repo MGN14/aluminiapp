@@ -67,6 +67,7 @@ const CajaMenor = lazy(() => import("./pages/CajaMenor"));
 const InformeBanco = lazy(() => import("./pages/InformeBanco"));
 const Creditos = lazy(() => import("./pages/Creditos"));
 const Nomina = lazy(() => import("./pages/Nomina"));
+const ActivosFijos = lazy(() => import("./pages/ActivosFijos"));
 const BalanceGeneral = lazy(() => import("./pages/BalanceGeneral"));
 const Presupuesto = lazy(() => import("./pages/Presupuesto"));
 const Rentabilidad = lazy(() => import("./pages/Rentabilidad"));
@@ -241,6 +242,10 @@ const App = () => (
               <Route
                 path="/nomina"
                 element={<RequireModule moduleKey="nomina"><Nomina /></RequireModule>}
+              />
+              <Route
+                path="/activos-fijos"
+                element={<RequireModule moduleKey="activos_fijos"><ActivosFijos /></RequireModule>}
               />
               {/* Legacy redirect */}
               <Route

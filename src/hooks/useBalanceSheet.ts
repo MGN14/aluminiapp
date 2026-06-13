@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { buildBalanceSheet, type BalanceSheet } from '@/lib/balanceSheet';
+import { computeDepreciation } from '@/lib/depreciation';
 
 /**
  * Balance General "vivo" a hoy. Orquesta las fuentes operativas que ya tiene
@@ -25,7 +26,7 @@ export function useBalanceSheet() {
     queryKey: ['balance-sheet-v1', user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const [stateRes, detailRes, invRes, prodRes, credRes, credPayRes, payrollRes] = await Promise.all([
+      const [stateRes, detailRes, invRes, prodRes, credRes, credPayRes, payrollRes, assetsRes] = await Promise.all([
         supabase.from('initial_financial_state' as never).select('*').maybeSingle(),
         supabase.from('initial_state_details' as never).select('field_type, amount'),
         // Facturas confirmadas con saldo pendiente (CxC venta / CxP compra).
@@ -39,6 +40,9 @@ export function useBalanceSheet() {
         // Provisión de prestaciones devengada (módulo Nómina). Pasivo laboral
         // acumulado de TODOS los periodos registrados (no solo el año actual).
         (supabase.from('payroll_entries' as never) as any).select('provision_prestaciones'),
+        // Activos fijos en uso (módulo Activos fijos) → valor en libros.
+        (supabase.from('fixed_assets' as never) as any)
+          .select('valor_compra, fecha_compra, vida_util_meses, valor_residual, activo').eq('activo', true),
       ]);
 
       const state = (stateRes.data as Record<string, number> | null) ?? null;
@@ -111,14 +115,24 @@ export function useBalanceSheet() {
       // explícito pero la línea se oculta en la UI cuando es 0 (no rubro fantasma).
       const impuestos_por_pagar = 0;
 
+      // Activos fijos a hoy = Σ valor en libros de los activos en uso.
+      const activos_fijos = (((assetsRes.data as unknown) as Array<{ valor_compra: number; fecha_compra: string; vida_util_meses: number; valor_residual: number }>) ?? [])
+        .reduce((s, a) => s + computeDepreciation({
+          valor_compra: num(a.valor_compra), fecha_compra: a.fecha_compra,
+          vida_util_meses: num(a.vida_util_meses), valor_residual: num(a.valor_residual),
+        }).valorEnLibros, 0);
+
       // Patrimonio inicial: activos iniciales − pasivos iniciales (lo que cuadra
-      // por construcción en el estado inicial capturado).
-      const activosIniciales = sumDetail('saldo_cuentas') + sumDetail('cuentas_por_cobrar') + sumDetail('anticipos_a_proveedores') + iva_a_favor;
+      // por construcción en el estado inicial capturado). Incluimos los activos
+      // fijos en el patrimonio_inicial porque en una PYME en marcha la
+      // maquinaria/vehículos ya existían (capital aportado): sin esto, sumarlos
+      // al activo sin contrapartida descuadraría la validación de patrimonio.
+      const activosIniciales = sumDetail('saldo_cuentas') + sumDetail('cuentas_por_cobrar') + sumDetail('anticipos_a_proveedores') + iva_a_favor + activos_fijos;
       const pasivosIniciales = sumDetail('cuentas_por_pagar') + sumDetail('anticipos_de_clientes') + sumDetail('deudas');
       const patrimonio_inicial = activosIniciales - pasivosIniciales;
 
       const sheet = buildBalanceSheet({
-        caja_bancos, cuentas_por_cobrar, inventario, anticipos_a_proveedores, iva_a_favor, otros_activos: 0,
+        caja_bancos, cuentas_por_cobrar, inventario, activos_fijos, anticipos_a_proveedores, iva_a_favor, otros_activos: 0,
         cuentas_por_pagar, anticipos_de_clientes, prestaciones_por_pagar, impuestos_por_pagar, deuda_financiera,
         patrimonio_inicial, utilidad_acumulada,
       });
@@ -131,6 +145,7 @@ export function useBalanceSheet() {
           caja_bancos: 'Saldo inicial + movimientos de banco y efectivo',
           cuentas_por_cobrar: 'Facturas de venta con saldo pendiente',
           inventario: 'Inventario valorizado (stock × costo)',
+          activos_fijos: 'Módulo Activos fijos (valor en libros)',
           anticipos_a_proveedores: 'Estado financiero inicial',
           iva_a_favor: 'Estado financiero inicial',
           cuentas_por_pagar: 'Facturas de compra con saldo pendiente',

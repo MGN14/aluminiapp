@@ -5,6 +5,7 @@ const base: BalanceInputs = {
   caja_bancos: 10_000_000,
   cuentas_por_cobrar: 5_000_000,
   inventario: 8_000_000,
+  activos_fijos: 0,
   anticipos_a_proveedores: 1_000_000,
   iva_a_favor: 500_000,
   otros_activos: 0,

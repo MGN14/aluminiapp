@@ -96,6 +96,7 @@ const movementItems: NavItem[] = [
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },
   { title: 'Productos terminados', url: '/productos-terminados', icon: Boxes, permKey: 'cotizaciones' },
   { title: 'Nómina', url: '/nomina', icon: HardHat, permKey: 'nomina' },
+  { title: 'Activos fijos', url: '/activos-fijos', icon: Building2, permKey: 'activos_fijos' },
   // Visible en ambos modos. adminOnly: la ruta usa AdminRoute — sin el flag,
   // un colaborador veía el item y al hacer clic lo rebotaba a /dashboard.
   { title: 'Importaciones', url: '/importaciones', icon: Ship, adminOnly: true },

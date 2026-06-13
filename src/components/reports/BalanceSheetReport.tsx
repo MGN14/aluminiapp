@@ -147,7 +147,7 @@ export default function BalanceSheetReport() {
               </p>
               <p className="text-muted-foreground leading-snug">
                 {descuadreSignificativo
-                  ? `Hay ${fmt(Math.abs(data.descuadre))} de diferencia (${((Math.abs(data.descuadre) / (data.total_activos || 1)) * 100).toFixed(1)}% de los activos). En un balance derivado esto es normal: refleja ventas/compras a crédito (cartera que aún no es caja), activos fijos no registrados o saldos sin clasificar. No es un error — es una guía de qué te falta cargar. El balance es gerencial, no reemplaza la contabilidad oficial.`
+                  ? `Hay ${fmt(Math.abs(data.descuadre))} de diferencia (${((Math.abs(data.descuadre) / (data.total_activos || 1)) * 100).toFixed(1)}% de los activos). En un balance derivado esto es esperable: refleja ventas/compras a crédito (cartera que aún no es caja) y saldos sin clasificar. No es un error — es una guía de qué revisar. El balance es gerencial, no reemplaza la contabilidad oficial.`
                   : 'El balance cuadra dentro de un margen razonable. Es un balance gerencial derivado de tu operación, no reemplaza la contabilidad oficial firmada.'}
               </p>
             </div>

@@ -21,6 +21,7 @@ export const MODULE_KEYS = [
   { key: 'cotizaciones', label: 'Cotizaciones', group: 'movimientos' as ModuleGroup, description: 'Cotizar ventanas/puertas y enviarlas por email o WhatsApp' },
   { key: 'creditos', label: 'Créditos', group: 'movimientos' as ModuleGroup, description: 'Préstamos bancarios y amortización' },
   { key: 'nomina', label: 'Nómina', group: 'movimientos' as ModuleGroup, description: 'Nómina mensual y provisión de prestaciones sociales' },
+  { key: 'activos_fijos', label: 'Activos fijos', group: 'movimientos' as ModuleGroup, description: 'Maquinaria, vehículos y equipo con depreciación' },
   // Reportes (granulares — un permiso por reporte, no uno solo agrupado)
   { key: 'estado_resultados', label: 'Estado de resultados (PYG)', group: 'reportes' as ModuleGroup, description: 'Pérdidas y ganancias del negocio' },
   { key: 'balance_general', label: 'Balance General', group: 'reportes' as ModuleGroup, description: 'Activos, pasivos y patrimonio a hoy + indicadores financieros' },
@@ -73,6 +74,7 @@ const DEFAULT_PERMISSIONS: Record<ModuleKey, AccessLevel> = {
   cotizaciones: 'none',
   creditos: 'none',
   nomina: 'none',
+  activos_fijos: 'none',
   estado_resultados: 'none',
   balance_general: 'none',
   presupuesto: 'none',

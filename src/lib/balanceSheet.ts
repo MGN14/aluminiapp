@@ -17,6 +17,7 @@ export interface BalanceInputs {
   caja_bancos: number;          // último saldo bancario conocido
   cuentas_por_cobrar: number;   // facturas venta con saldo pendiente
   inventario: number;           // Σ stock_system × cost_per_unit
+  activos_fijos: number;        // valor en libros de PP&E (módulo Activos fijos)
   anticipos_a_proveedores: number;
   iva_a_favor: number;
   otros_activos: number;
@@ -67,6 +68,7 @@ export function buildBalanceSheet(input: BalanceInputs): BalanceSheet {
     { key: 'caja_bancos', label: 'Caja y bancos', value: n(input.caja_bancos), corriente: true },
     { key: 'cuentas_por_cobrar', label: 'Cuentas por cobrar (cartera)', value: n(input.cuentas_por_cobrar), corriente: true },
     { key: 'inventario', label: 'Inventario', value: n(input.inventario), corriente: true },
+    { key: 'activos_fijos', label: 'Activos fijos (valor en libros)', value: n(input.activos_fijos), corriente: false },
     { key: 'anticipos_a_proveedores', label: 'Anticipos a proveedores', value: n(input.anticipos_a_proveedores), corriente: true },
     { key: 'iva_a_favor', label: 'IVA a favor (saldo DIAN)', value: n(input.iva_a_favor), corriente: true },
     { key: 'otros_activos', label: 'Otros activos', value: n(input.otros_activos), corriente: false },

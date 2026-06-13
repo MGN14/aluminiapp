@@ -25,6 +25,7 @@ const MODULE_ROUTE: Record<ModuleKey, string> = {
   cotizaciones: '/productos-terminados',
   creditos: '/creditos',
   nomina: '/nomina',
+  activos_fijos: '/activos-fijos',
   estado_resultados: '/reportes/estado-resultados',
   balance_general: '/reportes/balance-general',
   presupuesto: '/reportes/presupuesto',
