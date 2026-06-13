@@ -69,6 +69,7 @@ const Creditos = lazy(() => import("./pages/Creditos"));
 const Nomina = lazy(() => import("./pages/Nomina"));
 const BalanceGeneral = lazy(() => import("./pages/BalanceGeneral"));
 const Presupuesto = lazy(() => import("./pages/Presupuesto"));
+const Rentabilidad = lazy(() => import("./pages/Rentabilidad"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -192,6 +193,10 @@ const App = () => (
               <Route
                 path="/reportes/presupuesto"
                 element={<RequireModule moduleKey="presupuesto"><Presupuesto /></RequireModule>}
+              />
+              <Route
+                path="/reportes/rentabilidad"
+                element={<RequireModule moduleKey="rentabilidad"><Rentabilidad /></RequireModule>}
               />
               <Route
                 path="/reportes/anticipos"

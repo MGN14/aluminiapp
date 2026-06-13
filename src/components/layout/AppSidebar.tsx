@@ -109,6 +109,7 @@ const reportItems: NavItem[] = [
   { title: 'Estado de resultados', url: '/reportes/estado-resultados', icon: BarChart3, hasGerencialVariant: true, permKey: 'estado_resultados' },
   { title: 'Balance General', url: '/reportes/balance-general', icon: Scale, permKey: 'balance_general' },
   { title: 'Presupuesto vs Real', url: '/reportes/presupuesto', icon: Target, permKey: 'presupuesto' },
+  { title: 'Rentabilidad', url: '/reportes/rentabilidad', icon: Coins, permKey: 'rentabilidad' },
   { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt, permKey: 'anticipos' },
   { title: 'Módulo de Cobranza', url: '/reportes/cuentas-por-cobrar', icon: Users, hideInGerencial: true, permKey: 'cuentas_por_cobrar' },
   { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins, permKey: 'cuentas_por_pagar' },
