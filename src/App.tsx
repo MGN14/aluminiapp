@@ -71,6 +71,7 @@ const ActivosFijos = lazy(() => import("./pages/ActivosFijos"));
 const BalanceGeneral = lazy(() => import("./pages/BalanceGeneral"));
 const Presupuesto = lazy(() => import("./pages/Presupuesto"));
 const Rentabilidad = lazy(() => import("./pages/Rentabilidad"));
+const PuntoEquilibrio = lazy(() => import("./pages/PuntoEquilibrio"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -198,6 +199,10 @@ const App = () => (
               <Route
                 path="/reportes/rentabilidad"
                 element={<RequireModule moduleKey="rentabilidad"><Rentabilidad /></RequireModule>}
+              />
+              <Route
+                path="/reportes/punto-equilibrio"
+                element={<RequireModule moduleKey="punto_equilibrio"><PuntoEquilibrio /></RequireModule>}
               />
               <Route
                 path="/reportes/anticipos"

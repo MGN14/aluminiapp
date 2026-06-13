@@ -30,6 +30,7 @@ const MODULE_ROUTE: Record<ModuleKey, string> = {
   balance_general: '/reportes/balance-general',
   presupuesto: '/reportes/presupuesto',
   rentabilidad: '/reportes/rentabilidad',
+  punto_equilibrio: '/reportes/punto-equilibrio',
   anticipos: '/reportes/anticipos',
   cuentas_por_cobrar: '/reportes/cuentas-por-cobrar',
   cuentas_por_pagar: '/reportes/cuentas-por-pagar',

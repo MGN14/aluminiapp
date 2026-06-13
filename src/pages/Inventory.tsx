@@ -7,6 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import InventoryMetrics from '@/components/inventory/InventoryMetrics';
 import InventoryInsights from '@/components/inventory/InventoryInsights';
+import ReorderAlerts from '@/components/inventory/ReorderAlerts';
 import InventoryChart from '@/components/inventory/InventoryChart';
 import InventoryTable from '@/components/inventory/InventoryTable';
 import AddProductModal from '@/components/inventory/AddProductModal';
@@ -510,6 +511,11 @@ export default function Inventory() {
                 lastSiigoSyncAt={metrics.lastSiigoSyncAt}
                 lastPhysicalCountAt={metrics.lastPhysicalCountAt}
               />
+            </div>
+
+            {/* Alertas de reorden — qué referencias reponer y cuánto */}
+            <div className="animate-slide-up opacity-0 [animation-fill-mode:forwards]" style={{ animationDelay: '60ms' }}>
+              <ReorderAlerts products={products} />
             </div>
 
             {/* Metric Cards */}
