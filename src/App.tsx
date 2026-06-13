@@ -59,6 +59,8 @@ const CajaMenor = lazy(() => import("./pages/CajaMenor"));
 const InformeBanco = lazy(() => import("./pages/InformeBanco"));
 const Creditos = lazy(() => import("./pages/Creditos"));
 const Nomina = lazy(() => import("./pages/Nomina"));
+const BalanceGeneral = lazy(() => import("./pages/BalanceGeneral"));
+const Presupuesto = lazy(() => import("./pages/Presupuesto"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -173,6 +175,14 @@ const App = () => (
               <Route
                 path="/reportes/estado-resultados"
                 element={<RequireModule moduleKey="estado_resultados"><Reports tab="pyg" /></RequireModule>}
+              />
+              <Route
+                path="/reportes/balance-general"
+                element={<RequireModule moduleKey="balance_general"><BalanceGeneral /></RequireModule>}
+              />
+              <Route
+                path="/reportes/presupuesto"
+                element={<RequireModule moduleKey="presupuesto"><Presupuesto /></RequireModule>}
               />
               <Route
                 path="/reportes/anticipos"

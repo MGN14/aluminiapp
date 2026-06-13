@@ -23,6 +23,8 @@ export const MODULE_KEYS = [
   { key: 'nomina', label: 'Nómina', group: 'movimientos' as ModuleGroup, description: 'Nómina mensual y provisión de prestaciones sociales' },
   // Reportes (granulares — un permiso por reporte, no uno solo agrupado)
   { key: 'estado_resultados', label: 'Estado de resultados (PYG)', group: 'reportes' as ModuleGroup, description: 'Pérdidas y ganancias del negocio' },
+  { key: 'balance_general', label: 'Balance General', group: 'reportes' as ModuleGroup, description: 'Activos, pasivos y patrimonio a hoy + indicadores financieros' },
+  { key: 'presupuesto', label: 'Presupuesto vs Real', group: 'reportes' as ModuleGroup, description: 'Metas mensuales por rubro y desvío contra lo real' },
   { key: 'anticipos', label: 'Anticipos', group: 'reportes' as ModuleGroup, description: 'Anticipos a proveedores y de clientes' },
   { key: 'cuentas_por_cobrar', label: 'Lo que me deben', group: 'reportes' as ModuleGroup, description: 'Cartera por cobrar a clientes' },
   { key: 'cuentas_por_pagar', label: 'Lo que debo', group: 'reportes' as ModuleGroup, description: 'Cuentas por pagar a proveedores' },
@@ -71,6 +73,8 @@ const DEFAULT_PERMISSIONS: Record<ModuleKey, AccessLevel> = {
   creditos: 'none',
   nomina: 'none',
   estado_resultados: 'none',
+  balance_general: 'none',
+  presupuesto: 'none',
   anticipos: 'none',
   cuentas_por_cobrar: 'none',
   cuentas_por_pagar: 'none',
