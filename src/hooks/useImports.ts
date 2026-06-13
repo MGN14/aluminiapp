@@ -33,6 +33,7 @@ export interface ImportRow {
   estado: ImportEstado;
   cantidad_ton: number | null;
   precio_smm_cerrado_usd_ton: number | null;
+  trm_causacion: number | null;
   monto_total_usd: number | null;
   anticipo_pagado_usd: number;
   saldo_pendiente_usd: number; // computed by DB

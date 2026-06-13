@@ -9,6 +9,7 @@ import { useImports, type ImportRow, type ImportEstado, IMPORT_ESTADOS_ORDER, IM
 import { Trash2 } from 'lucide-react';
 import ImportPaymentsSection from './ImportPaymentsSection';
 import ImportCostingSection from './ImportCostingSection';
+import ExchangeDiffPanel from './ExchangeDiffPanel';
 
 interface Props {
   open: boolean;
@@ -28,6 +29,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const [estado, setEstado] = useState<ImportEstado>('cotizacion');
   const [cantidadTon, setCantidadTon] = useState<number | ''>('');
   const [precioSmm, setPrecioSmm] = useState<number | ''>('');
+  const [trmCausacion, setTrmCausacion] = useState<number | ''>('');
   const [montoTotal, setMontoTotal] = useState<number | ''>('');
   const [anticipo, setAnticipo] = useState<number | ''>('');
   const [fechaCotizacion, setFechaCotizacion] = useState('');
@@ -46,6 +48,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setEstado(editing.estado);
       setCantidadTon(editing.cantidad_ton ?? '');
       setPrecioSmm(editing.precio_smm_cerrado_usd_ton ?? '');
+      setTrmCausacion(editing.trm_causacion ?? '');
       setMontoTotal(editing.monto_total_usd ?? '');
       setAnticipo(editing.anticipo_pagado_usd ?? '');
       setFechaCotizacion(editing.fecha_cotizacion ?? '');
@@ -60,6 +63,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setEstado('cotizacion');
       setCantidadTon('');
       setPrecioSmm('');
+      setTrmCausacion('');
       setMontoTotal('');
       setAnticipo('');
       setFechaCotizacion(todayIso());
@@ -85,6 +89,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       estado,
       cantidad_ton: cantidadTon === '' ? null : Number(cantidadTon),
       precio_smm_cerrado_usd_ton: precioSmm === '' ? null : Number(precioSmm),
+      trm_causacion: trmCausacion === '' ? null : Number(trmCausacion),
       monto_total_usd: montoTotal === '' ? null : Number(montoTotal),
       anticipo_pagado_usd: anticipo === '' ? 0 : Number(anticipo),
       fecha_cotizacion: fechaCotizacion || null,
@@ -180,13 +185,25 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sm">Ref. interna</Label>
+              <Label className="text-sm">TRM causación (COP/USD)</Label>
               <Input
-                value={refPedido}
-                onChange={e => setRefPedido(e.target.value)}
-                placeholder="PO-2026-001"
+                type="number" step="0.01" min={0}
+                value={trmCausacion}
+                onChange={e => setTrmCausacion(e.target.value === '' ? '' : +e.target.value)}
+                placeholder="Ej: 4100"
+                className="font-mono"
+                title="TRM del día en que se causó la deuda. Base para la diferencia en cambio."
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-sm">Ref. interna</Label>
+            <Input
+              value={refPedido}
+              onChange={e => setRefPedido(e.target.value)}
+              placeholder="PO-2026-001"
+            />
           </div>
 
           {/* Montos USD */}
@@ -259,6 +276,18 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
           {/* Abonos (solo al editar — necesita id) */}
           {isEdit && editing && (
             <ImportPaymentsSection importId={editing.id} />
+          )}
+
+          {/* Diferencia en cambio. Todo en vivo (monto total + TRM causación del
+              form, abonos del hook) para no mezclar valores guardados con editados. */}
+          {isEdit && editing && (
+            <ExchangeDiffPanel
+              importId={editing.id}
+              trmCausacion={trmCausacion === '' ? null : Number(trmCausacion)}
+              montoTotalUsd={montoTotal === '' ? 0 : Number(montoTotal)}
+              anticipoPagadoUsd={Number(editing.anticipo_pagado_usd) || 0}
+              estado={estado}
+            />
           )}
 
           {/* Costeo referencia a referencia (packing list + landed cost).
