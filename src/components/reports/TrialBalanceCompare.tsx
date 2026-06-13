@@ -44,7 +44,7 @@ export default function TrialBalanceCompare({ appSheet }: { appSheet: BalanceShe
 
   if (isLoading) return null;
 
-  if (!data?.hasData) {
+  if (!data?.hasBalance) {
     return (
       <Card className="border-dashed">
         <CardContent className="py-6 text-center space-y-2">
@@ -65,8 +65,8 @@ export default function TrialBalanceCompare({ appSheet }: { appSheet: BalanceShe
 
   // Aviso si el balance de Siigo es de un corte lejano a hoy (compara fechas distintas).
   const snapStale = (() => {
-    if (!data.snapshotDate) return false;
-    const days = (Date.now() - parseLocalDate(data.snapshotDate).getTime()) / 86_400_000;
+    if (!data.balanceSnapshotDate) return false;
+    const days = (Date.now() - parseLocalDate(data.balanceSnapshotDate).getTime()) / 86_400_000;
     return days > 35;
   })();
 
@@ -110,15 +110,15 @@ export default function TrialBalanceCompare({ appSheet }: { appSheet: BalanceShe
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <GitCompare className="h-4 w-4 text-primary" /> Siigo (contable) vs App (derivado)
           </CardTitle>
-          {data.snapshotDate && (
+          {data.balanceSnapshotDate && (
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Balance de Siigo al {format(parseLocalDate(data.snapshotDate), 'dd MMM yyyy', { locale: es })} · {data.count} cuentas
+              Balance de Siigo al {format(parseLocalDate(data.balanceSnapshotDate), 'dd MMM yyyy', { locale: es })} · {data.count} cuentas
             </p>
           )}
         </div>
         <div className="flex gap-1.5 shrink-0">
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setShowImport(true)}><Upload className="h-3.5 w-3.5" /> Reimportar</Button>
-          <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground hover:text-destructive" onClick={() => { if (window.confirm('¿Borrar el balance de Siigo cargado? Podés reimportarlo después.')) clearBalance.mutate(); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground hover:text-destructive" onClick={() => { if (window.confirm('¿Borrar el balance de Siigo cargado? (no afecta el Estado de Resultados)')) clearBalance.mutate('balance'); }}><Trash2 className="h-3.5 w-3.5" /></Button>
         </div>
       </CardHeader>
       <CardContent className="p-0">

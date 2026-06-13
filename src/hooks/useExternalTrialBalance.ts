@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
-import { aggregateTrialBalance, type BalanceSection } from '@/lib/pucClassify';
+import { aggregateTrialBalance, aggregatePyg, type BalanceSection, type PnlAggregate } from '@/lib/pucClassify';
 
 export interface TrialBalanceImportRow {
   account_code: string;
@@ -13,10 +13,22 @@ export interface TrialBalanceImportRow {
 
 export interface ExternalTrialBalance {
   bySection: Record<BalanceSection, number>;
-  snapshotDate: string | null;
+  pnl: PnlAggregate;
+  /** fecha de corte del Balance (clases 1-3) */
+  balanceSnapshotDate: string | null;
+  /** fecha de corte del Estado de Resultados (clases 4-7) */
+  pnlSnapshotDate: string | null;
   count: number;
   hasData: boolean;
+  /** hay cuentas de balance (clases 1-3) cargadas */
+  hasBalance: boolean;
+  /** hay cuentas de resultado (clases 4-7) cargadas */
+  hasPnl: boolean;
 }
+
+const BALANCE_CLASSES = ['1', '2', '3'];
+const PNL_CLASSES = ['4', '5', '6', '7'];
+const firstDigit = (c: string) => String(c ?? '').replace(/\D/g, '')[0] || '';
 
 export function useExternalTrialBalance() {
   const { user } = useAuth();
@@ -30,11 +42,23 @@ export function useExternalTrialBalance() {
         .select('account_code, saldo, snapshot_date');
       if (error) throw error;
       const rows = ((data as unknown) as Array<{ account_code: string; saldo: number; snapshot_date: string | null }>) ?? [];
+      const lines = rows.map((r) => ({ account_code: r.account_code, saldo: Number(r.saldo) || 0 }));
+      // Fecha de corte POR GRUPO (balance vs resultados pueden importarse en
+      // momentos/cortes distintos): max snapshot_date de cada grupo de clases.
+      const maxSnap = (classes: string[]) => {
+        const ds = rows.filter((r) => classes.includes(firstDigit(r.account_code)))
+          .map((r) => r.snapshot_date).filter(Boolean) as string[];
+        return ds.length ? ds.slice().sort().at(-1)! : null;
+      };
       return {
-        bySection: aggregateTrialBalance(rows.map((r) => ({ account_code: r.account_code, saldo: Number(r.saldo) || 0 }))),
-        snapshotDate: rows[0]?.snapshot_date ?? null,
+        bySection: aggregateTrialBalance(lines),
+        pnl: aggregatePyg(lines),
+        balanceSnapshotDate: maxSnap(BALANCE_CLASSES),
+        pnlSnapshotDate: maxSnap(PNL_CLASSES),
         count: rows.length,
         hasData: rows.length > 0,
+        hasBalance: lines.some((l) => BALANCE_CLASSES.includes(firstDigit(l.account_code))),
+        hasPnl: lines.some((l) => PNL_CLASSES.includes(firstDigit(l.account_code))),
       };
     },
   });
@@ -63,8 +87,19 @@ export function useExternalTrialBalance() {
       if (insErr) throw insErr;
       const newIds = ((inserted as Array<{ id: string }>) ?? []).map((r) => r.id);
       if (newIds.length > 0) {
-        const { error: delErr } = await (supabase.from('external_trial_balance' as never) as any)
+        // Reemplazo POR GRUPO (Balance 1-3 vs Resultados 4-7), no por clase
+        // individual: importar un Estado de Resultados que no trae clase 6 debe
+        // borrar TODO el grupo de resultados viejo (incluida la clase 6 stale),
+        // sin tocar el Balance. Si el batch toca un grupo, se limpia ese grupo
+        // entero antes de quedar solo lo nuevo.
+        const cls = new Set(payload.map((r) => firstDigit(r.account_code)).filter(Boolean));
+        const clasesBorrar: string[] = [];
+        if (BALANCE_CLASSES.some((c) => cls.has(c))) clasesBorrar.push(...BALANCE_CLASSES);
+        if (PNL_CLASSES.some((c) => cls.has(c))) clasesBorrar.push(...PNL_CLASSES);
+        let del = (supabase.from('external_trial_balance' as never) as any)
           .delete().not('id', 'in', `(${newIds.join(',')})`);
+        if (clasesBorrar.length > 0) del = del.or(clasesBorrar.map((c) => `account_code.like.${c}%`).join(','));
+        const { error: delErr } = await del;
         if (delErr) throw delErr; // quedan duplicadas (no vacío); el usuario reintenta
       }
       return payload.length;
@@ -76,9 +111,14 @@ export function useExternalTrialBalance() {
     onError: (e: Error) => toast.error(`Error importando: ${e.message}`),
   });
 
+  // group: 'balance' borra solo clases 1-3, 'pnl' solo 4-7 (no destruye el otro
+  // comparativo). Sin group, borra todo (compat).
   const clearBalance = useMutation({
-    mutationFn: async () => {
-      const { error } = await (supabase.from('external_trial_balance' as never) as any).delete().not('id', 'is', null);
+    mutationFn: async (group?: 'balance' | 'pnl') => {
+      let del = (supabase.from('external_trial_balance' as never) as any).delete().not('id', 'is', null);
+      const clases = group === 'balance' ? BALANCE_CLASSES : group === 'pnl' ? PNL_CLASSES : null;
+      if (clases) del = del.or(clases.map((c) => `account_code.like.${c}%`).join(','));
+      const { error } = await del;
       if (error) throw error;
     },
     onSuccess: () => {

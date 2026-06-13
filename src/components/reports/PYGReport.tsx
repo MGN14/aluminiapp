@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { MONTH_NAMES, isOperativo, type ReportGroup } from '@/types/transaction';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
+import PnlCompare from './PnlCompare';
 
 interface TransactionRow {
   date: string;
@@ -952,6 +953,9 @@ export default function PYGReport() {
         </CardContent>
       </Card>
     )}
+
+    {/* Comparativo contra el Estado de Resultados de Siigo (contabilidad oficial) */}
+    <PnlCompare />
     </div>
   );
 }

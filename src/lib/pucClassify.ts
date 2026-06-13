@@ -125,6 +125,57 @@ function leafCodes(codes: string[]): Set<string> {
   return leaves;
 }
 
+// ── Estado de Resultados (clases 4 ingresos, 5 gastos, 6/7 costos) ──────────
+export type PnlSection = 'ingresos' | 'costos_venta' | 'gastos' | 'impuestos' | 'no_pnl';
+
+/** Clasifica un código PUC en su sección del Estado de Resultados. */
+export function classifyPucResult(rawCode: string): PnlSection {
+  const code = digits(rawCode);
+  if (code.length === 0) return 'no_pnl';
+  const c1 = code[0];
+  if (c1 === '4') return 'ingresos';
+  if (c1 === '6' || c1 === '7') return 'costos_venta'; // costo de ventas / de producción
+  if (c1 === '5') return code.slice(0, 2) === '54' ? 'impuestos' : 'gastos';
+  return 'no_pnl';
+}
+
+export interface PnlAggregate {
+  ingresos: number;       // neto (devoluciones ya restadas)
+  costos_venta: number;
+  gastos: number;
+  impuestos: number;
+  utilidad: number;       // ingresos − costos − gastos − impuestos
+}
+
+/**
+ * Agrega un Estado de Resultados (balance de prueba clases 4-7) por sección.
+ * Ingresos: se suman CON signo para que las devoluciones (4175, saldo débito
+ * negativo) resten. Costos/gastos/impuestos: valor absoluto (vienen con saldo
+ * débito negativo en el export). Solo cuentas hoja, sin duplicar subtotales.
+ */
+export function aggregatePyg(lines: TrialBalanceLine[]): PnlAggregate {
+  const leaves = leafCodes(lines.map((l) => l.account_code));
+  const seen = new Set<string>();
+  let ingresos = 0, costos = 0, gastos = 0, impuestos = 0;
+  for (const l of lines) {
+    const d = digits(l.account_code);
+    if (d.length === 0 || !leaves.has(d) || seen.has(d)) continue;
+    seen.add(d);
+    const section = classifyPucResult(l.account_code);
+    const saldo = Math.abs(Number(l.saldo) || 0);
+    if (section === 'ingresos') {
+      // Devoluciones (4175/4275) son contra-ingreso → restan. El resto suma.
+      // Usamos valor absoluto + signo explícito por grupo para no depender de
+      // que el export traiga o no el signo contable.
+      if (d.startsWith('4175') || d.startsWith('4275')) ingresos -= saldo;
+      else ingresos += saldo;
+    } else if (section === 'costos_venta') costos += saldo;
+    else if (section === 'gastos') gastos += saldo;
+    else if (section === 'impuestos') impuestos += saldo;
+  }
+  return { ingresos, costos_venta: costos, gastos, impuestos, utilidad: ingresos - costos - gastos - impuestos };
+}
+
 export function aggregateTrialBalance(lines: TrialBalanceLine[]): Record<BalanceSection, number> {
   const acc: Record<BalanceSection, number> = {
     disponible: 0, cartera: 0, inventario: 0, activos_fijos: 0, otros_activos: 0,

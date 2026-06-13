@@ -23,11 +23,11 @@ function guess(header: string): FieldKey {
   const h = header.toLowerCase().trim();
   // Movimientos y saldos intermedios NO son el saldo final → ignorar.
   if (/(d[eé]bito|cr[eé]dito|movim|\bdebe\b|\bhaber\b)/.test(h)) return 'ignorar';
-  if (/saldo/.test(h)) {
+  // Saldo / valor del periodo actual (Siigo exporta la columna como "Año actual").
+  if (/(saldo|valor|a[ñn]o\s*actual|nuevo\s*saldo)/.test(h)) {
     if (/(anterior|inicial|\binic|apertura)/.test(h)) return 'ignorar';
-    return 'saldo'; // 'saldo final', 'nuevo saldo', 'saldo actual', o 'saldo'
+    return 'saldo';
   }
-  if (/(nuevo\s*saldo|saldo\s*final)/.test(h)) return 'saldo';
   // Nombre antes que 'cuenta' para que 'nombre cuenta' → nombre.
   if (/(nombre|descrip|name|concepto)/.test(h)) return 'account_name';
   if (/(c[oó]digo|\bcod\b|puc|code|cuenta)/.test(h)) return 'account_code';

@@ -4,6 +4,7 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Invoice } from '@/types/invoice';
+import { MONTH_NAMES } from '@/types/transaction';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -102,6 +103,9 @@ export default function InvoiceListPage({ type }: Props) {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState<string>(String(currentYear));
+  // Filtro acumulado "hasta el mes N" (enero→N). null = usar el default (último
+  // mes con facturas). Se resetea al cambiar de año.
+  const [monthOverride, setMonthOverride] = useState<number | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [resumeDraft, setResumeDraft] = useState<Invoice | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -165,22 +169,47 @@ export default function InvoiceListPage({ type }: Props) {
     return Array.from(years).sort((a, b) => b - a);
   }, [invoices, currentYear]);
 
+  const monthOf = (i: Invoice): number => {
+    const dateStr = i.issue_date || i.created_at;
+    try { return dateStr ? parseLocalDate(dateStr).getMonth() + 1 : 0; } catch { return 0; }
+  };
+
+  // Default del filtro: último mes con facturas en el año (el "actualizado");
+  // si no hay, el mes actual (año en curso) o diciembre (años pasados).
+  const lastMonthWithData = useMemo(() => {
+    let maxM = 0;
+    for (const i of yearScoped) { const m = monthOf(i); if (m > maxM) maxM = m; }
+    if (maxM > 0) return maxM;
+    return selectedYear === String(currentYear) ? new Date().getMonth() + 1 : 12;
+  }, [yearScoped, selectedYear, currentYear]);
+
+  const monthCut = monthOverride ?? lastMonthWithData;
+
+  // Acumulado enero → mes de corte. Con año 'all' no aplica el filtro mensual.
+  const monthScoped = useMemo(() => {
+    if (selectedYear === 'all') return yearScoped;
+    return yearScoped.filter(i => { const m = monthOf(i); return m > 0 && m <= monthCut; });
+  }, [yearScoped, selectedYear, monthCut]);
+
   const summary = useMemo(() => {
     // Excluir facturas totalmente anuladas por NC: no son facturación válida.
-    const confirmed = yearScoped.filter(i => i.status === 'confirmed' && i.void_type !== 'total');
+    const confirmed = monthScoped.filter(i => i.status === 'confirmed' && i.void_type !== 'total');
+    const total = confirmed.reduce((s, i) => s + i.total_amount, 0);
+    const iva = confirmed.reduce((s, i) => s + i.iva_amount, 0);
     return {
       count: confirmed.length,
-      total: confirmed.reduce((s, i) => s + i.total_amount, 0),
-      iva: confirmed.reduce((s, i) => s + i.iva_amount, 0),
+      total,
+      iva,
+      sinIva: total - iva, // base gravable: total factura sin IVA
     };
-  }, [yearScoped]);
+  }, [monthScoped]);
 
   // Ranking de facturación agrupada por contraparte (cliente para 'venta',
   // proveedor para 'compra'), ordenado de mayor a menor.
   // Usa el resolver para unificar variantes via responsible_id + aliases
   // de Conciliación Bancaria.
   const counterpartyRanking = useMemo(() => {
-    const confirmed = yearScoped.filter(i => i.status === 'confirmed' && i.void_type !== 'total');
+    const confirmed = monthScoped.filter(i => i.status === 'confirmed' && i.void_type !== 'total');
     const map = new Map<string, { name: string; total: number; count: number }>();
     for (const i of confirmed) {
       const raw = i.counterparty_name || (type === 'venta' ? i.buyer_name : i.seller_name);
@@ -195,7 +224,7 @@ export default function InvoiceListPage({ type }: Props) {
       }
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [yearScoped, type, counterpartyResolver]);
+  }, [monthScoped, type, counterpartyResolver]);
 
   const summaryLabel1 = type === 'venta' ? 'Total facturado' : 'Total comprado';
   const summaryLabel2 = type === 'venta' ? 'IVA generado' : 'IVA descontable';
@@ -225,6 +254,9 @@ export default function InvoiceListPage({ type }: Props) {
   useEffect(() => {
     if (isEmpresarial) fetchInvoices();
   }, [isEmpresarial, fetchInvoices]);
+
+  // Al cambiar de año, volver el filtro de mes al default (último con datos).
+  useEffect(() => { setMonthOverride(null); }, [selectedYear]);
 
   // Auto-sync con Siigo al entrar a la página, si pasó > 10 min desde la
   // última sync. Evita la fricción de tener que clickear "Sincronizar"
@@ -277,7 +309,9 @@ export default function InvoiceListPage({ type }: Props) {
   }, [isEmpresarial, type, fetchInvoices, toast]);
 
   const filtered = useMemo(() => {
-    let result = yearScoped;
+    // Parte de monthScoped para que la lista respete el filtro "Hasta: mes" y
+    // sea coherente con las tarjetas de resumen (antes mostraba todo el año).
+    let result = monthScoped;
     if (statusFilter !== 'all') result = result.filter(i => i.status === statusFilter);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -309,7 +343,7 @@ export default function InvoiceListPage({ type }: Props) {
       return sign * (ta - tb);
     });
     return sorted;
-  }, [yearScoped, statusFilter, searchQuery, sortConfig]);
+  }, [monthScoped, statusFilter, searchQuery, sortConfig]);
 
   const handleViewPDF = useCallback(async (storagePath: string | null) => {
     if (!storagePath) {
@@ -574,7 +608,12 @@ export default function InvoiceListPage({ type }: Props) {
         </div>
 
         {/* Micro summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {selectedYear !== 'all' && (
+          <p className="text-xs text-muted-foreground -mb-1">
+            Acumulado {MONTH_NAMES[0]}–{MONTH_NAMES[monthCut - 1]} {selectedYear}
+          </p>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div
             style={{
               background: '#fff',
@@ -638,6 +677,40 @@ export default function InvoiceListPage({ type }: Props) {
             >
               {formatCurrency(summary.iva)}
             </div>
+          </div>
+          {/* Total sin IVA (base gravable) = total factura − IVA */}
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: '18px 20px',
+              border: '1.5px solid oklch(0.43 0.14 155 / 0.22)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.8px',
+                textTransform: 'uppercase',
+                color: '#a1a1a6',
+              }}
+            >
+              Total sin IVA
+            </div>
+            <div
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                letterSpacing: '-0.5px',
+                color: 'oklch(0.43 0.14 155)',
+                marginTop: 4,
+              }}
+            >
+              {formatCurrency(summary.sinIva)}
+            </div>
+            <div style={{ fontSize: 11, color: '#a1a1a6', marginTop: 2 }}>base gravable</div>
           </div>
         </div>
 
@@ -780,6 +853,19 @@ export default function InvoiceListPage({ type }: Props) {
               </SelectContent>
             </Select>
           </div>
+          {selectedYear !== 'all' && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Hasta:</span>
+              <Select value={String(monthCut)} onValueChange={(v) => setMonthOverride(Number(v))}>
+                <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MONTH_NAMES.map((m, i) => (
+                    <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Estado:</span>
             <Select value={statusFilter} onValueChange={setStatusFilter}>

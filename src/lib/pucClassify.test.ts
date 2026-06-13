@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPucAccount, aggregateTrialBalance } from './pucClassify';
+import { classifyPucAccount, aggregateTrialBalance, classifyPucResult, aggregatePyg } from './pucClassify';
 
 describe('classifyPucAccount', () => {
   it('clase 1 → activos por grupo', () => {
@@ -72,5 +72,43 @@ describe('aggregateTrialBalance', () => {
       { account_code: '139905', saldo: 3_000_000 },   // provisión → resta
     ]);
     expect(r.cartera).toBe(17_000_000);
+  });
+});
+
+describe('classifyPucResult', () => {
+  it('clasifica clases de resultado', () => {
+    expect(classifyPucResult('413501')).toBe('ingresos');
+    expect(classifyPucResult('417505')).toBe('ingresos');     // devolución (resta)
+    expect(classifyPucResult('510506')).toBe('gastos');       // sueldos
+    expect(classifyPucResult('540505')).toBe('impuestos');    // impuesto de renta
+    expect(classifyPucResult('613501')).toBe('costos_venta'); // costo de ventas
+    expect(classifyPucResult('710101')).toBe('costos_venta'); // costos de producción
+    expect(classifyPucResult('110505')).toBe('no_pnl');       // activo → fuera
+  });
+});
+
+describe('aggregatePyg', () => {
+  it('ingreso neto resta devoluciones; gastos en abs; calcula utilidad', () => {
+    const r = aggregatePyg([
+      { account_code: '41350101', saldo: 839_741_138 },  // ventas
+      { account_code: '41750501', saldo: -27_413_361 },  // devoluciones (restan)
+      { account_code: '51050601', saldo: -51_887_038 },  // sueldos (gasto)
+      { account_code: '61350101', saldo: -400_000_000 }, // costo de ventas
+      { account_code: '54050101', saldo: -10_000_000 },  // impuesto renta
+    ]);
+    expect(r.ingresos).toBe(812_327_777);   // 839.7M − 27.4M
+    expect(r.costos_venta).toBe(400_000_000);
+    expect(r.gastos).toBe(51_887_038);
+    expect(r.impuestos).toBe(10_000_000);
+    expect(r.utilidad).toBe(812_327_777 - 400_000_000 - 51_887_038 - 10_000_000);
+  });
+
+  it('descarta subtotales (suma solo hojas)', () => {
+    const r = aggregatePyg([
+      { account_code: '4', saldo: 800_000_000 },        // mayor → ignorar
+      { account_code: '41', saldo: 800_000_000 },       // grupo → ignorar
+      { account_code: '41350101', saldo: 800_000_000 }, // hoja
+    ]);
+    expect(r.ingresos).toBe(800_000_000); // no 2.4B
   });
 });
