@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useImports, type ImportRow, type ImportEstado, IMPORT_ESTADOS_ORDER, IMPORT_ESTADO_LABEL } from '@/hooks/useImports';
 import { Trash2 } from 'lucide-react';
 import ImportPaymentsSection from './ImportPaymentsSection';
+import ImportCostingSection from './ImportCostingSection';
 
 interface Props {
   open: boolean;
@@ -258,6 +259,12 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
           {/* Abonos (solo al editar — necesita id) */}
           {isEdit && editing && (
             <ImportPaymentsSection importId={editing.id} />
+          )}
+
+          {/* Costeo referencia a referencia (packing list + landed cost).
+              Necesita import_id, por eso solo en modo edición. */}
+          {isEdit && editing && (
+            <ImportCostingSection importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
           )}
 
           {/* Notas */}

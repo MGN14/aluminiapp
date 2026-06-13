@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Ship, ChevronRight, AlertCircle, Search, ArrowUp } from 'lucide-react';
+import { Plus, Ship, ChevronRight, AlertCircle, Search, ArrowUp, LineChart, List } from 'lucide-react';
 import { useImports, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import ImportModal from '@/components/imports/ImportModal';
+import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
@@ -40,6 +41,7 @@ export default function Importaciones() {
   const [editing, setEditing] = useState<ImportRow | null>(null);
   const [filter, setFilter] = useState<Filter>('abiertos');
   const [search, setSearch] = useState('');
+  const [view, setView] = useState<'pedidos' | 'analisis'>('pedidos');
 
   const filtered = useMemo(() => {
     const rows = data?.all ?? [];
@@ -88,12 +90,36 @@ export default function Importaciones() {
               </p>
             </div>
           </div>
-          <Button onClick={openNew} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Nueva importación
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5">
+              <button
+                type="button"
+                onClick={() => setView('pedidos')}
+                className={cn('px-3 py-1.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5',
+                  view === 'pedidos' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <List className="h-3.5 w-3.5" /> Pedidos
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('analisis')}
+                className={cn('px-3 py-1.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5',
+                  view === 'analisis' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <LineChart className="h-3.5 w-3.5" /> Análisis de precios
+              </button>
+            </div>
+            <Button onClick={openNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nueva importación
+            </Button>
+          </div>
         </div>
 
+        {view === 'analisis' ? (
+          <ImportPriceAnalysis />
+        ) : (
+        <>
         {/* Filtros + búsqueda */}
         <Card>
           <CardContent className="py-3 px-3 flex flex-wrap items-center gap-2">
@@ -242,6 +268,8 @@ export default function Importaciones() {
             </div>
           </CardContent>
         </Card>
+        </>
+        )}
       </div>
 
       <ImportModal
