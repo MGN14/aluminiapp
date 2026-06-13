@@ -16,10 +16,18 @@ import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
 import TourOverlay from "@/components/tour/TourOverlay";
 import UpdateNotifier from "@/components/UpdateNotifier";
 import { usePageViewTracking } from "@/hooks/useTrackEvent";
+import { useSiigoAutoSync } from "@/hooks/useSiigoAutoSync";
 
 /** Mount global de tracking de page views — debe estar dentro de BrowserRouter */
 function PageViewTracker() {
   usePageViewTracking();
+  return null;
+}
+
+/** Dispara la sincronización con Siigo al entrar a la app (si está conectado
+ *  y la última fue hace rato). Silencioso, en background. */
+function SiigoAutoSync() {
+  useSiigoAutoSync();
   return null;
 }
 
@@ -116,6 +124,7 @@ const App = () => (
             <AuthDebugPanel />
             <UpdateNotifier />
             <PageViewTracker />
+            <SiigoAutoSync />
             <RouteErrorBoundary>
             <Suspense fallback={<RouteFallback />}>
             <Routes>
