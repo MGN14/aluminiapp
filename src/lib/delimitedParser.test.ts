@@ -42,6 +42,11 @@ describe('parseLooseNumber — bordes', () => {
     expect(parseLooseNumber('-1.500')).toBe(-1500);
     expect(parseLooseNumber('(2.000)')).toBe(-2000);
   });
+  it('maneja signo al final y CR (formato balance de prueba)', () => {
+    expect(parseLooseNumber('1.234,56-')).toBeCloseTo(-1234.56, 2);
+    expect(parseLooseNumber('30.000.000 CR')).toBe(-30000000);
+    expect(parseLooseNumber('30.000.000')).toBe(30000000);
+  });
   it('vacío / no numérico → 0', () => {
     expect(parseLooseNumber('')).toBe(0);
     expect(parseLooseNumber(null)).toBe(0);

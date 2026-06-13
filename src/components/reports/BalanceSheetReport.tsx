@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Scale, Info, ArrowRight, TrendingUp, Gauge, Wallet, Landmark } from 'lucide-react';
 import { useBalanceSheet } from '@/hooks/useBalanceSheet';
 import { semaforoRazonCorriente, semaforoEndeudamiento, type Semaforo } from '@/lib/balanceSheet';
+import TrialBalanceCompare from '@/components/reports/TrialBalanceCompare';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
@@ -130,6 +131,9 @@ export default function BalanceSheetReport() {
           </Card>
         </div>
       </div>
+
+      {/* Comparativo contra el balance contable de Siigo */}
+      <TrialBalanceCompare appSheet={data} />
 
       {/* Validación de cuadre */}
       <Card className={descuadreSignificativo ? 'border-amber-500/40 bg-amber-500/5' : 'border-success/30 bg-success/5'}>

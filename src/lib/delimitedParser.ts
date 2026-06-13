@@ -83,7 +83,9 @@ export function parseLooseNumber(raw: string | null | undefined): number {
   if (raw === null || raw === undefined) return 0;
   let s = String(raw).trim();
   if (!s) return 0;
-  const negative = /^-/.test(s) || /^\(.*\)$/.test(s); // -123 o (123) contable
+  // Negativo: signo adelante (-123), paréntesis contable ((123)), signo al
+  // final (1.234,56-) o sufijo CR/Cr (crédito) — comunes en balances de prueba.
+  const negative = /^-/.test(s) || /^\(.*\)$/.test(s) || /-\s*$/.test(s) || /\bcr\b/i.test(s);
   // Quitar todo lo que no sea dígito, punto o coma (incluye guiones internos y $).
   s = s.replace(/[^\d.,]/g, '');
   if (!s) return 0;
