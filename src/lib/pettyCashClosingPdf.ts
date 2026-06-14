@@ -28,6 +28,16 @@ function fmtDateShort(iso: string): string {
   });
 }
 
+// Fecha compacta "dd/MM/yyyy" para la tabla de movimientos: la columna Fecha
+// solo tiene ~20mm y "14 de may de 2026" se desborda sobre Concepto (tapaba la
+// primera letra). Numérica entra holgada y queda inequívoca.
+function fmtDateCompact(iso: string): string {
+  const d = parseLocalDate(iso);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
 /**
  * Genera un PDF firmable del cierre de caja menor.
  * Incluye: encabezado, datos de la empresa, período, resumen de saldos,
