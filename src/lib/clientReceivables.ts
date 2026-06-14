@@ -429,6 +429,15 @@ export async function calculateAllClientReceivables(
     const respId = d.responsible_id as string | null;
     if (respId) clientId = canonicalOf.get(respId) ?? respId;
     else clientId = clientIdFromName(d.responsible_name as string | null);
+    // Fallback por invoice_id: un anticipo importado del estado inicial puede
+    // venir vinculado a una factura puntual SIN responsible_id/nombre del
+    // cliente. Sin atribuirlo, el FIFO no lo aplicaba y la factura mostraba
+    // saldo de más (regresión que afectaba a Alu Colombia: el anticipo del 2025
+    // ligado a la factura no descontaba). Lo asignamos al cliente de esa factura.
+    if (!clientId) {
+      const invId = d.invoice_id as string | null;
+      if (invId && invoiceMap.has(invId)) clientId = invoiceMap.get(invId)!.client_id;
+    }
     if (!clientId) continue;
     const a = getAcc(clientId);
     if (d.field_type === 'cuentas_por_cobrar') a.cxc_inicial += amt;
