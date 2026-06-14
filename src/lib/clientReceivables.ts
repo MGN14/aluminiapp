@@ -52,11 +52,55 @@ export interface InvoiceLine {
   retenciones_total: number;
   /** Pagos vinculados a esta factura específica (transactions.invoice_id + matches + anticipos linked). */
   paid_direct: number;
-  /** total_amount − paid_direct − retenciones_total, clamped a 0. */
+  /** total_amount − paid_direct − retenciones_total, clamped a 0. Solo cuenta
+   *  pagos vinculados explícitamente — NO el crédito del cliente sin imputar. */
   pending_invoice: number;
+  /** Saldo real tras imputar TODO el crédito recibido del cliente (cobrado_banco
+   *  + anticipos) a sus facturas de la más vieja a la más nueva (FIFO, Art.
+   *  1653-1654 CC). Es el número que se muestra en cartera/conciliación/aging:
+   *  para clientes que prepagan, una factura vieja cubierta por anticipos queda
+   *  en 0 aunque la transferencia no esté vinculada a esa factura puntual.
+   *  Σ effective_pending por cliente = max(0, saldo) — sin doble conteo. */
+  effective_pending: number;
   void_type: 'partial' | null;
   days_since: number;
 }
+
+/**
+ * Imputación de pagos (Código Civil, Art. 1653-1654): reparte el crédito
+ * disponible del cliente sobre sus facturas, de la más vieja a la más nueva.
+ * Muta cada línea seteando `effective_pending` = lo que queda pendiente de esa
+ * factura una vez aplicada toda la plata recibida del cliente.
+ *
+ * Sin esto, una factura cubierta por anticipos/transferencias no vinculadas a
+ * ella seguía mostrando el saldo completo (divergiendo del saldo neto del
+ * cliente). El "coverable" de cada factura es total − retenciones (las
+ * retenciones ya se pagaron a DIAN/municipio, no entran por banco).
+ *
+ * LIMITACIÓN consciente: la imputación es por defecto (oldest-first), así que un
+ * anticipo vinculado a propósito a una factura NUEVA se reimputa igual a las más
+ * viejas. El saldo TOTAL del cliente queda siempre correcto; solo cambia en qué
+ * factura "aterriza" la deuda. Es el comportamiento que pide el negocio (y el
+ * Art. 1653-1654 CC) para clientes que pagan a cuenta sin imputar cada giro.
+ */
+export function applyClientCreditFIFO(lines: InvoiceLine[], totalCredit: number): void {
+  let remaining = Math.max(0, totalCredit);
+  // Más vieja primero: issue_date en ISO (yyyy-mm-dd) ordena cronológicamente
+  // como string; desempate estable por número de factura.
+  const ordered = [...lines].sort((a, b) =>
+    a.issue_date < b.issue_date ? -1
+    : a.issue_date > b.issue_date ? 1
+    : a.invoice_number.localeCompare(b.invoice_number));
+  for (const line of ordered) {
+    const coverable = Math.max(0, line.total_amount - line.retenciones_total);
+    const applied = Math.min(remaining, coverable);
+    line.effective_pending = Math.max(0, coverable - applied);
+    remaining -= applied;
+  }
+}
+
+/** Saldos menores a esto se consideran 0 (residuos por decimales de retención). */
+const PAID_EPSILON = 1;
 
 export interface ClientReceivable {
   /** ID canónico: responsible_id o `__name:<normalizado>` si el cliente solo aparece por counterparty_name. */
@@ -224,6 +268,8 @@ export async function calculateAllClientReceivables(
       retenciones_total,
       paid_direct: 0,
       pending_invoice: 0,
+      effective_pending: 0, // se recalcula por FIFO al agregar por cliente
+
       void_type: (inv.void_type as 'partial' | null) ?? null,
       days_since: daysSince,
       client_id: clientId,
@@ -317,8 +363,7 @@ export async function calculateAllClientReceivables(
   // 4. Agregar por cliente canónico.
   // ===========================================================================
   type Accum = ClientReceivable & {
-    _pendientes: InvoiceLine[];
-    _pagadas: InvoiceLine[];
+    _lines: InvoiceLine[];
   };
   const acc = new Map<string, Accum>();
   const nameOf = (clientId: string): string => {
@@ -339,8 +384,7 @@ export async function calculateAllClientReceivables(
         saldo_neto: 0,
         invoices_pendientes: [],
         invoices_pagadas: [],
-        _pendientes: [],
-        _pagadas: [],
+        _lines: [],
       };
       acc.set(clientId, a);
     }
@@ -363,11 +407,11 @@ export async function calculateAllClientReceivables(
       retenciones_total: inv.retenciones_total,
       paid_direct: inv.paid_direct,
       pending_invoice: inv.pending_invoice,
+      effective_pending: inv.pending_invoice, // se recalcula por FIFO abajo
       void_type: inv.void_type,
       days_since: inv.days_since,
     };
-    if (inv.pending_invoice > 0) a._pendientes.push(line);
-    else a._pagadas.push(line);
+    a._lines.push(line);
   }
   // Ingresos del banco
   const txById = new Map<string, Record<string, unknown>>();
@@ -395,10 +439,22 @@ export async function calculateAllClientReceivables(
   const clients: ClientReceivable[] = [];
   for (const a of acc.values()) {
     a.saldo_neto = (a.facturado_venta + a.cxc_inicial) - (a.cobrado_banco + a.anticipos_total + a.retenciones_total);
-    a.invoices_pendientes = a._pendientes.sort((x, y) => y.pending_invoice - x.pending_invoice);
-    a.invoices_pagadas = a._pagadas.sort((x, y) => new Date(y.issue_date).getTime() - new Date(x.issue_date).getTime());
-    delete (a as Partial<Accum>)._pendientes;
-    delete (a as Partial<Accum>)._pagadas;
+    // Imputación FIFO: reparte el crédito recibido del cliente (banco +
+    // anticipos) sobre sus facturas, de la más vieja a la más nueva. Recién
+    // acá `effective_pending` queda con el saldo real por factura.
+    // El saldo inicial (cxc_inicial) es la deuda MÁS vieja (anterior al sistema,
+    // sin factura), así que por imputación se cubre primero: lo reservamos del
+    // pool. Sin esto, el crédito "pagaría" facturas nuevas dejando viva la deuda
+    // vieja → factura marcada Cubierta de más y plata desaparecida del aging.
+    const creditParaFacturas = Math.max(0, a.cobrado_banco + a.anticipos_total - a.cxc_inicial);
+    applyClientCreditFIFO(a._lines, creditParaFacturas);
+    a.invoices_pendientes = a._lines
+      .filter(l => l.effective_pending > PAID_EPSILON)
+      .sort((x, y) => y.effective_pending - x.effective_pending);
+    a.invoices_pagadas = a._lines
+      .filter(l => l.effective_pending <= PAID_EPSILON)
+      .sort((x, y) => (x.issue_date < y.issue_date ? 1 : x.issue_date > y.issue_date ? -1 : 0)); // más nueva primero
+    delete (a as Partial<Accum>)._lines;
     clients.push(a);
   }
   // Mostrar solo clientes con actividad

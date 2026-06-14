@@ -8,6 +8,7 @@ import { FileText, Search, X, ShieldCheck, Receipt, Plus, Wallet, CreditCard } f
 import { useToast } from '@/hooks/use-toast';
 import { suggestPaymentSplit, summarizeCredit, type AmortizationType } from '@/lib/amortization';
 import { invoiceRetenciones } from '@/lib/invoiceBalance';
+import { calculateAllClientReceivables } from '@/lib/clientReceivables';
 
 interface InvoiceOption {
   id: string;
@@ -141,6 +142,28 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     const matchPayments = matchRes.data;
     const anticiposPayments = anticiposRes.data;
 
+    // Saldo REAL por factura de venta con imputación de pagos FIFO: reusa la
+    // atribución probada de clientReceivables (responsible_id + aliases + matches
+    // + anticipos), que reparte TODO el crédito recibido del cliente sobre sus
+    // facturas de la más vieja a la más nueva. Sin esto, una factura cubierta por
+    // anticipos/transferencias no vinculadas a ella mostraba el saldo completo en
+    // conciliación (no aparecía "Pagada"). Es la misma cifra que "Lo que me deben".
+    const effectiveByInvoice = new Map<string, number>();
+    try {
+      // OJO: NO usar `new Date('2026-01-01').getFullYear()` — parsea como UTC y
+      // en Colombia (UTC-5) devuelve 2025, consultando el año equivocado. Tomamos
+      // el año del string ISO directamente.
+      const year = transactionDate ? Number(transactionDate.slice(0, 4)) : new Date().getFullYear();
+      const recv = await calculateAllClientReceivables(year);
+      for (const c of recv.clients) {
+        for (const line of [...c.invoices_pendientes, ...c.invoices_pagadas]) {
+          effectiveByInvoice.set(line.id, line.effective_pending);
+        }
+      }
+    } catch {
+      // Año sin datos o query caída → caemos al cálculo linked-only de abajo.
+    }
+
     // Aggregate payments per invoice
     const paidByInvoice = new Map<string, number>();
     (directPayments || []).forEach(p => {
@@ -168,15 +191,33 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     }
 
     const enriched: InvoiceOption[] = rawList.map((inv) => {
-      const paid = paidByInvoice.get(inv.id as string) || 0;
+      const id = inv.id as string;
       // Retenciones — fórmula compartida (lib/invoiceBalance). Maneja venta
       // (retefuente_cliente + reteica + autoretefuente) y compra (solo reteica +
       // autoretefuente) según inv.type, idéntico al cálculo previo.
       const retenciones = invoiceRetenciones(inv).total;
       const totalAmount = Number(inv.total_amount ?? 0);
-      const outstanding = Math.max(0, totalAmount - paid - retenciones);
+      const isVenta = ((inv.type as string) ?? '') === 'venta';
+      const eff = isVenta ? effectiveByInvoice.get(id) : undefined;
+
+      let outstanding: number;
+      if (eff !== undefined) {
+        // Path FIFO (ventas con actividad en el año): saldo real ya neto de todo
+        // el crédito del cliente. Si esta tx ya está vinculada a esta factura,
+        // mostramos el saldo como si todavía no se hubiera aplicado.
+        outstanding = eff;
+        if (transactionId && transactionAmount != null && invoiceId === id) {
+          const coverable = Math.max(0, totalAmount - retenciones);
+          outstanding = Math.min(coverable, outstanding + Math.abs(transactionAmount));
+        }
+      } else {
+        // Fallback linked-only (compras, o ventas de otro año): solo resta pagos
+        // vinculados explícitamente. paidByInvoice ya descuenta la tx actual.
+        const paid = paidByInvoice.get(id) || 0;
+        outstanding = Math.max(0, totalAmount - paid - retenciones);
+      }
       return {
-        id: inv.id as string,
+        id,
         invoice_number: (inv.invoice_number as string) ?? '',
         type: (inv.type as string) ?? '',
         counterparty_name: (inv.counterparty_name as string | null) ?? null,
@@ -239,7 +280,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     }
 
     setLoaded(true);
-  }, [transactionId, transactionAmount, invoiceId, transactionType]);
+  }, [transactionId, transactionAmount, transactionDate, invoiceId, transactionType]);
 
   useEffect(() => {
     if (!open || loaded) return;
@@ -323,6 +364,17 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
 
     const paymentAmount = Math.abs(transactionAmount);
     const outstanding = selectedInv.outstanding;
+
+    // Factura ya cubierta (saldo ≤ 1 peso, p.ej. por anticipos del cliente vía
+    // FIFO): vincular la tx en plano, SIN redistribuir excedente a otras
+    // facturas. La plata del cliente ya está contabilizada por banco; crear
+    // matches automáticos acá solo generaría vínculos redundantes/confusos.
+    if (outstanding <= 1) {
+      onChange(id, newTags);
+      setOpen(false);
+      setSearch('');
+      return;
+    }
 
     // Payment fits within outstanding balance - normal match
     if (paymentAmount <= outstanding) {
@@ -566,7 +618,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
             ) : (
               filtered.map(inv => {
                 const prefix = inv.type === 'venta' ? 'FV' : 'FC';
-                const isPaid = inv.outstanding <= 0;
+                const isPaid = inv.outstanding <= 1; // ≤1 peso = cubierta (residuos por decimales de retención)
                 return (
                   <button
                     key={inv.id}

@@ -103,13 +103,13 @@ export function calculateAgingFromClients(
     let oldestOverdue = 0;
 
     for (const inv of c.invoices_pendientes) {
-      if (inv.pending_invoice <= 0) continue;
+      if (inv.effective_pending <= 0) continue;
       const meta = invoiceMeta.get(inv.id) || { due_date: null, dias_credito: null };
       const enriched = { ...inv, due_date: meta.due_date, dias_credito: meta.dias_credito };
       const daysOverdue = calcDaysOverdue(enriched, today);
       const bucket = bucketOf(daysOverdue);
-      buckets[bucket] += inv.pending_invoice;
-      buckets.total += inv.pending_invoice;
+      buckets[bucket] += inv.effective_pending;
+      buckets.total += inv.effective_pending;
       if (daysOverdue > oldestOverdue) oldestOverdue = daysOverdue;
     }
 

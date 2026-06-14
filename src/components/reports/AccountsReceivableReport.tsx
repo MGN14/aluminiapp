@@ -292,18 +292,18 @@ export default function AccountsReceivableReport() {
                           id: inv.id,
                           invoice_number: inv.invoice_number,
                           counterparty_name: client.client_name,
-                          pending: inv.pending_invoice,
+                          pending: inv.effective_pending,
                           total_amount: inv.total_amount,
                         })}
                         onAcordarInvoice={(inv) => setAcordarTarget({
-                          invoice: { id: inv.id, invoice_number: inv.invoice_number, pending: inv.pending_invoice },
+                          invoice: { id: inv.id, invoice_number: inv.invoice_number, pending: inv.effective_pending },
                           responsible: client.client_id.startsWith('__name:') ? undefined : { id: client.client_id, name: client.client_name },
                         })}
                         onLinkPagoInvoice={(inv) => setPaymentLinkInvoice({
                           id: inv.id,
                           invoice_number: inv.invoice_number,
                           counterparty_name: client.client_name,
-                          pending: inv.pending_invoice,
+                          pending: inv.effective_pending,
                         })}
                         onAcordarCliente={() => setAcordarTarget({
                           responsible: client.client_id.startsWith('__name:') ? undefined : { id: client.client_id, name: client.client_name },
@@ -600,7 +600,7 @@ function InvoiceLineRow({ inv, paid = false, onVincular, onAcordar, onLinkPago }
       </div>
       <div className="text-right shrink-0">
         <div className={cn("font-mono font-bold", paid ? 'text-success' : 'text-destructive')}>
-          {paid ? 'Cubierta' : formatCurrency(inv.pending_invoice)}
+          {paid ? 'Cubierta' : formatCurrency(inv.effective_pending)}
         </div>
         {!paid && (
           <div className="flex flex-col gap-0.5 mt-0.5">
