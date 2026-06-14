@@ -72,6 +72,7 @@ const BalanceGeneral = lazy(() => import("./pages/BalanceGeneral"));
 const Presupuesto = lazy(() => import("./pages/Presupuesto"));
 const Rentabilidad = lazy(() => import("./pages/Rentabilidad"));
 const PuntoEquilibrio = lazy(() => import("./pages/PuntoEquilibrio"));
+const CierreAnio = lazy(() => import("./pages/CierreAnio"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -251,6 +252,10 @@ const App = () => (
               <Route
                 path="/activos-fijos"
                 element={<RequireModule moduleKey="activos_fijos"><ActivosFijos /></RequireModule>}
+              />
+              <Route
+                path="/cierre-anio"
+                element={<RequireModule moduleKey="cierre_anio"><CierreAnio /></RequireModule>}
               />
               {/* Legacy redirect */}
               <Route

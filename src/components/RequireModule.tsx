@@ -38,6 +38,7 @@ const MODULE_ROUTE: Record<ModuleKey, string> = {
   relacion_pagos: '/reportes/relacion-pagos',
   informe_dian: '/financial-health',
   informe_banco: '/informe-banco',
+  cierre_anio: '/cierre-anio',
   exportar: '/export',
   nico_ia: '/nico',
 };

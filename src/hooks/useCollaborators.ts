@@ -35,6 +35,7 @@ export const MODULE_KEYS = [
   { key: 'relacion_pagos', label: 'Relación de pagos', group: 'reportes' as ModuleGroup, description: 'Lista de pagos realizados' },
   { key: 'informe_dian', label: 'Visita / Informe DIAN', group: 'reportes' as ModuleGroup, description: 'Calendario tributario y informe de cumplimiento' },
   { key: 'informe_banco', label: 'Informe para Banco', group: 'reportes' as ModuleGroup, description: 'Reporte para solicitar crédito' },
+  { key: 'cierre_anio', label: 'Cierre de Año', group: 'reportes' as ModuleGroup, description: 'Cierre fiscal anual: comparar saldos app vs contador y fijar la apertura del próximo año' },
   { key: 'exportar', label: 'Exportar', group: 'reportes' as ModuleGroup, description: 'Descargar datos a Excel/PDF' },
   // IA
   { key: 'nico_ia', label: 'Nico IA', group: 'ia' as ModuleGroup, description: 'Asistente conversacional' },
@@ -88,6 +89,7 @@ const DEFAULT_PERMISSIONS: Record<ModuleKey, AccessLevel> = {
   relacion_pagos: 'none',
   informe_dian: 'none',
   informe_banco: 'none',
+  cierre_anio: 'none',
   exportar: 'none',
   nico_ia: 'view',
 };

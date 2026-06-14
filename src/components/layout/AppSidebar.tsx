@@ -32,6 +32,7 @@ import {
   HardHat,
   Scale,
   Target,
+  CalendarCheck,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -118,6 +119,7 @@ const reportItems: NavItem[] = [
   { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet, permKey: 'flujo_caja' },
   { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks, permKey: 'relacion_pagos' },
   { title: 'Informe para Banco', url: '/informe-banco', icon: Building2, highlight: true, permKey: 'informe_banco' },
+  { title: 'Cierre de Año', url: '/cierre-anio', icon: CalendarCheck, permKey: 'cierre_anio' },
 ];
 
 const reportItemsGerencial: NavItem[] = [
