@@ -47,8 +47,20 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  // GET: discovery / health (no auth required)
+  // GET: MCP Streamable HTTP clients open a GET with `Accept: text/event-stream`
+  // to listen for server-initiated SSE messages. We don't offer that stream, so
+  // per the MCP spec we MUST return 405 — otherwise compliant clients (Claude)
+  // treat the 200 below as a dropped stream and reconnect every ~6s, forever
+  // (~9 GET/min ≈ 800k+ edge invocations/month with zero real usage).
+  // A plain GET (curl, uptime check) still gets the discovery/health payload.
   if (req.method === "GET") {
+    const accept = req.headers.get("accept") || "";
+    if (accept.includes("text/event-stream")) {
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: { ...corsHeaders, Allow: "POST, OPTIONS" },
+      });
+    }
     return json({
       name: SERVER_INFO.name,
       version: SERVER_INFO.version,
