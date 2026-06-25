@@ -1,15 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useScannerGun } from '@/hooks/useScannerGun';
 import { parseScan, normalizeRef } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
+import AppLayout from '@/components/layout/AppLayout';
 import {
   ArrowLeft, Check, Plus, Minus, ScanLine, Truck, AlertTriangle, X,
-  PackageCheck, Loader2, ChevronRight,
+  PackageCheck, Loader2, ChevronRight, RadioTower,
 } from 'lucide-react';
 
 interface RemItem { id: string; reference: string; product_name: string | null; units: number | null; }
@@ -49,82 +49,80 @@ export default function Despacho() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const active = useMemo(() => remisiones.find(r => r.id === activeId) || null, [remisiones, activeId]);
 
-  if (active) {
-    return (
-      <DispatchDetail
-        key={active.id}
-        remision={active}
-        userId={user?.id ?? null}
-        onBack={() => setActiveId(null)}
-        onDispatched={() => { setActiveId(null); refetch(); }}
-        toast={toast}
-      />
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-10 bg-white border-b px-5 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-blue-600/10 flex items-center justify-center">
-            <Truck className="h-5 w-5 text-blue-600" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold leading-tight">Estación de despacho</h1>
-            <p className="text-xs text-muted-foreground">Escaneá los paquetes para verificar cada remisión</p>
-          </div>
-        </div>
-        <Link to="/remisiones" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
-          <ArrowLeft className="h-4 w-4" /> Salir
-        </Link>
-      </header>
-
-      <main className="max-w-3xl mx-auto p-4 sm:p-6">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-32">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : remisiones.length === 0 ? (
-          <div className="text-center py-24">
-            <PackageCheck className="h-12 w-12 mx-auto text-green-500 mb-3" />
-            <p className="text-lg font-semibold">No hay remisiones pendientes</p>
-            <p className="text-sm text-muted-foreground mt-1">Todo despachado. Las remisiones de venta en estado “pendiente” aparecen acá.</p>
-          </div>
+    <AppLayout>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
+        {active ? (
+          <DispatchDetail
+            key={active.id}
+            remision={active}
+            userId={user?.id ?? null}
+            onBack={() => setActiveId(null)}
+            onDispatched={() => { setActiveId(null); refetch(); }}
+            toast={toast}
+          />
         ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground px-1">
-              {remisiones.length} remisión{remisiones.length === 1 ? '' : 'es'} pendiente{remisiones.length === 1 ? '' : 's'} de despacho
-            </p>
-            {remisiones.map(r => {
-              const items = r.remision_items || [];
-              const refs = new Set(items.map(i => normalizeRef(i.reference)).filter(Boolean)).size;
-              const units = items.reduce((s, i) => s + (Number(i.units) || 0), 0);
-              return (
-                <button
-                  key={r.id}
-                  onClick={() => { beep('ok'); setActiveId(r.id); }}
-                  className="w-full text-left bg-white rounded-2xl border p-4 sm:p-5 flex items-center justify-between hover:border-blue-400 hover:shadow-sm transition active:scale-[0.99]"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-base">{r.number}</span>
-                      {r.module_origin === 'gerencial' && (
-                        <span className="text-[10px] font-bold uppercase tracking-wide bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Gerencial</span>
-                      )}
-                    </div>
-                    <div className="text-sm text-muted-foreground truncate">{r.beneficiary || 'Sin beneficiario'}</div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {formatDate(r.date)} · {refs} referencia{refs === 1 ? '' : 's'} · {units} unidades
-                    </div>
-                  </div>
-                  <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                </button>
-              );
-            })}
-          </div>
+          <>
+            {/* Header */}
+            <div className="flex items-center gap-4 mb-6">
+              <div className="h-11 w-11 rounded-xl bg-blue-600/10 flex items-center justify-center flex-shrink-0">
+                <Truck className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1d1d1f', letterSpacing: '-0.6px' }}>
+                  Estación de despacho
+                </h1>
+                <p className="text-sm text-muted-foreground">Escaneá los paquetes para verificar cada remisión</p>
+              </div>
+            </div>
+
+            {isLoading ? (
+              <div className="flex items-center justify-center py-32">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : remisiones.length === 0 ? (
+              <div className="text-center py-24">
+                <PackageCheck className="h-12 w-12 mx-auto text-green-500 mb-3" />
+                <p className="text-lg font-semibold">No hay remisiones pendientes</p>
+                <p className="text-sm text-muted-foreground mt-1">Las remisiones de venta en estado “pendiente” aparecen acá.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground px-1">
+                  {remisiones.length} remisión{remisiones.length === 1 ? '' : 'es'} pendiente{remisiones.length === 1 ? '' : 's'} de despacho
+                </p>
+                {remisiones.map(r => {
+                  const items = r.remision_items || [];
+                  const refs = new Set(items.map(i => normalizeRef(i.reference)).filter(Boolean)).size;
+                  const units = items.reduce((s, i) => s + (Number(i.units) || 0), 0);
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => { beep('ok'); setActiveId(r.id); }}
+                      className="w-full text-left bg-white rounded-2xl border p-4 sm:p-5 flex items-center justify-between hover:border-blue-400 hover:shadow-sm transition active:scale-[0.99]"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-base">{r.number}</span>
+                          {r.module_origin === 'gerencial' && (
+                            <span className="text-[10px] font-bold uppercase tracking-wide bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Gerencial</span>
+                          )}
+                        </div>
+                        <div className="text-sm text-muted-foreground truncate">{r.beneficiary || 'Sin beneficiario'}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {formatDate(r.date)} · {refs} referencia{refs === 1 ? '' : 's'} · {units} unidades
+                        </div>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 }
 
@@ -165,7 +163,6 @@ function DispatchDetail({ remision, userId, onBack, onDispatched, toast }: Detai
   const [saving, setSaving] = useState(false);
   const flashTimer = useRef<number | null>(null);
 
-  // Restaurar progreso (sobrevive un refresh accidental de la tablet).
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey);
@@ -243,45 +240,56 @@ function DispatchDetail({ remision, userId, onBack, onDispatched, toast }: Detai
     onDispatched();
   };
 
-  const flashColor = flash?.kind === 'ok' ? 'bg-green-600'
-    : flash?.kind === 'over' ? 'bg-amber-500' : 'bg-red-600';
+  const accent = flash?.kind === 'ok' ? 'green' : flash?.kind === 'over' ? 'amber' : flash ? 'red' : 'idle';
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-28">
-      <header className="sticky top-0 z-10 bg-white border-b px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="h-5 w-5" /> Volver
-          </button>
-          <div className="text-right min-w-0">
-            <div className="font-bold leading-tight">{remision.number}</div>
-            <div className="text-xs text-muted-foreground truncate">{remision.beneficiary || 'Sin beneficiario'}</div>
-          </div>
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
-            <div
-              className={`h-full transition-all ${allComplete ? 'bg-green-500' : 'bg-blue-500'}`}
-              style={{ width: `${lines.length ? (doneCount / lines.length) * 100 : 0}%` }}
-            />
-          </div>
-          <span className="text-xs font-semibold text-muted-foreground tabular-nums">{doneCount}/{lines.length} líneas</span>
-        </div>
-      </header>
-
-      {/* Banner de feedback del último escaneo */}
-      <div className="px-4 pt-3">
-        <div className={`rounded-xl px-4 py-3 text-white font-semibold flex items-center gap-2 transition ${flash ? flashColor : 'bg-slate-300'}`}>
-          {flash ? (
-            flash.kind === 'ok' ? <Check className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />
-          ) : (
-            <ScanLine className="h-5 w-5" />
-          )}
-          <span className="truncate">{flash ? flash.text : 'Escaneá un paquete…'}</span>
+    <div className="space-y-4">
+      {/* Encabezado de la remisión */}
+      <div className="flex items-center justify-between gap-3">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-5 w-5" /> Volver
+        </button>
+        <div className="text-right min-w-0">
+          <div className="font-bold leading-tight">{remision.number}</div>
+          <div className="text-xs text-muted-foreground truncate">{remision.beneficiary || 'Sin beneficiario'}</div>
         </div>
       </div>
 
-      <main className="max-w-3xl mx-auto px-4 py-3 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
+          <div
+            className={`h-full transition-all ${allComplete ? 'bg-green-500' : 'bg-blue-500'}`}
+            style={{ width: `${lines.length ? (doneCount / lines.length) * 100 : 0}%` }}
+          />
+        </div>
+        <span className="text-xs font-semibold text-muted-foreground tabular-nums">{doneCount}/{lines.length} líneas</span>
+      </div>
+
+      {/* Banner de feedback del último escaneo */}
+      <div
+        className={`rounded-2xl border-2 px-4 py-3.5 flex items-center gap-3 transition-colors ${
+          accent === 'green' ? 'border-emerald-400 bg-emerald-50/50'
+          : accent === 'amber' ? 'border-amber-400 bg-amber-50/50'
+          : accent === 'red' ? 'border-red-300 bg-red-50/50'
+          : 'border-dashed border-slate-300 bg-white'
+        }`}
+      >
+        <div className={`h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+          accent === 'green' ? 'bg-emerald-500 text-white'
+          : accent === 'amber' ? 'bg-amber-500 text-white'
+          : accent === 'red' ? 'bg-red-500 text-white'
+          : 'bg-slate-100 text-slate-400'
+        }`}>
+          {accent === 'green' ? <Check className="h-5 w-5" />
+            : accent === 'idle' ? <RadioTower className="h-5 w-5 animate-pulse" />
+            : <AlertTriangle className="h-5 w-5" />}
+        </div>
+        <span className="font-semibold truncate">{flash ? flash.text : 'Escaneá un paquete…'}</span>
+        <ScanLine className="h-5 w-5 text-slate-300 ml-auto flex-shrink-0 hidden sm:block" />
+      </div>
+
+      {/* Líneas */}
+      <div className="space-y-2.5">
         {lines.map(l => {
           const got = scanned[l.key] || 0;
           const done = got >= l.expected;
@@ -319,41 +327,39 @@ function DispatchDetail({ remision, userId, onBack, onDispatched, toast }: Detai
             </div>
           );
         })}
+      </div>
 
-        {extras.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 mt-3">
-            <div className="flex items-center gap-2 text-amber-700 font-semibold text-sm mb-2">
-              <AlertTriangle className="h-4 w-4" /> Escaneos fuera de la remisión ({extras.length})
-            </div>
-            <div className="space-y-1.5">
-              {extras.map((e, i) => (
-                <div key={i} className="flex items-center justify-between text-sm bg-white rounded-lg px-3 py-1.5 border border-amber-100">
-                  <span className="font-medium truncate">{e.reference} <span className="text-muted-foreground">×{e.quantity}</span></span>
-                  <button onClick={() => setExtras(prev => prev.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-500" aria-label="Quitar">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
+      {extras.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5">
+          <div className="flex items-center gap-2 text-amber-700 font-semibold text-sm mb-2">
+            <AlertTriangle className="h-4 w-4" /> Escaneos fuera de la remisión ({extras.length})
           </div>
-        )}
-      </main>
-
-      {/* Footer fijo: marcar despachado */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <div className="text-sm text-muted-foreground flex-1">
-            <span className="font-semibold text-foreground tabular-nums">{totalScanned}</span> unidades escaneadas
+          <div className="space-y-1.5">
+            {extras.map((e, i) => (
+              <div key={i} className="flex items-center justify-between text-sm bg-white rounded-lg px-3 py-1.5 border border-amber-100">
+                <span className="font-medium truncate">{e.reference} <span className="text-muted-foreground">×{e.quantity}</span></span>
+                <button onClick={() => setExtras(prev => prev.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-500" aria-label="Quitar">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
           </div>
-          <button
-            onClick={despachar}
-            disabled={saving}
-            className={`h-12 px-6 rounded-2xl font-bold text-white flex items-center gap-2 active:scale-[0.98] disabled:opacity-60 ${allComplete ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-500 hover:bg-amber-600'}`}
-          >
-            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Truck className="h-5 w-5" />}
-            {allComplete ? 'Marcar despachado' : 'Despachar incompleto'}
-          </button>
         </div>
+      )}
+
+      {/* Acción: marcar despachado */}
+      <div className="bg-white border rounded-2xl p-4 flex items-center gap-3">
+        <div className="text-sm text-muted-foreground flex-1">
+          <span className="font-semibold text-foreground tabular-nums">{totalScanned}</span> unidades escaneadas
+        </div>
+        <button
+          onClick={despachar}
+          disabled={saving}
+          className={`h-12 px-6 rounded-2xl font-bold text-white flex items-center gap-2 active:scale-[0.98] disabled:opacity-60 ${allComplete ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-500 hover:bg-amber-600'}`}
+        >
+          {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Truck className="h-5 w-5" />}
+          {allComplete ? 'Marcar despachado' : 'Despachar incompleto'}
+        </button>
       </div>
     </div>
   );
