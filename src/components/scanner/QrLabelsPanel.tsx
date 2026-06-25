@@ -140,6 +140,15 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
   const printOne = async (p: InventoryProduct) => {
     const rows = buildRows(p);
     if (rows.length === 0) { toast({ title: 'Definí al menos un paquete', variant: 'destructive' }); return; }
+    // El etiquetado debe cuadrar con el físico contado (físico vs etiquetado).
+    const phys = Math.round(Number(p.stock_physical) || 0);
+    const alloc = allocated(groupsOf(p));
+    if (alloc !== phys) {
+      const ok = window.confirm(
+        `Estás etiquetando ${alloc} unidades pero el físico contado de ${p.reference} es ${phys}. Deberían coincidir. ¿Imprimir igual?`,
+      );
+      if (!ok) return;
+    }
     setPrinting(true);
     try {
       await printQrLabels(rows);
@@ -205,6 +214,11 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
         </button>
       </div>
 
+      <p className="text-xs text-muted-foreground -mt-1">
+        Etiquetá exactamente lo que contaste: cada referencia compara <strong>físico contado vs etiquetado</strong>.
+        El desglose en paquetes debe sumar el físico. (El comparativo vs Siigo está en el módulo de Inventarios.)
+      </p>
+
       {/* Lista de referencias físicas */}
       <div className="space-y-2.5">
         {filtered.map(p => {
@@ -212,8 +226,6 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
           const isOpen = expanded === k;
           const groups = groupsOf(p);
           const phys = Math.round(Number(p.stock_physical) || 0);
-          const sys = Math.round(Number(p.stock_system) || 0);
-          const diff = phys - sys; // + sobra físico vs Siigo, − falta
           const alloc = allocated(groups);
           const remaining = phys - alloc;
           const labels = labelCount(groups);
@@ -231,12 +243,10 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
                     </div>
                     <div className="text-xs text-muted-foreground truncate">{p.name || 'Sin descripción'}</div>
                   </div>
-                  {/* Físico vs lo que debería haber (Siigo) */}
+                  {/* Físico contado vs etiquetado (el comparativo vs Siigo vive en Inventarios) */}
                   <div className="text-right hidden sm:block">
-                    <div className="text-lg font-extrabold tabular-nums leading-none">{phys} <span className="text-xs font-medium text-muted-foreground">und</span></div>
-                    <div className="text-[11px] text-muted-foreground">
-                      Siigo {sys}{diff !== 0 && <span className={diff > 0 ? 'text-blue-600 font-semibold' : 'text-red-600 font-semibold'}> · {diff > 0 ? `+${diff}` : diff}</span>}
-                    </div>
+                    <div className="text-lg font-extrabold tabular-nums leading-none">{phys} <span className="text-xs font-medium text-muted-foreground">físicas</span></div>
+                    <div className="text-[11px] text-muted-foreground">{alloc} etiquetadas</div>
                   </div>
                   <CoverageBadge remaining={remaining} labels={labels} />
                 </button>
@@ -307,12 +317,13 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
                   {/* Resumen + imprimir */}
                   <div className="flex items-center justify-between gap-3 pt-1">
                     <div className="text-sm">
-                      <span className="text-muted-foreground">Empaquetado: </span>
+                      <span className="text-muted-foreground">Etiquetado: </span>
                       <span className={`font-bold tabular-nums ${remaining === 0 ? 'text-emerald-600' : remaining > 0 ? 'text-amber-600' : 'text-red-600'}`}>
                         {alloc}/{phys}
                       </span>
-                      {remaining > 0 && <span className="text-amber-600"> · faltan {remaining}</span>}
-                      {remaining < 0 && <span className="text-red-600"> · sobran {-remaining}</span>}
+                      <span className="text-muted-foreground"> físicas</span>
+                      {remaining > 0 && <span className="text-amber-600 font-semibold"> · faltan {remaining}</span>}
+                      {remaining < 0 && <span className="text-red-600 font-semibold"> · sobran {-remaining}</span>}
                       {remaining === 0 && <Check className="h-4 w-4 text-emerald-600 inline ml-1 -mt-0.5" />}
                       <span className="text-muted-foreground"> · {labels} etiqueta{labels === 1 ? '' : 's'}</span>
                     </div>
