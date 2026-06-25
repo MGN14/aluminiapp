@@ -35,7 +35,9 @@ export default function ConteoFisicoPanel({ products }: Props) {
   const [saving, setSaving] = useState(false);
   const [manualRef, setManualRef] = useState('');
   const [manualQty, setManualQty] = useState(1);
+  const [lastKey, setLastKey] = useState<string | null>(null);
   const flashTimer = useRef<number | null>(null);
+  const lastKeyTimer = useRef<number | null>(null);
 
   // Restaurar / persistir la sesión (sobrevive refresh o bloqueo de la tablet).
   useEffect(() => {
@@ -68,7 +70,13 @@ export default function ConteoFisicoPanel({ products }: Props) {
       const cur = prev[key];
       return { ...prev, [key]: { reference: displayRef, quantity: (cur?.quantity || 0) + qty } };
     });
-    setOrder(prev => [key, ...prev.filter(k => k !== key)]);
+    // Orden ESTABLE: una ref nueva aparece arriba; re-escanearla NO la mueve
+    // (antes saltaba al tope en cada lectura — se sentía inestable).
+    setOrder(prev => prev.includes(key) ? prev : [key, ...prev]);
+    // Resaltar la fila recién escaneada ~1.2s para que el update en vivo se vea.
+    setLastKey(key);
+    if (lastKeyTimer.current) window.clearTimeout(lastKeyTimer.current);
+    lastKeyTimer.current = window.setTimeout(() => setLastKey(null), 1200);
     if (prod) { flashMsg('ok', `${displayRef}  +${qty}`, prod.name); beep('ok'); }
     else { flashMsg('warn', displayRef, 'Sin match en inventario — no se guardará'); beep('warn'); }
   }, [productByRef, flashMsg]);
@@ -251,7 +259,7 @@ export default function ConteoFisicoPanel({ products }: Props) {
             if (!c) return null;
             const prod = productByRef.get(key);
             return (
-              <div key={key} className={`bg-white rounded-2xl border p-3.5 flex items-center gap-3 ${!prod ? 'border-amber-300 bg-amber-50/40' : ''}`}>
+              <div key={key} className={`bg-white rounded-2xl border p-3.5 flex items-center gap-3 transition-shadow ${!prod ? 'border-amber-300 bg-amber-50/40' : ''} ${key === lastKey ? (prod ? 'ring-2 ring-offset-1 ring-emerald-400' : 'ring-2 ring-offset-1 ring-amber-400') : ''}`}>
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-base truncate">{c.reference}</div>
                   <div className={`text-xs truncate ${prod ? 'text-muted-foreground' : 'text-amber-700 font-medium'}`}>

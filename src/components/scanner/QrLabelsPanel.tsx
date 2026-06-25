@@ -33,17 +33,36 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [printing, setPrinting] = useState(false);
 
+  // Solo se etiqueta lo que tiene inventario FÍSICO cargado (>0): es lo que de
+  // verdad está en la bodega y se va a escanear. Las refs sin conteo físico no
+  // aparecen — primero hay que subir/escanear el conteo.
+  const labelable = useMemo(
+    () => products.filter(p => (Number(p.stock_physical) || 0) > 0),
+    [products],
+  );
+
   // Producto resuelto desde el input (case-insensitive) → alimenta el preview.
   const selected = useMemo(() => {
     const q = refInput.trim().toLowerCase();
     if (!q) return null;
-    return products.find(p => (p.reference ?? '').trim().toLowerCase() === q) ?? null;
-  }, [refInput, products]);
+    return labelable.find(p => (p.reference ?? '').trim().toLowerCase() === q) ?? null;
+  }, [refInput, labelable]);
 
-  // Cuando se resuelve un producto, prellenar la cantidad con su estándar.
+  // La ref existe en el catálogo pero sin físico > 0 → no se puede etiquetar.
+  const existsButNoStock = useMemo(() => {
+    const q = refInput.trim().toLowerCase();
+    if (!q || selected) return null;
+    return products.find(p => (p.reference ?? '').trim().toLowerCase() === q) ?? null;
+  }, [refInput, products, selected]);
+
+  // Al resolver un producto: prellenar cantidad por paquete y SUGERIR cuántas
+  // etiquetas según el físico disponible (físico ÷ unidades por paquete).
   useEffect(() => {
     if (selected) {
-      setFormQty(selected.units_per_package && selected.units_per_package > 0 ? Number(selected.units_per_package) : 1);
+      const qty = selected.units_per_package && selected.units_per_package > 0 ? Number(selected.units_per_package) : 1;
+      setFormQty(qty);
+      const phys = Number(selected.stock_physical) || 0;
+      setFormCopies(qty > 0 ? Math.max(1, Math.ceil(phys / qty)) : 1);
     }
   }, [selected]);
 
@@ -113,8 +132,15 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
     <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
       {/* Columna izquierda: agregar + cola */}
       <div className="space-y-4">
+        {labelable.length === 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
+            No hay referencias con <strong>inventario físico</strong> cargado todavía. Subí o escaneá el
+            conteo físico (pestaña “Conteo físico”) y volvé acá para imprimir las etiquetas de lo que hay en bodega.
+          </div>
+        )}
         <div className="bg-white border rounded-2xl p-4">
-          <div className="text-sm font-semibold mb-3">Agregar etiqueta</div>
+          <div className="text-sm font-semibold mb-1">Agregar etiqueta</div>
+          <p className="text-xs text-muted-foreground mb-3">Solo aparecen las referencias con inventario físico mayor a 0 — es lo que se va a escanear.</p>
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_92px_92px] gap-2 items-end">
             <div>
               <label className="text-xs font-medium text-muted-foreground">Referencia</label>
@@ -127,7 +153,7 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
                 className="mt-1"
               />
               <datalist id="qr-panel-refs">
-                {products.map(p => <option key={p.id} value={p.reference}>{p.name}</option>)}
+                {labelable.map(p => <option key={p.id} value={p.reference}>{p.name}</option>)}
               </datalist>
             </div>
             <div>
@@ -139,8 +165,16 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
               <Input type="number" min={1} value={formCopies || ''} onChange={e => setFormCopies(+e.target.value)} className="mt-1 text-center font-mono" />
             </div>
           </div>
+          {selected && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Físico disponible: <strong className="text-foreground">{Number(selected.stock_physical) || 0}</strong>
+              {formQty > 0 && <> · sugerido <strong className="text-foreground">{Math.max(1, Math.ceil((Number(selected.stock_physical) || 0) / formQty))}</strong> etiqueta(s)</>}
+            </p>
+          )}
           {refInput.trim() && !selected && (
-            <p className="text-xs text-red-500 mt-2">No existe esa referencia en el inventario.</p>
+            existsButNoStock
+              ? <p className="text-xs text-amber-600 mt-2">“{existsButNoStock.reference}” no tiene inventario físico cargado. Las etiquetas salen del conteo físico.</p>
+              : <p className="text-xs text-red-500 mt-2">No existe esa referencia en el inventario físico.</p>
           )}
           <button
             onClick={addToQueue}

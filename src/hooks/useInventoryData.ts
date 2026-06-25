@@ -106,6 +106,25 @@ function classifyStatus(daysOfInventory: number, avgDailySales: number, stock: n
   return 'exceso';
 }
 
+// Cache en memoria del último fetch exitoso, por (usuario + modo). Evita el
+// flash de spinner y la "recarga constante" al re-montar la página: si Nico
+// navega a Conteo con escáner y vuelve, ve los datos al instante y se revalida
+// en background (sin spinner). Si cambia el usuario o el modo, la key no
+// matchea y arranca limpio (sin filtrar datos de otra cuenta).
+const DEFAULT_METRICS: InventoryMetrics = {
+  totalValue: 0, avgDaysOfInventory: 0, avgRotation: 0,
+  pctNoMovement: 0, totalDifference: 0, totalDifferenceValue: 0,
+  totalProducts: 0, criticalCount: 0, excessCount: 0,
+  hasMovementData: false,
+  lastSiigoSyncAt: null, lastPhysicalCountAt: null,
+};
+let invCache: {
+  key: string;
+  products: ProductWithMetrics[];
+  movements: InventoryMovement[];
+  metrics: InventoryMetrics;
+} | null = null;
+
 /**
  * Hook de inventario.
  *
@@ -117,20 +136,22 @@ function classifyStatus(daysOfInventory: number, avgDailySales: number, stock: n
 export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [products, setProducts] = useState<ProductWithMetrics[]>([]);
-  const [movements, setMovements] = useState<InventoryMovement[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [metrics, setMetrics] = useState<InventoryMetrics>({
-    totalValue: 0, avgDaysOfInventory: 0, avgRotation: 0,
-    pctNoMovement: 0, totalDifference: 0, totalDifferenceValue: 0,
-    totalProducts: 0, criticalCount: 0, excessCount: 0,
-    hasMovementData: false,
-    lastSiigoSyncAt: null, lastPhysicalCountAt: null,
-  });
+  const cacheKey = `${user?.id ?? ''}:${dataSource}`;
+  const seed = invCache && invCache.key === cacheKey ? invCache : null;
+  const [products, setProducts] = useState<ProductWithMetrics[]>(() => seed?.products ?? []);
+  const [movements, setMovements] = useState<InventoryMovement[]>(() => seed?.movements ?? []);
+  // Sin cache válido → arrancamos en loading (mostramos spinner). Con cache,
+  // mostramos los datos al toque y revalidamos en background sin spinner.
+  const [loading, setLoading] = useState(() => !seed);
+  const [metrics, setMetrics] = useState<InventoryMetrics>(() => seed?.metrics ?? DEFAULT_METRICS);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    const key = `${user.id}:${dataSource}`;
+    // Si ya hay datos cacheados para este (usuario+modo), revalidamos en
+    // silencio (sin spinner ni "Cargando..."). Solo mostramos loading en la
+    // primera carga real. Esto mata el parpadeo de "se actualiza constantemente".
+    setLoading(invCache?.key !== key);
 
     try {
       // Traemos eventos de venta de los últimos 90 días — el chart usa este
@@ -349,7 +370,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
       const lastSiigoSyncAt = maxIso(rawProducts.map(p => p.last_siigo_sync_at));
       const lastPhysicalCountAt = maxIso(rawProducts.map(p => p.last_count_date));
 
-      setMetrics({
+      const metricsObj: InventoryMetrics = {
         totalValue,
         avgDaysOfInventory: Math.round(avgDays),
         avgRotation: Math.round(avgRot * 100) / 100,
@@ -362,7 +383,11 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         hasMovementData,
         lastSiigoSyncAt,
         lastPhysicalCountAt,
-      });
+      };
+      setMetrics(metricsObj);
+
+      // Guardar en el cache en memoria para que el próximo montaje sea instantáneo.
+      invCache = { key, products: enriched, movements: combinedMovements, metrics: metricsObj };
     } catch (err: any) {
       toast({ title: 'Error cargando inventario', description: err.message, variant: 'destructive' });
     } finally {

@@ -161,7 +161,9 @@ function DispatchDetail({ remision, userId, onBack, onDispatched, toast }: Detai
   const [extras, setExtras] = useState<{ reference: string; quantity: number }[]>([]);
   const [flash, setFlash] = useState<{ kind: 'ok' | 'warn' | 'over'; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [lastKey, setLastKey] = useState<string | null>(null);
   const flashTimer = useRef<number | null>(null);
+  const lastKeyTimer = useRef<number | null>(null);
 
   useEffect(() => {
     try {
@@ -196,6 +198,10 @@ function DispatchDetail({ remision, userId, onBack, onDispatched, toast }: Detai
         else { flashMsg('ok', `${parsed.reference}  +${parsed.quantity} → ${nextVal}/${exp}`); beep('ok'); }
         return { ...prev, [key]: nextVal };
       });
+      // Resaltar la línea recién escaneada ~1.2s (update en vivo visible).
+      setLastKey(key);
+      if (lastKeyTimer.current) window.clearTimeout(lastKeyTimer.current);
+      lastKeyTimer.current = window.setTimeout(() => setLastKey(null), 1200);
     } else {
       setExtras(prev => [{ reference: parsed.reference, quantity: parsed.quantity }, ...prev].slice(0, 50));
       flashMsg('warn', `${parsed.reference} no está en esta remisión`);
@@ -297,7 +303,7 @@ function DispatchDetail({ remision, userId, onBack, onDispatched, toast }: Detai
           return (
             <div
               key={l.key}
-              className={`bg-white rounded-2xl border p-3.5 flex items-center gap-3 ${done ? 'border-green-300 bg-green-50/40' : ''}`}
+              className={`bg-white rounded-2xl border p-3.5 flex items-center gap-3 transition-shadow ${done ? 'border-green-300 bg-green-50/40' : ''} ${l.key === lastKey ? `ring-2 ring-offset-1 ${over ? 'ring-amber-400' : 'ring-emerald-400'}` : ''}`}
             >
               <div className="min-w-0 flex-1">
                 <div className="font-bold text-base truncate flex items-center gap-2">

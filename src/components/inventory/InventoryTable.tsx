@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 import { Package, ArrowUpDown, Plus, Minus, Pencil, Search, Scale, Trash2 } from 'lucide-react';
 import type { ProductWithMetrics, InventoryStatus } from '@/hooks/useInventoryData';
 
@@ -140,13 +141,16 @@ function ActionButton({ onClick, title, color, bgHover, children }: { onClick: (
 export default function InventoryTable({ products, onAdjust, onEdit, onAddMovement, onDelete, isGerencial = false }: Props) {
   // En Gerencial la columna de stock es el teórico; en DIAN es Siigo.
   const stockOf = (p: ProductWithMetrics) => (isGerencial ? p.teorico : p.stock_system);
-  const [sortKey, setSortKey] = useState<SortKey>('status');
-  const [sortAsc, setSortAsc] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<FilterKey>('all');
+  // Filtros persistidos en sessionStorage: si Nico ordena/filtra/busca y navega
+  // (ej: a Conteo con escáner) y vuelve, la tabla queda como la dejó en vez de
+  // resetear a default. Antes eran useState planos → se perdían al re-montar.
+  const [sortKey, setSortKey] = usePersistedFormState<SortKey>('inv:tabla:sortKey:v1', 'status');
+  const [sortAsc, setSortAsc] = usePersistedFormState<boolean>('inv:tabla:sortAsc:v1', true);
+  const [search, setSearch] = usePersistedFormState<string>('inv:tabla:search:v1', '');
+  const [filter, setFilter] = usePersistedFormState<FilterKey>('inv:tabla:filter:v1', 'all');
   // Filtro adicional por sistema. 'all' = todos, 'none' = sin sistema asignado,
   // o un string con el sistema específico (ej: "744").
-  const [systemFilter, setSystemFilter] = useState<string>('all');
+  const [systemFilter, setSystemFilter] = usePersistedFormState<string>('inv:tabla:systemFilter:v1', 'all');
 
   const availableSystems = useMemo(() => {
     const set = new Set<string>();
