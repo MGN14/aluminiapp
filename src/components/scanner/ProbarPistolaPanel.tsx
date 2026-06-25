@@ -4,7 +4,32 @@ import JsBarcode from 'jsbarcode';
 import { useScannerGun } from '@/hooks/useScannerGun';
 import { parseScan, encodeLabelPayload, type ScannedLabel } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
-import { Check, RadioTower, Maximize2, X } from 'lucide-react';
+import { Check, RadioTower, Maximize2, X, Printer } from 'lucide-react';
+
+// Abre el diálogo de impresión (el de siempre) con los códigos de barras de
+// prueba en papel — la pistola láser los lee mejor en papel que en pantalla.
+function printTestBarcodes(values: string[]) {
+  const imgs = values.map(v => {
+    const canvas = document.createElement('canvas');
+    try { JsBarcode(canvas, v, { format: 'CODE128', width: 2, height: 90, fontSize: 18, margin: 12, displayValue: true }); }
+    catch { return ''; }
+    return canvas.toDataURL('image/png');
+  }).filter(Boolean);
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Códigos de prueba</title>
+<style>@page{margin:16mm} *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111} h2{font-size:16pt;margin:0 0 4px} p{font-size:11pt;color:#555;margin:0 0 14px} .code{margin:16px 0;page-break-inside:avoid} img{display:block}</style>
+</head><body>
+<h2>Códigos de prueba — escanealos con la pistola</h2>
+<p>Si pita y el texto aparece en la app, tu pistola sirve para el sistema.</p>
+${imgs.map(src => `<div class="code"><img src="${src}" /></div>`).join('')}
+</body></html>`;
+  const win = window.open('', '_blank', 'width=820,height=1040');
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { try { win.print(); } catch { /* el usuario puede Ctrl+P */ } }, 350);
+}
 
 // QR de prueba (en pantalla) para validar la pistola sin imprimir nada.
 const DEMOS = [
@@ -75,7 +100,16 @@ export default function ProbarPistolaPanel() {
 
       {/* Códigos de barras 1D */}
       <div>
-        <div className="text-sm font-semibold mb-2">Códigos de barras (1D) — si tu pistola es láser de líneas:</div>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="text-sm font-semibold">Códigos de barras (1D) — tu pistola lee estos:</div>
+          <button
+            onClick={() => printTestBarcodes(BARCODES)}
+            className="h-9 px-3 rounded-xl border bg-white text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-slate-50 flex-shrink-0"
+          >
+            <Printer className="h-4 w-4" /> Imprimir
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-2">Imprimilos en papel y escanealos — el láser lee mucho mejor en papel que en pantalla.</p>
         <div className="grid sm:grid-cols-3 gap-3">
           {BARCODES.map(b => (
             <CodeCard key={b} onClick={() => setZoom({ kind: 'barcode', value: b })}>
