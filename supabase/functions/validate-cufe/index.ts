@@ -43,54 +43,59 @@ async function validateCufeAgainstDIAN(cufe: string): Promise<ValidationResult> 
     };
   }
 
-  try {
-    const url = `${DIAN_QR_ENDPOINT}?documentkey=${encodeURIComponent(trimmed)}`;
-    const resp = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json, */*",
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
-    });
+  const url = `${DIAN_QR_ENDPOINT}?documentkey=${encodeURIComponent(trimmed)}`;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  let last: ValidationResult = { status: "error", dian_response: null, error_detail: "sin respuesta" };
 
-    const httpStatus = resp.status;
-    const text = await resp.text();
-    let parsed: unknown;
+  // El catálogo público de la DIAN es intermitente para requests automáticos
+  // (a veces 429/5xx o cuelga). Reintentamos hasta 3 veces con backoff antes de
+  // dar la factura por "error", así no falla por un hipo transitorio del portal.
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = { rawText: text.slice(0, 1500) };
-    }
+      const resp = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json, */*",
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+      });
 
-    if (resp.ok) {
-      // 200 con datos del documento → validated
-      // 200 con statusCode 404 en el body → not_found
-      const body = parsed as Record<string, unknown> | null;
-      const innerStatus = body && typeof body === "object" ? body["statusCode"] : null;
-      if (innerStatus === 404 || innerStatus === "404") {
+      const httpStatus = resp.status;
+      const text = await resp.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = { rawText: text.slice(0, 1500) };
+      }
+
+      if (resp.ok) {
+        // 200 con datos del documento → validated
+        // 200 con statusCode 404 en el body → not_found
+        const body = parsed as Record<string, unknown> | null;
+        const innerStatus = body && typeof body === "object" ? body["statusCode"] : null;
+        if (innerStatus === 404 || innerStatus === "404") {
+          return { status: "not_found", dian_response: parsed, http_status: httpStatus };
+        }
+        return { status: "validated", dian_response: parsed, http_status: httpStatus };
+      }
+
+      if (resp.status === 404) {
         return { status: "not_found", dian_response: parsed, http_status: httpStatus };
       }
-      return { status: "validated", dian_response: parsed, http_status: httpStatus };
-    }
 
-    if (resp.status === 404) {
-      return { status: "not_found", dian_response: parsed, http_status: httpStatus };
+      last = { status: "error", dian_response: parsed, http_status: httpStatus, error_detail: `HTTP ${httpStatus}` };
+      // 429 / 5xx = transitorio → reintentamos. Otro 4xx → devolvemos ya.
+      if (httpStatus === 429 || httpStatus >= 500) { await sleep(700 * attempt); continue; }
+      return last;
+    } catch (e) {
+      // Timeout / red caída: guardamos la excepción y reintentamos.
+      last = { status: "error", dian_response: { exception: (e as Error).message }, error_detail: (e as Error).message };
+      await sleep(700 * attempt);
     }
-
-    return {
-      status: "error",
-      dian_response: parsed,
-      http_status: httpStatus,
-      error_detail: `HTTP ${httpStatus}`,
-    };
-  } catch (e) {
-    return {
-      status: "error",
-      dian_response: null,
-      error_detail: (e as Error).message,
-    };
   }
+  return last;
 }
 
 serve(async (req) => {
