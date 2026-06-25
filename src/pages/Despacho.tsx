@@ -12,6 +12,8 @@ import type { InventoryProduct } from '@/hooks/useInventoryData';
 import {
   fetchProductsByRefs, applyRemisionInventory, type RemisionItemInput,
 } from '@/lib/remisionInventory';
+import { useDataOwner } from '@/hooks/useDataOwner';
+import { printRemisionToWindow } from '@/lib/printRemision';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -26,6 +28,7 @@ interface ScanItem { reference: string; quantity: number; }
 
 export default function Despacho() {
   const { user } = useAuth();
+  const { dataOwnerId } = useDataOwner();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -94,6 +97,23 @@ export default function Despacho() {
       return ((data ?? []) as unknown as Array<{ id: string; name: string; responsible_type: string }>)
         .filter(r => r.responsible_type === 'banking' || r.responsible_type === 'both' || !r.responsible_type)
         .map(r => ({ id: r.id, name: r.name }));
+    },
+  });
+
+  // Datos de la empresa (del owner) para el encabezado de la remisión impresa.
+  const { data: company } = useQuery({
+    queryKey: ['despacho-company', dataOwnerId],
+    enabled: !!dataOwnerId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('company_name, company_nit, company_address, company_city')
+        .eq('user_id', dataOwnerId!)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as {
+        company_name?: string; company_nit?: string; company_address?: string; company_city?: string;
+      } | null;
     },
   });
 
@@ -191,6 +211,10 @@ export default function Despacho() {
     if (order.length === 0) { toast({ title: 'Escaneá al menos un paquete', variant: 'destructive' }); return; }
     if (!beneficiary.trim() && !responsibleId) { toast({ title: 'Falta el cliente', variant: 'destructive' }); return; }
 
+    // Abrimos la ventana de impresión YA, dentro del gesto del click, para que
+    // el navegador no la bloquee (el PDF se escribe recién después del insert).
+    const printWin = window.open('', '_blank', 'width=820,height=1040');
+
     setSaving(true);
     try {
       const items: RemisionItemInput[] = order.map(k => {
@@ -243,12 +267,28 @@ export default function Despacho() {
       });
 
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+
+      // Imprimir la remisión (formato carta, diálogo de impresora nativo).
+      if (printWin) {
+        printRemisionToWindow(printWin, {
+          company: {
+            name: company?.company_name, nit: company?.company_nit,
+            address: company?.company_address, city: company?.company_city,
+          },
+          number: remision.number ?? '',
+          date: today,
+          beneficiary: beneficiary.trim(),
+          items: items.map(i => ({ reference: i.reference, product_name: i.product_name, units: i.units })),
+        });
+      }
+
       toast({
         title: `Remisión ${remision.number ?? ''} generada`,
-        description: `${items.length} referencias · ${result.applied} descontadas del inventario físico. Lista para imprimir.`,
+        description: `${items.length} referencias · ${result.applied} descontadas del inventario físico.`,
       });
       navigate('/remisiones');
     } catch (e: any) {
+      if (printWin) { try { printWin.close(); } catch { /* ignore */ } }
       toast({ title: 'No se pudo generar la remisión', description: e.message, variant: 'destructive' });
       setSaving(false);
     }
