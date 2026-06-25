@@ -57,6 +57,8 @@ const Founder = lazy(() => import("./pages/Founder"));
 const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
+const Despacho = lazy(() => import("./pages/Despacho"));
+const Conteo = lazy(() => import("./pages/Conteo"));
 const Cotizaciones = lazy(() => import("./pages/Cotizaciones"));
 const ProductosTerminados = lazy(() => import("./pages/ProductosTerminados"));
 const CashMovements = lazy(() => import("./pages/CashMovements"));
@@ -322,6 +324,16 @@ const App = () => (
               <Route
                 path="/remisiones"
                 element={<RequireModule moduleKey="remisiones"><Remisiones /></RequireModule>}
+              />
+              {/* Estación de despacho (tablet + pistola QR): verificación por escaneo */}
+              <Route
+                path="/despacho"
+                element={<RequireModule moduleKey="remisiones"><Despacho /></RequireModule>}
+              />
+              {/* Conteo físico con escáner (tablet + pistola QR) */}
+              <Route
+                path="/conteo"
+                element={<RequireModule moduleKey="inventarios"><Conteo /></RequireModule>}
               />
               <Route
                 path="/cotizaciones"

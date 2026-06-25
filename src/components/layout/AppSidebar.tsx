@@ -33,6 +33,8 @@ import {
   Scale,
   Target,
   CalendarCheck,
+  ScanLine,
+  Truck,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -94,7 +96,9 @@ const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true, permKey: 'conciliacion' },
   { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true, permKey: 'caja_menor' },
   { title: 'Inventarios', url: '/inventarios', icon: Package, permKey: 'inventarios' },
+  { title: 'Conteo con escáner', url: '/conteo', icon: ScanLine, permKey: 'inventarios' },
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },
+  { title: 'Estación de despacho', url: '/despacho', icon: Truck, permKey: 'remisiones' },
   { title: 'Productos terminados', url: '/productos-terminados', icon: Boxes, permKey: 'cotizaciones' },
   { title: 'Nómina', url: '/nomina', icon: HardHat, permKey: 'nomina' },
   { title: 'Activos fijos', url: '/activos-fijos', icon: Building2, permKey: 'activos_fijos' },

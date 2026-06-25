@@ -22,6 +22,9 @@ export interface InventoryProduct {
   last_siigo_sync_at?: string | null;
   /** Sistema/grupo al que pertenece la referencia (ej: "744", "8025", "proyectante"). */
   system?: string | null;
+  /** Cantidad estándar de unidades por paquete. Pre-llena la impresión de
+   *  etiquetas QR (editable por etiqueta). No afecta ningún cálculo de stock. */
+  units_per_package?: number | null;
   /** Punto de ancla del inventario teórico (modo Gerencial). El teórico se
    *  calcula como stock_inicial + entradas manuales − remisiones de venta,
    *  contando solo movimientos posteriores a stock_inicial_date. Null si la

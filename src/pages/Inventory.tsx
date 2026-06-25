@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import { useModuleContext } from '@/hooks/useModuleContext';
@@ -14,6 +14,7 @@ import AddProductModal from '@/components/inventory/AddProductModal';
 import AdjustStockModal from '@/components/inventory/AdjustStockModal';
 import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import PhysicalCountModal from '@/components/inventory/PhysicalCountModal';
+import QrLabelsModal from '@/components/inventory/QrLabelsModal';
 import MaestroProductos from '@/components/inventory/MaestroProductos';
 import EntradaInventarioModal from '@/components/inventory/EntradaInventarioModal';
 import ManageSystemsModal from '@/components/inventory/ManageSystemsModal';
@@ -44,6 +45,7 @@ export default function Inventory() {
   const [showBulk, setShowBulk] = useState(false);
   const [showEntrada, setShowEntrada] = useState(false);
   const [showSystems, setShowSystems] = useState(false);
+  const [showQrLabels, setShowQrLabels] = useState(false);
   const [cuadreLoading, setCuadreLoading] = useState(false);
   // El modal de conteo físico persiste su estado abierto: si el usuario
   // está en medio del wizard (subiendo / mapeando / revisando el cruce) y
@@ -345,6 +347,32 @@ export default function Inventory() {
               </button>
               <button
                 type="button"
+                onClick={() => setShowQrLabels(true)}
+                title="Imprimir etiquetas QR por paquete para escanear en despacho y conteo"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 36,
+                  padding: '0 14px',
+                  borderRadius: 10,
+                  background: '#fff',
+                  border: '1.5px solid oklch(0.55 0.18 290 / 0.30)',
+                  color: 'oklch(0.50 0.18 290)',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'oklch(0.55 0.18 290 / 0.08)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+              >
+                <QrCode style={{ width: 14, height: 14 }} />
+                Etiquetas QR
+              </button>
+              <button
+                type="button"
                 onClick={handleSiigoSync}
                 disabled={siigoSyncing}
                 style={{
@@ -563,6 +591,7 @@ export default function Inventory() {
       />
       <EntradaInventarioModal open={showEntrada} onOpenChange={setShowEntrada} products={products} onSubmit={registerEntradaManual} />
       <PhysicalCountModal open={showPhysical} onOpenChange={setShowPhysical} onComplete={refetch} />
+      <QrLabelsModal open={showQrLabels} onOpenChange={setShowQrLabels} products={products} onSaved={refetch} />
       <AdjustStockModal
         open={!!adjustProduct}
         onOpenChange={(open) => { if (!open) setAdjustProduct(null); }}
