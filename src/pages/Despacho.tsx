@@ -7,7 +7,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useScannerGun } from '@/hooks/useScannerGun';
 import { parseScan, normalizeRef } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
-import AppLayout from '@/components/layout/AppLayout';
 import type { InventoryProduct } from '@/hooks/useInventoryData';
 import {
   fetchProductsByRefs, applyRemisionInventory, type RemisionItemInput,
@@ -323,7 +322,7 @@ export default function Despacho() {
   }
   if (mode === null) {
     return (
-      <AppLayout>
+      <>
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
           <div className="flex items-center gap-4 mb-6">
             <div className="h-11 w-11 rounded-xl bg-blue-600/10 flex items-center justify-center flex-shrink-0">
@@ -352,14 +351,14 @@ export default function Despacho() {
             <p className="text-xs text-amber-600 mt-4">Tenés un despacho libre en curso con {order.length} referencias — entrá a “Despacho nuevo” para continuar.</p>
           )}
         </div>
-      </AppLayout>
+      </>
     );
   }
 
   // ─────────────────────────── SETUP (despacho libre) ───────────────────────────
   if (step === 'setup') {
     return (
-      <AppLayout>
+      <>
         <div className="max-w-xl mx-auto px-4 sm:px-6 py-6">
           <button onClick={() => setMode(null)} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4">
             <ArrowLeft className="h-5 w-5" /> Volver
@@ -409,7 +408,7 @@ export default function Despacho() {
             )}
           </div>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -417,7 +416,7 @@ export default function Despacho() {
   const accent = flash?.kind === 'ok' ? 'green' : flash?.kind === 'warn' ? 'red' : 'idle';
 
   return (
-    <AppLayout>
+    <>
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-4">
         {/* Encabezado */}
         <div className="flex items-center justify-between gap-3">
@@ -578,6 +577,6 @@ export default function Despacho() {
           </DialogContent>
         </Dialog>
       </div>
-    </AppLayout>
+    </>
   );
 }

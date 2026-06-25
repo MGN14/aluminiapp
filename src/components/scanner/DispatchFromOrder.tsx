@@ -5,7 +5,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { normalizeRef } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
-import AppLayout from '@/components/layout/AppLayout';
 import GuidedPick, { type CompanyInfo } from '@/components/scanner/GuidedPick';
 import { ArrowLeft, Loader2, PackageCheck, ChevronRight, ClipboardList } from 'lucide-react';
 
@@ -61,7 +60,7 @@ export default function DispatchFromOrder({ company, onExit }: Props) {
   }
 
   return (
-    <AppLayout>
+    <>
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
         <div className="flex items-center justify-between gap-3 mb-6">
           <button onClick={onExit} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -111,6 +110,6 @@ export default function DispatchFromOrder({ company, onExit }: Props) {
           </div>
         )}
       </div>
-    </AppLayout>
+    </>
   );
 }

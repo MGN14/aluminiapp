@@ -8,7 +8,6 @@ import { useScannerGun } from '@/hooks/useScannerGun';
 import { parseScan, normalizeRef } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
 import { printRemisionToWindow } from '@/lib/printRemision';
-import AppLayout from '@/components/layout/AppLayout';
 import { buildPickPath, NO_LOC, type PickStep, type PickTask, type ProductRef, type Bin } from '@/lib/pickPath';
 import {
   ArrowLeft, ArrowRight, Check, Plus, Minus, ScanLine, Truck, AlertTriangle,
@@ -260,7 +259,7 @@ export default function GuidedPick({ remision, company, userId, toast, onBack, o
   };
 
   if (loadingP || loadingL) {
-    return <AppLayout><div className="flex items-center justify-center py-32"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div></AppLayout>;
+    return <div className="flex items-center justify-center py-32"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
   }
 
   const isLast = stepIdx >= steps.length - 1;
@@ -269,7 +268,7 @@ export default function GuidedPick({ remision, company, userId, toast, onBack, o
   const noLoc = step?.location === NO_LOC;
 
   return (
-    <AppLayout>
+    <>
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -374,6 +373,6 @@ export default function GuidedPick({ remision, company, userId, toast, onBack, o
           )}
         </div>
       </div>
-    </AppLayout>
+    </>
   );
 }

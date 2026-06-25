@@ -10,6 +10,7 @@ import { ModuleProvider, useModuleContext } from "@/hooks/useModuleContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
 import RequireModule from "@/components/RequireModule";
+import AppLayout from "@/components/layout/AppLayout";
 import RouteErrorBoundary from "@/components/RouteErrorBoundary";
 import SessionExpiredModal from "@/components/auth/SessionExpiredModal";
 import AuthDebugPanel from "@/components/auth/AuthDebugPanel";
@@ -332,10 +333,11 @@ const App = () => (
                 path="/remisiones"
                 element={<RequireModule moduleKey="remisiones"><Remisiones /></RequireModule>}
               />
-              {/* Estación de despacho (parte del módulo de remisiones) */}
+              {/* Estación de despacho (también es pestaña dentro de Remisiones).
+                  Despacho ya no envuelve AppLayout, así que acá lo proveemos. */}
               <Route
                 path="/despacho"
-                element={<RequireModule moduleKey="remisiones"><Despacho /></RequireModule>}
+                element={<RequireModule moduleKey="remisiones"><AppLayout><Despacho /></AppLayout></RequireModule>}
               />
               {/* Config del escaneo: etiquetas y ubicaciones — solo admin la configura */}
               <Route

@@ -9,13 +9,14 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Package, Eye, Trash2, Pencil, ArrowRightLeft, AlertTriangle, CheckCircle, AlertCircle, XCircle, Link, ArrowUp, ArrowDown, ArrowUpDown, Search } from 'lucide-react';
+import { Plus, Package, Eye, Trash2, Pencil, ArrowRightLeft, AlertTriangle, CheckCircle, AlertCircle, XCircle, Link, ArrowUp, ArrowDown, ArrowUpDown, Search, ClipboardList, Truck } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import NewRemisionModal from '@/components/remisiones/NewRemisionModal';
 import { usePersistedDialogOpen, usePersistedFormState } from '@/hooks/usePersistedFormState';
 import RemisionDetailModal from '@/components/remisiones/RemisionDetailModal';
+import Despacho from '@/pages/Despacho';
 import VincularFacturaModal from '@/components/remisiones/VincularFacturaModal';
 import VincularPagoRemisionModal from '@/components/remisiones/VincularPagoRemisionModal';
 import { reverseRemisionInventory } from '@/lib/remisionInventory';
@@ -127,6 +128,8 @@ export default function Remisiones() {
     'remisiones:filtros:v1',
     { search: '', statusFilter: 'all', typeFilter: 'all', sortBy: 'date', sortDir: 'desc' },
   );
+  // Pestañas del módulo: Remisiones (lista) | Estación de despacho.
+  const [modTab, setModTab] = usePersistedFormState<'remisiones' | 'despacho'>('remisiones:modtab:v1', 'remisiones');
   const search = filters.search;
   const setSearch = (v: string) => setFilters((f) => ({ ...f, search: v }));
   const statusFilter = filters.statusFilter;
@@ -306,7 +309,22 @@ export default function Remisiones() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit mb-5">
+        <button
+          onClick={() => setModTab('remisiones')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${modTab === 'remisiones' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <ClipboardList className="h-4 w-4" /> Remisiones
+        </button>
+        <button
+          onClick={() => setModTab('despacho')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${modTab === 'despacho' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <Truck className="h-4 w-4" /> Estación de despacho
+        </button>
+      </div>
+      {modTab === 'despacho' && <Despacho />}
+      <div className="space-y-6" style={{ display: modTab === 'remisiones' ? undefined : 'none' }}>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Remisiones</h1>
