@@ -11,7 +11,7 @@ import { printRemisionToWindow } from '@/lib/printRemision';
 import AppLayout from '@/components/layout/AppLayout';
 import {
   ArrowLeft, Check, Plus, Minus, ScanLine, Truck, AlertTriangle, X,
-  PackageCheck, Loader2, ChevronRight, RadioTower, ClipboardList,
+  PackageCheck, Loader2, ChevronRight, RadioTower, ClipboardList, Undo2, User,
 } from 'lucide-react';
 
 export interface CompanyInfo {
@@ -141,6 +141,7 @@ interface ValidateProps {
 
 function ValidateOrder({ remision, company, userId, toast, onBack, onDispatched }: ValidateProps) {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const lines: Line[] = useMemo(() => {
     const map = new Map<string, Line>();
@@ -162,6 +163,7 @@ function ValidateOrder({ remision, company, userId, toast, onBack, onDispatched 
   const [extras, setExtras] = useState<{ reference: string; quantity: number }[]>([]);
   const [flash, setFlash] = useState<{ kind: 'ok' | 'warn' | 'over'; text: string } | null>(null);
   const [lastKey, setLastKey] = useState<string | null>(null);
+  const [lastScan, setLastScan] = useState<{ key: string; qty: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const flashTimer = useRef<number | null>(null);
   const lastKeyTimer = useRef<number | null>(null);
@@ -192,6 +194,7 @@ function ValidateOrder({ remision, company, userId, toast, onBack, onDispatched 
         return { ...prev, [key]: nextVal };
       });
       setLastKey(key);
+      setLastScan({ key, qty: parsed.quantity });
       if (lastKeyTimer.current) window.clearTimeout(lastKeyTimer.current);
       lastKeyTimer.current = window.setTimeout(() => setLastKey(null), 1200);
     } else {
@@ -205,6 +208,15 @@ function ValidateOrder({ remision, company, userId, toast, onBack, onDispatched 
 
   const adjust = (key: string, delta: number) => setScanned(prev => ({ ...prev, [key]: Math.max(0, (prev[key] || 0) + delta) }));
   const complete = (key: string) => setScanned(prev => ({ ...prev, [key]: expectedByKey.get(key) || 0 }));
+
+  const undoLast = () => {
+    if (!lastScan) return;
+    const { key, qty } = lastScan;
+    setScanned(prev => ({ ...prev, [key]: Math.max(0, (prev[key] || 0) - qty) }));
+    setLastScan(null);
+    flashMsg('warn', `Deshecho: ${key} −${qty}`);
+    beep('warn');
+  };
 
   const doneCount = lines.filter(l => (scanned[l.key] || 0) >= l.expected).length;
   const allComplete = lines.length > 0 && doneCount === lines.length;
@@ -278,8 +290,21 @@ function ValidateOrder({ remision, company, userId, toast, onBack, onDispatched 
             {accent === 'green' ? <Check className="h-5 w-5" /> : accent === 'idle' ? <RadioTower className="h-5 w-5 animate-pulse" /> : <AlertTriangle className="h-5 w-5" />}
           </div>
           <span className="font-semibold truncate">{flash ? flash.text : 'Escaneá los paquetes del pedido…'}</span>
-          <ScanLine className="h-5 w-5 text-slate-300 ml-auto flex-shrink-0 hidden sm:block" />
+          <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+            {lastScan && (
+              <button onClick={undoLast} className="h-8 px-2.5 rounded-lg border bg-white text-xs font-semibold inline-flex items-center gap-1 hover:bg-slate-50">
+                <Undo2 className="h-3.5 w-3.5" /> Deshacer
+              </button>
+            )}
+            <ScanLine className="h-5 w-5 text-slate-300 hidden sm:block" />
+          </div>
         </div>
+
+        {user?.email && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground -mt-1">
+            <User className="h-3.5 w-3.5" /> Operario: <span className="font-medium text-foreground">{user.email}</span>
+          </div>
+        )}
 
         <div className="space-y-2.5">
           {lines.map(l => {

@@ -2,13 +2,14 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import { useScannerGun } from '@/hooks/useScannerGun';
 import { parseScan, normalizeRef } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
 import { supabase } from '@/integrations/supabase/client';
 import type { InventoryProduct } from '@/hooks/useInventoryData';
 import {
-  ScanLine, Check, Plus, Minus, Trash2, AlertTriangle, Loader2, Save, Eraser, RadioTower,
+  ScanLine, Check, Plus, Minus, Trash2, AlertTriangle, Loader2, Save, Eraser, RadioTower, Undo2, User,
 } from 'lucide-react';
 
 interface Props { products: InventoryProduct[]; }
@@ -18,6 +19,7 @@ const STORAGE_KEY = 'conteo:session:v1';
 
 export default function ConteoFisicoPanel({ products }: Props) {
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const productByRef = useMemo(() => {
     const m = new Map<string, InventoryProduct>();
@@ -36,6 +38,7 @@ export default function ConteoFisicoPanel({ products }: Props) {
   const [manualRef, setManualRef] = useState('');
   const [manualQty, setManualQty] = useState(1);
   const [lastKey, setLastKey] = useState<string | null>(null);
+  const [lastScan, setLastScan] = useState<{ key: string; qty: number } | null>(null);
   const flashTimer = useRef<number | null>(null);
   const lastKeyTimer = useRef<number | null>(null);
 
@@ -75,11 +78,29 @@ export default function ConteoFisicoPanel({ products }: Props) {
     setOrder(prev => prev.includes(key) ? prev : [key, ...prev]);
     // Resaltar la fila recién escaneada ~1.2s para que el update en vivo se vea.
     setLastKey(key);
+    setLastScan({ key, qty });
     if (lastKeyTimer.current) window.clearTimeout(lastKeyTimer.current);
     lastKeyTimer.current = window.setTimeout(() => setLastKey(null), 1200);
     if (prod) { flashMsg('ok', `${displayRef}  +${qty}`, prod.name); beep('ok'); }
     else { flashMsg('warn', displayRef, 'Sin match en inventario — no se guardará'); beep('warn'); }
   }, [productByRef, flashMsg]);
+
+  // Deshacer el último escaneo (resta exactamente la cantidad que sumó).
+  const undoLast = () => {
+    if (!lastScan) return;
+    const { key, qty } = lastScan;
+    const cur = counts[key]?.quantity || 0;
+    const nv = Math.max(0, cur - qty);
+    setCounts(prev => {
+      const n = { ...prev };
+      if (nv === 0) delete n[key]; else n[key] = { ...n[key], quantity: nv };
+      return n;
+    });
+    if (nv === 0) setOrder(prev => prev.filter(k => k !== key));
+    setLastScan(null);
+    flashMsg('warn', 'Último escaneo deshecho', `${lastScan.key} −${qty}`);
+    beep('warn');
+  };
 
   const handleScan = useCallback((raw: string) => {
     const parsed = parseScan(raw);
@@ -197,8 +218,21 @@ export default function ConteoFisicoPanel({ products }: Props) {
             </>
           )}
         </div>
-        <ScanLine className="h-6 w-6 text-slate-300 flex-shrink-0 hidden sm:block" />
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {lastScan && (
+            <button onClick={undoLast} className="h-9 px-3 rounded-xl border bg-white text-xs font-semibold inline-flex items-center gap-1 hover:bg-slate-50">
+              <Undo2 className="h-4 w-4" /> Deshacer
+            </button>
+          )}
+          <ScanLine className="h-6 w-6 text-slate-300 hidden sm:block" />
+        </div>
       </div>
+
+      {user?.email && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground -mt-2">
+          <User className="h-3.5 w-3.5" /> Operario: <span className="font-medium text-foreground">{user.email}</span>
+        </div>
+      )}
 
       {/* Stats + acciones */}
       <div className="flex items-center gap-3 flex-wrap">

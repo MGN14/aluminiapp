@@ -16,9 +16,10 @@ import { useDataOwner } from '@/hooks/useDataOwner';
 import { printRemisionToWindow } from '@/lib/printRemision';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Truck, Check, Plus, Minus, ScanLine, AlertTriangle, RadioTower, Loader2,
-  ArrowLeft, Trash2, UserPlus, MapPin, FileCheck, ClipboardList,
+  ArrowLeft, Trash2, UserPlus, MapPin, FileCheck, ClipboardList, Undo2, User,
 } from 'lucide-react';
 import DispatchFromOrder from '@/components/scanner/DispatchFromOrder';
 
@@ -43,6 +44,8 @@ export default function Despacho() {
   const [order, setOrder] = useState<string[]>([]);
   const [flash, setFlash] = useState<{ kind: 'ok' | 'warn'; text: string; sub?: string } | null>(null);
   const [lastKey, setLastKey] = useState<string | null>(null);
+  const [lastScan, setLastScan] = useState<{ key: string; qty: number } | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [manualRef, setManualRef] = useState('');
   const [manualQty, setManualQty] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -134,6 +137,7 @@ export default function Despacho() {
     setScanned(prev => ({ ...prev, [key]: { reference: displayRef, quantity: (prev[key]?.quantity || 0) + qty } }));
     setOrder(prev => prev.includes(key) ? prev : [key, ...prev]);
     setLastKey(key);
+    setLastScan({ key, qty });
     if (lastKeyTimer.current) window.clearTimeout(lastKeyTimer.current);
     lastKeyTimer.current = window.setTimeout(() => setLastKey(null), 1200);
     if (prod) { flashMsg('ok', `${displayRef}  +${qty}`, prod.name || undefined); beep('ok'); }
@@ -157,6 +161,22 @@ export default function Despacho() {
   const removeKey = (key: string) => {
     setScanned(prev => { const n = { ...prev }; delete n[key]; return n; });
     setOrder(prev => prev.filter(k => k !== key));
+  };
+
+  const undoLast = () => {
+    if (!lastScan) return;
+    const { key, qty } = lastScan;
+    const cur = scanned[key]?.quantity || 0;
+    const nv = Math.max(0, cur - qty);
+    setScanned(prev => {
+      const n = { ...prev };
+      if (nv === 0) delete n[key]; else n[key] = { ...n[key], quantity: nv };
+      return n;
+    });
+    if (nv === 0) setOrder(prev => prev.filter(k => k !== key));
+    setLastScan(null);
+    flashMsg('warn', 'Último escaneo deshecho', `${lastScan.key} −${qty}`);
+    beep('warn');
   };
 
   const handleManualAdd = (e: React.FormEvent) => {
@@ -410,6 +430,12 @@ export default function Despacho() {
           </div>
         </div>
 
+        {user?.email && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <User className="h-3.5 w-3.5" /> Operario: <span className="font-medium text-foreground">{user.email}</span>
+          </div>
+        )}
+
         {/* Tarjeta de escaneo */}
         <div className={`rounded-2xl border-2 px-5 py-4 flex items-center gap-4 transition-colors ${
           accent === 'green' ? 'border-emerald-400 bg-emerald-50/40'
@@ -434,7 +460,14 @@ export default function Despacho() {
               </>
             )}
           </div>
-          <ScanLine className="h-6 w-6 text-slate-300 flex-shrink-0 hidden sm:block" />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {lastScan && (
+              <button onClick={undoLast} className="h-9 px-3 rounded-xl border bg-white text-xs font-semibold inline-flex items-center gap-1 hover:bg-slate-50">
+                <Undo2 className="h-4 w-4" /> Deshacer
+              </button>
+            )}
+            <ScanLine className="h-6 w-6 text-slate-300 hidden sm:block" />
+          </div>
         </div>
 
         {/* Carga manual */}
@@ -495,7 +528,7 @@ export default function Despacho() {
             <span className="font-semibold text-foreground tabular-nums">{order.length}</span> ref · <span className="font-semibold text-foreground tabular-nums">{totalUnits}</span> und
           </div>
           <button
-            onClick={generarRemision}
+            onClick={() => setShowConfirm(true)}
             disabled={saving || order.length === 0}
             className="h-12 px-6 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-bold flex items-center gap-2 active:scale-[0.98] disabled:opacity-50"
           >
@@ -503,6 +536,47 @@ export default function Despacho() {
             Generar remisión
           </button>
         </div>
+
+        {/* Pantalla de revisión antes de generar (acción irreversible) */}
+        <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader><DialogTitle className="text-base">Revisar despacho</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div className="text-sm">
+                <span className="text-muted-foreground">Cliente: </span>
+                <span className="font-semibold">{beneficiary || 'Sin cliente'}</span>
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-center">
+                  <div className="text-xl font-extrabold tabular-nums">{order.length}</div>
+                  <div className="text-xs text-muted-foreground">referencias</div>
+                </div>
+                <div className="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-center">
+                  <div className="text-xl font-extrabold tabular-nums">{totalUnits}</div>
+                  <div className="text-xs text-muted-foreground">unidades</div>
+                </div>
+              </div>
+              <div className="max-h-48 overflow-auto rounded-xl border divide-y">
+                {order.map(k => {
+                  const line = scanned[k]; if (!line) return null;
+                  return (
+                    <div key={k} className="flex items-center justify-between px-3 py-1.5 text-sm">
+                      <span className="font-medium truncate">{line.reference}</span>
+                      <span className="font-mono tabular-nums">{line.quantity}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => { setShowConfirm(false); generarRemision(); }}
+                disabled={saving}
+                className="w-full h-11 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                <FileCheck className="h-5 w-5" /> Generar remisión e imprimir
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
