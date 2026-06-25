@@ -17,14 +17,20 @@ export interface ScannedLabel {
   reference: string;
   quantity: number;
   location?: string;
+  /** Serial único del bulto (LPN). Presente solo en etiquetas serializadas. */
+  serial?: string;
 }
 
 /** Construye el contenido del QR para una etiqueta de paquete. */
-export function encodeLabelPayload(reference: string, quantity: number, location?: string): string {
+export function encodeLabelPayload(reference: string, quantity: number, location?: string, serial?: string): string {
   const ref = reference.trim().replace(/\|/g, '/');
   const qty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
   const loc = (location ?? '').trim().replace(/\|/g, '/');
-  return loc ? `${QR_PREFIX}|${ref}|${qty}|${loc}` : `${QR_PREFIX}|${ref}|${qty}`;
+  const ser = (serial ?? '').trim().replace(/\|/g, '/');
+  let payload = `${QR_PREFIX}|${ref}|${qty}`;
+  if (loc || ser) payload += `|${loc}`;   // la ubicación queda en posición fija (puede ir vacía)
+  if (ser) payload += `|${ser}`;
+  return payload;
 }
 
 /**
@@ -43,6 +49,7 @@ export function parseScan(raw: string): ScannedLabel | null {
   let reference: string;
   let quantity = 1;
   let location: string | undefined;
+  let serial: string | undefined;
 
   if (parts[0] === QR_PREFIX) {
     reference = (parts[1] ?? '').trim();
@@ -50,6 +57,8 @@ export function parseScan(raw: string): ScannedLabel | null {
     if (q != null) quantity = q;
     const loc = (parts[3] ?? '').trim();
     if (loc) location = loc;
+    const ser = (parts[4] ?? '').trim();
+    if (ser) serial = ser;
   } else if (parts.length >= 2 && parts[0].trim()) {
     // "ref|qty" sin prefijo — tolerante por si una etiqueta vieja no lo trae.
     reference = parts[0].trim();
@@ -60,7 +69,7 @@ export function parseScan(raw: string): ScannedLabel | null {
   }
 
   if (!reference) return null;
-  return { reference, quantity, location };
+  return { reference, quantity, location, serial };
 }
 
 function toQty(v: string | undefined): number | null {

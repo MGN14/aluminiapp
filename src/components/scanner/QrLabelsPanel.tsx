@@ -137,39 +137,61 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
     onSaved?.();
   };
 
+  // Genera las filas de etiquetas YA serializadas: reserva N serials (uno por
+  // etiqueta) y arma una fila por etiqueta con su serial único (LPN). Si la
+  // reserva de serials falla, imprime igual sin serial (no rompe el flujo).
+  const buildSerializedRows = async (p: InventoryProduct): Promise<LabelRow[]> => {
+    const groups = groupsOf(p).filter(g => (g.count || 0) > 0 && (g.size || 0) > 0);
+    const total = groups.reduce((s, g) => s + g.count, 0);
+    if (total === 0) return [];
+    let serials: (string | undefined)[] = new Array(total).fill(undefined);
+    try {
+      const { data, error } = await (supabase.rpc as any)('allocate_label_seq', { p_product_id: p.id, p_count: total });
+      if (!error && Number.isFinite(Number(data))) {
+        const start = Number(data) - total + 1;
+        serials = Array.from({ length: total }, (_, i) => `${p.reference}-${String(start + i).padStart(4, '0')}`);
+      }
+    } catch { /* sin serial: igual imprime */ }
+    const rows: LabelRow[] = [];
+    let si = 0;
+    for (const g of groups) {
+      for (let c = 0; c < g.count; c++) {
+        rows.push({ reference: p.reference, name: p.name, system: p.system ?? null, quantity: g.size, copies: 1, location: locOf(p), serial: serials[si++] });
+      }
+    }
+    return rows;
+  };
+
   const printOne = async (p: InventoryProduct) => {
-    const rows = buildRows(p);
-    if (rows.length === 0) { toast({ title: 'Definí al menos un paquete', variant: 'destructive' }); return; }
+    const groups = groupsOf(p);
+    const labels = labelCount(groups);
+    if (labels === 0) { toast({ title: 'Definí al menos un paquete', variant: 'destructive' }); return; }
     // El etiquetado debe cuadrar con el físico contado (físico vs etiquetado).
     const phys = Math.round(Number(p.stock_physical) || 0);
-    const alloc = allocated(groupsOf(p));
-    if (alloc !== phys) {
-      const ok = window.confirm(
-        `Estás etiquetando ${alloc} unidades pero el físico contado de ${p.reference} es ${phys}. Deberían coincidir. ¿Imprimir igual?`,
-      );
-      if (!ok) return;
-    }
+    const alloc = allocated(groups);
+    if (alloc !== phys && !window.confirm(`Estás etiquetando ${alloc} unidades pero el físico contado de ${p.reference} es ${phys}. Deberían coincidir. ¿Imprimir igual?`)) return;
     setPrinting(true);
     try {
+      const rows = await buildSerializedRows(p);
       await printQrLabels(rows);
-      await persistUpp([{ id: p.id, size: dominantSize(groupsOf(p)) }]);
+      await persistUpp([{ id: p.id, size: dominantSize(groups) }]);
     } catch (e: any) {
       toast({ title: 'No se pudo imprimir', description: e.message, variant: 'destructive' });
     } finally { setPrinting(false); }
   };
 
   const printAll = async () => {
-    const rows: LabelRow[] = [];
-    const upp: { id: string; size: number }[] = [];
-    for (const p of labelable) {
-      const r = buildRows(p);
-      if (r.length > 0) { rows.push(...r); upp.push({ id: p.id, size: dominantSize(groupsOf(p)) }); }
-    }
-    if (rows.length === 0) { toast({ title: 'No hay paquetes para imprimir', variant: 'destructive' }); return; }
-    const total = rows.reduce((s, r) => s + r.copies, 0);
-    if (!window.confirm(`Vas a imprimir ${total} etiquetas de ${upp.length} referencias. ¿Continuar?`)) return;
+    if (totalLabelsAll === 0) { toast({ title: 'No hay paquetes para imprimir', variant: 'destructive' }); return; }
+    if (!window.confirm(`Vas a imprimir ${totalLabelsAll} etiquetas. ¿Continuar?`)) return;
     setPrinting(true);
     try {
+      const rows: LabelRow[] = [];
+      const upp: { id: string; size: number }[] = [];
+      for (const p of labelable) {
+        const r = await buildSerializedRows(p);
+        if (r.length > 0) { rows.push(...r); upp.push({ id: p.id, size: dominantSize(groupsOf(p)) }); }
+      }
+      if (rows.length === 0) { setPrinting(false); return; }
       await printQrLabels(rows);
       await persistUpp(upp);
     } catch (e: any) {

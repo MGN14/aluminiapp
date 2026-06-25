@@ -11,6 +11,8 @@ export interface LabelRow {
   copies: number;
   /** Ubicación física en bodega (ej: A1). Va en el QR y visible en la etiqueta. */
   location?: string | null;
+  /** Serial único del bulto (LPN). Si está, cada etiqueta es única. */
+  serial?: string | null;
 }
 
 function escapeHtml(s: string): string {
@@ -46,7 +48,8 @@ const LABEL_CSS = `
   .qty { font-size: 5.2mm; font-weight: 800; }
   .sys { font-size: 2.9mm; font-weight: 700; background: #111; color: #fff; padding: 0.6mm 2mm; border-radius: 1.5mm; }
   .loc { font-size: 4.4mm; font-weight: 800; border: 0.5mm solid #000; padding: 0.4mm 2mm; border-radius: 1.5mm; letter-spacing: 0.3px; }
-  .brand { font-size: 2.5mm; color: #999; letter-spacing: 0.6px; margin-top: 1.5mm; text-transform: uppercase; }
+  .serial { font-size: 3mm; font-weight: 700; color: #222; margin-top: 1.2mm; font-family: 'Courier New', monospace; letter-spacing: 0.3px; }
+  .brand { font-size: 2.5mm; color: #999; letter-spacing: 0.6px; margin-top: 1mm; text-transform: uppercase; }
 `;
 
 /** Genera el HTML imprimible (una etiqueta por página) con los QR ya embebidos. */
@@ -56,7 +59,8 @@ export async function buildLabelsHtml(rows: LabelRow[]): Promise<string> {
     const copies = Math.max(1, Math.floor(row.copies || 1));
     const qty = row.quantity > 0 ? row.quantity : 1;
     const loc = (row.location ?? '').trim();
-    const payload = encodeLabelPayload(row.reference, qty, loc);
+    const ser = (row.serial ?? '').trim();
+    const payload = encodeLabelPayload(row.reference, qty, loc, ser);
     // errorCorrection M + margen 0: QR nítido y compacto para el lector.
     const svg = await QRCode.toString(payload, { type: 'svg', errorCorrectionLevel: 'M', margin: 0 });
     const sys = (row.system ?? '').trim();
@@ -71,6 +75,7 @@ export async function buildLabelsHtml(rows: LabelRow[]): Promise<string> {
             ${loc ? `<span class="loc">${escapeHtml(loc)}</span>` : ''}
             ${sys ? `<span class="sys">${escapeHtml(sys)}</span>` : ''}
           </div>
+          ${ser ? `<div class="serial">${escapeHtml(ser)}</div>` : ''}
           <div class="brand">AluminIA</div>
         </div>
       </div>`;
