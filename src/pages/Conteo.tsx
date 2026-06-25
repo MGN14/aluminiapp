@@ -68,7 +68,7 @@ export default function Conteo() {
 
         {tab === 'conteo' && <ConteoFisicoPanel products={products} />}
         {tab === 'etiquetas' && <QrLabelsPanel products={products} onSaved={refetch} />}
-        {tab === 'ubicaciones' && <UbicacionesPanel products={products} />}
+        {tab === 'ubicaciones' && <UbicacionesPanel products={products} onSaved={refetch} />}
       </div>
     </AppLayout>
   );

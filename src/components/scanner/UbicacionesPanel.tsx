@@ -7,17 +7,21 @@ import { supabase } from '@/integrations/supabase/client';
 import type { InventoryProduct } from '@/hooks/useInventoryData';
 import { MapPin, Plus, Trash2, Search, ChevronDown, ChevronRight, Check, Loader2, Save } from 'lucide-react';
 
-interface Props { products: InventoryProduct[]; }
+interface Props { products: InventoryProduct[]; onSaved?: () => void; }
 interface BinRow { location: string; quantity: number; }
 interface LocRow { product_id: string; location: string; quantity: number; created_at: string | null; }
 
-export default function UbicacionesPanel({ products }: Props) {
+export default function UbicacionesPanel({ products, onSaved }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [edited, setEdited] = useState<Record<string, BinRow[]>>({});
+  const [uppEdit, setUppEdit] = useState<Record<string, number>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+
+  const uppOf = (p: InventoryProduct): number =>
+    uppEdit[p.id] !== undefined ? uppEdit[p.id] : (Number(p.units_per_package) || 0);
 
   const { data: locs = [], refetch } = useQuery({
     queryKey: ['inventory-locations', user?.id],
@@ -91,9 +95,16 @@ export default function UbicacionesPanel({ products }: Props) {
         const { error: insErr } = await (supabase as any).from('inventory_locations').insert(toInsert);
         if (insErr) throw insErr;
       }
+      // Guardar también la unidad de empaque estándar de la referencia.
+      const upp = uppEdit[p.id];
+      if (upp != null && upp > 0 && upp !== (Number(p.units_per_package) || 0)) {
+        await supabase.from('inventory_products').update({ units_per_package: upp } as never).eq('id', p.id);
+        onSaved?.();
+      }
       await refetch();
       setEdited(prev => { const n = { ...prev }; delete n[p.id]; return n; });
-      toast({ title: `Ubicaciones de ${p.reference} guardadas` });
+      setUppEdit(prev => { const n = { ...prev }; delete n[p.id]; return n; });
+      toast({ title: `${p.reference} guardada` });
     } catch (e: any) {
       toast({ title: 'No se pudo guardar', description: e.message, variant: 'destructive' });
     } finally {
@@ -153,6 +164,13 @@ export default function UbicacionesPanel({ products }: Props) {
 
               {isOpen && (
                 <div className="border-t px-4 py-3 bg-slate-50/60 space-y-3">
+                  {/* Unidad de empaque estándar (configurada por referencia) */}
+                  <div className="flex items-center gap-2 text-sm bg-white border rounded-xl px-3 py-2 flex-wrap">
+                    <span className="text-muted-foreground">Unidad de empaque:</span>
+                    <Input type="number" min={1} value={uppOf(p) || ''} onChange={e => setUppEdit(prev => ({ ...prev, [p.id]: +e.target.value }))} className="h-8 w-20 text-center font-mono" aria-label="Unidad de empaque" />
+                    <span className="text-muted-foreground">und/paquete</span>
+                    <span className="text-xs text-muted-foreground ml-auto">arma las etiquetas solo (ej: físico 90 → 2×40 + 1×10)</span>
+                  </div>
                   <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" /> Ubicaciones (bins) y cantidad</div>
                   <div className="space-y-2">
                     {bins.map((b, i) => (
