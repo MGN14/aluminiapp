@@ -9,6 +9,8 @@ export interface LabelRow {
   quantity: number;
   /** Cuántas etiquetas idénticas imprimir de esta fila. */
   copies: number;
+  /** Ubicación física en bodega (ej: A1). Va en el QR y visible en la etiqueta. */
+  location?: string | null;
 }
 
 function escapeHtml(s: string): string {
@@ -43,6 +45,7 @@ const LABEL_CSS = `
   .meta { display: flex; align-items: center; gap: 2.5mm; margin-top: 2mm; }
   .qty { font-size: 5.2mm; font-weight: 800; }
   .sys { font-size: 2.9mm; font-weight: 700; background: #111; color: #fff; padding: 0.6mm 2mm; border-radius: 1.5mm; }
+  .loc { font-size: 4.4mm; font-weight: 800; border: 0.5mm solid #000; padding: 0.4mm 2mm; border-radius: 1.5mm; letter-spacing: 0.3px; }
   .brand { font-size: 2.5mm; color: #999; letter-spacing: 0.6px; margin-top: 1.5mm; text-transform: uppercase; }
 `;
 
@@ -52,7 +55,8 @@ export async function buildLabelsHtml(rows: LabelRow[]): Promise<string> {
   for (const row of rows) {
     const copies = Math.max(1, Math.floor(row.copies || 1));
     const qty = row.quantity > 0 ? row.quantity : 1;
-    const payload = encodeLabelPayload(row.reference, qty);
+    const loc = (row.location ?? '').trim();
+    const payload = encodeLabelPayload(row.reference, qty, loc);
     // errorCorrection M + margen 0: QR nítido y compacto para el lector.
     const svg = await QRCode.toString(payload, { type: 'svg', errorCorrectionLevel: 'M', margin: 0 });
     const sys = (row.system ?? '').trim();
@@ -64,6 +68,7 @@ export async function buildLabelsHtml(rows: LabelRow[]): Promise<string> {
           ${row.name ? `<div class="name">${escapeHtml(row.name)}</div>` : ''}
           <div class="meta">
             <span class="qty">x${qty} und</span>
+            ${loc ? `<span class="loc">${escapeHtml(loc)}</span>` : ''}
             ${sys ? `<span class="sys">${escapeHtml(sys)}</span>` : ''}
           </div>
           <div class="brand">AluminIA</div>

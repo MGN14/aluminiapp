@@ -7,7 +7,7 @@ import type { InventoryProduct } from '@/hooks/useInventoryData';
 import { encodeLabelPayload, normalizeRef } from '@/lib/qrLabel';
 import { printQrLabels, type LabelRow } from '@/lib/printQrLabels';
 import {
-  Printer, Plus, Trash2, Search, ChevronDown, ChevronRight, Check, AlertTriangle, Layers,
+  Printer, Plus, Trash2, Search, ChevronDown, ChevronRight, Check, AlertTriangle, Layers, MapPin,
 } from 'lucide-react';
 
 interface Props {
@@ -42,6 +42,7 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [packaging, setPackaging] = useState<Record<string, PackageGroup[]>>({});
+  const [locationOverride, setLocationOverride] = useState<Record<string, string>>({});
   const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
@@ -81,6 +82,25 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
   const setGroups = (p: InventoryProduct, gs: PackageGroup[]) =>
     setPackaging(prev => ({ ...prev, [normalizeRef(p.reference)]: gs }));
 
+  // Ubicación efectiva (lo editado localmente, o lo guardado en el producto).
+  const locOf = (p: InventoryProduct): string => {
+    const k = normalizeRef(p.reference);
+    return locationOverride[k] !== undefined ? locationOverride[k] : (p.location ?? '');
+  };
+
+  const persistLocation = async (p: InventoryProduct) => {
+    const k = normalizeRef(p.reference);
+    if (locationOverride[k] === undefined) return; // no se tocó
+    const val = locationOverride[k].trim().toUpperCase();
+    if (val === (p.location ?? '').trim().toUpperCase()) return; // sin cambio real
+    try {
+      await supabase.from('inventory_products').update({ location: val || null } as never).eq('id', p.id);
+      onSaved?.();
+    } catch (e: any) {
+      toast({ title: 'No se pudo guardar la ubicación', description: e.message, variant: 'destructive' });
+    }
+  };
+
   const toggleExpand = (p: InventoryProduct) => {
     const k = normalizeRef(p.reference);
     if (expanded === k) { setExpanded(null); return; }
@@ -107,7 +127,7 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
   const buildRows = (p: InventoryProduct): LabelRow[] =>
     groupsOf(p)
       .filter(g => (g.count || 0) > 0 && (g.size || 0) > 0)
-      .map(g => ({ reference: p.reference, name: p.name, system: p.system ?? null, quantity: g.size, copies: g.count }));
+      .map(g => ({ reference: p.reference, name: p.name, system: p.system ?? null, quantity: g.size, copies: g.count, location: locOf(p) }));
 
   const persistUpp = async (entries: { id: string; size: number }[]) => {
     const valid = entries.filter(e => e.size > 0);
@@ -200,26 +220,39 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
 
           return (
             <div key={k} className="bg-white border rounded-2xl overflow-hidden">
-              {/* Header de la referencia (click para empaquetar) */}
-              <button onClick={() => toggleExpand(p)} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50">
-                {isOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-base">{p.reference}</span>
-                    {p.system && <span className="text-[10px] font-bold uppercase tracking-wide bg-slate-900 text-white px-1.5 py-0.5 rounded">{p.system}</span>}
+              {/* Header de la referencia */}
+              <div className="px-4 py-3 flex items-center gap-3">
+                <button onClick={() => toggleExpand(p)} className="flex items-center gap-3 min-w-0 flex-1 text-left">
+                  {isOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-base">{p.reference}</span>
+                      {p.system && <span className="text-[10px] font-bold uppercase tracking-wide bg-slate-900 text-white px-1.5 py-0.5 rounded">{p.system}</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">{p.name || 'Sin descripción'}</div>
                   </div>
-                  <div className="text-xs text-muted-foreground truncate">{p.name || 'Sin descripción'}</div>
-                </div>
-                {/* Físico vs lo que debería haber (Siigo) */}
-                <div className="text-right hidden sm:block">
-                  <div className="text-lg font-extrabold tabular-nums leading-none">{phys} <span className="text-xs font-medium text-muted-foreground">und</span></div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Siigo {sys}{diff !== 0 && <span className={diff > 0 ? 'text-blue-600 font-semibold' : 'text-red-600 font-semibold'}> · {diff > 0 ? `+${diff}` : diff}</span>}
+                  {/* Físico vs lo que debería haber (Siigo) */}
+                  <div className="text-right hidden sm:block">
+                    <div className="text-lg font-extrabold tabular-nums leading-none">{phys} <span className="text-xs font-medium text-muted-foreground">und</span></div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Siigo {sys}{diff !== 0 && <span className={diff > 0 ? 'text-blue-600 font-semibold' : 'text-red-600 font-semibold'}> · {diff > 0 ? `+${diff}` : diff}</span>}
+                    </div>
                   </div>
+                  <CoverageBadge remaining={remaining} labels={labels} />
+                </button>
+                {/* Ubicación editable — va en el QR y se imprime en la etiqueta */}
+                <div className="flex items-center gap-1 flex-shrink-0" title="Ubicación en bodega (ej: A1). Va dentro del QR y en la etiqueta.">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <input
+                    value={locOf(p)}
+                    onChange={e => setLocationOverride(prev => ({ ...prev, [k]: e.target.value }))}
+                    onBlur={() => persistLocation(p)}
+                    placeholder="Ubic."
+                    className="h-9 w-16 text-center text-sm font-mono font-bold uppercase border rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    aria-label={`Ubicación de ${p.reference}`}
+                  />
                 </div>
-                {/* Estado del empaquetado */}
-                <CoverageBadge remaining={remaining} labels={labels} />
-              </button>
+              </div>
 
               {/* Editor de empaquetado */}
               {isOpen && (
@@ -244,7 +277,7 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
                         />
                         <span className="text-sm text-muted-foreground">und</span>
                         <span className="text-sm font-semibold tabular-nums ml-1">= {(g.count || 0) * (g.size || 0)}</span>
-                        <QrThumb reference={p.reference} size={g.size || 0} />
+                        <QrThumb reference={p.reference} size={g.size || 0} location={locOf(p)} />
                         <button
                           onClick={() => setGroups(p, groups.filter((_, j) => j !== i))}
                           className="ml-auto text-muted-foreground hover:text-red-500" aria-label="Quitar paquete"
@@ -318,10 +351,10 @@ function CoverageBadge({ remaining, labels }: { remaining: number; labels: numbe
   return <span className={`text-[11px] font-bold px-2 py-1 rounded-lg flex-shrink-0 ${cls}`}>{remaining > 0 ? `faltan ${remaining}` : `sobran ${-remaining}`}</span>;
 }
 
-// Miniatura del QR específico de un paquete (referencia + cantidad horneada).
-function QrThumb({ reference, size }: { reference: string; size: number }) {
+// Miniatura del QR específico de un paquete (referencia + cantidad + ubicación).
+function QrThumb({ reference, size, location }: { reference: string; size: number; location?: string }) {
   const [svg, setSvg] = useState('');
-  const payload = encodeLabelPayload(reference, size > 0 ? size : 1);
+  const payload = encodeLabelPayload(reference, size > 0 ? size : 1, location);
   useEffect(() => {
     let active = true;
     QRCode.toString(payload, { type: 'svg', errorCorrectionLevel: 'M', margin: 0 })
