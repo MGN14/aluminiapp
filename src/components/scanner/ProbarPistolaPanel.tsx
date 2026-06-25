@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import QRCode from 'qrcode';
+import JsBarcode from 'jsbarcode';
 import { useScannerGun } from '@/hooks/useScannerGun';
 import { parseScan, encodeLabelPayload, type ScannedLabel } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
@@ -11,6 +12,9 @@ const DEMOS = [
   { label: 'Sin serial', payload: encodeLabelPayload('744-100', 6, 'B4') },
   { label: 'Solo referencia + cantidad', payload: encodeLabelPayload('8025-300', 12) },
 ];
+
+// Códigos de barras 1D (Code128) para probar pistolas láser que NO leen QR.
+const BARCODES = ['744-100', 'ALU|744-100|6', 'SA325B-0042'];
 
 export default function ProbarPistolaPanel() {
   const [count, setCount] = useState(0);
@@ -58,9 +62,21 @@ export default function ProbarPistolaPanel() {
 
       {/* QR de prueba */}
       <div>
-        <div className="text-sm font-semibold mb-2">Escaneá cualquiera de estos (en la pantalla):</div>
+        <div className="text-sm font-semibold mb-2">QR (2D) — escaneá en la pantalla:</div>
         <div className="grid sm:grid-cols-3 gap-3">
           {DEMOS.map(d => <QrBox key={d.payload} payload={d.payload} label={d.label} />)}
+        </div>
+      </div>
+
+      {/* Códigos de barras 1D — para pistolas láser que no leen QR */}
+      <div>
+        <div className="text-sm font-semibold mb-2">Códigos de barras (1D) — si tu pistola es láser de líneas:</div>
+        <div className="grid sm:grid-cols-3 gap-3">
+          {BARCODES.map(b => (
+            <div key={b} className="bg-white border rounded-2xl p-3 flex items-center justify-center overflow-hidden">
+              <Barcode value={b} />
+            </div>
+          ))}
         </div>
       </div>
 
@@ -88,6 +104,17 @@ function QrBox({ payload, label }: { payload: string; label: string }) {
       <div className="text-[10px] font-mono text-muted-foreground break-all text-center">{payload}</div>
     </div>
   );
+}
+
+function Barcode({ value }: { value: string }) {
+  const ref = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    try {
+      JsBarcode(ref.current, value, { format: 'CODE128', width: 2, height: 64, fontSize: 13, margin: 6, displayValue: true });
+    } catch { /* valor no codificable: lo dejamos vacío */ }
+  }, [value]);
+  return <svg ref={ref} className="max-w-full h-auto" />;
 }
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
