@@ -2,18 +2,20 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
-import { ScanLine, QrCode, MapPin } from 'lucide-react';
+import { QrCode, MapPin } from 'lucide-react';
 import type { InventoryProduct } from '@/hooks/useInventoryData';
 import { usePersistedFormState } from '@/hooks/usePersistedFormState';
-import ConteoFisicoPanel from '@/components/scanner/ConteoFisicoPanel';
 import QrLabelsPanel from '@/components/scanner/QrLabelsPanel';
 import UbicacionesPanel from '@/components/scanner/UbicacionesPanel';
 
-type Tab = 'conteo' | 'etiquetas' | 'ubicaciones';
+type Tab = 'etiquetas' | 'ubicaciones';
 
+// Módulo de CONFIGURACIÓN del sistema de escaneo: empaque, ubicaciones (bins) e
+// impresión de etiquetas QR. Lo configura el admin. El conteo físico vive en
+// Inventario y el despacho en Remisiones.
 export default function Conteo() {
   const { user } = useAuth();
-  const [tab, setTab] = usePersistedFormState<Tab>('conteo:tab:v1', 'conteo');
+  const [tab, setTab] = usePersistedFormState<Tab>('escaner-config:tab:v1', 'etiquetas');
 
   const { data: products = [], refetch } = useQuery({
     queryKey: ['scanner-products', user?.id],
@@ -41,23 +43,20 @@ export default function Conteo() {
               border: '1px solid oklch(0.55 0.18 290 / 0.22)',
             }}
           >
-            <ScanLine style={{ width: 22, height: 22, color: 'oklch(0.50 0.18 290)' }} />
+            <QrCode style={{ width: 22, height: 22, color: 'oklch(0.50 0.18 290)' }} />
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1d1d1f', letterSpacing: '-0.6px' }}>
-              Conteo con escáner
+              Etiquetas y ubicaciones
             </h1>
             <p className="text-sm text-muted-foreground">
-              Inventario físico e impresión de etiquetas QR — pistola Bluetooth + tablet
+              Configurá empaque y ubicaciones por referencia, e imprimí las etiquetas QR
             </p>
           </div>
         </div>
 
         {/* Tabs */}
         <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit">
-          <TabButton active={tab === 'conteo'} onClick={() => setTab('conteo')} icon={ScanLine}>
-            Conteo físico
-          </TabButton>
           <TabButton active={tab === 'etiquetas'} onClick={() => setTab('etiquetas')} icon={QrCode}>
             Etiquetas QR
           </TabButton>
@@ -66,7 +65,6 @@ export default function Conteo() {
           </TabButton>
         </div>
 
-        {tab === 'conteo' && <ConteoFisicoPanel products={products} />}
         {tab === 'etiquetas' && <QrLabelsPanel products={products} onSaved={refetch} />}
         {tab === 'ubicaciones' && <UbicacionesPanel products={products} onSaved={refetch} />}
       </div>

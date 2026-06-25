@@ -331,15 +331,15 @@ const App = () => (
                 path="/remisiones"
                 element={<RequireModule moduleKey="remisiones"><Remisiones /></RequireModule>}
               />
-              {/* Estación de despacho (tablet + pistola QR): permiso 'escaneo' dedicado */}
+              {/* Estación de despacho (parte del módulo de remisiones) */}
               <Route
                 path="/despacho"
-                element={<RequireModule moduleKey="escaneo"><Despacho /></RequireModule>}
+                element={<RequireModule moduleKey="remisiones"><Despacho /></RequireModule>}
               />
-              {/* Conteo físico con escáner (tablet + pistola QR): permiso 'escaneo' */}
+              {/* Config del escaneo: etiquetas y ubicaciones — solo admin la configura */}
               <Route
                 path="/conteo"
-                element={<RequireModule moduleKey="escaneo"><Conteo /></RequireModule>}
+                element={<AdminRoute><Conteo /></AdminRoute>}
               />
               <Route
                 path="/cotizaciones"

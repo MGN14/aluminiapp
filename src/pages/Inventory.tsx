@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers, ScanLine } from 'lucide-react';
+import ConteoFisicoPanel from '@/components/scanner/ConteoFisicoPanel';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import { useModuleContext } from '@/hooks/useModuleContext';
@@ -21,7 +22,7 @@ import InventoryFreshnessBanner from '@/components/inventory/InventoryFreshnessB
 import AppLayout from '@/components/layout/AppLayout';
 import { usePersistedDialogOpen, usePersistedFormState } from '@/hooks/usePersistedFormState';
 
-type Tab = 'inventario' | 'maestro';
+type Tab = 'inventario' | 'maestro' | 'conteo';
 
 export default function Inventory() {
   const { isGerencial } = useModuleContext();
@@ -182,6 +183,13 @@ export default function Inventory() {
           >
             <BookOpen className="h-4 w-4" />
             Maestro de Productos
+          </button>
+          <button
+            onClick={() => setTab('conteo')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${tab === 'conteo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <ScanLine className="h-4 w-4" />
+            Conteo físico
           </button>
         </div>
 
@@ -489,6 +497,17 @@ export default function Inventory() {
               </p>
             </div>
             <MaestroProductos />
+          </div>
+        )}
+
+        {/* Conteo físico tab (escáner) */}
+        {tab === 'conteo' && (
+          <div className="animate-fade-in">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-foreground">Conteo físico con escáner</h2>
+              <p className="text-sm text-muted-foreground mt-1">Escaneá los paquetes; al cerrar se actualiza el stock físico y se reportan las diferencias.</p>
+            </div>
+            <ConteoFisicoPanel products={products} />
           </div>
         )}
 
