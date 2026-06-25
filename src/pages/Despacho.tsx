@@ -18,8 +18,9 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Truck, Check, Plus, Minus, ScanLine, AlertTriangle, RadioTower, Loader2,
-  ArrowLeft, Trash2, UserPlus, MapPin, FileCheck,
+  ArrowLeft, Trash2, UserPlus, MapPin, FileCheck, ClipboardList,
 } from 'lucide-react';
+import DispatchFromOrder from '@/components/scanner/DispatchFromOrder';
 
 const STORAGE_KEY = 'despacho:nuevo:v1';
 const NEW_RESP = '__new__';
@@ -32,6 +33,7 @@ export default function Despacho() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  const [mode, setMode] = useState<null | 'libre' | 'pedido'>(null);
   const [step, setStep] = useState<'setup' | 'scan'>('setup');
   const [responsibleId, setResponsibleId] = useState('');
   const [beneficiary, setBeneficiary] = useState('');
@@ -58,6 +60,7 @@ export default function Despacho() {
         setBeneficiary(o.beneficiary || '');
         setScanned(o.scanned || {});
         setOrder(o.order || []);
+        if ((o.order || []).length > 0) setMode('libre');
       }
     } catch { /* ignore */ }
   }, []);
@@ -294,11 +297,53 @@ export default function Despacho() {
     }
   };
 
-  // ─────────────────────────── SETUP ───────────────────────────
+  // ─────────────────────────── HOME (elegir modo) ───────────────────────────
+  if (mode === 'pedido') {
+    return <DispatchFromOrder company={company} onExit={() => setMode(null)} />;
+  }
+  if (mode === null) {
+    return (
+      <AppLayout>
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="h-11 w-11 rounded-xl bg-blue-600/10 flex items-center justify-center flex-shrink-0">
+              <Truck className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1d1d1f', letterSpacing: '-0.6px' }}>Despacho</h1>
+              <p className="text-sm text-muted-foreground">¿Cómo querés despachar?</p>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <button onClick={() => setMode('pedido')} className="text-left bg-white border rounded-2xl p-5 hover:border-blue-400 hover:shadow-sm transition active:scale-[0.99]">
+              <div className="h-11 w-11 rounded-xl bg-blue-600/10 flex items-center justify-center mb-3"><ClipboardList className="h-5 w-5 text-blue-600" /></div>
+              <div className="font-bold text-base">Despachar un pedido</div>
+              <p className="text-sm text-muted-foreground mt-1">Elegís una remisión pendiente y escaneás; la app valida que despaches <strong>exactamente lo pedido</strong> (18/20 ✓).</p>
+              <div className="text-xs font-semibold text-blue-600 mt-3 inline-flex items-center gap-1">Validado <Check className="h-3.5 w-3.5" /></div>
+            </button>
+            <button onClick={() => { setMode('libre'); setStep('setup'); }} className="text-left bg-white border rounded-2xl p-5 hover:border-slate-400 hover:shadow-sm transition active:scale-[0.99]">
+              <div className="h-11 w-11 rounded-xl bg-slate-100 flex items-center justify-center mb-3"><ScanLine className="h-5 w-5 text-slate-500" /></div>
+              <div className="font-bold text-base">Despacho nuevo (sin pedido)</div>
+              <p className="text-sm text-muted-foreground mt-1">Elegís el cliente y armás la remisión escaneando lo que sale. Se genera y descuenta el físico.</p>
+              <div className="text-xs font-semibold text-slate-500 mt-3">Libre</div>
+            </button>
+          </div>
+          {order.length > 0 && (
+            <p className="text-xs text-amber-600 mt-4">Tenés un despacho libre en curso con {order.length} referencias — entrá a “Despacho nuevo” para continuar.</p>
+          )}
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // ─────────────────────────── SETUP (despacho libre) ───────────────────────────
   if (step === 'setup') {
     return (
       <AppLayout>
         <div className="max-w-xl mx-auto px-4 sm:px-6 py-6">
+          <button onClick={() => setMode(null)} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4">
+            <ArrowLeft className="h-5 w-5" /> Volver
+          </button>
           <div className="flex items-center gap-4 mb-6">
             <div className="h-11 w-11 rounded-xl bg-blue-600/10 flex items-center justify-center flex-shrink-0">
               <Truck className="h-5 w-5 text-blue-600" />
