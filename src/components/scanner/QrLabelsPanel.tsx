@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import QRCode from 'qrcode';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import type { InventoryProduct } from '@/hooks/useInventoryData';
 import { encodeLabelPayload, normalizeRef } from '@/lib/qrLabel';
@@ -39,6 +40,7 @@ const labelCount = (gs: PackageGroup[]) => gs.reduce((s, g) => s + (g.count || 0
 
 export default function QrLabelsPanel({ products, onSaved }: Props) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [packaging, setPackaging] = useState<Record<string, PackageGroup[]>>({});
@@ -158,6 +160,14 @@ export default function QrLabelsPanel({ products, onSaved }: Props) {
       for (let c = 0; c < g.count; c++) {
         rows.push({ reference: p.reference, name: p.name, system: p.system ?? null, quantity: g.size, copies: 1, location: locOf(p), serial: serials[si++] });
       }
+    }
+    // Registrar las etiquetas impresas (trazabilidad por bulto = la "entrada").
+    const labelRows = rows.filter(r => r.serial).map(r => ({
+      user_id: user?.id ?? null, product_id: p.id, reference: r.reference,
+      serial: r.serial, quantity: r.quantity, location: r.location || null, printed_by: user?.id ?? null,
+    }));
+    if (labelRows.length) {
+      try { await (supabase as any).from('inventory_labels').insert(labelRows); } catch { /* no crítico */ }
     }
     return rows;
   };

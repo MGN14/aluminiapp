@@ -1,11 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useInventoryData } from '@/hooks/useInventoryData';
+import { parseScan } from '@/lib/qrLabel';
+import { Input } from '@/components/ui/input';
 import AppLayout from '@/components/layout/AppLayout';
-import { Truck, ClipboardCheck, RefreshCw, AlertTriangle, Users, Clock } from 'lucide-react';
+import { Truck, ClipboardCheck, RefreshCw, AlertTriangle, Users, Clock, Search, PackageSearch, Package, Loader2 } from 'lucide-react';
 
 function fmtMin(mins: number | null): string {
   if (mins == null) return '—';
@@ -21,6 +23,11 @@ function fmtDate(s: string | null) {
   if (!s) return '—';
   const d = new Date(s);
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function fmtDateTime(s: string | null | undefined) {
+  if (!s) return '—';
+  const d = new Date(s);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 export default function ReportesBodega() {
@@ -99,9 +106,12 @@ export default function ReportesBodega() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1d1d1f', letterSpacing: '-0.6px' }}>Reportes de bodega</h1>
-            <p className="text-sm text-muted-foreground">Tiempos, rotación y alertas de la operación física</p>
+            <p className="text-sm text-muted-foreground">Trazabilidad, tiempos, rotación y alertas de la operación física</p>
           </div>
         </div>
+
+        {/* Trazabilidad de bulto (para quejas) */}
+        <SerialLookup />
 
         {/* Tiempo de despacho */}
         <Card icon={<Truck className="h-4 w-4 text-blue-600" />} title="Tiempo de despacho"
@@ -183,6 +193,105 @@ export default function ReportesBodega() {
         </Card>
       </div>
     </AppLayout>
+  );
+}
+
+function SerialLookup() {
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [result, setResult] = useState<{
+    serial: string;
+    label: { reference: string; quantity: number; location: string | null; printed_at: string } | null;
+    remision: { number: string; beneficiary: string | null; status: string } | null;
+    scannedAt: string | null;
+  } | null>(null);
+
+  const search = async () => {
+    const raw = input.trim();
+    if (!raw) return;
+    const parsed = parseScan(raw);
+    const serial = (parsed?.serial || raw).trim();
+    setLoading(true); setSearched(true);
+    try {
+      const { data: labels } = await (supabase as any).from('inventory_labels')
+        .select('reference, quantity, location, printed_at').ilike('serial', serial).limit(1);
+      const label = (labels && labels[0]) || null;
+      const { data: scans } = await (supabase as any).from('dispatch_scans')
+        .select('remision_id, scanned_at').eq('serial', serial).order('scanned_at', { ascending: true });
+      let remision = null; let scannedAt: string | null = null;
+      if (scans && scans.length) {
+        scannedAt = scans[0].scanned_at;
+        const { data: rem } = await (supabase.from('remisiones') as any)
+          .select('number, beneficiary, status').eq('id', scans[0].remision_id).maybeSingle();
+        remision = rem || null;
+      }
+      setResult({ serial, label, remision, scannedAt });
+    } catch {
+      setResult({ serial, label: null, remision: null, scannedAt: null });
+    } finally { setLoading(false); }
+  };
+
+  const notFound = result && !result.label && !result.remision;
+
+  return (
+    <Card icon={<PackageSearch className="h-4 w-4 text-violet-600" />} title="Trazabilidad de bulto — buscar serial">
+      <div className="px-2 pb-2 space-y-3">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); search(); } }}
+              placeholder="Escaneá o escribí el serial (ej: SA325B-0042)"
+              className="pl-9"
+            />
+          </div>
+          <button onClick={search} disabled={loading} className="h-10 px-4 rounded-xl bg-[#1d1d1f] text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-50">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Buscar
+          </button>
+        </div>
+
+        {!searched && <p className="text-xs text-muted-foreground">Para una queja: escaneá el QR del bulto (o tipeá su serial) y ves su historia completa — qué es, dónde estaba y en qué remisión salió.</p>}
+
+        {searched && !loading && result && (
+          notFound ? (
+            <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
+              No encontramos el serial <strong className="font-mono">{result.serial}</strong>. Revisá que esté bien escrito (puede ser una etiqueta vieja, sin serial).
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="font-mono font-bold text-lg">{result.serial}</div>
+              <div className="flex items-start gap-3 bg-slate-50 border rounded-xl p-3">
+                <div className="h-8 w-8 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0"><Package className="h-4 w-4 text-slate-600" /></div>
+                <div className="text-sm min-w-0">
+                  <div className="font-semibold">{result.label ? 'Impreso / en bodega' : 'No registrado al imprimir'}</div>
+                  {result.label && (
+                    <div className="text-muted-foreground truncate">
+                      {result.label.reference} · {Math.round(Number(result.label.quantity) || 0)} und · ubic. {result.label.location || '—'} · {fmtDateTime(result.label.printed_at)}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className={`flex items-start gap-3 border rounded-xl p-3 ${result.remision ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+                <div className={`h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 ${result.remision ? 'bg-green-200' : 'bg-slate-100'}`}><Truck className={`h-4 w-4 ${result.remision ? 'text-green-700' : 'text-slate-400'}`} /></div>
+                <div className="text-sm min-w-0">
+                  {result.remision ? (
+                    <>
+                      <div className="font-semibold text-green-700">Despachado en {result.remision.number}</div>
+                      <div className="text-muted-foreground truncate">Cliente: <strong className="text-foreground">{result.remision.beneficiary || '—'}</strong> · {fmtDateTime(result.scannedAt)}</div>
+                    </>
+                  ) : (
+                    <div className="font-semibold text-muted-foreground">Todavía en bodega (sin despachar)</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        )}
+      </div>
+    </Card>
   );
 }
 
