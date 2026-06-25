@@ -1,268 +1,327 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import QRCode from 'qrcode';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import type { InventoryProduct } from '@/hooks/useInventoryData';
-import { encodeLabelPayload } from '@/lib/qrLabel';
+import { encodeLabelPayload, normalizeRef } from '@/lib/qrLabel';
 import { printQrLabels, type LabelRow } from '@/lib/printQrLabels';
-import { Printer, Plus, Trash2, QrCode } from 'lucide-react';
+import {
+  Printer, Plus, Trash2, Search, ChevronDown, ChevronRight, Check, AlertTriangle, Layers,
+} from 'lucide-react';
 
 interface Props {
   products: InventoryProduct[];
   onSaved?: () => void;
 }
 
-interface QueueRow {
-  key: string;
-  productId: string;
-  reference: string;
-  name: string;
-  system: string | null;
-  quantity: number;
-  copies: number;
+interface PackageGroup { count: number; size: number; }
+
+const STORAGE_KEY = 'etiquetas:packaging:v1';
+
+// Sugerencia automática del desglose en paquetes: tantos paquetes "estándar"
+// (units_per_package) como entren en el físico, más un paquete con el resto.
+// Ej: físico 210, estándar 40 → [5×40, 1×10]. Es lo que Nico pidió.
+function seedGroups(physical: number, upp: number): PackageGroup[] {
+  const phys = Math.max(0, Math.round(physical));
+  if (phys <= 0) return [];
+  const size = upp > 0 ? Math.round(upp) : phys;
+  if (size >= phys) return [{ count: 1, size: phys }];
+  const full = Math.floor(phys / size);
+  const rem = phys - full * size;
+  const groups: PackageGroup[] = [{ count: full, size }];
+  if (rem > 0) groups.push({ count: 1, size: rem });
+  return groups;
 }
 
-let keySeq = 0;
+const allocated = (gs: PackageGroup[]) => gs.reduce((s, g) => s + (g.count || 0) * (g.size || 0), 0);
+const labelCount = (gs: PackageGroup[]) => gs.reduce((s, g) => s + (g.count || 0), 0);
 
 export default function QrLabelsPanel({ products, onSaved }: Props) {
   const { toast } = useToast();
-  const [refInput, setRefInput] = useState('');
-  const [formQty, setFormQty] = useState<number>(1);
-  const [formCopies, setFormCopies] = useState<number>(1);
-  const [queue, setQueue] = useState<QueueRow[]>([]);
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [packaging, setPackaging] = useState<Record<string, PackageGroup[]>>({});
   const [printing, setPrinting] = useState(false);
 
-  // Solo se etiqueta lo que tiene inventario FÍSICO cargado (>0): es lo que de
-  // verdad está en la bodega y se va a escanear. Las refs sin conteo físico no
-  // aparecen — primero hay que subir/escanear el conteo.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setPackaging(JSON.parse(raw) || {});
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(packaging)); } catch { /* ignore */ }
+  }, [packaging]);
+
+  // Solo lo que tiene inventario FÍSICO cargado (>0) — es lo que está en bodega
+  // y se va a escanear.
   const labelable = useMemo(
-    () => products.filter(p => (Number(p.stock_physical) || 0) > 0),
+    () => products
+      .filter(p => (Number(p.stock_physical) || 0) > 0)
+      .sort((a, b) => a.reference.localeCompare(b.reference, 'es', { numeric: true })),
     [products],
   );
 
-  // Producto resuelto desde el input (case-insensitive) → alimenta el preview.
-  const selected = useMemo(() => {
-    const q = refInput.trim().toLowerCase();
-    if (!q) return null;
-    return labelable.find(p => (p.reference ?? '').trim().toLowerCase() === q) ?? null;
-  }, [refInput, labelable]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return labelable;
+    return labelable.filter(p =>
+      (p.reference || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q));
+  }, [labelable, search]);
 
-  // La ref existe en el catálogo pero sin físico > 0 → no se puede etiquetar.
-  const existsButNoStock = useMemo(() => {
-    const q = refInput.trim().toLowerCase();
-    if (!q || selected) return null;
-    return products.find(p => (p.reference ?? '').trim().toLowerCase() === q) ?? null;
-  }, [refInput, products, selected]);
+  // Grupos efectivos de una referencia: lo que la encargada editó, o la
+  // sugerencia automática si todavía no la tocó.
+  const groupsOf = useCallback((p: InventoryProduct): PackageGroup[] => {
+    const k = normalizeRef(p.reference);
+    return packaging[k] ?? seedGroups(Number(p.stock_physical) || 0, Number(p.units_per_package) || 0);
+  }, [packaging]);
 
-  // Al resolver un producto: prellenar cantidad por paquete y SUGERIR cuántas
-  // etiquetas según el físico disponible (físico ÷ unidades por paquete).
-  useEffect(() => {
-    if (selected) {
-      const qty = selected.units_per_package && selected.units_per_package > 0 ? Number(selected.units_per_package) : 1;
-      setFormQty(qty);
-      const phys = Number(selected.stock_physical) || 0;
-      setFormCopies(qty > 0 ? Math.max(1, Math.ceil(phys / qty)) : 1);
+  const setGroups = (p: InventoryProduct, gs: PackageGroup[]) =>
+    setPackaging(prev => ({ ...prev, [normalizeRef(p.reference)]: gs }));
+
+  const toggleExpand = (p: InventoryProduct) => {
+    const k = normalizeRef(p.reference);
+    if (expanded === k) { setExpanded(null); return; }
+    // Al abrir por primera vez, materializamos la sugerencia para poder editarla.
+    if (!packaging[k]) {
+      setPackaging(prev => ({ ...prev, [k]: seedGroups(Number(p.stock_physical) || 0, Number(p.units_per_package) || 0) }));
     }
-  }, [selected]);
+    setExpanded(k);
+  };
 
-  const totalLabels = useMemo(
-    () => queue.reduce((s, r) => s + Math.max(1, Math.floor(r.copies || 0)), 0),
-    [queue],
+  const totalLabelsAll = useMemo(
+    () => labelable.reduce((s, p) => s + labelCount(groupsOf(p)), 0),
+    [labelable, groupsOf],
   );
 
-  const addToQueue = () => {
-    if (!selected) {
-      toast({ title: 'Elegí una referencia válida', description: `"${refInput}" no está en el inventario.`, variant: 'destructive' });
-      return;
-    }
-    setQueue(prev => [
-      ...prev,
-      {
-        key: `q${keySeq++}`,
-        productId: selected.id,
-        reference: selected.reference,
-        name: selected.name,
-        system: selected.system ?? null,
-        quantity: formQty > 0 ? formQty : 1,
-        copies: Math.max(1, Math.floor(formCopies || 1)),
-      },
-    ]);
-    setRefInput('');
-    setFormQty(1);
-    setFormCopies(1);
+  // Tamaño de paquete "estándar" para guardar como units_per_package: el del
+  // grupo con más paquetes (el dominante).
+  const dominantSize = (gs: PackageGroup[]): number => {
+    let best = 0, bestCount = -1;
+    for (const g of gs) if ((g.count || 0) > bestCount) { bestCount = g.count || 0; best = g.size || 0; }
+    return best;
   };
 
-  const updateRow = (key: string, patch: Partial<QueueRow>) =>
-    setQueue(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
+  const buildRows = (p: InventoryProduct): LabelRow[] =>
+    groupsOf(p)
+      .filter(g => (g.count || 0) > 0 && (g.size || 0) > 0)
+      .map(g => ({ reference: p.reference, name: p.name, system: p.system ?? null, quantity: g.size, copies: g.count }));
 
-  const removeRow = (key: string) =>
-    setQueue(prev => prev.filter(r => r.key !== key));
+  const persistUpp = async (entries: { id: string; size: number }[]) => {
+    const valid = entries.filter(e => e.size > 0);
+    if (valid.length === 0) return;
+    await Promise.all(valid.map(e =>
+      supabase.from('inventory_products').update({ units_per_package: e.size } as never).eq('id', e.id)));
+    onSaved?.();
+  };
 
-  const handlePrint = async () => {
-    if (queue.length === 0) return;
+  const printOne = async (p: InventoryProduct) => {
+    const rows = buildRows(p);
+    if (rows.length === 0) { toast({ title: 'Definí al menos un paquete', variant: 'destructive' }); return; }
     setPrinting(true);
     try {
-      const rows: LabelRow[] = queue.map(r => ({
-        reference: r.reference,
-        name: r.name,
-        system: r.system,
-        quantity: r.quantity > 0 ? r.quantity : 1,
-        copies: Math.max(1, Math.floor(r.copies || 1)),
-      }));
       await printQrLabels(rows);
-
-      // Guardar la cantidad usada como estándar por paquete (último valor gana).
-      const byProduct = new Map<string, number>();
-      for (const r of queue) byProduct.set(r.productId, r.quantity > 0 ? r.quantity : 1);
-      await Promise.all(
-        Array.from(byProduct.entries()).map(([id, qty]) =>
-          supabase.from('inventory_products').update({ units_per_package: qty } as never).eq('id', id),
-        ),
-      );
-      onSaved?.();
+      await persistUpp([{ id: p.id, size: dominantSize(groupsOf(p)) }]);
     } catch (e: any) {
-      toast({ title: 'No se pudo imprimir', description: e.message ?? 'Error desconocido', variant: 'destructive' });
-    } finally {
-      setPrinting(false);
-    }
+      toast({ title: 'No se pudo imprimir', description: e.message, variant: 'destructive' });
+    } finally { setPrinting(false); }
   };
 
-  return (
-    <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
-      {/* Columna izquierda: agregar + cola */}
-      <div className="space-y-4">
-        {labelable.length === 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
-            No hay referencias con <strong>inventario físico</strong> cargado todavía. Subí o escaneá el
-            conteo físico (pestaña “Conteo físico”) y volvé acá para imprimir las etiquetas de lo que hay en bodega.
-          </div>
-        )}
-        <div className="bg-white border rounded-2xl p-4">
-          <div className="text-sm font-semibold mb-1">Agregar etiqueta</div>
-          <p className="text-xs text-muted-foreground mb-3">Solo aparecen las referencias con inventario físico mayor a 0 — es lo que se va a escanear.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_92px_92px] gap-2 items-end">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Referencia</label>
-              <Input
-                value={refInput}
-                onChange={e => setRefInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && selected) { e.preventDefault(); addToQueue(); } }}
-                placeholder="Buscá la referencia…"
-                list="qr-panel-refs"
-                className="mt-1"
-              />
-              <datalist id="qr-panel-refs">
-                {labelable.map(p => <option key={p.id} value={p.reference}>{p.name}</option>)}
-              </datalist>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Unds/paq.</label>
-              <Input type="number" min={1} value={formQty || ''} onChange={e => setFormQty(+e.target.value)} className="mt-1 text-center font-mono" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Etiquetas</label>
-              <Input type="number" min={1} value={formCopies || ''} onChange={e => setFormCopies(+e.target.value)} className="mt-1 text-center font-mono" />
-            </div>
-          </div>
-          {selected && (
-            <p className="text-xs text-muted-foreground mt-2">
-              Físico disponible: <strong className="text-foreground">{Number(selected.stock_physical) || 0}</strong>
-              {formQty > 0 && <> · sugerido <strong className="text-foreground">{Math.max(1, Math.ceil((Number(selected.stock_physical) || 0) / formQty))}</strong> etiqueta(s)</>}
-            </p>
-          )}
-          {refInput.trim() && !selected && (
-            existsButNoStock
-              ? <p className="text-xs text-amber-600 mt-2">“{existsButNoStock.reference}” no tiene inventario físico cargado. Las etiquetas salen del conteo físico.</p>
-              : <p className="text-xs text-red-500 mt-2">No existe esa referencia en el inventario físico.</p>
-          )}
-          <button
-            onClick={addToQueue}
-            disabled={!selected}
-            className="mt-3 h-10 px-4 rounded-xl bg-[#1d1d1f] text-white text-sm font-semibold inline-flex items-center gap-1.5 disabled:opacity-40 hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" /> Agregar a la cola
-          </button>
-        </div>
+  const printAll = async () => {
+    const rows: LabelRow[] = [];
+    const upp: { id: string; size: number }[] = [];
+    for (const p of labelable) {
+      const r = buildRows(p);
+      if (r.length > 0) { rows.push(...r); upp.push({ id: p.id, size: dominantSize(groupsOf(p)) }); }
+    }
+    if (rows.length === 0) { toast({ title: 'No hay paquetes para imprimir', variant: 'destructive' }); return; }
+    const total = rows.reduce((s, r) => s + r.copies, 0);
+    if (!window.confirm(`Vas a imprimir ${total} etiquetas de ${upp.length} referencias. ¿Continuar?`)) return;
+    setPrinting(true);
+    try {
+      await printQrLabels(rows);
+      await persistUpp(upp);
+    } catch (e: any) {
+      toast({ title: 'No se pudo imprimir', description: e.message, variant: 'destructive' });
+    } finally { setPrinting(false); }
+  };
 
-        {/* Cola de impresión */}
-        {queue.length === 0 ? (
-          <div className="text-center text-sm text-muted-foreground py-12 border border-dashed rounded-2xl bg-white">
-            La cola está vacía. Agregá referencias para imprimir sus etiquetas.
-          </div>
-        ) : (
-          <div className="bg-white border rounded-2xl overflow-hidden">
-            <div className="grid grid-cols-[1fr_84px_84px_40px] gap-2 px-4 py-2.5 text-xs font-semibold text-muted-foreground bg-muted/40 border-b">
-              <span>Referencia</span>
-              <span className="text-center">Unds/paq.</span>
-              <span className="text-center">Etiquetas</span>
-              <span />
-            </div>
-            <div className="divide-y">
-              {queue.map(r => (
-                <div key={r.key} className="grid grid-cols-[1fr_84px_84px_40px] gap-2 px-4 py-2.5 items-center">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-sm truncate">{r.reference}</div>
-                    <div className="text-xs text-muted-foreground truncate">{r.name}</div>
-                  </div>
-                  <Input type="number" min={1} value={r.quantity || ''} onChange={e => updateRow(r.key, { quantity: +e.target.value })} className="h-8 text-center font-mono" aria-label={`Unidades por paquete de ${r.reference}`} />
-                  <Input type="number" min={1} value={r.copies || ''} onChange={e => updateRow(r.key, { copies: +e.target.value })} className="h-8 text-center font-mono" aria-label={`Etiquetas de ${r.reference}`} />
-                  <button onClick={() => removeRow(r.key)} className="text-muted-foreground hover:text-red-500 flex justify-center" aria-label={`Quitar ${r.reference}`}>
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+  if (labelable.length === 0) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-sm text-amber-800 flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="font-semibold">Todavía no hay inventario físico cargado.</p>
+          <p className="mt-1">Las etiquetas se generan desde lo que hay en bodega. Andá a la pestaña <strong>“Conteo físico”</strong>, contá (o subí el conteo), y volvé acá: cada referencia con físico mayor a 0 aparecerá lista para empaquetar e imprimir.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Barra superior: buscar + imprimir todo */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar referencia o descripción…"
+            className="pl-9"
+          />
+        </div>
+        <span className="text-sm text-muted-foreground">
+          {labelable.length} referencias · <strong className="text-foreground tabular-nums">{totalLabelsAll}</strong> etiquetas
+        </span>
+        <button
+          onClick={printAll}
+          disabled={printing || totalLabelsAll === 0}
+          className="h-10 px-4 rounded-xl bg-[#1d1d1f] text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40 hover:opacity-90"
+        >
+          <Printer className="h-4 w-4" /> Imprimir todo
+        </button>
       </div>
 
-      {/* Columna derecha: preview + imprimir (sticky) */}
-      <div className="lg:sticky lg:top-4 space-y-3">
-        <div className="bg-white border rounded-2xl p-4">
-          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <QrCode className="h-3.5 w-3.5" /> Vista previa de la etiqueta
-          </div>
-          <LabelPreview
-            reference={selected?.reference ?? (refInput.trim() || '—')}
-            name={selected?.name ?? ''}
-            system={selected?.system ?? null}
-            quantity={formQty > 0 ? formQty : 1}
-            placeholder={!selected}
-          />
-          <p className="text-[11px] text-muted-foreground mt-2 leading-snug">
-            Tamaño real: 100×50&nbsp;mm. El QR lleva <code className="text-[10px]">ALU|{selected?.reference ?? 'ref'}|{formQty > 0 ? formQty : 1}</code> — al escanear suma esa cantidad sola.
-          </p>
-        </div>
+      {/* Lista de referencias físicas */}
+      <div className="space-y-2.5">
+        {filtered.map(p => {
+          const k = normalizeRef(p.reference);
+          const isOpen = expanded === k;
+          const groups = groupsOf(p);
+          const phys = Math.round(Number(p.stock_physical) || 0);
+          const sys = Math.round(Number(p.stock_system) || 0);
+          const diff = phys - sys; // + sobra físico vs Siigo, − falta
+          const alloc = allocated(groups);
+          const remaining = phys - alloc;
+          const labels = labelCount(groups);
 
-        <div className="bg-white border rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-muted-foreground">Total a imprimir</span>
-            <span className="text-lg font-extrabold tabular-nums">{totalLabels}</span>
+          return (
+            <div key={k} className="bg-white border rounded-2xl overflow-hidden">
+              {/* Header de la referencia (click para empaquetar) */}
+              <button onClick={() => toggleExpand(p)} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50">
+                {isOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-base">{p.reference}</span>
+                    {p.system && <span className="text-[10px] font-bold uppercase tracking-wide bg-slate-900 text-white px-1.5 py-0.5 rounded">{p.system}</span>}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">{p.name || 'Sin descripción'}</div>
+                </div>
+                {/* Físico vs lo que debería haber (Siigo) */}
+                <div className="text-right hidden sm:block">
+                  <div className="text-lg font-extrabold tabular-nums leading-none">{phys} <span className="text-xs font-medium text-muted-foreground">und</span></div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Siigo {sys}{diff !== 0 && <span className={diff > 0 ? 'text-blue-600 font-semibold' : 'text-red-600 font-semibold'}> · {diff > 0 ? `+${diff}` : diff}</span>}
+                  </div>
+                </div>
+                {/* Estado del empaquetado */}
+                <CoverageBadge remaining={remaining} labels={labels} />
+              </button>
+
+              {/* Editor de empaquetado */}
+              {isOpen && (
+                <div className="border-t px-4 py-3 bg-slate-50/60 space-y-3">
+                  <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5" /> Empaquetado · cada paquete = 1 etiqueta QR con su cantidad
+                  </div>
+
+                  <div className="space-y-2">
+                    {groups.map((g, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-white border rounded-xl px-3 py-2">
+                        <Input
+                          type="number" min={1} value={g.count || ''}
+                          onChange={e => setGroups(p, groups.map((x, j) => j === i ? { ...x, count: +e.target.value } : x))}
+                          className="h-9 w-16 text-center font-mono" aria-label="Cantidad de paquetes"
+                        />
+                        <span className="text-sm text-muted-foreground">paq. de</span>
+                        <Input
+                          type="number" min={1} value={g.size || ''}
+                          onChange={e => setGroups(p, groups.map((x, j) => j === i ? { ...x, size: +e.target.value } : x))}
+                          className="h-9 w-20 text-center font-mono" aria-label="Unidades por paquete"
+                        />
+                        <span className="text-sm text-muted-foreground">und</span>
+                        <span className="text-sm font-semibold tabular-nums ml-1">= {(g.count || 0) * (g.size || 0)}</span>
+                        <QrThumb reference={p.reference} size={g.size || 0} />
+                        <button
+                          onClick={() => setGroups(p, groups.filter((_, j) => j !== i))}
+                          className="ml-auto text-muted-foreground hover:text-red-500" aria-label="Quitar paquete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setGroups(p, [...groups, { count: 1, size: remaining > 0 ? remaining : (Number(p.units_per_package) || 1) }])}
+                        className="h-9 px-3 rounded-xl border text-sm font-medium inline-flex items-center gap-1.5 hover:bg-white"
+                      >
+                        <Plus className="h-4 w-4" /> Agregar paquete
+                      </button>
+                      <button
+                        onClick={() => setGroups(p, seedGroups(phys, Number(p.units_per_package) || dominantSize(groups) || 0))}
+                        className="h-9 px-3 rounded-xl border text-sm font-medium text-muted-foreground hover:bg-white"
+                        title="Volver a la sugerencia automática según el físico"
+                      >
+                        Auto
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Resumen + imprimir */}
+                  <div className="flex items-center justify-between gap-3 pt-1">
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Empaquetado: </span>
+                      <span className={`font-bold tabular-nums ${remaining === 0 ? 'text-emerald-600' : remaining > 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                        {alloc}/{phys}
+                      </span>
+                      {remaining > 0 && <span className="text-amber-600"> · faltan {remaining}</span>}
+                      {remaining < 0 && <span className="text-red-600"> · sobran {-remaining}</span>}
+                      {remaining === 0 && <Check className="h-4 w-4 text-emerald-600 inline ml-1 -mt-0.5" />}
+                      <span className="text-muted-foreground"> · {labels} etiqueta{labels === 1 ? '' : 's'}</span>
+                    </div>
+                    <button
+                      onClick={() => printOne(p)}
+                      disabled={printing || labels === 0}
+                      className="h-10 px-4 rounded-xl bg-[#1d1d1f] text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40 hover:opacity-90"
+                    >
+                      <Printer className="h-4 w-4" /> Imprimir {labels}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {filtered.length === 0 && (
+          <div className="text-center text-sm text-muted-foreground py-10 border border-dashed rounded-2xl bg-white">
+            Ninguna referencia coincide con “{search}”.
           </div>
-          <button
-            onClick={handlePrint}
-            disabled={printing || queue.length === 0}
-            className="w-full h-11 rounded-xl bg-[#1d1d1f] text-white font-bold text-sm inline-flex items-center justify-center gap-2 disabled:opacity-40 hover:opacity-90"
-          >
-            <Printer className="h-5 w-5" /> {printing ? 'Preparando…' : 'Imprimir etiquetas'}
-          </button>
-          <p className="text-[11px] text-muted-foreground mt-2 leading-snug">
-            Se abre el diálogo de impresión: elegí la <strong>Zebra ZD230</strong> de recepción, tamaño 100×50&nbsp;mm.
-          </p>
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
-// Mockup de la etiqueta a escala (proporción 2:1, igual que el print real).
-function LabelPreview({ reference, name, system, quantity, placeholder }: {
-  reference: string; name: string; system: string | null; quantity: number; placeholder?: boolean;
-}) {
-  const [svg, setSvg] = useState<string>('');
-  const payload = encodeLabelPayload(placeholder ? 'DEMO' : reference, quantity);
+function CoverageBadge({ remaining, labels }: { remaining: number; labels: number }) {
+  if (labels === 0) {
+    return <span className="text-[11px] font-semibold px-2 py-1 rounded-lg bg-slate-100 text-slate-500 flex-shrink-0">Sin empaquetar</span>;
+  }
+  if (remaining === 0) {
+    return <span className="text-[11px] font-bold px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 flex-shrink-0 inline-flex items-center gap-1"><Check className="h-3 w-3" /> {labels} QR</span>;
+  }
+  const cls = remaining > 0 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
+  return <span className={`text-[11px] font-bold px-2 py-1 rounded-lg flex-shrink-0 ${cls}`}>{remaining > 0 ? `faltan ${remaining}` : `sobran ${-remaining}`}</span>;
+}
 
+// Miniatura del QR específico de un paquete (referencia + cantidad horneada).
+function QrThumb({ reference, size }: { reference: string; size: number }) {
+  const [svg, setSvg] = useState('');
+  const payload = encodeLabelPayload(reference, size > 0 ? size : 1);
   useEffect(() => {
     let active = true;
     QRCode.toString(payload, { type: 'svg', errorCorrectionLevel: 'M', margin: 0 })
@@ -270,26 +329,11 @@ function LabelPreview({ reference, name, system, quantity, placeholder }: {
       .catch(() => { if (active) setSvg(''); });
     return () => { active = false; };
   }, [payload]);
-
   return (
-    <div className={`w-full rounded-lg border bg-white shadow-sm overflow-hidden ${placeholder ? 'opacity-60' : ''}`} style={{ aspectRatio: '2 / 1' }}>
-      <div className="h-full w-full flex items-center gap-3 p-3">
-        <div
-          className="h-full aspect-square flex-shrink-0 [&>svg]:h-full [&>svg]:w-full"
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
-        <div className="min-w-0 flex-1 flex flex-col justify-center">
-          <div className="font-extrabold leading-none truncate" style={{ fontSize: 22, letterSpacing: '-0.5px' }}>
-            {reference}
-          </div>
-          {name && <div className="text-[11px] text-slate-600 truncate mt-1">{name}</div>}
-          <div className="flex items-center gap-2 mt-2">
-            <span className="font-extrabold" style={{ fontSize: 17 }}>x{quantity} und</span>
-            {system && <span className="text-[10px] font-bold bg-slate-900 text-white px-1.5 py-0.5 rounded">{system}</span>}
-          </div>
-          <div className="text-[9px] text-slate-400 uppercase tracking-wider mt-1.5">AluminIA</div>
-        </div>
-      </div>
-    </div>
+    <div
+      className="h-9 w-9 border rounded p-0.5 bg-white flex-shrink-0 [&>svg]:h-full [&>svg]:w-full"
+      title={`QR: ${payload}`}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 }
