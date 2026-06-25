@@ -76,6 +76,7 @@ const Rentabilidad = lazy(() => import("./pages/Rentabilidad"));
 const PuntoEquilibrio = lazy(() => import("./pages/PuntoEquilibrio"));
 const CierreAnio = lazy(() => import("./pages/CierreAnio"));
 const ReportesBodega = lazy(() => import("./pages/ReportesBodega"));
+const ProbarPistola = lazy(() => import("./pages/ProbarPistola"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -340,6 +341,11 @@ const App = () => (
               <Route
                 path="/conteo"
                 element={<AdminRoute><Conteo /></AdminRoute>}
+              />
+              {/* Prueba de pistola (golden test, sin imprimir) */}
+              <Route
+                path="/probar-pistola"
+                element={<ProtectedRoute><ProbarPistola /></ProtectedRoute>}
               />
               <Route
                 path="/cotizaciones"
