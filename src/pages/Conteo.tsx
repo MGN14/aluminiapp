@@ -2,13 +2,14 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
-import { ScanLine, QrCode } from 'lucide-react';
+import { ScanLine, QrCode, MapPin } from 'lucide-react';
 import type { InventoryProduct } from '@/hooks/useInventoryData';
 import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 import ConteoFisicoPanel from '@/components/scanner/ConteoFisicoPanel';
 import QrLabelsPanel from '@/components/scanner/QrLabelsPanel';
+import UbicacionesPanel from '@/components/scanner/UbicacionesPanel';
 
-type Tab = 'conteo' | 'etiquetas';
+type Tab = 'conteo' | 'etiquetas' | 'ubicaciones';
 
 export default function Conteo() {
   const { user } = useAuth();
@@ -60,11 +61,14 @@ export default function Conteo() {
           <TabButton active={tab === 'etiquetas'} onClick={() => setTab('etiquetas')} icon={QrCode}>
             Etiquetas QR
           </TabButton>
+          <TabButton active={tab === 'ubicaciones'} onClick={() => setTab('ubicaciones')} icon={MapPin}>
+            Ubicaciones
+          </TabButton>
         </div>
 
-        {tab === 'conteo'
-          ? <ConteoFisicoPanel products={products} />
-          : <QrLabelsPanel products={products} onSaved={refetch} />}
+        {tab === 'conteo' && <ConteoFisicoPanel products={products} />}
+        {tab === 'etiquetas' && <QrLabelsPanel products={products} onSaved={refetch} />}
+        {tab === 'ubicaciones' && <UbicacionesPanel products={products} />}
       </div>
     </AppLayout>
   );
