@@ -4,7 +4,7 @@ import JsBarcode from 'jsbarcode';
 import { useScannerGun } from '@/hooks/useScannerGun';
 import { parseScan, encodeLabelPayload, type ScannedLabel } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
-import { Check, RadioTower } from 'lucide-react';
+import { Check, RadioTower, Maximize2, X } from 'lucide-react';
 
 // QR de prueba (en pantalla) para validar la pistola sin imprimir nada.
 const DEMOS = [
@@ -13,13 +13,14 @@ const DEMOS = [
   { label: 'Solo referencia + cantidad', payload: encodeLabelPayload('8025-300', 12) },
 ];
 
-// Códigos de barras 1D (Code128) para probar pistolas láser que NO leen QR.
+// Códigos de barras 1D (Code128) para pistolas láser que NO leen QR.
 const BARCODES = ['744-100', 'ALU|744-100|6', 'SA325B-0042'];
 
 export default function ProbarPistolaPanel() {
   const [count, setCount] = useState(0);
   const [last, setLast] = useState<{ raw: string; parsed: ScannedLabel | null } | null>(null);
   const [flash, setFlash] = useState(false);
+  const [zoom, setZoom] = useState<{ kind: 'qr' | 'barcode'; value: string } | null>(null);
   const flashTimer = useRef<number | null>(null);
 
   const onScan = useCallback((raw: string) => {
@@ -28,14 +29,14 @@ export default function ProbarPistolaPanel() {
     setFlash(true);
     beep('ok');
     if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    flashTimer.current = window.setTimeout(() => setFlash(false), 800);
+    flashTimer.current = window.setTimeout(() => setFlash(false), 900);
   }, []);
   useScannerGun({ onScan, enabled: true });
 
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        Apuntá la pistola a un QR <strong>de esta pantalla</strong> y dispará. Si la lectura aparece abajo, lee y “teclea” en la app — sin imprimir nada.
+        Apuntá la pistola a un código <strong>de esta pantalla</strong> y dispará. <strong>Tocá un código para agrandarlo a pantalla completa</strong> (máximo contraste) — así la pistola lo lee más fácil.
       </p>
 
       {/* Lectura en vivo */}
@@ -60,35 +61,67 @@ export default function ProbarPistolaPanel() {
         )}
       </div>
 
-      {/* QR de prueba */}
+      {/* QR (2D) */}
       <div>
-        <div className="text-sm font-semibold mb-2">QR (2D) — escaneá en la pantalla:</div>
+        <div className="text-sm font-semibold mb-2">QR (2D) — tocá para agrandar:</div>
         <div className="grid sm:grid-cols-3 gap-3">
-          {DEMOS.map(d => <QrBox key={d.payload} payload={d.payload} label={d.label} />)}
+          {DEMOS.map(d => (
+            <CodeCard key={d.payload} label={d.label} onClick={() => setZoom({ kind: 'qr', value: d.payload })}>
+              <QrImg payload={d.payload} className="h-44 w-44" />
+            </CodeCard>
+          ))}
         </div>
       </div>
 
-      {/* Códigos de barras 1D — para pistolas láser que no leen QR */}
+      {/* Códigos de barras 1D */}
       <div>
         <div className="text-sm font-semibold mb-2">Códigos de barras (1D) — si tu pistola es láser de líneas:</div>
         <div className="grid sm:grid-cols-3 gap-3">
           {BARCODES.map(b => (
-            <div key={b} className="bg-white border rounded-2xl p-3 flex items-center justify-center overflow-hidden">
-              <Barcode value={b} />
-            </div>
+            <CodeCard key={b} onClick={() => setZoom({ kind: 'barcode', value: b })}>
+              <div className="overflow-hidden w-full flex justify-center"><Barcode value={b} /></div>
+            </CodeCard>
           ))}
         </div>
       </div>
 
       <div className="text-xs text-muted-foreground bg-slate-50 border rounded-xl p-3 leading-relaxed">
         <strong>¿No aparece nada al escanear?</strong> La pistola tiene que estar en modo <strong>Bluetooth HID</strong> (se conecta como un teclado). Si pita pero no escribe acá, está en otro modo — revisá su manual para pasarla a HID.
-        <br /><strong>¿Lee y aparece la referencia/cantidad?</strong> 🎯 Andamos — comprá la impresora y los rollos.
+        <br /><strong>¿Lee y aparece la referencia/cantidad?</strong> 🎯 Andamos.
       </div>
+
+      {/* Pantalla completa: código grande + máximo contraste */}
+      {zoom && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center p-6">
+          <button
+            onClick={() => setZoom(null)}
+            className="absolute top-4 right-4 h-11 px-4 rounded-xl border bg-white text-sm font-semibold inline-flex items-center gap-2 shadow-sm"
+          >
+            <X className="h-4 w-4" /> Cerrar
+          </button>
+          <div className={`mb-6 text-base font-bold px-4 py-2 rounded-xl ${flash ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {flash ? `✓ ¡Leído!  ${last?.raw ?? ''}` : 'Apuntá la pistola a este código…'}
+          </div>
+          {zoom.kind === 'qr'
+            ? <QrImg payload={zoom.value} className="w-[min(86vw,68vh)] h-[min(86vw,68vh)]" />
+            : <div className="w-full max-w-4xl flex justify-center"><Barcode value={zoom.value} big /></div>}
+        </div>
+      )}
     </div>
   );
 }
 
-function QrBox({ payload, label }: { payload: string; label: string }) {
+function CodeCard({ label, onClick, children }: { label?: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className="bg-white border rounded-2xl p-3 flex flex-col items-center gap-2 hover:border-violet-400 hover:shadow-sm transition active:scale-[0.99] relative">
+      <span className="absolute top-2 right-2 text-muted-foreground"><Maximize2 className="h-3.5 w-3.5" /></span>
+      {children}
+      {label && <div className="text-sm font-semibold text-center">{label}</div>}
+    </button>
+  );
+}
+
+function QrImg({ payload, className }: { payload: string; className?: string }) {
   const [svg, setSvg] = useState('');
   useEffect(() => {
     let active = true;
@@ -97,23 +130,24 @@ function QrBox({ payload, label }: { payload: string; label: string }) {
       .catch(() => { if (active) setSvg(''); });
     return () => { active = false; };
   }, [payload]);
-  return (
-    <div className="bg-white border rounded-2xl p-4 flex flex-col items-center gap-2">
-      <div className="h-44 w-44 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} />
-      <div className="text-sm font-semibold text-center">{label}</div>
-      <div className="text-[10px] font-mono text-muted-foreground break-all text-center">{payload}</div>
-    </div>
-  );
+  return <div className={`[&>svg]:h-full [&>svg]:w-full ${className || ''}`} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
-function Barcode({ value }: { value: string }) {
+function Barcode({ value, big }: { value: string; big?: boolean }) {
   const ref = useRef<SVGSVGElement>(null);
   useEffect(() => {
     if (!ref.current) return;
     try {
-      JsBarcode(ref.current, value, { format: 'CODE128', width: 2, height: 64, fontSize: 13, margin: 6, displayValue: true });
-    } catch { /* valor no codificable: lo dejamos vacío */ }
-  }, [value]);
+      JsBarcode(ref.current, value, {
+        format: 'CODE128',
+        width: big ? 4 : 2,
+        height: big ? 220 : 64,
+        fontSize: big ? 30 : 13,
+        margin: big ? 16 : 6,
+        displayValue: true,
+      });
+    } catch { /* valor no codificable */ }
+  }, [value, big]);
   return <svg ref={ref} className="max-w-full h-auto" />;
 }
 
