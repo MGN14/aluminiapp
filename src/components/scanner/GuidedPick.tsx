@@ -48,9 +48,9 @@ export default function GuidedPick({ remision, company, userId, toast, onBack, o
   const { data: locs = [], isLoading: loadingL } = useQuery({
     queryKey: ['inventory-locations', user?.id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).from('inventory_locations').select('product_id, location, quantity');
+      const { data, error } = await (supabase as any).from('inventory_locations').select('product_id, location, quantity, created_at');
       if (error) throw error;
-      return (data || []) as Array<{ product_id: string; location: string; quantity: number }>;
+      return (data || []) as Array<{ product_id: string; location: string; quantity: number; created_at: string | null }>;
     },
     enabled: !!user?.id,
   });
@@ -79,7 +79,7 @@ export default function GuidedPick({ remision, company, userId, toast, onBack, o
   }, [products]);
   const binsByProduct = useMemo(() => {
     const m = new Map<string, Bin[]>();
-    for (const l of locs) { const arr = m.get(l.product_id) ?? []; arr.push({ location: l.location, quantity: Number(l.quantity) || 0 }); m.set(l.product_id, arr); }
+    for (const l of locs) { const arr = m.get(l.product_id) ?? []; arr.push({ location: l.location, quantity: Number(l.quantity) || 0, createdAt: l.created_at }); m.set(l.product_id, arr); }
     return m;
   }, [locs]);
 

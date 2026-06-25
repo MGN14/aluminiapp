@@ -9,7 +9,7 @@ import { MapPin, Plus, Trash2, Search, ChevronDown, ChevronRight, Check, Loader2
 
 interface Props { products: InventoryProduct[]; }
 interface BinRow { location: string; quantity: number; }
-interface LocRow { product_id: string; location: string; quantity: number; }
+interface LocRow { product_id: string; location: string; quantity: number; created_at: string | null; }
 
 export default function UbicacionesPanel({ products }: Props) {
   const { user } = useAuth();
@@ -22,7 +22,7 @@ export default function UbicacionesPanel({ products }: Props) {
   const { data: locs = [], refetch } = useQuery({
     queryKey: ['inventory-locations', user?.id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any).from('inventory_locations').select('product_id, location, quantity');
+      const { data, error } = await (supabase as any).from('inventory_locations').select('product_id, location, quantity, created_at');
       if (error) throw error;
       return (data || []) as LocRow[];
     },
@@ -69,11 +69,24 @@ export default function UbicacionesPanel({ products }: Props) {
       if (!loc || !(r.quantity > 0)) continue;
       merged.set(loc, (merged.get(loc) || 0) + r.quantity);
     }
+    // Antigüedad por bin para FIFO: preservamos created_at de las ubicaciones
+    // que ya existían, así editar la cantidad NO las "rejuvenece".
+    const prevCreated = new Map<string, string>();
+    for (const l of locs) {
+      if (l.product_id !== p.id) continue;
+      const loc = (l.location || '').trim().toUpperCase();
+      if (loc && l.created_at) prevCreated.set(loc, l.created_at);
+    }
     setSavingId(p.id);
     try {
       const { error: delErr } = await (supabase as any).from('inventory_locations').delete().eq('product_id', p.id);
       if (delErr) throw delErr;
-      const toInsert = Array.from(merged.entries()).map(([location, quantity]) => ({ user_id: user!.id, product_id: p.id, location, quantity }));
+      const toInsert = Array.from(merged.entries()).map(([location, quantity]) => {
+        const row: Record<string, unknown> = { user_id: user!.id, product_id: p.id, location, quantity };
+        const created = prevCreated.get(location);
+        if (created) row.created_at = created;
+        return row;
+      });
       if (toInsert.length) {
         const { error: insErr } = await (supabase as any).from('inventory_locations').insert(toInsert);
         if (insErr) throw insErr;

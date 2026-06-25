@@ -6,7 +6,7 @@ import { normalizeRef } from '@/lib/qrLabel';
 
 export interface PedidoLine { reference: string; name: string; needed: number; }
 export interface ProductRef { id: string; reference: string; name: string; }
-export interface Bin { location: string; quantity: number; }
+export interface Bin { location: string; quantity: number; createdAt?: string | null; }
 export interface PickTask { key: string; location: string; reference: string; name: string; qty: number; }
 export interface PickStep { location: string; tasks: PickTask[]; }
 
@@ -32,7 +32,14 @@ export function buildPickPath(
   for (const [k, line] of neededByRef.entries()) {
     const prod = productByRef.get(k);
     const bins = prod ? (binsByProduct.get(prod.id) ?? []) : [];
-    const sorted = [...bins].sort((a, b) => a.location.localeCompare(b.location, 'es', { numeric: true }));
+    // FIFO: primero el bin más viejo (el que se registró antes). Si no hay
+    // fecha, caemos a orden alfanumérico de la ubicación.
+    const sorted = [...bins].sort((a, b) => {
+      const ta = a.createdAt || '';
+      const tb = b.createdAt || '';
+      if (ta && tb && ta !== tb) return ta < tb ? -1 : 1;
+      return a.location.localeCompare(b.location, 'es', { numeric: true });
+    });
     let remaining = line.needed;
     for (const bin of sorted) {
       if (remaining <= 0) break;
