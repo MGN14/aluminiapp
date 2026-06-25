@@ -75,6 +75,7 @@ const Presupuesto = lazy(() => import("./pages/Presupuesto"));
 const Rentabilidad = lazy(() => import("./pages/Rentabilidad"));
 const PuntoEquilibrio = lazy(() => import("./pages/PuntoEquilibrio"));
 const CierreAnio = lazy(() => import("./pages/CierreAnio"));
+const ReportesBodega = lazy(() => import("./pages/ReportesBodega"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Admin = lazy(() => import("./pages/Admin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -226,6 +227,11 @@ const App = () => (
               <Route
                 path="/reportes/relacion-pagos"
                 element={<RequireModule moduleKey="relacion_pagos"><Reports tab="pagos" /></RequireModule>}
+              />
+              {/* Reportes de bodega (tiempos, rotación, durabilidad) — solo admin (tiene precios) */}
+              <Route
+                path="/reportes/bodega"
+                element={<AdminRoute><ReportesBodega /></AdminRoute>}
               />
               <Route
                 path="/reportes/cartera-operativa"

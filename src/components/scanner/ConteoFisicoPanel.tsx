@@ -41,6 +41,7 @@ export default function ConteoFisicoPanel({ products }: Props) {
   const [lastScan, setLastScan] = useState<{ key: string; qty: number } | null>(null);
   const flashTimer = useRef<number | null>(null);
   const lastKeyTimer = useRef<number | null>(null);
+  const sessionStartRef = useRef<string | null>(null); // inicio del conteo (para "tiempo de inventario")
 
   // Restaurar / persistir la sesión (sobrevive refresh o bloqueo de la tablet).
   useEffect(() => {
@@ -67,6 +68,7 @@ export default function ConteoFisicoPanel({ products }: Props) {
   const addCount = useCallback((rawRef: string, qty: number) => {
     const key = normalizeRef(rawRef);
     if (!key) return;
+    if (!sessionStartRef.current) sessionStartRef.current = new Date().toISOString();
     const prod = productByRef.get(key);
     const displayRef = prod?.reference ?? rawRef.trim();
     setCounts(prev => {
@@ -125,6 +127,7 @@ export default function ConteoFisicoPanel({ products }: Props) {
   const clearAll = () => {
     if (order.length > 0 && !window.confirm('¿Vaciar el conteo actual? Se pierde lo escaneado.')) return;
     setCounts({}); setOrder([]);
+    sessionStartRef.current = null;
   };
 
   const distinctRefs = order.length;
@@ -171,6 +174,19 @@ export default function ConteoFisicoPanel({ products }: Props) {
         const failed = results.find(res => res.error);
         if (failed?.error) throw failed.error;
       }
+      // Registrar la sesión de conteo (tiempo de inventario + productividad).
+      try {
+        await (supabase as any).from('count_sessions').insert({
+          user_id: user?.id ?? null,
+          operator_id: user?.id ?? null,
+          started_at: sessionStartRef.current,
+          ended_at: nowIso,
+          refs_count: reviewRows.length,
+          units_count: reviewRows.reduce((s, r) => s + r.counted, 0),
+          diffs_count: reviewRows.filter(r => r.diff !== 0).length,
+        });
+      } catch { /* no crítico para el conteo */ }
+      sessionStartRef.current = null;
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
       setCounts({}); setOrder([]); setShowReview(false);
       toast({

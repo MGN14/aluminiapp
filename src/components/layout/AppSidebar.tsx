@@ -124,6 +124,7 @@ const reportItems: NavItem[] = [
   { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks, permKey: 'relacion_pagos' },
   { title: 'Informe para Banco', url: '/informe-banco', icon: Building2, highlight: true, permKey: 'informe_banco' },
   { title: 'Cierre de Año', url: '/cierre-anio', icon: CalendarCheck, permKey: 'cierre_anio' },
+  { title: 'Bodega (operación)', url: '/reportes/bodega', icon: Boxes, adminOnly: true },
 ];
 
 const reportItemsGerencial: NavItem[] = [
