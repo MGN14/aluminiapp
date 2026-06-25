@@ -621,21 +621,6 @@ export default function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
-              {isAdmin && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={currentPath === '/probar-pistola'}>
-                    <NavLink
-                      to="/probar-pistola"
-                      style={navItemStyle(currentPath === '/probar-pistola')}
-                      onMouseEnter={handleHoverEnter(currentPath === '/probar-pistola')}
-                      onMouseLeave={handleHoverLeave(currentPath === '/probar-pistola')}
-                    >
-                      <ScanLine style={{ width: 15, height: 15, flexShrink: 0 }} />
-                      {!collapsed && <span>Probar pistola</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
               {hasModule('creditos') && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild isActive={currentPath === '/creditos'}>

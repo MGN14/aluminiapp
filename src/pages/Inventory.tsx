@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers, ScanLine } from 'lucide-react';
 import ConteoFisicoPanel from '@/components/scanner/ConteoFisicoPanel';
+import ProbarPistolaPanel from '@/components/scanner/ProbarPistolaPanel';
 import { Button } from '@/components/ui/button';
 import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryData';
 import { useModuleContext } from '@/hooks/useModuleContext';
@@ -41,6 +42,7 @@ export default function Inventory() {
   // Persistido en sessionStorage: si Nico cambia de pestaña/app y vuelve, el
   // tab (Inventario / Maestro) se mantiene en vez de resetear a 'inventario'.
   const [tab, setTab] = usePersistedFormState<Tab>('inventario:tab:v1', 'inventario');
+  const [conteoSub, setConteoSub] = useState<'contar' | 'probar'>('contar');
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [showEntrada, setShowEntrada] = useState(false);
@@ -502,12 +504,22 @@ export default function Inventory() {
 
         {/* Conteo físico tab (escáner) */}
         {tab === 'conteo' && (
-          <div className="animate-fade-in">
-            <div className="mb-4">
-              <h2 className="text-lg font-bold text-foreground">Conteo físico con escáner</h2>
-              <p className="text-sm text-muted-foreground mt-1">Escaneá los paquetes; al cerrar se actualiza el stock físico y se reportan las diferencias.</p>
+          <div className="animate-fade-in space-y-4">
+            <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit">
+              <button
+                onClick={() => setConteoSub('contar')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${conteoSub === 'contar' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <ClipboardCheck className="h-4 w-4" /> Contar
+              </button>
+              <button
+                onClick={() => setConteoSub('probar')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${conteoSub === 'probar' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <ScanLine className="h-4 w-4" /> Probar pistola
+              </button>
             </div>
-            <ConteoFisicoPanel products={products} />
+            {conteoSub === 'contar' ? <ConteoFisicoPanel products={products} /> : <ProbarPistolaPanel />}
           </div>
         )}
 
