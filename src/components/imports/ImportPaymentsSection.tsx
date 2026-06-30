@@ -242,7 +242,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
                 <SelectItem value="__none__">— Sin vincular (abono manual) —</SelectItem>
                 {availableTransactions.length === 0 ? (
                   <SelectItem value="__empty__" disabled>
-                    No hay egresos bancarios disponibles
+                    No hay egresos de proveedores disponibles
                   </SelectItem>
                 ) : (
                   availableTransactions.slice(0, 100).map((tx) => (

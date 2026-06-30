@@ -171,7 +171,9 @@ export function useImportPayments(importId: string | null | undefined) {
 
   // Transactions bancarias disponibles para vincular a un nuevo abono.
   // Filtramos: type='egreso' (transferencias al exterior), NO eliminadas,
-  // y que NO estén ya vinculadas a otro import_payment.
+  // categoría "Proveedores" (un abono de importación es un pago a proveedor;
+  // mostrar todos los egresos ensuciaba el dropdown), y que NO estén ya
+  // vinculadas a otro import_payment.
   const availableTransactionsQuery = useQuery<UnlinkedBankTransaction[]>({
     queryKey: ['import-payments-available-tx', user?.id],
     enabled: !!user,
@@ -200,6 +202,8 @@ export function useImportPayments(importId: string | null | undefined) {
 
       return (txs as any[])
         .filter(t => !linkedIds.has(t.id))
+        // Solo egresos categorizados como "Proveedores" en Conciliación Bancaria.
+        .filter(t => (t.categories?.name ?? '').toLowerCase().includes('proveedor'))
         .map(t => ({
           id: t.id,
           date: t.date,
