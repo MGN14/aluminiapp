@@ -214,7 +214,7 @@ export function CxCCard({ totalCxC, cxcCount, year }: { totalCxC: number; cxcCou
       <CardContent>
         <div className="text-xl font-bold text-destructive">{formatCurrency(totalCxC)}</div>
         <div className="text-xs text-muted-foreground mt-1">{cxcCount} factura{cxcCount !== 1 ? 's' : ''} pendientes • {year}</div>
-        <Link to="/reports" className="text-xs hover:underline mt-1 inline-block text-primary">Ver detalle →</Link>
+        <Link to="/reportes/cuentas-por-cobrar" className="text-xs hover:underline mt-1 inline-block text-primary">Ver detalle →</Link>
       </CardContent>
     </Card>
   );
@@ -232,7 +232,7 @@ export function AnticiposCard({ totalAnticipos, anticiposCount, year }: { totalA
       <CardContent>
         <div className="text-xl font-bold text-warning">{formatCurrency(totalAnticipos)}</div>
         <div className="text-xs text-muted-foreground mt-1">{anticiposCount} transacción{anticiposCount !== 1 ? 'es' : ''} • {year}</div>
-        <Link to="/reports" className="text-xs hover:underline mt-1 inline-block text-primary">Ver detalle →</Link>
+        <Link to="/reportes/anticipos" className="text-xs hover:underline mt-1 inline-block text-primary">Ver detalle →</Link>
       </CardContent>
     </Card>
   );
