@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { normalizeForMatch } from '@/lib/stringUtils';
+import { type MovementNature } from '@/types/transaction';
 
 export interface ReconciliationRule {
   id: string;
@@ -22,6 +23,9 @@ export interface ReconciliationRule {
   category_name?: string;
   responsible_id?: string;
   responsible_name?: string;
+  /** Si no es null, la regla setea transactions.movement_nature al matchear
+   *  (ej: 'traspaso' para excluir "PAGO TARJETA" del P&G). */
+  movement_nature?: MovementNature;
   auto_conciliate: boolean;
   active: boolean;
   match_count: number;
@@ -44,6 +48,7 @@ export interface NewReconciliationRule {
   category_name?: string;
   responsible_id?: string;
   responsible_name?: string;
+  movement_nature?: MovementNature;
   auto_conciliate?: boolean;
 }
 
@@ -172,7 +177,7 @@ export function useReconciliationRules() {
     // Aceptar reglas que aporten al menos category_id O responsible_id —
     // antes filtrábamos por category_id obligatorio y descartábamos las
     // reglas que solo asignaban beneficiario.
-    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id));
+    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id || r.movement_nature));
     if (!activeRules.length) return 0;
 
     const { data: txs, error } = await supabase
@@ -189,7 +194,7 @@ export function useReconciliationRules() {
     const candidates = txs.filter((tx: any) => !tx.category_id && !tx.responsible_id);
     if (!candidates.length) return 0;
 
-    type Update = { category_id?: string; responsible_id?: string };
+    type Update = { category_id?: string; responsible_id?: string; movement_nature?: string };
     // Agrupar por la combinación exacta de campos a setear, para hacer 1 UPDATE
     // por combinación distinta en lugar de 1 por transacción.
     const updateBuckets = new Map<string, { update: Update; ids: string[] }>();
@@ -201,7 +206,8 @@ export function useReconciliationRules() {
           const update: Update = {};
           if (rule.category_id) update.category_id = rule.category_id;
           if (rule.responsible_id) update.responsible_id = rule.responsible_id;
-          const key = `${update.category_id ?? ''}__${update.responsible_id ?? ''}`;
+          if (rule.movement_nature) update.movement_nature = rule.movement_nature;
+          const key = `${update.category_id ?? ''}__${update.responsible_id ?? ''}__${update.movement_nature ?? ''}`;
           const bucket = updateBuckets.get(key) ?? { update, ids: [] };
           bucket.ids.push((tx as any).id);
           updateBuckets.set(key, bucket);
@@ -254,7 +260,7 @@ export function useReconciliationRules() {
     onProgress?: (current: number, total: number) => void,
   ): Promise<{ total: number; categorized: number; skipped: number; errors: number }> => {
     if (!user?.id) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
-    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id));
+    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id || r.movement_nature));
     if (!activeRules.length) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
 
     // Solo tocar tx sin categoría Y sin beneficiario — no pisar trabajo manual.
@@ -280,9 +286,10 @@ export function useReconciliationRules() {
       let matched = false;
       for (const rule of activeRules) {
         if (matchesRule(rule, tx)) {
-          const update: { category_id?: string; responsible_id?: string } = {};
+          const update: { category_id?: string; responsible_id?: string; movement_nature?: string } = {};
           if (rule.category_id) update.category_id = rule.category_id;
           if (rule.responsible_id) update.responsible_id = rule.responsible_id;
+          if (rule.movement_nature) update.movement_nature = rule.movement_nature;
           const { error: updErr } = await supabase
             .from('transactions')
             .update(update)
@@ -326,7 +333,7 @@ export function useReconciliationRules() {
    */
   const applyRulesToTransactions = async (transactionIds: string[]): Promise<number> => {
     if (!rules.length || !transactionIds.length) return 0;
-    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id));
+    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id || r.movement_nature));
     if (!activeRules.length) return 0;
 
     const { data: txs } = await supabase
@@ -345,9 +352,10 @@ export function useReconciliationRules() {
     for (const tx of candidates) {
       for (const rule of activeRules) {
         if (matchesRule(rule, tx as any)) {
-          const update: { category_id?: string; responsible_id?: string } = {};
+          const update: { category_id?: string; responsible_id?: string; movement_nature?: string } = {};
           if (rule.category_id) update.category_id = rule.category_id;
           if (rule.responsible_id) update.responsible_id = rule.responsible_id;
+          if (rule.movement_nature) update.movement_nature = rule.movement_nature;
           const { error } = await supabase
             .from('transactions')
             .update(update)

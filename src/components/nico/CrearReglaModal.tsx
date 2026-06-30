@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useReconciliationRules, NewReconciliationRule, ReconciliationRule } from '@/hooks/useReconciliationRules';
+import { MOVEMENT_NATURES, type MovementNature } from '@/types/transaction';
 import { toast } from 'sonner';
 import { Zap, Info, Shield } from 'lucide-react';
 
@@ -52,6 +53,7 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
   const [dayMax, setDayMax] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [responsibleId, setResponsibleId] = useState('');
+  const [movementNature, setMovementNature] = useState<string>('__none__');
   const [autoConciliate, setAutoConciliate] = useState(true);
   const [keywordIsRegex, setKeywordIsRegex] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -69,6 +71,7 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
       setDayMax(editRule.day_max != null ? String(editRule.day_max) : '');
       setCategoryId(editRule.category_id ?? '');
       setResponsibleId(editRule.responsible_id ?? '');
+      setMovementNature(editRule.movement_nature ?? '__none__');
       setAutoConciliate(editRule.auto_conciliate ?? true);
       setKeywordIsRegex((editRule as { keyword_is_regex?: boolean }).keyword_is_regex ?? false);
     } else {
@@ -81,6 +84,7 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
       setDayMax('');
       setCategoryId('');
       setResponsibleId('');
+      setMovementNature('__none__');
       setAutoConciliate(true);
       setKeywordIsRegex(false);
     }
@@ -149,6 +153,7 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
         category_name: categoryIdClean ? categories.find(c => c.id === categoryIdClean)?.name : undefined,
         responsible_id: responsibleIdClean,
         responsible_name: responsibleIdClean ? responsibles.find(r => r.id === responsibleIdClean)?.name : undefined,
+        movement_nature: movementNature && movementNature !== '__none__' ? (movementNature as MovementNature) : undefined,
         auto_conciliate: autoConciliate,
         keyword_is_regex: keywordIsRegex,
       };
@@ -333,6 +338,28 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Movement nature — para traslados/devoluciones/etc que NO deben
+              contar en el P&G (ej: "PAGO TARJETA" → Traspaso entre cuentas). */}
+          <div>
+            <Label className="text-sm font-medium">Naturaleza del movimiento</Label>
+            <Select value={movementNature} onValueChange={setMovementNature}>
+              <SelectTrigger className="mt-1.5">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Sin cambiar (movimiento operativo normal)</SelectItem>
+                {MOVEMENT_NATURES.filter(n => n.value !== 'operativo').map(n => (
+                  <SelectItem key={n.value} value={n.value}>{n.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Si elegís Traspaso / Devolución / Préstamo / Aporte, estos movimientos NO
+              cuentan como ingreso ni gasto en el P&amp;G. Ej: marcá el "PAGO TARJETA" como
+              <strong> Traspaso entre cuentas</strong> para no doble-contar con las compras de la tarjeta.
+            </p>
           </div>
 
           {/* Auto conciliate toggle */}
