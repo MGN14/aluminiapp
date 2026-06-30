@@ -23,7 +23,7 @@
 //     para que él elija el contacto. El Excel se descarga en paralelo
 //     y el usuario lo arrastra al chat manualmente.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import writeXlsxFile from 'write-excel-file';
 import { supabase } from '@/integrations/supabase/client';
@@ -53,6 +53,27 @@ import type jsPDF from 'jspdf';
 
 const currentYear = new Date().getFullYear();
 const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - i);
+
+// Persistencia de los filtros de Relación de pagos.
+// Caso reportado: "no guarda al cliente y se actualiza sola" — el cliente
+// seleccionado se reseteaba a 'all' al re-montar el componente (navegar a otra
+// pestaña, refrescar, abrir un modal que invalida queries). Guardamos el set de
+// filtros en localStorage para que sobrevivan recarga/navegación.
+const FILTERS_STORAGE_KEY = 'aluminia.paymentsLog.filters.v1';
+type PersistedFilters = {
+  counterparty?: string;
+  typeFilter?: FilterType;
+  year?: number;
+  month?: number;
+};
+function loadPersistedFilters(): PersistedFilters {
+  try {
+    const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as PersistedFilters) : {};
+  } catch {
+    return {};
+  }
+}
 
 const MONTH_LABELS = [
   'Todos los meses',
@@ -126,10 +147,23 @@ type FilterType = 'todos' | 'ingreso' | 'egreso';
 export default function PaymentsLogReport() {
   const { user } = useAuth();
   const { isGerencial } = useModuleContext();
-  const [year, setYear] = useState(currentYear);
-  const [month, setMonth] = useState<number>(0);
-  const [typeFilter, setTypeFilter] = useState<FilterType>('todos');
-  const [counterparty, setCounterparty] = useState<string>('all'); // 'all' | <name>
+  const persistedFilters = useMemo(() => loadPersistedFilters(), []);
+  const [year, setYear] = useState(persistedFilters.year ?? currentYear);
+  const [month, setMonth] = useState<number>(persistedFilters.month ?? 0);
+  const [typeFilter, setTypeFilter] = useState<FilterType>(persistedFilters.typeFilter ?? 'todos');
+  const [counterparty, setCounterparty] = useState<string>(persistedFilters.counterparty ?? 'all'); // 'all' | <name>
+
+  // Persistir filtros ante cualquier cambio para que sobrevivan re-montajes.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        FILTERS_STORAGE_KEY,
+        JSON.stringify({ counterparty, typeFilter, year, month }),
+      );
+    } catch {
+      /* localStorage no disponible (modo privado) — no es crítico */
+    }
+  }, [counterparty, typeFilter, year, month]);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   // Remisión opcional a adjuntar al PDF/WhatsApp/email. La primera vez que se
   // envía la rel. de pagos a un cliente se quiere incluir la remisión para
@@ -1556,29 +1590,65 @@ export default function PaymentsLogReport() {
             );
           })()}
 
-          {/* Card de remisiones del cliente en el período. Muestra suma + cantidad.
-              Solo aparece si el cliente tiene al menos una remisión en el período. */}
-          {remisionesPeriodo.count > 0 && (
-            <Card className="border-primary/20 bg-primary/[0.02]">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Total remisiones a {counterparty} — {periodoLabel}
-                </CardTitle>
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Receipt className="h-4 w-4 text-primary" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold tabular-nums">{formatCurrency(remisionesPeriodo.total)}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {remisionesPeriodo.count} remisi{remisionesPeriodo.count === 1 ? 'ón' : 'ones'} despachada{remisionesPeriodo.count === 1 ? '' : 's'}
-                  {counterpartySummary?.facturadoVenta && counterpartySummary.facturadoVenta > 0
-                    ? ` · ${Math.round((remisionesPeriodo.total / counterpartySummary.facturadoVenta) * 100)}% del facturado`
-                    : ''}
-                </p>
-              </CardContent>
-            </Card>
-          )}
+          {/* Facturado vs Remisiones del cliente en el período, lado a lado.
+              Caso reportado: "aparece remisión pero no facturación y es crucial."
+              Antes solo se mostraba la card de remisiones; ahora va emparejada con
+              el total facturado para poder compararlos de un vistazo. */}
+          {(() => {
+            const isVenta = typeFilter !== 'egreso';
+            const facturadoLado = isVenta
+              ? (counterpartySummary?.facturadoVenta ?? 0)
+              : (counterpartySummary?.facturadoCompra ?? 0);
+            const facturasLado = isVenta
+              ? (counterpartySummary?.invoiceCountVenta ?? 0)
+              : (counterpartySummary?.invoiceCountCompra ?? 0);
+            const showFacturado = facturadoLado > 0;
+            const showRemisiones = remisionesPeriodo.count > 0;
+            if (!showFacturado && !showRemisiones) return null;
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {showFacturado && (
+                  <Card className="border-primary/20 bg-primary/[0.02]">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Total facturado {isVenta ? 'a' : 'por'} {counterparty} — {periodoLabel}
+                      </CardTitle>
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <Receipt className="h-4 w-4 text-primary" />
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold tabular-nums">{formatCurrency(facturadoLado)}</div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {facturasLado} factura{facturasLado === 1 ? '' : 's'} {isVenta ? 'de venta' : 'de compra'}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+                {showRemisiones && (
+                  <Card className="border-primary/20 bg-primary/[0.02]">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Total remisiones a {counterparty} — {periodoLabel}
+                      </CardTitle>
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <Receipt className="h-4 w-4 text-primary" />
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold tabular-nums">{formatCurrency(remisionesPeriodo.total)}</div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {remisionesPeriodo.count} remisi{remisionesPeriodo.count === 1 ? 'ón' : 'ones'} despachada{remisionesPeriodo.count === 1 ? '' : 's'}
+                        {showFacturado
+                          ? ` · ${Math.round((remisionesPeriodo.total / facturadoLado) * 100)}% del facturado`
+                          : ''}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            );
+          })()}
         </>
       ) : (
         // Vista general (sin cliente seleccionado).
