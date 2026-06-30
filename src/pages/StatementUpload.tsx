@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
 import PDFUploader from '@/components/PDFUploader';
 import WeeklyCsvUploader from '@/components/statements/WeeklyCsvUploader';
+import CreditCardCsvUploader from '@/components/statements/CreditCardCsvUploader';
 import DeleteStatementButton from '@/components/statements/DeleteStatementButton';
 import StatementConfigModal from '@/components/statements/StatementConfigModal';
 import { Button } from '@/components/ui/button';
@@ -456,6 +457,26 @@ export default function StatementUpload() {
               <div className="upload-card-wrap">
                 <WeeklyCsvUploader onUploadComplete={fetchStatements} />
               </div>
+            </div>
+          </div>
+
+          {/* Tarjeta de crédito (CSV) — formato distinto al de cuenta bancaria.
+              Importa SOLO las compras como gasto (decisión "solo compras = gasto"). */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+            <h2
+              style={{
+                fontFamily: 'inherit',
+                fontSize: 15,
+                fontWeight: 600,
+                color: '#1d1d1f',
+                margin: 0,
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Tarjeta de crédito (CSV)
+            </h2>
+            <div className="upload-card-wrap">
+              <CreditCardCsvUploader onUploadComplete={fetchStatements} />
             </div>
           </div>
 
