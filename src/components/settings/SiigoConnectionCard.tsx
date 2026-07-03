@@ -107,11 +107,23 @@ export default function SiigoConnectionCard() {
 
       qc.invalidateQueries({ queryKey: ['siigo-creds', user?.id] });
       qc.invalidateQueries({ queryKey: ['invoices'] });
+      // Surface honesto por tipo: los errores/vacíos de COMPRA eran invisibles
+      // (solo se mostraba synced) y parecía bug de la app. Si Siigo reporta 0
+      // compras, el problema es de origen: las FC no están causadas en Siigo.
+      const compraTotal = (data.debug as Record<string, { total_results?: number | null }> | undefined)
+        ?.compra_page1?.total_results;
+      const errCount = (data.errors as string[] | undefined)?.length ?? 0;
+      const detalles = [
+        `${data.synced ?? 0} facturas procesadas${data.skipped ? `, ${data.skipped} omitidas` : ''}.`,
+        compraTotal === 0
+          ? 'Siigo reportó 0 facturas de COMPRA: para importarlas deben estar causadas como FC en Siigo (buzón de documentos DIAN → causar compra).'
+          : null,
+        errCount > 0 ? `${errCount} error${errCount > 1 ? 'es' : ''} durante el sync.` : null,
+      ].filter(Boolean).join(' ');
       toast({
         title: 'Siigo sincronizado',
-        description: `${data.synced ?? 0} facturas procesadas${
-          data.skipped ? `, ${data.skipped} omitidas` : ''
-        }.`,
+        description: detalles,
+        ...(compraTotal === 0 || errCount > 0 ? { duration: 12000 } : {}),
       });
     } catch (e: any) {
       toast({
