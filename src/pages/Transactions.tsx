@@ -24,14 +24,14 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Loader2, AlertCircle, Users, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, Users, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Check } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
 import { AnimatedNumber } from '@/components/ui/animated-number';
@@ -120,6 +120,14 @@ function getEffectiveYear(stmt: Pick<Statement, 'statement_year' | 'period_start
   return null;
 }
 
+// Los 3 módulos del selector de extractos. Las keys matchean groupedStatements
+// y el valor de filtro 'group:<key>' selecciona el módulo entero.
+const STATEMENT_GROUPS = [
+  { key: 'monthly', label: 'Cierres mensuales', emoji: '📋' },
+  { key: 'weekly', label: 'Movimientos semanales', emoji: '📊' },
+  { key: 'tarjeta', label: 'Tarjeta de crédito', emoji: '💳' },
+] as const;
+
 // ─── Query functions (React Query) ───
 // La página vivía sobre useState + fetch en cada mount: navegar a otro módulo
 // y volver re-fetcheaba TODO con spinner y "recalculaba" la conciliación.
@@ -153,17 +161,21 @@ async function queryResponsibles(): Promise<Responsible[]> {
 
 async function queryTransactions(
   selectedYear: string,
-  selectedStatement: string,
-  statements: Statement[],
+  statementIds: string[],
   historyMonths: number | null | undefined,
 ): Promise<Transaction[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
+  // El filtro siempre es por lista de statement ids: un extracto puntual, un
+  // módulo entero (mensuales/semanales/tarjeta) o todos los activos. También
+  // protege contra huérfanos de deletes viejos que no cascadearon.
+  if (statementIds.length === 0) return [];
 
   let query = supabase
     .from('transactions')
     .select('*')
     .is('deleted_at', null)
+    .in('statement_id', statementIds)
     .order('date', { ascending: true })
     .order('created_at', { ascending: true }); // Stable secondary sort
 
@@ -172,16 +184,6 @@ async function queryTransactions(
     query = query
       .gte('date', `${year}-01-01`)
       .lt('date', `${year + 1}-01-01`);
-  }
-
-  if (selectedStatement !== 'all') {
-    query = query.eq('statement_id', selectedStatement);
-  } else {
-    // Defensive: only show transactions tied to currently-active statements.
-    // Protects against orphans when an older delete didn't cascade cleanly.
-    const activeStatementIds = statements.map((s) => s.id);
-    if (activeStatementIds.length === 0) return [];
-    query = query.in('statement_id', activeStatementIds);
   }
 
   // Apply historyMonths filter for plans with limited history
@@ -209,6 +211,7 @@ export default function Transactions() {
   const [selectedYear, setSelectedYear] = useState<string>(() => loadStringFromStorage(YEAR_STORAGE_KEY, String(currentYear)));
   const [selectedStatement, setSelectedStatement] = useState<string>(() => loadStringFromStorage(STATEMENT_STORAGE_KEY, 'all'));
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [stmtPickerOpen, setStmtPickerOpen] = useState(false);
   const [filters, setFilters] = useState<TransactionFilterState>(() => loadFilters());
   // Track IDs that were pending when the "Pendientes" filter was activated,
   // so they stay visible even after receiving a beneficiario mid-session.
@@ -239,9 +242,48 @@ export default function Transactions() {
     gcTime: 60 * 60_000,
   });
 
+  // Extractos del año seleccionado, agrupados en los 3 módulos del selector.
+  const filteredStatements = useMemo(() => {
+    if (selectedYear === 'all') return statements;
+    const year = Number(selectedYear);
+    return statements.filter((stmt) => getEffectiveYear(stmt) === year);
+  }, [statements, selectedYear]);
+
+  const groupedStatements = useMemo(() => {
+    // Tarjeta de crédito va en su propio grupo (el uploader la guarda con
+    // bank_name "Tarjeta de crédito Bancolombia" y period_type weekly).
+    const isTarjeta = (s: Statement) => (s.bank_name ?? '').toLowerCase().startsWith('tarjeta');
+    const tarjeta = filteredStatements.filter(isTarjeta);
+    const monthly = filteredStatements.filter((s) => !isTarjeta(s) && (!s.period_type || s.period_type === 'monthly_close'));
+    const weekly = filteredStatements.filter((s) => !isTarjeta(s) && s.period_type === 'weekly');
+    return { monthly, weekly, tarjeta };
+  }, [filteredStatements]);
+
+  // Resolución del filtro de extracto a ids concretos:
+  //   'all' → todos los activos · 'group:X' → el módulo entero · uuid → ese extracto
+  const selectedStatementIds = useMemo(() => {
+    if (selectedStatement === 'all') return statements.map((s) => s.id);
+    if (selectedStatement.startsWith('group:')) {
+      const key = selectedStatement.slice('group:'.length) as keyof typeof groupedStatements;
+      return (groupedStatements[key] ?? []).map((s) => s.id);
+    }
+    return [selectedStatement];
+  }, [selectedStatement, statements, groupedStatements]);
+
+  // Label del trigger del selector de extractos
+  const statementFilterLabel = useMemo(() => {
+    if (selectedStatement === 'all') return 'Todos los extractos';
+    if (selectedStatement.startsWith('group:')) {
+      const g = STATEMENT_GROUPS.find((g) => `group:${g.key}` === selectedStatement);
+      return g ? `${g.emoji} ${g.label} — todos` : 'Todos los extractos';
+    }
+    const stmt = statements.find((s) => s.id === selectedStatement);
+    return stmt ? (stmt.display_name || stmt.file_name) : 'Todos los extractos';
+  }, [selectedStatement, statements]);
+
   // La lista de statement ids entra a la key: si se sube/borra un extracto,
   // la query de transacciones se refetchea con el set nuevo.
-  const statementIdsKey = useMemo(() => statements.map((s) => s.id).join('|'), [statements]);
+  const statementIdsKey = useMemo(() => selectedStatementIds.join('|'), [selectedStatementIds]);
 
   const txQueryKey = useMemo(
     () => ['conciliacion', 'transactions', selectedYear, selectedStatement, limits.historyMonths ?? 0, statementIdsKey] as const,
@@ -250,7 +292,7 @@ export default function Transactions() {
 
   const txQuery = useQuery({
     queryKey: txQueryKey,
-    queryFn: () => queryTransactions(selectedYear, selectedStatement, statements, limits.historyMonths),
+    queryFn: () => queryTransactions(selectedYear, selectedStatementIds, limits.historyMonths),
     enabled: statementsQuery.isSuccess,
     // Al cambiar año/extracto mantenemos la lista anterior visible en vez de
     // flashear un spinner — se siente estable, no "recalculando".
@@ -370,29 +412,20 @@ export default function Transactions() {
       .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   }, [transactions]);
 
-  const filteredStatements = useMemo(() => {
-    if (selectedYear === 'all') return statements;
-    const year = Number(selectedYear);
-    return statements.filter((stmt) => getEffectiveYear(stmt) === year);
-  }, [statements, selectedYear]);
-
-  const groupedStatements = useMemo(() => {
-    // Tarjeta de crédito va en su propio grupo (el uploader la guarda con
-    // bank_name "Tarjeta de crédito Bancolombia" y period_type weekly).
-    const isTarjeta = (s: Statement) => (s.bank_name ?? '').toLowerCase().startsWith('tarjeta');
-    const tarjeta = filteredStatements.filter(isTarjeta);
-    const monthly = filteredStatements.filter((s) => !isTarjeta(s) && (!s.period_type || s.period_type === 'monthly_close'));
-    const weekly = filteredStatements.filter((s) => !isTarjeta(s) && s.period_type === 'weekly');
-    return { monthly, weekly, tarjeta };
-  }, [filteredStatements]);
-
   useEffect(() => {
     if (selectedStatement === 'all') return;
+    if (!statementsQuery.isSuccess) return;
+    // Grupo sin extractos en el año, o extracto puntual que no existe en el
+    // año seleccionado → volver a "todos".
+    if (selectedStatement.startsWith('group:')) {
+      if (selectedStatementIds.length === 0) setSelectedStatement('all');
+      return;
+    }
     const existsInSelectedYear = filteredStatements.some((stmt) => stmt.id === selectedStatement);
     if (!existsInSelectedYear) {
       setSelectedStatement('all');
     }
-  }, [filteredStatements, selectedStatement]);
+  }, [filteredStatements, selectedStatement, selectedStatementIds, statementsQuery.isSuccess]);
 
   // Apply client-side filters and sorting
   const filteredTransactions = useMemo(() => {
@@ -555,47 +588,85 @@ export default function Transactions() {
 
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Extracto:</span>
-                <Select value={selectedStatement} onValueChange={setSelectedStatement}>
-                  <SelectTrigger className="w-[220px]">
-                    <SelectValue placeholder="Todos los extractos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los extractos</SelectItem>
-                    {groupedStatements.monthly.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>📋 Cierres mensuales</SelectLabel>
-                        {groupedStatements.monthly.map((stmt) => (
-                          <SelectItem key={stmt.id} value={stmt.id}>
-                            {stmt.display_name || stmt.file_name}
-                            {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    )}
-                    {groupedStatements.weekly.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>📊 Movimientos semanales</SelectLabel>
-                        {groupedStatements.weekly.map((stmt) => (
-                          <SelectItem key={stmt.id} value={stmt.id}>
-                            {stmt.display_name || stmt.file_name}
-                            {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    )}
-                    {groupedStatements.tarjeta.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>💳 Tarjeta de crédito</SelectLabel>
-                        {groupedStatements.tarjeta.map((stmt) => (
-                          <SelectItem key={stmt.id} value={stmt.id}>
-                            {stmt.display_name || stmt.file_name}
-                            {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    )}
-                  </SelectContent>
-                </Select>
+                {/* Panel de 3 módulos: mensuales / semanales / tarjeta, todos
+                    visibles a la vez (el Select largo enterraba la tarjeta al
+                    fondo). Click en el header del módulo = ver el módulo entero. */}
+                <Popover open={stmtPickerOpen} onOpenChange={setStmtPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-[240px] justify-between font-normal">
+                      <span className="truncate">{statementFilterLabel}</span>
+                      <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-[min(94vw,760px)] p-0">
+                    <button
+                      className={cn(
+                        'w-full text-left px-4 py-2.5 text-sm font-medium border-b border-border hover:bg-muted/50 flex items-center gap-2',
+                        selectedStatement === 'all' && 'text-primary'
+                      )}
+                      onClick={() => { setSelectedStatement('all'); setStmtPickerOpen(false); }}
+                    >
+                      {selectedStatement === 'all' && <Check className="h-3.5 w-3.5" />}
+                      Todos los extractos
+                    </button>
+                    <div className="grid sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border">
+                      {STATEMENT_GROUPS.map((g) => {
+                        const list = groupedStatements[g.key];
+                        const groupValue = `group:${g.key}`;
+                        const groupTxCount = list.reduce((s, st) => s + (st.transaction_count ?? 0), 0);
+                        return (
+                          <div key={g.key} className="flex flex-col min-h-0">
+                            <button
+                              className={cn(
+                                'text-left px-3 py-2.5 border-b border-border bg-muted/40 hover:bg-muted/70 transition-colors',
+                                selectedStatement === groupValue && 'bg-primary/5'
+                              )}
+                              onClick={() => {
+                                if (list.length === 0) return;
+                                setSelectedStatement(groupValue);
+                                setStmtPickerOpen(false);
+                              }}
+                              title={list.length > 0 ? `Ver todos los movimientos de ${g.label}` : undefined}
+                            >
+                              <span className={cn(
+                                'text-xs font-semibold flex items-center gap-1.5',
+                                selectedStatement === groupValue ? 'text-primary' : 'text-foreground'
+                              )}>
+                                {selectedStatement === groupValue && <Check className="h-3 w-3 shrink-0" />}
+                                {g.emoji} {g.label}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {list.length === 0
+                                  ? 'Sin extractos este año'
+                                  : `${list.length} extracto${list.length > 1 ? 's' : ''} · ${groupTxCount} mov. — click para ver todo`}
+                              </span>
+                            </button>
+                            <div className="overflow-y-auto max-h-[280px] p-1 space-y-0.5">
+                              {list.map((stmt) => (
+                                <button
+                                  key={stmt.id}
+                                  className={cn(
+                                    'w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted/60 flex items-center gap-1.5',
+                                    selectedStatement === stmt.id && 'bg-primary/10 text-primary font-medium'
+                                  )}
+                                  onClick={() => { setSelectedStatement(stmt.id); setStmtPickerOpen(false); }}
+                                >
+                                  {selectedStatement === stmt.id && <Check className="h-3 w-3 shrink-0" />}
+                                  <span className="truncate flex-1">{stmt.display_name || stmt.file_name}</span>
+                                  {stmt.transaction_count ? (
+                                    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                                      {stmt.transaction_count}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </div>
