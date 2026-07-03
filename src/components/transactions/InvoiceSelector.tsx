@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { suggestPaymentSplit, summarizeCredit, type AmortizationType } from '@/lib/amortization';
 import { invoiceRetenciones } from '@/lib/invoiceBalance';
 import { calculateAllClientReceivables } from '@/lib/clientReceivables';
+import { normalizeCompanyName } from '@/lib/stringUtils';
 
 interface InvoiceOption {
   id: string;
@@ -17,6 +18,7 @@ interface InvoiceOption {
   counterparty_name: string | null;
   issue_date: string;
   total_amount: number;
+  responsible_id: string | null;
   outstanding: number; // saldo por cobrar
 }
 
@@ -41,6 +43,9 @@ interface InvoiceSelectorProps {
   transactionAmount?: number | null;
   transactionDate?: string;
   transactionId?: string;
+  /** Beneficiario ya asignado a la transacción — sus facturas van primero como sugeridas */
+  responsibleId?: string | null;
+  responsibleName?: string | null;
   onChange: (invoiceId: string | null, tags: InvoiceTag[], autoMatches?: AutoMatchResult[], creditLink?: CreditLinkInfo) => void;
   className?: string;
 }
@@ -78,7 +83,7 @@ const TAG_CONFIG: Record<InvoiceTag, { label: string; icon: typeof FileText; col
   anticipo: { label: 'Anticipo', icon: Wallet, colorClass: 'text-warning', description: 'Pago anticipado sin factura' },
 };
 
-export default function InvoiceSelector({ invoiceId, tags, transactionType, transactionAmount, transactionDate, transactionId, onChange, className }: InvoiceSelectorProps) {
+export default function InvoiceSelector({ invoiceId, tags, transactionType, transactionAmount, transactionDate, transactionId, responsibleId, responsibleName, onChange, className }: InvoiceSelectorProps) {
   const [open, setOpen] = useState(false);
   const [invoices, setInvoices] = useState<InvoiceOption[]>([]);
   const [credits, setCredits] = useState<CreditOption[]>([]);
@@ -97,7 +102,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
       .from('invoices')
       // ⚠️ NO incluir `retefuente_amount` — esa columna existe en transactions,
       // NO en invoices. Pedirla hace que toda la query falle silenciosamente.
-      .select('id, invoice_number, type, counterparty_name, issue_date, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount' as never)
+      .select('id, invoice_number, type, counterparty_name, issue_date, total_amount, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount' as never)
       .eq('status', 'confirmed')
       .or('void_type.is.null,void_type.eq.partial')
       .order('issue_date', { ascending: false })
@@ -223,6 +228,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
         counterparty_name: (inv.counterparty_name as string | null) ?? null,
         issue_date: (inv.issue_date as string) ?? '',
         total_amount: totalAmount,
+        responsible_id: (inv.responsible_id as string | null) ?? null,
         outstanding,
       };
     });
@@ -314,6 +320,19 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     return () => { cancelled = true; };
   }, [invoiceId, invoices]);
 
+  // Facturas del MISMO beneficiario que la transacción: por responsible_id
+  // exacto, o por nombre normalizado (el counterparty de la factura vs el
+  // nombre del beneficiario — "Aluminios JH S.A.S" ≈ "ALUMINIOS JH").
+  const isSuggestedForResponsible = useCallback((inv: InvoiceOption): boolean => {
+    if (responsibleId && inv.responsible_id === responsibleId) return true;
+    if (responsibleName && inv.counterparty_name) {
+      const a = normalizeCompanyName(inv.counterparty_name);
+      const b = normalizeCompanyName(responsibleName);
+      if (a && b && (a === b || a.includes(b) || b.includes(a))) return true;
+    }
+    return false;
+  }, [responsibleId, responsibleName]);
+
   const filtered = useMemo(() => {
     let result = invoices;
     if (invoiceTypeFilter) {
@@ -328,8 +347,15 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
         formatCurrency(inv.outstanding).toLowerCase().includes(q)
       );
     }
+    // Prioridad: facturas del beneficiario asignado primero (con saldo antes
+    // que pagadas), preservando el orden por fecha dentro de cada grupo.
+    if (responsibleId || responsibleName) {
+      const score = (inv: InvoiceOption) =>
+        (isSuggestedForResponsible(inv) ? 2 : 0) + (inv.outstanding > 1 ? 1 : 0);
+      result = [...result].sort((a, b) => score(b) - score(a));
+    }
     return result;
-  }, [invoices, search, invoiceTypeFilter]);
+  }, [invoices, search, invoiceTypeFilter, responsibleId, responsibleName, isSuggestedForResponsible]);
 
   const selectedInvoice = invoices.find(inv => inv.id === invoiceId);
 
@@ -619,12 +645,14 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
               filtered.map(inv => {
                 const prefix = inv.type === 'venta' ? 'FV' : 'FC';
                 const isPaid = inv.outstanding <= 1; // ≤1 peso = cubierta (residuos por decimales de retención)
+                const suggested = !isPaid && isSuggestedForResponsible(inv);
                 return (
                   <button
                     key={inv.id}
                     className={cn(
                       'w-full text-left px-3 py-2 text-xs hover:bg-muted/50 flex items-center gap-2 border-b border-border/50',
                       inv.id === invoiceId && 'bg-accent/10',
+                      suggested && 'bg-success/5',
                       isPaid && 'opacity-50'
                     )}
                     onClick={() => selectInvoice(inv.id)}
@@ -632,6 +660,11 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
                     <span className="font-medium shrink-0">
                       {prefix}-{inv.invoice_number}
                     </span>
+                    {suggested && (
+                      <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-success/15 text-success font-semibold uppercase tracking-wide">
+                        Sugerida
+                      </span>
+                    )}
                     <span className="text-muted-foreground truncate flex-1">
                       {inv.counterparty_name || 'Sin nombre'}
                     </span>

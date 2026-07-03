@@ -351,6 +351,8 @@ export default function TransactionRow({
           transactionAmount={localTransaction.amount}
           transactionDate={localTransaction.date}
           transactionId={localTransaction.id}
+          responsibleId={localTransaction.responsible_id}
+          responsibleName={responsibles.find(r => r.id === localTransaction.responsible_id)?.name ?? null}
           onChange={handleInvoiceChange}
         />
       </TableCell>

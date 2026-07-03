@@ -288,31 +288,34 @@ export default function Transactions() {
     [queryClient],
   );
 
-  // When the user switches TO "pendientes", snapshot the current pending IDs.
-  // When they switch AWAY, clear the snapshot so re-entering recalculates.
+  // Al salir del filtro "pendientes" se limpia el pin — recién ahí desaparecen
+  // las filas que fuiste conciliando. Mientras el filtro esté activo, NADA se va.
   const handleFiltersChange = useCallback((newFilters: TransactionFilterState) => {
-    if (newFilters.estado === 'pendientes' && filters.estado !== 'pendientes') {
-      const ids = new Set(transactions.filter(tx => !tx.responsible_id).map(tx => tx.id));
-      setPinnedPendingIds(ids);
-    } else if (newFilters.estado !== 'pendientes' && filters.estado === 'pendientes') {
+    if (newFilters.estado !== 'pendientes' && filters.estado === 'pendientes') {
       setPinnedPendingIds(new Set());
     }
     setFilters(newFilters);
-  }, [filters.estado, transactions]);
+  }, [filters.estado]);
 
-  // Snapshot inicial: si la página carga con filters.estado='pendientes'
-  // (filtro persistido en localStorage), handleFiltersChange nunca se
-  // dispara y pinnedPendingIds queda vacío — por eso al asignar un
-  // responsable la fila salía del filtro al instante. Snapshotear acá
-  // cuando lleguen las transactions resuelve el caso.
-  const didInitialSnapshotRef = useRef(false);
+  // Pin ACUMULATIVO: mientras el filtro "pendientes" esté activo, toda fila que
+  // en algún momento fue pendiente queda fijada — aunque le asignes categoría y
+  // beneficiario podés seguir con factura y naturaleza sin que se esfume.
+  // (El snapshot único al activar el filtro tenía huecos: si la data llegaba
+  // después del snapshot, o venía de un refetch, la fila desaparecía al toque.)
   useEffect(() => {
-    if (didInitialSnapshotRef.current) return;
     if (filters.estado !== 'pendientes') return;
     if (transactions.length === 0) return;
-    didInitialSnapshotRef.current = true;
-    const ids = new Set(transactions.filter(tx => !tx.responsible_id).map(tx => tx.id));
-    setPinnedPendingIds(ids);
+    setPinnedPendingIds(prev => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const tx of transactions) {
+        if (!tx.responsible_id && !next.has(tx.id)) {
+          next.add(tx.id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
   }, [transactions, filters.estado]);
 
   // Persistir filtros, año y extracto cada vez que cambian (sobrevive a

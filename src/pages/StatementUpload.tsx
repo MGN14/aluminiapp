@@ -386,6 +386,47 @@ export default function StatementUpload() {
             Funciona con múltiples bancos. Si tu PDF no se procesa correctamente, lo ajustamos.
           </p>
 
+          {/* Alerta de vacíos de días — ARRIBA de los uploaders para que se vea
+              antes de subir el próximo extracto (pedido de Nico). */}
+          {coverageGaps.length > 0 && (
+            <div
+              style={{
+                background: 'oklch(0.97 0.03 75)',
+                border: '1px solid oklch(0.75 0.12 75 / 0.5)',
+                borderRadius: 12,
+                padding: '14px 16px',
+                marginBottom: 24,
+                display: 'flex',
+                gap: 12,
+                alignItems: 'flex-start',
+                fontFamily: 'inherit',
+              }}
+            >
+              <AlertCircle
+                className="h-4 w-4"
+                style={{ marginTop: 2, flexShrink: 0, color: 'oklch(0.55 0.15 65)' }}
+              />
+              <div style={{ fontFamily: 'inherit' }}>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6, color: '#1d1d1f', fontFamily: 'inherit' }}>
+                  Hay días sin datos entre tus extractos
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,0.7)', fontFamily: 'inherit' }}>
+                  {coverageGaps.map((gap, i) => (
+                    <div key={`${gap.bank}-${gap.from}-${i}`}>
+                      <strong>{gap.bank}</strong>: falta del{' '}
+                      <strong>{format(new Date(gap.from + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</strong> al{' '}
+                      <strong>{format(new Date(gap.to + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</strong>
+                      {' '}({gap.days} día{gap.days > 1 ? 's' : ''})
+                    </div>
+                  ))}
+                  <div style={{ marginTop: 6, fontSize: 12.5, color: 'rgba(0,0,0,0.55)' }}>
+                    Descargá del portal del banco los movimientos de esas fechas y subilos como CSV para completar el período.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div
             style={{
               background: 'oklch(0.52 0.16 240 / 0.06)',
@@ -517,47 +558,6 @@ export default function StatementUpload() {
             </div>
           )}
         </section>
-
-        {/* Alerta de vacíos de días entre extractos del mismo banco */}
-        {coverageGaps.length > 0 && (
-          <section style={{ fontFamily: 'inherit', marginBottom: 20 }}>
-            <div
-              style={{
-                background: 'oklch(0.97 0.03 75)',
-                border: '1px solid oklch(0.75 0.12 75 / 0.5)',
-                borderRadius: 12,
-                padding: '14px 16px',
-                display: 'flex',
-                gap: 12,
-                alignItems: 'flex-start',
-                fontFamily: 'inherit',
-              }}
-            >
-              <AlertCircle
-                className="h-4 w-4"
-                style={{ marginTop: 2, flexShrink: 0, color: 'oklch(0.55 0.15 65)' }}
-              />
-              <div style={{ fontFamily: 'inherit' }}>
-                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6, color: '#1d1d1f', fontFamily: 'inherit' }}>
-                  Hay días sin datos entre tus extractos
-                </div>
-                <div style={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,0.7)', fontFamily: 'inherit' }}>
-                  {coverageGaps.map((gap, i) => (
-                    <div key={`${gap.bank}-${gap.from}-${i}`}>
-                      <strong>{gap.bank}</strong>: falta del{' '}
-                      <strong>{format(new Date(gap.from + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</strong> al{' '}
-                      <strong>{format(new Date(gap.to + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</strong>
-                      {' '}({gap.days} día{gap.days > 1 ? 's' : ''})
-                    </div>
-                  ))}
-                  <div style={{ marginTop: 6, fontSize: 12.5, color: 'rgba(0,0,0,0.55)' }}>
-                    Descargá del portal del banco los movimientos de esas fechas y subilos como CSV para completar el período.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
 
         {statements.length > 0 && (
           <section style={{ fontFamily: 'inherit' }}>

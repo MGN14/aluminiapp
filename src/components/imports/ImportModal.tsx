@@ -162,7 +162,11 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       cantidad_ton: cantidadTon === '' ? null : Number(cantidadTon),
       precio_smm_cerrado_usd_ton: precioSmm === '' ? null : Number(precioSmm),
       monto_total_usd: montoTotal === '' ? null : Number(montoTotal),
-      anticipo_pagado_usd: anticipo === '' ? 0 : Number(anticipo),
+      // anticipo_pagado_usd SOLO al crear. En edición lo sincroniza el trigger
+      // desde los abonos — mandarlo acá pisaba el valor real con el que estaba
+      // cargado al ABRIR el modal (agregabas un abono adentro, guardabas, y el
+      // anticipo/saldo retrocedían al valor viejo).
+      ...(isEdit ? {} : { anticipo_pagado_usd: anticipo === '' ? 0 : Number(anticipo) }),
       fecha_cotizacion: fechaCotizacion || null,
       fecha_anticipo: fechaAnticipo || null,
       fecha_embarque: fechaEmbarque || null,
@@ -197,10 +201,15 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   };
 
   const saving = create.isPending || update.isPending;
+  // En edición, el anticipo REAL viene de la liquidación (suma de abonos, se
+  // actualiza en vivo al agregar uno adentro del modal). El state `anticipo`
+  // solo aplica al crear.
+  const anticipoVivo = isEdit
+    ? Number(liquidation?.total_pagado_usd ?? editing?.anticipo_pagado_usd ?? 0)
+    : (typeof anticipo === 'number' ? anticipo : 0);
   // saldo computado en vivo para mostrarlo al usuario
   const saldoPreview =
-    (typeof montoTotal === 'number' ? montoTotal : 0)
-    - (typeof anticipo === 'number' ? anticipo : 0);
+    (typeof montoTotal === 'number' ? montoTotal : 0) - anticipoVivo;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -337,7 +346,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
               </Label>
               <Input
                 type="number" step="0.01" min={0}
-                value={anticipo}
+                value={isEdit ? anticipoVivo : anticipo}
                 onChange={e => setAnticipo(e.target.value === '' ? '' : +e.target.value)}
                 disabled={isEdit}
                 title={isEdit ? 'Editá los abonos abajo para cambiar el total. Este campo se sincroniza solo.' : ''}

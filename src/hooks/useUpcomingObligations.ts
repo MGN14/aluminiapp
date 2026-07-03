@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useBusinessObligations } from '@/hooks/useBusinessObligations';
 import { useCredits } from '@/hooks/useCredits';
+import { useImports } from '@/hooks/useImports';
 import {
   VENCIMIENTOS_IVA_2026,
   VENCIMIENTOS_IVA_CUATRIMESTRAL_2026,
@@ -35,6 +36,7 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
   const { config } = useFiscalConfig();
   const { obligations, isLoading: obligationsLoading } = useBusinessObligations();
   const { data: creditsData } = useCredits();
+  const { data: importsData } = useImports();
 
   const nitDigit = config?.nit_ultimo_digito ?? null;
   const effectiveRentaType = config?.persona_type === 'natural' ? 'natural' : (config?.renta_type ?? 'juridica');
@@ -168,8 +170,27 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
       }
     }
 
+    // ETAs de importaciones abiertas: fecha estimada de llegada del contenedor.
+    // Informativo (no es plata que sale ese día) — el saldo USD va en la
+    // descripción, no en `monto` (que la card formatea como COP).
+    if (importsData?.abiertos?.length) {
+      for (const imp of importsData.abiertos) {
+        if (!imp.fecha_estimada_llegada) continue;
+        const saldo = Number(imp.saldo_pendiente_usd ?? 0);
+        list.push({
+          id: `import-${imp.id}`,
+          tipo: 'importacion',
+          descripcion: `ETA ${imp.proveedor_nombre}${imp.ref_pedido ? ` (${imp.ref_pedido})` : ''}${saldo > 0 ? ` — saldo USD $${saldo.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : ''}`,
+          fecha: new Date(imp.fecha_estimada_llegada + 'T12:00:00'),
+          periodo: imp.proveedor_nombre,
+          origen: 'importacion',
+          importId: imp.id,
+        });
+      }
+    }
+
     return list;
-  }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral, creditsData]);
+  }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral, creditsData, importsData]);
 
   // Incluye vencidas (d < 0) — no desaparecen al pasar la fecha; solo el
   // checkbox de "pagada" las saca. El caller filtra por isPaid().
