@@ -239,12 +239,29 @@ serve(async (req) => {
         url.searchParams.set("page_size", String(PAGE_SIZE));
 
         const res = await fetch(url.toString(), { headers: apiHeaders });
+        // Leemos SIEMPRE el body como texto primero: si compra falla o viene
+        // vacío, necesitamos el crudo para distinguir la rama del bug
+        // (401/403 = scope del plan, 404 = ruta, 200 con otra key = shape,
+        // 200 vacío = ventana/filtro). Ver fix-siigo-compras.md.
+        const rawText = await res.text().catch(() => "");
         if (!res.ok) {
-          const detail = await res.text().catch(() => "");
-          errors.push(`${kind} page ${page}: ${res.status} ${detail.slice(0, 200)}`);
+          errors.push(`${kind} page ${page}: ${res.status} ${rawText.slice(0, 300)}`);
+          debug[`${kind}_error_p${page}`] = {
+            status: res.status,
+            body: rawText.slice(0, 500),
+            url: url.toString(),
+          };
+          console.log(`[siigo-sync-invoices] ${kind} ERROR p${page}: ${res.status} ${rawText.slice(0, 500)}`);
           break;
         }
-        const payload = await res.json() as { results?: SiigoInvoice[]; pagination?: { total_results?: number } };
+        let payload: { results?: SiigoInvoice[]; pagination?: { total_results?: number } };
+        try {
+          payload = JSON.parse(rawText) as typeof payload;
+        } catch {
+          errors.push(`${kind} page ${page}: respuesta no-JSON ${rawText.slice(0, 200)}`);
+          debug[`${kind}_nojson_p${page}`] = { body: rawText.slice(0, 500), url: url.toString() };
+          break;
+        }
         const results = payload.results ?? [];
         if (page === 1) {
           const pageDebug = {
@@ -252,6 +269,11 @@ serve(async (req) => {
             returned: results.length,
             numbers: results.map(r => r.number ?? r.name ?? r.id).slice(0, 10),
             url: url.toString(),
+            payload_keys: Object.keys(payload ?? {}),
+            // Body crudo solo cuando compra viene vacía — ahí está la evidencia
+            ...(kind === "compra" && results.length === 0
+              ? { raw: rawText.slice(0, 500) }
+              : {}),
           };
           debug[`${kind}_page1`] = pageDebug;
           console.log(`[siigo-sync-invoices] ${kind} page1:`, JSON.stringify(pageDebug));
