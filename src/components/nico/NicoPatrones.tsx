@@ -743,23 +743,25 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       )}
 
       {/* ── INSIGHTS ESTRATÉGICOS DE ALTA CONFIANZA ─────────────── */}
-      {/* Estos no son reglas — son alertas/análisis que requieren decisión humana */}
+      {/* Misma anatomía que la sección de reglas sugeridas: card blanca,
+          header con chip de ícono, lista divide-y, CTA como botón outline.
+          Nada de texto en color accent sobre fondo accent (era ilegible). */}
       {insightsClave.length > 0 && (
-        <div className="rounded-xl border border-accent/30 bg-accent/5 overflow-hidden">
-          <div className="flex items-center gap-2.5 px-4 py-3 bg-accent/10 border-b border-accent/20">
-            <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center shrink-0">
-              <AlertTriangle className="h-4 w-4 text-accent" />
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-3 bg-muted/40 border-b border-border">
+            <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center shrink-0">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-accent">
-                {insightsClave.length} insight{insightsClave.length > 1 ? 's' : ''} estratégico{insightsClave.length > 1 ? 's' : ''} con alta confianza
+              <p className="text-sm font-semibold text-foreground">
+                {insightsClave.length} insight{insightsClave.length > 1 ? 's' : ''} estratégico{insightsClave.length > 1 ? 's' : ''}
               </p>
-              <p className="text-xs text-accent/70">
-                No son reglas automatizables — son análisis que requieren tu decisión. Preguntale a Nico cómo accionar.
+              <p className="text-xs text-muted-foreground">
+                No son reglas — son análisis que requieren tu decisión
               </p>
             </div>
           </div>
-          <div className="divide-y divide-accent/10">
+          <div className="divide-y divide-border">
             {insightsClave.map(p => {
               const SevIcon = SEV_CONFIG[p.severidad].icon;
               return (
@@ -768,20 +770,22 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-0.5">
                       <span className="text-sm font-medium text-foreground">{p.titulo}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent font-medium">
-                        {p.confianza}% confianza
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                        {p.confianza}%
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">{p.descripcion}</p>
                   </div>
                   {p.preguntaNico && onPreguntarNico && (
-                    <button
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs gap-1 shrink-0"
                       onClick={() => onPreguntarNico(p.preguntaNico!)}
-                      className="shrink-0 flex items-center gap-1 text-xs text-accent hover:text-accent/80 font-medium transition-colors h-8"
                     >
                       Preguntarle a Nico
                       <ChevronRight className="h-3 w-3" />
-                    </button>
+                    </Button>
                   )}
                 </div>
               );
@@ -790,6 +794,7 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         </div>
       )}
 
+      {/* ── DEMÁS PATRONES, agrupados por tipo — misma card por grupo ── */}
       {tipos.map(tipo => {
         // Excluir tanto los que están arriba como los que ya tienen regla
         // creada — esos viven en el módulo Reglas, no en Patrones.
@@ -798,44 +803,42 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         const cfg = TIPO_CONFIG[tipo];
         const Icon = cfg.icon;
         return (
-          <div key={tipo}>
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg w-fit mb-3 ${cfg.bg}`}>
-              <Icon className={`h-4 w-4 ${cfg.color}`} />
-              <span className={`text-xs font-semibold ${cfg.color}`}>{cfg.label}</span>
-              <span className={`text-xs ${cfg.color} opacity-70`}>({patronesTipo.length})</span>
+          <div key={tipo} className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-2.5 bg-muted/40 border-b border-border">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${cfg.bg}`}>
+                <Icon className={`h-4 w-4 ${cfg.color}`} />
+              </div>
+              <p className="text-sm font-semibold text-foreground">
+                {cfg.label}
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">({patronesTipo.length})</span>
+              </p>
             </div>
-            <div className="grid gap-2 md:grid-cols-2">
+            <div className="divide-y divide-border">
               {patronesTipo.map(patron => {
                 const SevIcon = SEV_CONFIG[patron.severidad].icon;
                 return (
-                  <div key={patron.id} className={`rounded-lg border p-3 ${
-                    patron.severidad === 'alert' ? 'border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20' :
-                    patron.severidad === 'warning' ? 'border-yellow-200 bg-yellow-50/50 dark:border-yellow-800 dark:bg-yellow-950/20' :
-                    'border-border bg-muted/20'
-                  }`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2 flex-1 min-w-0">
-                        <SevIcon className={`h-4 w-4 shrink-0 mt-0.5 ${SEV_CONFIG[patron.severidad].color}`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <p className="text-sm font-medium text-foreground">{patron.titulo}</p>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-                              {patron.confianza}% confianza
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground leading-relaxed">{patron.descripcion}</p>
-                        </div>
+                  <div key={patron.id} className="flex items-start gap-3 px-4 py-3">
+                    <SevIcon className={`h-4 w-4 shrink-0 mt-0.5 ${SEV_CONFIG[patron.severidad].color}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <span className="text-sm font-medium text-foreground">{patron.titulo}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                          {patron.confianza}%
+                        </span>
                       </div>
-                      {patron.preguntaNico && onPreguntarNico && (
-                        <button
-                          onClick={() => onPreguntarNico(patron.preguntaNico!)}
-                          className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 shrink-0 font-medium transition-colors"
-                        >
-                          Preguntarle a Nico
-                          <ChevronRight className="h-3 w-3" />
-                        </button>
-                      )}
+                      <p className="text-xs text-muted-foreground leading-relaxed">{patron.descripcion}</p>
                     </div>
+                    {patron.preguntaNico && onPreguntarNico && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 shrink-0"
+                        onClick={() => onPreguntarNico(patron.preguntaNico!)}
+                      >
+                        Preguntarle a Nico
+                        <ChevronRight className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
                 );
               })}
