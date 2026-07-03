@@ -228,6 +228,49 @@ serve(async (req) => {
       }
     }
 
+    // ── MODO PROBE (diagnóstico compras): prueba variantes de filtro de fecha
+    // contra /v1/purchases sin tocar la BD. Evidencia previa: 200 con shape
+    // correcto pero total_results=0 usando created_start → el filtro de fecha
+    // es el sospechoso (rama 4 de fix-siigo-compras.md).
+    if ((body as { probe?: boolean }).probe) {
+      const variants: Array<[string, Record<string, string>]> = [
+        ["sin_filtros", {}],
+        ["date_start", { date_start: since, date_end: until }],
+        ["created_start", { created_start: since, created_end: until }],
+      ];
+      for (const [name, params] of variants) {
+        const u = new URL(SIIGO_BASE + "/v1/purchases");
+        for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+        u.searchParams.set("page", "1");
+        u.searchParams.set("page_size", "5");
+        try {
+          const r = await fetch(u.toString(), { headers: apiHeaders });
+          const t = await r.text().catch(() => "");
+          let j: { pagination?: { total_results?: number }; results?: Array<Record<string, unknown>> } | null = null;
+          try { j = JSON.parse(t); } catch { /* raw abajo */ }
+          debug[`probe_${name}`] = {
+            status: r.status,
+            total: j?.pagination?.total_results ?? null,
+            returned: j?.results?.length ?? null,
+            keys: j ? Object.keys(j) : null,
+            sample: j?.results?.[0]
+              ? {
+                  id: (j.results[0] as { id?: string }).id,
+                  date: (j.results[0] as { date?: string }).date,
+                  number: (j.results[0] as { number?: unknown; name?: unknown }).number
+                    ?? (j.results[0] as { name?: unknown }).name,
+                  keys: Object.keys(j.results[0]).join(","),
+                }
+              : null,
+            raw: (j?.results?.length ?? 0) === 0 ? t.slice(0, 300) : undefined,
+          };
+        } catch (e) {
+          debug[`probe_${name}`] = { error: (e as Error).message };
+        }
+      }
+      return json({ ok: true, probe: true, since, until, debug });
+    }
+
     for (const kind of kinds) {
       const path = kind === "venta" ? "/v1/invoices" : "/v1/purchases";
       let page = 1;
