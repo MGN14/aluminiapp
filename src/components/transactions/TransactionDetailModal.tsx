@@ -1,13 +1,17 @@
-import { Transaction } from '@/types/transaction';
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Transaction, IVA_RATE, RETEFUENTE_RATE } from '@/types/transaction';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Props {
   transaction: Transaction | null;
@@ -29,6 +33,34 @@ function formatCurrency(value: number | null) {
 }
 
 export default function TransactionDetailModal({ transaction, open, onClose }: Props) {
+  const queryClient = useQueryClient();
+  // IVA/Retefuente son atributos tributarios del PAGO — se editan acá, no en
+  // el selector de factura (de donde salieron). Los montos se recalculan con
+  // las mismas fórmulas de useTransactionEdit.
+  const [hasIva, setHasIva] = useState(false);
+  const [hasRetefuente, setHasRetefuente] = useState(false);
+  const [savingTax, setSavingTax] = useState(false);
+
+  useEffect(() => {
+    setHasIva(!!transaction?.has_iva);
+    setHasRetefuente(!!transaction?.has_retefuente);
+  }, [transaction?.id, transaction?.has_iva, transaction?.has_retefuente]);
+
+  const saveTax = async (field: 'has_iva' | 'has_retefuente', value: boolean) => {
+    if (!transaction) return;
+    setSavingTax(true);
+    const amountAbs = Math.abs(transaction.amount ?? 0);
+    const patch: Record<string, unknown> = field === 'has_iva'
+      ? { has_iva: value, iva_amount: value && transaction.type !== 'transferencia' ? Math.round(amountAbs * IVA_RATE) : 0 }
+      : { has_retefuente: value, retefuente_amount: value && transaction.type === 'egreso' ? Math.round(amountAbs * RETEFUENTE_RATE) : 0 };
+    const { error } = await supabase.from('transactions').update(patch).eq('id', transaction.id);
+    if (!error) {
+      if (field === 'has_iva') setHasIva(value); else setHasRetefuente(value);
+      queryClient.invalidateQueries({ queryKey: ['conciliacion'] });
+    }
+    setSavingTax(false);
+  };
+
   if (!transaction) return null;
 
   const isReconciled = !!transaction.responsible_id;
@@ -96,6 +128,40 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
             <div>
               <label className="text-xs text-muted-foreground">Saldo</label>
               <p className="text-sm font-medium">{formatCurrency(transaction.balance)}</p>
+            </div>
+          </div>
+
+          {/* Atributos tributarios del pago (viven acá, no en el selector de factura) */}
+          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
+            <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">IVA incluido</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {hasIva && transaction.iva_amount
+                    ? `${formatCurrency(transaction.iva_amount)} (19%)`
+                    : 'El pago incluye IVA'}
+                </p>
+              </div>
+              <Switch
+                checked={hasIva}
+                disabled={savingTax || transaction.type === 'transferencia'}
+                onCheckedChange={(v) => saveTax('has_iva', v)}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Retefuente</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {hasRetefuente && transaction.retefuente_amount
+                    ? `${formatCurrency(transaction.retefuente_amount)} (2.5%)`
+                    : 'Se practicó retención'}
+                </p>
+              </div>
+              <Switch
+                checked={hasRetefuente}
+                disabled={savingTax || transaction.type !== 'egreso'}
+                onCheckedChange={(v) => saveTax('has_retefuente', v)}
+              />
             </div>
           </div>
 

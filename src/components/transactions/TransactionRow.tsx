@@ -25,6 +25,7 @@ import { SearchableSelect } from './SearchableSelect';
 import InvoiceSelector, { InvoiceTag } from './InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { classifyBucket, bucketWantsInvoice } from '@/lib/txBucket';
 
 interface TransactionRowProps {
   transaction: Transaction;
@@ -235,6 +236,15 @@ export default function TransactionRow({
     return t;
   }, [localTransaction.notes, localTransaction.has_retefuente]);
 
+  // Bucket de conciliación: define si esta fila puede tener factura de cartera
+  const bucket = useMemo(
+    () => classifyBucket(
+      localTransaction,
+      categories.find(c => c.id === localTransaction.category_id)?.name ?? null,
+    ),
+    [localTransaction, categories],
+  );
+
   return (
     <TableRow
       className={cn(
@@ -342,19 +352,33 @@ export default function TransactionRow({
         </div>
       </TableCell>
       
-      {/* #Factura - Invoice Selector */}
+      {/* #Factura — solo donde puede existir factura. Traspasos y movimientos
+          generados por el banco (4x1000, intereses, comisiones) tienen N/A
+          automático y silencioso: pintar un dropdown vacío ahí era el ruido
+          que hacía sentir el módulo incompleto. */}
       <TableCell className="w-[140px]">
-        <InvoiceSelector
-          invoiceId={derivedInvoiceId}
-          tags={derivedTags}
-          transactionType={localTransaction.type || 'egreso'}
-          transactionAmount={localTransaction.amount}
-          transactionDate={localTransaction.date}
-          transactionId={localTransaction.id}
-          responsibleId={localTransaction.responsible_id}
-          responsibleName={responsibles.find(r => r.id === localTransaction.responsible_id)?.name ?? null}
-          onChange={handleInvoiceChange}
-        />
+        {bucketWantsInvoice(bucket, localTransaction.type) ? (
+          <InvoiceSelector
+            invoiceId={derivedInvoiceId}
+            tags={derivedTags}
+            transactionType={localTransaction.type || 'egreso'}
+            transactionAmount={localTransaction.amount}
+            transactionDate={localTransaction.date}
+            transactionId={localTransaction.id}
+            responsibleId={localTransaction.responsible_id}
+            responsibleName={responsibles.find(r => r.id === localTransaction.responsible_id)?.name ?? null}
+            onChange={handleInvoiceChange}
+          />
+        ) : (
+          <span
+            className="text-[10px] text-muted-foreground/60 select-none"
+            title={bucket === 'traspaso'
+              ? 'Traspaso entre cuentas propias — no lleva factura'
+              : 'Generado por el banco — no lleva factura'}
+          >
+            {bucket === 'traspaso' ? '⇄ traspaso' : '— banco'}
+          </span>
+        )}
       </TableCell>
 
       {/* Naturaleza del movimiento — operativo vs traspaso/devolución/préstamo/aporte */}

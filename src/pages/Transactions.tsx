@@ -37,6 +37,7 @@ import { Link } from 'react-router-dom';
 import { AnimatedNumber } from '@/components/ui/animated-number';
 import { cn } from '@/lib/utils';
 import { normalizeDesc, isNoiseAmount } from '@/lib/descriptionMatch';
+import { computeCierreKpis, findUnmatchedTraspasos } from '@/lib/txBucket';
 import { useColumnWidths, ColResizer } from '@/components/transactions/columnResize';
 
 const copFmt = (n: number) =>
@@ -531,6 +532,21 @@ export default function Transactions() {
     ? Math.round((filterCounts.conciliadas / filterCounts.total) * 100)
     : 0;
 
+  // ── KPIs de CIERRE (no de etiquetado) ──────────────────────────────────
+  // El valor del módulo no es llenar 554 etiquetas: es cerrar el loop entre
+  // lo facturado y la plata del banco. Medimos (a) % de cobros de venta
+  // conciliados contra cartera, (b) líneas sin explicar, (c) traspasos sin
+  // pierna espejo en otra cuenta.
+  const cierre = useMemo(() => {
+    const nameById = new Map(categories.map((c) => [c.id, c.name]));
+    return computeCierreKpis(transactions, nameById);
+  }, [transactions, categories]);
+
+  const traspasosSinEspejo = useMemo(
+    () => findUnmatchedTraspasos(transactions),
+    [transactions],
+  );
+
   // Anchos de columna redimensionables (Excel-like), persistidos.
   const { widths: colWidths, startResize, total: colTotal } = useColumnWidths(TX_COL_DEFAULTS, 'aluminia_tx_colwidths_v1');
 
@@ -683,48 +699,73 @@ export default function Transactions() {
             </div>
           </div>
 
-          {/* Reconciliation progress — Apple glass card con números animados */}
+          {/* KPIs de CIERRE — el trabajo real: cerrar cartera contra banco,
+              no llenar etiquetas fila por fila. */}
           <div className="relative overflow-hidden rounded-2xl border border-black/[0.06] bg-gradient-to-br from-white via-white to-slate-50/60 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-950 shadow-[0_1px_3px_rgba(0,0,0,0.06)] px-5 py-4">
             {/* sheen sutil */}
             <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-black/[0.06] to-transparent" />
             <div className="flex items-center gap-5 flex-wrap">
-              <div className="min-w-[88px]">
-                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Conciliadas</div>
-                <div className="text-[28px] leading-none font-bold tabular-nums" style={{ color: 'oklch(0.43 0.14 155)' }}>
-                  <AnimatedNumber value={filterCounts.conciliadas} />
-                </div>
-                <div className="text-[11px] text-muted-foreground/70 mt-1">de {filterCounts.total}</div>
-              </div>
-
-              <div className="h-11 w-px bg-border/70" />
-
-              <div className="min-w-[80px]">
-                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Pendientes</div>
-                <div className="text-[28px] leading-none font-bold tabular-nums" style={{ color: filterCounts.pendientes > 0 ? 'oklch(0.65 0.15 65)' : 'oklch(0.43 0.14 155)' }}>
-                  <AnimatedNumber value={filterCounts.pendientes} />
-                </div>
-                <div className="text-[11px] text-muted-foreground/70 mt-1">{filterCounts.pendientes === 0 && filterCounts.total > 0 ? 'todo al día' : 'por asignar'}</div>
-              </div>
-
-              <div className="h-11 w-px bg-border/70" />
-
               <div className="flex-1 min-w-[220px]">
                 <div className="flex items-center justify-between text-[11px] mb-2">
-                  <span className="text-muted-foreground/80 font-medium">Progreso de conciliación</span>
+                  <span className="text-muted-foreground/80 font-medium">Cobros de venta conciliados contra cartera</span>
                   <span className="font-bold text-foreground tabular-nums text-sm">
-                    <AnimatedNumber value={reconciledPct} />%
+                    <AnimatedNumber value={cierre.cobrosPct} />%
                   </span>
                 </div>
                 <div className="h-2.5 rounded-full bg-muted/70 overflow-hidden">
                   <div
                     className="h-full rounded-full"
                     style={{
-                      width: `${reconciledPct}%`,
+                      width: `${cierre.cobrosPct}%`,
                       background: 'linear-gradient(90deg, oklch(0.43 0.14 155), oklch(0.58 0.15 155))',
                       boxShadow: '0 0 8px oklch(0.43 0.14 155 / 0.35)',
                       transition: 'width 0.7s cubic-bezier(0.16,1,0.3,1)',
                     }}
                   />
+                </div>
+                <div className="text-[11px] text-muted-foreground/70 mt-1.5">
+                  {cierre.cobrosConciliados} de {cierre.cobrosVenta} cobros con factura enlazada o N/A explícito
+                </div>
+              </div>
+
+              <div className="h-11 w-px bg-border/70" />
+
+              <div className="min-w-[110px]">
+                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Sin explicar</div>
+                <div className="text-[28px] leading-none font-bold tabular-nums" style={{ color: cierre.sinExplicar > 0 ? 'oklch(0.65 0.15 65)' : 'oklch(0.43 0.14 155)' }}>
+                  <AnimatedNumber value={cierre.sinExplicar} />
+                </div>
+                <div className="text-[11px] text-muted-foreground/70 mt-1">
+                  {cierre.sinExplicar === 0 ? 'todo justificado' : 'líneas sin categoría ni factura'}
+                </div>
+              </div>
+
+              <div className="h-11 w-px bg-border/70" />
+
+              <div
+                className="min-w-[120px]"
+                title={traspasosSinEspejo.length > 0
+                  ? traspasosSinEspejo.slice(0, 6).map(t => `${t.date} · ${t.description ?? ''} (${Number(t.amount ?? 0).toLocaleString('es-CO')})`).join('\n')
+                  : 'Todos los traspasos tienen su pierna espejo en otra cuenta'}
+              >
+                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Traspasos sin espejo</div>
+                <div className="text-[28px] leading-none font-bold tabular-nums" style={{ color: traspasosSinEspejo.length > 0 ? 'oklch(0.52 0.18 25)' : 'oklch(0.43 0.14 155)' }}>
+                  <AnimatedNumber value={traspasosSinEspejo.length} />
+                </div>
+                <div className="text-[11px] text-muted-foreground/70 mt-1">
+                  {traspasosSinEspejo.length === 0 ? 'todos cruzados' : 'falta la contraparte'}
+                </div>
+              </div>
+
+              <div className="h-11 w-px bg-border/70" />
+
+              <div className="min-w-[100px]">
+                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Beneficiarios</div>
+                <div className="text-[28px] leading-none font-bold tabular-nums text-foreground">
+                  <AnimatedNumber value={reconciledPct} />%
+                </div>
+                <div className="text-[11px] text-muted-foreground/70 mt-1">
+                  {filterCounts.pendientes > 0 ? `${filterCounts.pendientes} por asignar` : 'todo al día'}
                 </div>
               </div>
             </div>

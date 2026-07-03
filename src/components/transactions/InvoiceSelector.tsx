@@ -496,9 +496,12 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
 
   const hasAnySelection = !!invoiceId || tags.length > 0;
 
-  const availableTags: InvoiceTag[] = transactionType === 'egreso'
-    ? ['na', 'iva_favor', 'retefuente']
-    : ['na'];
+  // IVA y Retefuente NO son tipos de factura — son atributos tributarios del
+  // pago y viven en has_iva/has_retefuente (toggles en el detalle de la
+  // transacción). El selector solo ofrece: factura real, o N/A explícito.
+  // TAG_CONFIG conserva iva_favor/retefuente para renderizar chips legacy
+  // que quedaron escritos en notes.
+  const availableTags: InvoiceTag[] = ['na'];
 
   return (
     <div className={cn('flex flex-nowrap items-center gap-1 min-w-0', className)}>
