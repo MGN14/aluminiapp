@@ -108,6 +108,7 @@ interface Statement {
   period_start: string | null;
   period_end: string | null;
   period_type: string | null;
+  bank_name: string | null;
 }
 
 function getEffectiveYear(stmt: Pick<Statement, 'statement_year' | 'period_start'>): number | null {
@@ -128,7 +129,7 @@ function getEffectiveYear(stmt: Pick<Statement, 'statement_year' | 'period_start
 async function queryStatements(): Promise<Statement[]> {
   const { data, error } = await (supabase
     .from('bank_statements')
-    .select('id, file_name, display_name, transaction_count, statement_year, period_start, period_end, period_type')
+    .select('id, file_name, display_name, transaction_count, statement_year, period_start, period_end, period_type, bank_name')
     .is('deleted_at', null)
     .order('statement_year', { ascending: false })
     .order('uploaded_at', { ascending: false }) as any);
@@ -376,9 +377,13 @@ export default function Transactions() {
   }, [statements, selectedYear]);
 
   const groupedStatements = useMemo(() => {
-    const monthly = filteredStatements.filter((s) => !s.period_type || s.period_type === 'monthly_close');
-    const weekly = filteredStatements.filter((s) => s.period_type === 'weekly');
-    return { monthly, weekly };
+    // Tarjeta de crédito va en su propio grupo (el uploader la guarda con
+    // bank_name "Tarjeta de crédito Bancolombia" y period_type weekly).
+    const isTarjeta = (s: Statement) => (s.bank_name ?? '').toLowerCase().startsWith('tarjeta');
+    const tarjeta = filteredStatements.filter(isTarjeta);
+    const monthly = filteredStatements.filter((s) => !isTarjeta(s) && (!s.period_type || s.period_type === 'monthly_close'));
+    const weekly = filteredStatements.filter((s) => !isTarjeta(s) && s.period_type === 'weekly');
+    return { monthly, weekly, tarjeta };
   }, [filteredStatements]);
 
   useEffect(() => {
@@ -571,6 +576,17 @@ export default function Transactions() {
                       <SelectGroup>
                         <SelectLabel>📊 Movimientos semanales</SelectLabel>
                         {groupedStatements.weekly.map((stmt) => (
+                          <SelectItem key={stmt.id} value={stmt.id}>
+                            {stmt.display_name || stmt.file_name}
+                            {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    {groupedStatements.tarjeta.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>💳 Tarjeta de crédito</SelectLabel>
+                        {groupedStatements.tarjeta.map((stmt) => (
                           <SelectItem key={stmt.id} value={stmt.id}>
                             {stmt.display_name || stmt.file_name}
                             {stmt.transaction_count ? ` (${stmt.transaction_count})` : ''}

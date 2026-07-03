@@ -460,7 +460,9 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
 
     const out: Patron[] = [];
     for (const [key, g] of grupos) {
-      if (g.count < 3) continue;
+      // 2+ apariciones alcanzan para proponer — el usuario decide si le basta
+      // (umbral de confianza 60%, decisión de Nico 2026-07-03).
+      if (g.count < 2) continue;
       // Mixto ingreso/egreso (>20% del lado minoritario) → descripción genérica
       // tipo "TRANSFERENCIA": una regla la clasificaría mal. Se descarta.
       if (Math.min(g.ingresos, g.egresos) / g.count > 0.2) continue;
@@ -477,7 +479,7 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       const respConsistente = !!topResp && topRespCount / g.count >= 0.6;
 
       const confianza = Math.min(98, 55 + g.count * 6 + (catConsistente || respConsistente ? 12 : 0));
-      if (confianza < 80) continue;
+      if (confianza < 60) continue;
 
       const catName = catConsistente && topCat ? g.catNames.get(topCat) : undefined;
       const respName = respConsistente && topResp ? respNames.get(topResp) : undefined;
@@ -554,10 +556,11 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
   };
 
   // Reglas sugeridas = recurrencias detectadas + patrones automatables de Nico.
-  // Excluye las que ya tienen regla creada — esas viven en el módulo Reglas.
+  // Umbral 60%: se muestra todo lo que tenga chance razonable y el usuario
+  // decide si le basta para crear la regla. Excluye las que ya tienen regla.
   const sugerencias = [
     ...reglasSugeridas.filter(p => !hasExistingRule(p)),
-    ...patrones.filter(p => p.automatable && p.confianza >= 90 && !hasExistingRule(p)),
+    ...patrones.filter(p => p.automatable && p.confianza >= 60 && !hasExistingRule(p)),
   ];
 
   // High-confidence INSIGHTS (no son reglas — son análisis estratégicos).
