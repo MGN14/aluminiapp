@@ -12,8 +12,11 @@ export type ImportEstado =
   | 'entregado'
   | 'cancelado';
 
+// 'anticipo' salió del flujo (decisión de Nico: "no es un estado como tal" —
+// el anticipo es un pago, no una etapa del contenedor). Sigue en el type y en
+// los labels solo para renderizar filas legacy que quedaron con ese valor.
 export const IMPORT_ESTADOS_ORDER: ImportEstado[] = [
-  'cotizacion', 'anticipo', 'produccion', 'transito', 'aduana', 'entregado',
+  'cotizacion', 'produccion', 'transito', 'aduana', 'entregado',
 ];
 
 export const IMPORT_ESTADO_LABEL: Record<ImportEstado, string> = {
@@ -29,6 +32,24 @@ export const IMPORT_ESTADO_LABEL: Record<ImportEstado, string> = {
 export interface ImportEstadoHistoryRow {
   estado: ImportEstado;
   fecha: string; // YYYY-MM-DD — día en que la importación ENTRÓ a ese estado
+}
+
+export interface ImportCostRow {
+  tipo: 'flete' | 'seguro' | 'arancel' | 'iva_importacion' | 'nacionalizacion' | 'gastos_bancarios' | 'otro';
+  monto: number;
+  moneda: 'USD' | 'COP';
+}
+
+/** Suma de costos adicionales de un tipo, separada por moneda. */
+export function sumImportCosts(costs: ImportCostRow[] | undefined, tipo: ImportCostRow['tipo']): { usd: number; cop: number } {
+  let usd = 0;
+  let cop = 0;
+  for (const c of costs ?? []) {
+    if (c.tipo !== tipo) continue;
+    if (c.moneda === 'USD') usd += Number(c.monto ?? 0);
+    else cop += Number(c.monto ?? 0);
+  }
+  return { usd, cop };
 }
 
 export interface ImportRow {
@@ -53,6 +74,8 @@ export interface ImportRow {
   updated_at: string;
   /** Historial de cambios de estado (embebido) — base de las duraciones de etapa */
   import_estado_history?: ImportEstadoHistoryRow[];
+  /** Costos adicionales (embebido) — flete, arancel, IVA importación, agencia */
+  import_costs?: ImportCostRow[];
 }
 
 export interface ImportsSummary {
@@ -80,7 +103,7 @@ export function useImports() {
 
       const { data, error } = await supabase
         .from('imports' as never)
-        .select('*, import_estado_history(estado, fecha)')
+        .select('*, import_estado_history(estado, fecha), import_costs(tipo, monto, moneda)')
         .order('fecha_estimada_llegada', { ascending: true, nullsFirst: false });
       if (error) throw error;
 
@@ -109,7 +132,7 @@ export function useImports() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['imports', user?.id] });
 
-  type Patch = Partial<Omit<ImportRow, 'id' | 'saldo_pendiente_usd' | 'created_at' | 'updated_at' | 'import_estado_history'>>;
+  type Patch = Partial<Omit<ImportRow, 'id' | 'saldo_pendiente_usd' | 'created_at' | 'updated_at' | 'import_estado_history' | 'import_costs'>>;
 
   /** Registra (upsert) la fecha en que la importación entró a un estado. */
   const recordEstadoHistory = async (importId: string, estado: ImportEstado, fecha: string) => {
@@ -152,9 +175,11 @@ export function useImports() {
   });
 
   const update = useMutation({
-    // estado_fecha: fecha en que ocurrió el cambio de estado (si el estado cambió).
-    mutationFn: async (input: { id: string; estado_fecha?: string } & Patch) => {
-      const { id, estado_fecha, ...patch } = input;
+    // estado_fecha: fecha del cambio de estado (si el estado cambió).
+    // estado_fechas: fechas de flujo por estado (grid "Fechas del flujo" del
+    // modal) — se upsertean todas las que vengan al historial.
+    mutationFn: async (input: { id: string; estado_fecha?: string; estado_fechas?: Partial<Record<ImportEstado, string>> } & Patch) => {
+      const { id, estado_fecha, estado_fechas, ...patch } = input;
       const { error } = await supabase
         .from('imports' as never)
         .update(patch as never)
@@ -162,6 +187,11 @@ export function useImports() {
       if (error) throw error;
       if (patch.estado && estado_fecha) {
         await recordEstadoHistory(id, patch.estado as ImportEstado, estado_fecha);
+      }
+      if (estado_fechas) {
+        for (const [estado, fecha] of Object.entries(estado_fechas)) {
+          if (fecha) await recordEstadoHistory(id, estado as ImportEstado, fecha);
+        }
       }
     },
     onSuccess: () => {
@@ -184,29 +214,31 @@ export function useImports() {
     },
   });
 
-  // Atajo: avanzar al siguiente estado del flujo. `fecha` = día real del cambio
-  // (lo pide el dialog en la lista); default hoy.
-  const advanceEstado = useMutation({
-    mutationFn: async ({ row, fecha }: { row: ImportRow; fecha?: string }) => {
-      const idx = IMPORT_ESTADOS_ORDER.indexOf(row.estado);
-      if (idx < 0 || idx >= IMPORT_ESTADOS_ORDER.length - 1) return; // cancelado o ya entregado
-      const nextEstado = IMPORT_ESTADOS_ORDER[idx + 1];
+  // Cambiar el estado a CUALQUIER estado del flujo (select inline en la lista).
+  // `fecha` = día real del cambio; lo pide el dialog de confirmación.
+  const changeEstado = useMutation({
+    mutationFn: async ({ row, estado, fecha }: { row: ImportRow; estado: ImportEstado; fecha?: string }) => {
       const cambioFecha = fecha || new Date().toISOString().split('T')[0];
       // Stamp la fecha del nuevo estado (columnas legacy del flujo).
       const datePatch: Record<string, string> = {};
-      if (nextEstado === 'anticipo') datePatch.fecha_anticipo = cambioFecha;
-      if (nextEstado === 'transito') datePatch.fecha_embarque = cambioFecha;
-      if (nextEstado === 'entregado') datePatch.fecha_arribo_real = cambioFecha;
+      if (estado === 'cotizacion') datePatch.fecha_cotizacion = cambioFecha;
+      if (estado === 'transito') datePatch.fecha_embarque = cambioFecha;
+      if (estado === 'entregado') datePatch.fecha_arribo_real = cambioFecha;
       const { error } = await supabase
         .from('imports' as never)
-        .update({ estado: nextEstado, ...datePatch } as never)
+        .update({ estado, ...datePatch } as never)
         .eq('id', row.id);
       if (error) throw error;
-      await recordEstadoHistory(row.id, nextEstado, cambioFecha);
+      if (estado !== 'cancelado') {
+        await recordEstadoHistory(row.id, estado, cambioFecha);
+      }
     },
     onSuccess: () => {
       invalidate();
-      toast({ title: 'Estado avanzado' });
+      toast({ title: 'Estado actualizado' });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Error al cambiar estado', description: err.message, variant: 'destructive' });
     },
   });
 
@@ -218,6 +250,6 @@ export function useImports() {
     create,
     update,
     remove,
-    advanceEstado,
+    changeEstado,
   };
 }

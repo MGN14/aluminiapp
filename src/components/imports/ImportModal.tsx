@@ -75,11 +75,10 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const [precioSmm, setPrecioSmm] = useState<number | ''>('');
   const [montoTotal, setMontoTotal] = useState<number | ''>('');
   const [anticipo, setAnticipo] = useState<number | ''>('');
-  const [fechaCotizacion, setFechaCotizacion] = useState('');
-  const [fechaAnticipo, setFechaAnticipo] = useState('');
-  const [fechaEmbarque, setFechaEmbarque] = useState('');
+  // Fechas del flujo = una por ESTADO (mismos estados que el select de arriba).
+  // Se guardan en import_estado_history; las columnas legacy se mapean al guardar.
+  const [estadoFechas, setEstadoFechas] = useState<Record<string, string>>({});
   const [fechaEta, setFechaEta] = useState('');
-  const [fechaArribo, setFechaArribo] = useState('');
   const [refPedido, setRefPedido] = useState('');
   const [notas, setNotas] = useState('');
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -104,11 +103,14 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setPrecioSmm(editing.precio_smm_cerrado_usd_ton ?? '');
       setMontoTotal(editing.monto_total_usd ?? '');
       setAnticipo(editing.anticipo_pagado_usd ?? '');
-      setFechaCotizacion(editing.fecha_cotizacion ?? '');
-      setFechaAnticipo(editing.fecha_anticipo ?? '');
-      setFechaEmbarque(editing.fecha_embarque ?? '');
+      // Fechas por estado: historial primero, columnas legacy como fallback
+      const fechas: Record<string, string> = {};
+      for (const h of editing.import_estado_history ?? []) fechas[h.estado] = h.fecha;
+      if (!fechas.cotizacion && editing.fecha_cotizacion) fechas.cotizacion = editing.fecha_cotizacion;
+      if (!fechas.transito && editing.fecha_embarque) fechas.transito = editing.fecha_embarque;
+      if (!fechas.entregado && editing.fecha_arribo_real) fechas.entregado = editing.fecha_arribo_real;
+      setEstadoFechas(fechas);
       setFechaEta(editing.fecha_estimada_llegada ?? '');
-      setFechaArribo(editing.fecha_arribo_real ?? '');
       setRefPedido(editing.ref_pedido ?? '');
       setNotas(editing.notas ?? '');
     } else {
@@ -120,11 +122,8 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setPrecioSmm('');
       setMontoTotal('');
       setAnticipo('');
-      setFechaCotizacion(todayIso());
-      setFechaAnticipo('');
-      setFechaEmbarque('');
+      setEstadoFechas({ cotizacion: todayIso() });
       setFechaEta('');
-      setFechaArribo('');
       setRefPedido('');
       setNotas('');
     }
@@ -167,14 +166,18 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       // cargado al ABRIR el modal (agregabas un abono adentro, guardabas, y el
       // anticipo/saldo retrocedían al valor viejo).
       ...(isEdit ? {} : { anticipo_pagado_usd: anticipo === '' ? 0 : Number(anticipo) }),
-      fecha_cotizacion: fechaCotizacion || null,
-      fecha_anticipo: fechaAnticipo || null,
-      fecha_embarque: fechaEmbarque || null,
+      // Columnas legacy mapeadas desde las fechas por estado
+      fecha_cotizacion: estadoFechas.cotizacion || null,
+      fecha_embarque: estadoFechas.transito || null,
+      fecha_arribo_real: estadoFechas.entregado || null,
       fecha_estimada_llegada: fechaEta || null,
-      fecha_arribo_real: fechaArribo || null,
       ref_pedido: refPedido.trim() || null,
       notas: notas.trim() || null,
     };
+    // Solo las fechas con valor — el historial se upsertea por estado.
+    const fechasLlenas = Object.fromEntries(
+      Object.entries(estadoFechas).filter(([, f]) => !!f),
+    ) as Partial<Record<ImportEstado, string>>;
     try {
       if (isEdit && editing) {
         await update.mutateAsync({
@@ -182,9 +185,10 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
           ...payload,
           // Solo registra historial si el estado realmente cambió
           estado_fecha: estadoCambio ? estadoFecha : undefined,
+          estado_fechas: fechasLlenas,
         });
       } else {
-        await create.mutateAsync({ ...payload, estado_fecha: estadoFecha });
+        await create.mutateAsync({ ...payload, estado_fecha: fechasLlenas[estado] ?? estadoFecha });
       }
       onOpenChange(false);
     } catch (err) {
@@ -364,29 +368,26 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
             </div>
           </div>
 
-          {/* Fechas */}
+          {/* Fechas del flujo — una por ESTADO (los mismos del select de arriba).
+              La fecha = día en que el pedido ENTRÓ a ese estado; con eso se
+              calculan las duraciones de etapa. */}
           <div className="space-y-1.5">
-            <Label className="text-sm font-semibold text-muted-foreground">Fechas del flujo</Label>
+            <Label className="text-sm font-semibold text-muted-foreground">Fechas del flujo (entrada a cada estado)</Label>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {IMPORT_ESTADOS_ORDER.map(e => (
+                <div key={e}>
+                  <Label className="text-xs">{IMPORT_ESTADO_LABEL[e]}</Label>
+                  <Input
+                    type="date"
+                    value={estadoFechas[e] ?? ''}
+                    max={todayIso()}
+                    onChange={ev => setEstadoFechas(prev => ({ ...prev, [e]: ev.target.value }))}
+                  />
+                </div>
+              ))}
               <div>
-                <Label className="text-xs">Cotización</Label>
-                <Input type="date" value={fechaCotizacion} onChange={e => setFechaCotizacion(e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-xs">Anticipo</Label>
-                <Input type="date" value={fechaAnticipo} onChange={e => setFechaAnticipo(e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-xs">Embarque</Label>
-                <Input type="date" value={fechaEmbarque} onChange={e => setFechaEmbarque(e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-xs">ETA llegada</Label>
+                <Label className="text-xs">ETA llegada (estimada)</Label>
                 <Input type="date" value={fechaEta} onChange={e => setFechaEta(e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-xs">Arribo real</Label>
-                <Input type="date" value={fechaArribo} onChange={e => setFechaArribo(e.target.value)} />
               </div>
             </div>
           </div>
