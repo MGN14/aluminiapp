@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { findCoverageGaps } from '@/lib/statementGaps';
 import { fetchWithAuthRetry } from '@/lib/authRetry';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
@@ -31,6 +33,8 @@ interface Statement {
   statement_month: number | null;
   statement_year: number | null;
   account_number: string | null;
+  period_start: string | null;
+  period_end: string | null;
 }
 
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif";
@@ -39,9 +43,15 @@ export default function StatementUpload() {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [statements, setStatements] = useState<Statement[]>([]);
   const [loading, setLoading] = useState(true);
   const { applyRulesToStatement, rules } = useReconciliationRules();
+
+  // Vacíos de días entre extractos del mismo banco — alerta para no descubrir
+  // el hueco cuando los números ya no cuadran (ej: bajaste 20/05-01/06 y
+  // después 08/06-02/07 → 02/06 a 07/06 quedó sin datos).
+  const coverageGaps = useMemo(() => findCoverageGaps(statements), [statements]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -150,6 +160,9 @@ export default function StatementUpload() {
 
       if (error) throw error;
       setStatements((data || []) as Statement[]);
+      // La página de Conciliación cachea con React Query — al subir/borrar
+      // extractos acá, invalidamos para que refleje los cambios al volver.
+      queryClient.invalidateQueries({ queryKey: ['conciliacion'] });
     } catch (error) {
       console.error('Error fetching statements:', error);
     } finally {
@@ -504,6 +517,47 @@ export default function StatementUpload() {
             </div>
           )}
         </section>
+
+        {/* Alerta de vacíos de días entre extractos del mismo banco */}
+        {coverageGaps.length > 0 && (
+          <section style={{ fontFamily: 'inherit', marginBottom: 20 }}>
+            <div
+              style={{
+                background: 'oklch(0.97 0.03 75)',
+                border: '1px solid oklch(0.75 0.12 75 / 0.5)',
+                borderRadius: 12,
+                padding: '14px 16px',
+                display: 'flex',
+                gap: 12,
+                alignItems: 'flex-start',
+                fontFamily: 'inherit',
+              }}
+            >
+              <AlertCircle
+                className="h-4 w-4"
+                style={{ marginTop: 2, flexShrink: 0, color: 'oklch(0.55 0.15 65)' }}
+              />
+              <div style={{ fontFamily: 'inherit' }}>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6, color: '#1d1d1f', fontFamily: 'inherit' }}>
+                  Hay días sin datos entre tus extractos
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,0.7)', fontFamily: 'inherit' }}>
+                  {coverageGaps.map((gap, i) => (
+                    <div key={`${gap.bank}-${gap.from}-${i}`}>
+                      <strong>{gap.bank}</strong>: falta del{' '}
+                      <strong>{format(new Date(gap.from + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</strong> al{' '}
+                      <strong>{format(new Date(gap.to + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</strong>
+                      {' '}({gap.days} día{gap.days > 1 ? 's' : ''})
+                    </div>
+                  ))}
+                  <div style={{ marginTop: 6, fontSize: 12.5, color: 'rgba(0,0,0,0.55)' }}>
+                    Descargá del portal del banco los movimientos de esas fechas y subilos como CSV para completar el período.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         {statements.length > 0 && (
           <section style={{ fontFamily: 'inherit' }}>

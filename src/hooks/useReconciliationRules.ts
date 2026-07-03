@@ -243,6 +243,7 @@ export function useReconciliationRules() {
 
     if (applied > 0) {
       qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
+      qc.invalidateQueries({ queryKey: ['conciliacion'] });
     }
 
     return applied;
@@ -322,6 +323,7 @@ export function useReconciliationRules() {
     if (categorized > 0) {
       qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
       qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['conciliacion'] });
     }
 
     return { total, categorized, skipped, errors };
@@ -368,6 +370,7 @@ export function useReconciliationRules() {
 
     if (applied > 0) {
       qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
+      qc.invalidateQueries({ queryKey: ['conciliacion'] });
       toast.success(`Nico aplicó ${applied} regla${applied > 1 ? 's' : ''} automáticamente`);
     }
 
@@ -389,6 +392,7 @@ export function useReconciliationRules() {
     const stats = data as { processed: number; matched: number };
     qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
     if (stats?.matched > 0) {
+      qc.invalidateQueries({ queryKey: ['conciliacion'] });
       toast.success(`${stats.matched} de ${stats.processed} transacciones categorizadas automáticamente`);
     } else if (stats?.processed > 0) {
       toast.info(`Procesadas ${stats.processed} transacciones — ninguna matcheó una regla activa`);

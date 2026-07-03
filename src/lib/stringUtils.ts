@@ -8,11 +8,22 @@
 
 /**
  * Lowercase + trim + strip de diacríticos (NFD descompone "á" en "a"+̀;
- * regex elimina los marks).
+ * regex elimina los marks) + colapso de espacios internos.
+ *
+ * El colapso de espacios importa para las reglas: el extracto trae dobles
+ * espacios ("COMPRA INTL  Spotify", "PAGO PSE DIAN   PSE") y los usuarios
+ * escriben keywords con espaciado distinto ("4 X 1000" vs "4X1000" no
+ * matchea igual, pero "4 X  1000" vs "4 X 1000" sí debe). Mantener idéntico
+ * a la normalización SQL de apply_reconciliation_rules_to_tx.
  */
 export function normalizeForMatch(s: string | null | undefined): string {
   if (!s) return '';
-  return s.toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return s
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ');
 }
 
 /**

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useSubscription } from '@/hooks/useSubscription';
 import AppLayout from '@/components/layout/AppLayout';
@@ -118,28 +119,174 @@ function getEffectiveYear(stmt: Pick<Statement, 'statement_year' | 'period_start
   return null;
 }
 
-interface ReteicaConfig {
-  reteica_rate: number;
+// ─── Query functions (React Query) ───
+// La página vivía sobre useState + fetch en cada mount: navegar a otro módulo
+// y volver re-fetcheaba TODO con spinner y "recalculaba" la conciliación.
+// Con React Query el cache sobrevive al unmount: volver a la página pinta al
+// instante desde cache y refetchea en background solo si los datos están stale.
+
+async function queryStatements(): Promise<Statement[]> {
+  const { data, error } = await (supabase
+    .from('bank_statements')
+    .select('id, file_name, display_name, transaction_count, statement_year, period_start, period_end, period_type')
+    .is('deleted_at', null)
+    .order('statement_year', { ascending: false })
+    .order('uploaded_at', { ascending: false }) as any);
+  if (error) throw error;
+  return (data || []) as Statement[];
+}
+
+async function queryCategories(): Promise<Category[]> {
+  // Orden alfabético: el sort_order existe pero los selectores quieren
+  // alfabético para que el colaborador encuentre rápido.
+  const { data, error } = await supabase.from('categories').select('*').order('name');
+  if (error) throw error;
+  return (data as Category[]) || [];
+}
+
+async function queryResponsibles(): Promise<Responsible[]> {
+  const { data, error } = await supabase.from('responsibles').select('*').order('name');
+  if (error) throw error;
+  return (data as Responsible[]) || [];
+}
+
+async function queryTransactions(
+  selectedYear: string,
+  selectedStatement: string,
+  statements: Statement[],
+  historyMonths: number | null | undefined,
+): Promise<Transaction[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  let query = supabase
+    .from('transactions')
+    .select('*')
+    .is('deleted_at', null)
+    .order('date', { ascending: true })
+    .order('created_at', { ascending: true }); // Stable secondary sort
+
+  if (selectedYear !== 'all') {
+    const year = Number(selectedYear);
+    query = query
+      .gte('date', `${year}-01-01`)
+      .lt('date', `${year + 1}-01-01`);
+  }
+
+  if (selectedStatement !== 'all') {
+    query = query.eq('statement_id', selectedStatement);
+  } else {
+    // Defensive: only show transactions tied to currently-active statements.
+    // Protects against orphans when an older delete didn't cascade cleanly.
+    const activeStatementIds = statements.map((s) => s.id);
+    if (activeStatementIds.length === 0) return [];
+    query = query.in('statement_id', activeStatementIds);
+  }
+
+  // Apply historyMonths filter for plans with limited history
+  if (historyMonths && historyMonths > 0) {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - historyMonths);
+    query = query.gte('date', cutoff.toISOString().split('T')[0]);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  // REGLA automática: ocultar movimientos cuyo monto es 0, redondea a 0, o no
+  // es numérico (ajustes de interés de centavos, "FIN ESTADO CUENTA", etc.).
+  // Se aplica a TODO extracto que se suba, para cualquier usuario — no es un
+  // hide manual. Un solo chokepoint: afecta conteos, totales, dropdown y tabla.
+  return ((data as Transaction[]) || []).filter((tx) => !isNoiseAmount(tx.amount));
 }
 
 export default function Transactions() {
   const currentYear = new Date().getFullYear();
+  const queryClient = useQueryClient();
 
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [responsibles, setResponsibles] = useState<Responsible[]>([]);
-  const [statements, setStatements] = useState<Statement[]>([]);
   // Inicializamos desde sessionStorage para sobrevivir tab discard / re-mounts.
   const [selectedYear, setSelectedYear] = useState<string>(() => loadStringFromStorage(YEAR_STORAGE_KEY, String(currentYear)));
-  const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedStatement, setSelectedStatement] = useState<string>(() => loadStringFromStorage(STATEMENT_STORAGE_KEY, 'all'));
-  const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [reteicaConfig, setReteicaConfig] = useState<ReteicaConfig>({ reteica_rate: 0 });
   const [filters, setFilters] = useState<TransactionFilterState>(() => loadFilters());
   // Track IDs that were pending when the "Pendientes" filter was activated,
   // so they stay visible even after receiving a beneficiario mid-session.
   const [pinnedPendingIds, setPinnedPendingIds] = useState<Set<string>>(new Set());
+
+  const { getPlanLimits } = useSubscription();
+  const limits = getPlanLimits();
+
+  const statementsQuery = useQuery({
+    queryKey: ['conciliacion', 'statements'],
+    queryFn: queryStatements,
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+  const statements = statementsQuery.data ?? [];
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['conciliacion', 'categories'],
+    queryFn: queryCategories,
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+
+  const { data: responsibles = [] } = useQuery({
+    queryKey: ['conciliacion', 'responsibles'],
+    queryFn: queryResponsibles,
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+
+  // La lista de statement ids entra a la key: si se sube/borra un extracto,
+  // la query de transacciones se refetchea con el set nuevo.
+  const statementIdsKey = useMemo(() => statements.map((s) => s.id).join('|'), [statements]);
+
+  const txQueryKey = useMemo(
+    () => ['conciliacion', 'transactions', selectedYear, selectedStatement, limits.historyMonths ?? 0, statementIdsKey] as const,
+    [selectedYear, selectedStatement, limits.historyMonths, statementIdsKey],
+  );
+
+  const txQuery = useQuery({
+    queryKey: txQueryKey,
+    queryFn: () => queryTransactions(selectedYear, selectedStatement, statements, limits.historyMonths),
+    enabled: statementsQuery.isSuccess,
+    // Al cambiar año/extracto mantenemos la lista anterior visible en vez de
+    // flashear un spinner — se siente estable, no "recalculando".
+    placeholderData: keepPreviousData,
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+  const transactions = txQuery.data ?? [];
+  // Spinner solo en la PRIMERA carga (sin cache). Vueltas posteriores pintan
+  // desde cache al instante mientras se revalida en background.
+  const loading = statementsQuery.isPending || (txQuery.isPending && statementsQuery.isSuccess);
+
+  const availableYears = useMemo(() => {
+    const years = Array.from(
+      new Set(
+        statements
+          .map((stmt) => getEffectiveYear(stmt))
+          .filter((year): year is number => typeof year === 'number')
+      )
+    ).sort((a, b) => b - a);
+    // No fallback: el año por defecto siempre es el actual aunque el extracto
+    // subido cubra otro período (ej. un PDF que arranca en Dic del año pasado).
+    // El usuario puede cambiarlo desde el selector si quiere ver años previos.
+    if (!years.includes(currentYear)) {
+      years.unshift(currentYear);
+    }
+    return years;
+  }, [statements, currentYear]);
+
+  const invalidateCategories = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['conciliacion', 'categories'] }),
+    [queryClient],
+  );
+  const invalidateResponsibles = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['conciliacion', 'responsibles'] }),
+    [queryClient],
+  );
 
   // When the user switches TO "pendientes", snapshot the current pending IDs.
   // When they switch AWAY, clear the snapshot so re-entering recalculates.
@@ -168,156 +315,19 @@ export default function Transactions() {
     setPinnedPendingIds(ids);
   }, [transactions, filters.estado]);
 
-  useEffect(() => {
-    fetchStatements();
-    fetchCategories();
-    fetchResponsibles();
-    fetchReteicaConfig();
-  }, []);
-
   // Persistir filtros, año y extracto cada vez que cambian (sobrevive a
   // re-mounts por tab discard).
   useEffect(() => { saveFilters(filters); }, [filters]);
   useEffect(() => { saveStringToStorage(YEAR_STORAGE_KEY, selectedYear); }, [selectedYear]);
   useEffect(() => { saveStringToStorage(STATEMENT_STORAGE_KEY, selectedStatement); }, [selectedStatement]);
 
-  const fetchReteicaConfig = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data } = await supabase
-      .from('profiles')
-      .select('reteica_rate')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (data) {
-      setReteicaConfig({ reteica_rate: data.reteica_rate || 0 });
-    }
-  };
-
-  useEffect(() => {
-    fetchTransactions();
-  }, [selectedStatement, selectedYear, statements]);
-
-  const fetchStatements = async () => {
-    const { data } = await (supabase
-      .from('bank_statements')
-      .select('id, file_name, display_name, transaction_count, statement_year, period_start, period_end, period_type')
-      .is('deleted_at', null)
-      .order('statement_year', { ascending: false })
-      .order('uploaded_at', { ascending: false }) as any);
-
-    const nextStatements = (data || []) as Statement[];
-    setStatements(nextStatements);
-
-    const years = Array.from(
-      new Set(
-        nextStatements
-          .map((stmt) => getEffectiveYear(stmt))
-          .filter((year): year is number => typeof year === 'number')
-      )
-    ).sort((a, b) => b - a);
-
-    if (!years.includes(currentYear)) {
-      years.unshift(currentYear);
-    }
-
-    setAvailableYears(years);
-    // No fallback: el año por defecto siempre es el actual aunque el extracto
-    // subido cubra otro período (ej. un PDF que arranca en Dic del año pasado).
-    // El usuario puede cambiarlo desde el selector si quiere ver años previos.
-  };
-
-  const fetchCategories = async () => {
-    // Orden alfabético: el sort_order existe pero los selectores quieren
-    // alfabético para que el colaborador encuentre rápido.
-    const { data } = await supabase
-      .from('categories')
-      .select('*')
-      .order('name');
-    setCategories((data as Category[]) || []);
-  };
-
-  const fetchResponsibles = async () => {
-    const { data } = await supabase
-      .from('responsibles')
-      .select('*')
-      .order('name');
-    setResponsibles((data as Responsible[]) || []);
-  };
-
-  const { getPlanLimits } = useSubscription();
-  const limits = getPlanLimits();
-
-  const fetchTransactions = async () => {
-    setLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setTransactions([]);
-        setLoading(false);
-        return;
-      }
-
-      let query = supabase
-        .from('transactions')
-        .select('*')
-        .is('deleted_at', null)
-        .order('date', { ascending: true })
-        .order('created_at', { ascending: true }); // Stable secondary sort
-
-      if (selectedYear !== 'all') {
-        const year = Number(selectedYear);
-        query = query
-          .gte('date', `${year}-01-01`)
-          .lt('date', `${year + 1}-01-01`);
-      }
-
-      if (selectedStatement !== 'all') {
-        query = query.eq('statement_id', selectedStatement);
-      } else {
-        // Defensive: only show transactions tied to currently-active statements.
-        // Protects against orphans when an older delete didn't cascade cleanly.
-        const activeStatementIds = statements.map((s) => s.id);
-        if (activeStatementIds.length === 0) {
-          setTransactions([]);
-          setLoading(false);
-          return;
-        }
-        query = query.in('statement_id', activeStatementIds);
-      }
-
-      // Apply historyMonths filter for plans with limited history
-      if (limits.historyMonths && limits.historyMonths > 0) {
-        const cutoff = new Date();
-        cutoff.setMonth(cutoff.getMonth() - limits.historyMonths);
-        query = query.gte('date', cutoff.toISOString().split('T')[0]);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      // REGLA automática: ocultar movimientos cuyo monto es 0, redondea a 0, o no
-      // es numérico (ajustes de interés de centavos, "FIN ESTADO CUENTA", etc.).
-      // Se aplica a TODO extracto que se suba, para cualquier usuario — no es un
-      // hide manual. Un solo chokepoint: afecta conteos, totales, dropdown y tabla.
-      const clean = ((data as Transaction[]) || []).filter((tx) => !isNoiseAmount(tx.amount));
-      setTransactions(clean);
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Optimistic local update: when a transaction changes (e.g., responsible assigned),
-  // update state immediately so pending filters react instantly.
+  // update the query cache immediately so pending filters react instantly.
   const handleTransactionUpdated = useCallback((updated: Transaction) => {
-    setTransactions(prev =>
-      prev.map(tx => tx.id === updated.id ? { ...tx, ...updated } : tx)
+    queryClient.setQueryData<Transaction[]>(txQueryKey, (prev) =>
+      prev?.map(tx => tx.id === updated.id ? { ...tx, ...updated } : tx)
     );
-  }, []);
+  }, [queryClient, txQueryKey]);
 
   // Counts for filter badges (computed from ALL transactions for the selected statement, not filtered)
   const filterCounts = useMemo(() => {
@@ -575,11 +585,11 @@ export default function Transactions() {
           <div className="flex gap-4 items-center text-sm">
             <div className="flex items-center gap-1 text-muted-foreground">
               <span>Categorías:</span>
-              <CategoryManagement onUpdate={() => { fetchCategories(); }} />
+              <CategoryManagement onUpdate={invalidateCategories} />
             </div>
             <div className="flex items-center gap-1 text-muted-foreground">
               <span>A quién le pagas:</span>
-              <ResponsibleManagement onUpdate={() => { fetchResponsibles(); }} />
+              <ResponsibleManagement onUpdate={invalidateResponsibles} />
             </div>
           </div>
 
@@ -758,8 +768,8 @@ export default function Transactions() {
                           categories={categories}
                           responsibles={responsibles}
                           onViewDetail={setSelectedTransaction}
-                          onCategoryAdded={fetchCategories}
-                          onResponsibleAdded={fetchResponsibles}
+                          onCategoryAdded={invalidateCategories}
+                          onResponsibleAdded={invalidateResponsibles}
                           onTransactionUpdated={handleTransactionUpdated}
                         />
                       ))}

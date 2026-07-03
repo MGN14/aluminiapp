@@ -41,7 +41,7 @@ function parseCOP(str: string): number | undefined {
 
 export default function CrearReglaModal({ open, onClose, patron, editRule }: CrearReglaModalProps) {
   const { user } = useAuth();
-  const { createRule, updateRule } = useReconciliationRules();
+  const { createRule, updateRule, applyPendingRulesViaRPC } = useReconciliationRules();
   const isEdit = !!editRule;
 
   const [name, setName] = useState('');
@@ -163,9 +163,18 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
         toast.success('Regla actualizada');
       } else {
         await createRule.mutateAsync(payload);
-        toast.success('¡Regla creada! Nico la aplicará automáticamente en el próximo extracto.');
+        toast.success('¡Regla creada!');
       }
       onClose();
+      // Aplicar retroactivamente a las TX pendientes YA, sin esperar al próximo
+      // extracto. Antes la regla nueva quedaba dormida hasta el siguiente upload
+      // (o hasta tocar "Aplicar a transacciones existentes") y parecía que "no
+      // funcionaba". El RPC ya muestra su propio toast con el resultado.
+      try {
+        await applyPendingRulesViaRPC(5000);
+      } catch (retroErr) {
+        console.warn('Retro-aplicación de reglas falló (la regla quedó guardada):', retroErr);
+      }
     } catch (e: any) {
       console.error(e);
       toast.error('Error al guardar la regla: ' + (e?.message ?? 'Intenta de nuevo'));
