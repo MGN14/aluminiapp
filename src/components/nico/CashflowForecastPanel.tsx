@@ -81,7 +81,7 @@ export default function CashflowForecastPanel() {
                 Pronóstico de flujo de caja
               </CardTitle>
               <CardDescription className="text-xs mt-1">
-                Combina promesas de pago, facturas vivas ponderadas por score IA del cliente, créditos y gasto operativo recurrente.
+                Combina promesas de pago, facturas vivas ponderadas por score IA del cliente, créditos y el flujo operativo recurrente (ingresos y gastos de los últimos 90 días).
               </CardDescription>
             </div>
             <div className="flex gap-1">
@@ -199,7 +199,8 @@ export default function CashflowForecastPanel() {
           <div className="text-[11px] text-muted-foreground italic flex items-start gap-1 pt-1">
             <Brain className="h-3 w-3 mt-0.5 shrink-0" />
             <span>
-              Entradas = promesas pendientes + facturas vivas × score IA cliente. Salidas = facturas compra pendientes + cuotas de créditos + gasto operativo recurrente (promedio 90 días).
+              Entradas = promesas pendientes + facturas vivas × score IA cliente + ingreso operativo recurrente (promedio 90 días, sin traspasos).
+              Salidas = facturas compra pendientes + cuotas de créditos + gasto operativo recurrente (promedio 90 días, sin traspasos).
               Confianza decrece con la distancia: día 1 ~90%, día 60 ~50%.
             </span>
           </div>

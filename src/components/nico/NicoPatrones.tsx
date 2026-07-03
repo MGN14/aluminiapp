@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { AlertTriangle, Info, Package, Users, Receipt, Repeat, BarChart2, ChevronRight, Zap, Sparkles, CheckCircle2, Plus } from 'lucide-react';
+import { AlertTriangle, Info, Package, Users, Receipt, Repeat, BarChart2, ChevronRight, Zap, Sparkles, CheckCircle2, Plus, Wrench, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useReconciliationRules } from '@/hooks/useReconciliationRules';
+import { useReconciliationRules, matchesRule, type ReconciliationRule } from '@/hooks/useReconciliationRules';
 import CrearReglaModal, { ReglaPatronSugerido } from './CrearReglaModal';
 import { MONTH_LABELS_SHORT } from '@/lib/constants';
 import { useCounterpartyResolver, resolveCounterpartyName } from '@/lib/counterpartyResolver';
+import { normalizeForMatch } from '@/lib/stringUtils';
 
 interface Patron {
   id: string;
@@ -23,6 +24,33 @@ interface Patron {
   suggestedAmountMin?: number;
   suggestedAmountMax?: number;
   suggestedType?: 'ingreso' | 'egreso';
+  suggestedCategoryId?: string;
+  suggestedResponsibleId?: string;
+  ocurrencias?: number;
+}
+
+/** Prefijo común más largo de un set de strings (para derivar keyword estable
+ *  cuando las variantes difieren solo en números: "c manejo tarj deb 1015 06"). */
+function commonPrefix(strings: string[]): string {
+  if (!strings.length) return '';
+  let prefix = strings[0];
+  for (const s of strings.slice(1)) {
+    let i = 0;
+    while (i < prefix.length && i < s.length && prefix[i] === s[i]) i++;
+    prefix = prefix.slice(0, i);
+    if (!prefix) break;
+  }
+  return prefix;
+}
+
+/** Entrada con mayor conteo de un Map<key, count>. */
+function topOf(map: Map<string, number>): [string | undefined, number] {
+  let bestKey: string | undefined;
+  let bestCount = 0;
+  for (const [k, c] of map) {
+    if (c > bestCount) { bestKey = k; bestCount = c; }
+  }
+  return [bestKey, bestCount];
 }
 
 function formatCurrency(v: number) {
@@ -49,7 +77,7 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
   // Usa MONTH_LABELS_SHORT importado al top del archivo
   const MESES = MONTH_LABELS_SHORT;
   const { rules } = useReconciliationRules();
-  const [reglaModal, setReglaModal] = useState<{ open: boolean; patron?: ReglaPatronSugerido }>({ open: false });
+  const [reglaModal, setReglaModal] = useState<{ open: boolean; patron?: ReglaPatronSugerido; editRule?: ReconciliationRule }>({ open: false });
   const counterpartyResolver = useCounterpartyResolver();
 
   // Patrones guardados por Nico en DB
@@ -74,11 +102,22 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
       if (!user?.id) return [];
       const { data } = await supabase
         .from('transactions')
-        .select('date, amount, description, category_id, type, categories!transactions_category_id_fkey(name, report_group)')
+        .select('date, amount, description, category_id, responsible_id, type, categories!transactions_category_id_fkey(name, report_group)')
         .is('deleted_at', null)
         .gte('date', `${currentYear - 1}-01-01`)
         .order('date', { ascending: true });
       return data || [];
+    },
+    enabled: !!user?.id,
+  });
+
+  // Nombres de beneficiarios (para describir sugerencias de reglas)
+  const { data: responsiblesList = [] } = useQuery({
+    queryKey: ['patrones-responsibles', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data } = await supabase.from('responsibles').select('id, name');
+      return (data || []) as { id: string; name: string }[];
     },
     enabled: !!user?.id,
   });
@@ -373,6 +412,125 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
     return filtrado.sort((a, b) => orden[a.severidad] - orden[b.severidad] || b.confianza - a.confianza);
   }, [transactions, invoices, inventory, nicoPatterns, currentYear, counterpartyResolver]);
 
+  // ── DETECTOR DE MOVIMIENTOS RECURRENTES → candidatas a regla ──────────────
+  // El vacío que hacía que solo existieran 2 reglas: ninguno de los 9 análisis
+  // miraba la recurrencia a nivel de transacción individual (4x1000, intereses,
+  // comisiones). Agrupamos por descripción normalizada (dígitos colapsados para
+  // que "C MANEJO TARJ DEB 1015 06 26" y "...07 26" sean el mismo concepto) y
+  // derivamos de los datos reales: tipo (signo dominante), categoría y
+  // beneficiario (si el usuario ya los venía asignando a mano consistentemente).
+  const reglasSugeridas: Patron[] = useMemo(() => {
+    if (!transactions.length) return [];
+    const respNames = new Map(responsiblesList.map(r => [r.id, r.name]));
+
+    type Grupo = {
+      variants: Map<string, number>;
+      count: number;
+      ingresos: number;
+      egresos: number;
+      cats: Map<string, number>;
+      catNames: Map<string, string>;
+      resps: Map<string, number>;
+      totalAbs: number;
+    };
+    const grupos = new Map<string, Grupo>();
+
+    for (const tx of transactions as any[]) {
+      const raw = (tx.description ?? '').trim();
+      if (!raw) continue;
+      const norm = normalizeForMatch(raw);
+      const key = norm.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+      if (key.replace(/[^a-z]/g, '').length < 4) continue;
+      const g = grupos.get(key) ?? {
+        variants: new Map(), count: 0, ingresos: 0, egresos: 0,
+        cats: new Map(), catNames: new Map(), resps: new Map(), totalAbs: 0,
+      };
+      g.count++;
+      g.variants.set(norm, (g.variants.get(norm) ?? 0) + 1);
+      if ((tx.amount ?? 0) >= 0) g.ingresos++; else g.egresos++;
+      g.totalAbs += Math.abs(tx.amount ?? 0);
+      if (tx.category_id) {
+        g.cats.set(tx.category_id, (g.cats.get(tx.category_id) ?? 0) + 1);
+        const cname = (tx.categories as any)?.name;
+        if (cname) g.catNames.set(tx.category_id, cname);
+      }
+      if (tx.responsible_id) g.resps.set(tx.responsible_id, (g.resps.get(tx.responsible_id) ?? 0) + 1);
+      grupos.set(key, g);
+    }
+
+    const out: Patron[] = [];
+    for (const [key, g] of grupos) {
+      if (g.count < 3) continue;
+      // Mixto ingreso/egreso (>20% del lado minoritario) → descripción genérica
+      // tipo "TRANSFERENCIA": una regla la clasificaría mal. Se descarta.
+      if (Math.min(g.ingresos, g.egresos) / g.count > 0.2) continue;
+      const tipo: 'ingreso' | 'egreso' = g.egresos >= g.ingresos ? 'egreso' : 'ingreso';
+
+      // Keyword: la variante única, o el prefijo común si difieren en números.
+      const variantes = [...g.variants.keys()];
+      const keyword = (variantes.length === 1 ? variantes[0] : commonPrefix(variantes)).trim();
+      if (keyword.replace(/[^a-z0-9]/g, '').length < 4) continue;
+
+      const [topCat, topCatCount] = topOf(g.cats);
+      const [topResp, topRespCount] = topOf(g.resps);
+      const catConsistente = !!topCat && topCatCount / g.count >= 0.6;
+      const respConsistente = !!topResp && topRespCount / g.count >= 0.6;
+
+      const confianza = Math.min(98, 55 + g.count * 6 + (catConsistente || respConsistente ? 12 : 0));
+      if (confianza < 80) continue;
+
+      const catName = catConsistente && topCat ? g.catNames.get(topCat) : undefined;
+      const respName = respConsistente && topResp ? respNames.get(topResp) : undefined;
+      const yaClasificado = catConsistente || respConsistente;
+
+      out.push({
+        id: `recurrente-${key}`,
+        tipo: 'operativo',
+        titulo: `"${keyword.toUpperCase()}" se repite ${g.count} veces`,
+        descripcion:
+          `${tipo === 'egreso' ? 'Egreso' : 'Ingreso'} recurrente por ${formatCurrency(g.totalAbs)} acumulado. ` +
+          (yaClasificado
+            ? `Lo venís clasificando a mano${catName ? ` como "${catName}"` : ''}${respName ? ` → ${respName}` : ''}. Una regla lo haría sola en cada extracto.`
+            : 'Crea una regla para que Nico lo concilie automáticamente en cada extracto.'),
+        severidad: 'info',
+        confianza,
+        automatable: true,
+        suggestedKeyword: keyword,
+        suggestedType: tipo,
+        suggestedCategoryId: catConsistente ? topCat : undefined,
+        suggestedResponsibleId: respConsistente ? topResp : undefined,
+        ocurrencias: g.count,
+      });
+    }
+    return out
+      .sort((a, b) => (b.ocurrencias ?? 0) - (a.ocurrencias ?? 0))
+      .slice(0, 10);
+  }, [transactions, responsiblesList]);
+
+  // ── DETECTOR DE REGLAS MAL CONFIGURADAS (tipo invertido) ──────────────────
+  // Caso real: regla "Intereses" creada como egreso (default del modal) pero
+  // "ABONO INTERESES AHORROS" es un ingreso → nunca matchea y parece que "las
+  // reglas no funcionan". Si la keyword de una regla activa matchea 3+ TX del
+  // tipo OPUESTO y 0 del tipo configurado, la marcamos para corregir.
+  const reglasMalConfiguradas = useMemo(() => {
+    if (!rules.length || !transactions.length) return [] as { rule: ReconciliationRule; matches: number; tipoReal: 'ingreso' | 'egreso' }[];
+    const out: { rule: ReconciliationRule; matches: number; tipoReal: 'ingreso' | 'egreso' }[] = [];
+    for (const r of rules) {
+      if (!r.active || !r.keyword) continue;
+      const tipoOpuesto: 'ingreso' | 'egreso' = r.tx_type === 'egreso' ? 'ingreso' : 'egreso';
+      const flipped = { ...r, tx_type: tipoOpuesto };
+      let asIs = 0;
+      let flip = 0;
+      for (const tx of transactions as any[]) {
+        const t = { description: tx.description ?? '', amount: tx.amount, date: tx.date };
+        if (matchesRule(r, t)) asIs++;
+        else if (matchesRule(flipped, t)) flip++;
+      }
+      if (asIs === 0 && flip >= 3) out.push({ rule: r, matches: flip, tipoReal: tipoOpuesto });
+    }
+    return out;
+  }, [rules, transactions]);
+
   const tipos = Object.keys(TIPO_CONFIG) as (keyof typeof TIPO_CONFIG)[];
 
   // Helper: check if a pattern already has a saved rule. Antes el match por
@@ -395,10 +553,12 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
     });
   };
 
-  // High-confidence AUTOMATABLE patterns (convertibles a reglas de matching).
-  // Requieren keyword + tipo de movimiento que matchee descripción bancaria real.
-  // Excluye patrones que ya tienen regla creada — viven en el módulo Reglas.
-  const sugerencias = patrones.filter(p => p.automatable && p.confianza >= 90 && !hasExistingRule(p));
+  // Reglas sugeridas = recurrencias detectadas + patrones automatables de Nico.
+  // Excluye las que ya tienen regla creada — esas viven en el módulo Reglas.
+  const sugerencias = [
+    ...reglasSugeridas.filter(p => !hasExistingRule(p)),
+    ...patrones.filter(p => p.automatable && p.confianza >= 90 && !hasExistingRule(p)),
+  ];
 
   // High-confidence INSIGHTS (no son reglas — son análisis estratégicos).
   // Ej: "margen bajo", "concentración cliente", "categoría dominante".
@@ -407,6 +567,8 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
 
   // IDs de patrones ya mostrados arriba en "alta confianza" — para deduplicar abajo
   const sugerenciasIds = new Set([...sugerencias.map(p => p.id), ...insightsClave.map(p => p.id)]);
+
+  const activeRulesCount = rules.filter(r => r.active).length;
 
   const openCrearRegla = (p: Patron) => {
     setReglaModal({
@@ -420,13 +582,96 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         suggestedAmountMin: p.suggestedAmountMin,
         suggestedAmountMax: p.suggestedAmountMax,
         suggestedType: p.suggestedType,
+        suggestedCategoryId: p.suggestedCategoryId,
+        suggestedResponsibleId: p.suggestedResponsibleId,
       },
     });
   };
 
+  // Abre el modal en modo edición con el tipo YA corregido — el usuario
+  // solo revisa y guarda (y al guardar se retro-aplica a las TX pendientes).
+  const openCorregirRegla = (rule: ReconciliationRule, tipoReal: 'ingreso' | 'egreso') => {
+    setReglaModal({ open: true, editRule: { ...rule, tx_type: tipoReal } });
+  };
+
   return (
     <div className="space-y-5">
-      {/* ── AUTOMATIZACIONES SUGERIDAS ─────────────────────────── */}
+      {/* ── RESUMEN ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border border-black/[0.06] bg-gradient-to-br from-white to-slate-50/60 dark:from-zinc-900 dark:to-zinc-950 px-4 py-3">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+            <Zap className="h-3 w-3 text-success" /> Reglas activas
+          </div>
+          <div className="text-[26px] leading-tight font-bold tabular-nums text-foreground">{activeRulesCount}</div>
+          <div className="text-[11px] text-muted-foreground/70">conciliando solas</div>
+        </div>
+        <div className="rounded-xl border border-black/[0.06] bg-gradient-to-br from-white to-slate-50/60 dark:from-zinc-900 dark:to-zinc-950 px-4 py-3">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+            <Sparkles className="h-3 w-3 text-success" /> Sugerencias
+          </div>
+          <div className="text-[26px] leading-tight font-bold tabular-nums" style={{ color: sugerencias.length > 0 ? 'oklch(0.43 0.14 155)' : undefined }}>
+            {sugerencias.length}
+          </div>
+          <div className="text-[11px] text-muted-foreground/70">reglas por aprobar</div>
+        </div>
+        <div className="rounded-xl border border-black/[0.06] bg-gradient-to-br from-white to-slate-50/60 dark:from-zinc-900 dark:to-zinc-950 px-4 py-3">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+            <BarChart2 className="h-3 w-3 text-accent" /> Insights
+          </div>
+          <div className="text-[26px] leading-tight font-bold tabular-nums text-foreground">{patrones.length}</div>
+          <div className="text-[11px] text-muted-foreground/70">patrones analizados</div>
+        </div>
+      </div>
+
+      {/* ── REGLAS MAL CONFIGURADAS ──────────────────────────────── */}
+      {reglasMalConfiguradas.length > 0 && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 py-3 bg-destructive/10 border-b border-destructive/20">
+            <div className="w-7 h-7 rounded-lg bg-destructive/20 flex items-center justify-center shrink-0">
+              <Wrench className="h-4 w-4 text-destructive" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-destructive">
+                {reglasMalConfiguradas.length} regla{reglasMalConfiguradas.length > 1 ? 's' : ''} con el tipo invertido
+              </p>
+              <p className="text-xs text-destructive/70">
+                Su palabra clave coincide con movimientos del tipo contrario — por eso nunca se aplican
+              </p>
+            </div>
+          </div>
+          <div className="divide-y divide-destructive/10">
+            {reglasMalConfiguradas.map(({ rule, matches, tipoReal }) => (
+              <div key={rule.id} className="flex items-start gap-3 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                    <span className="text-sm font-medium text-foreground">{rule.name}</span>
+                    <Badge variant="outline" className="text-[10px] py-0 border-destructive/40 text-destructive">
+                      configurada como {rule.tx_type}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    "{rule.keyword}" coincide con <strong>{matches} {tipoReal === 'ingreso' ? 'ingresos' : 'egresos'}</strong> reales
+                    y con 0 {rule.tx_type === 'ingreso' ? 'ingresos' : 'egresos'} — debería ser tipo <strong>{tipoReal}</strong>.
+                  </p>
+                </div>
+                <div className="shrink-0 pt-0.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:border-destructive"
+                    onClick={() => openCorregirRegla(rule, tipoReal)}
+                  >
+                    <Wrench className="h-3.5 w-3.5" />
+                    Corregir a {tipoReal}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── REGLAS SUGERIDAS (recurrencias + patrones automatables) ── */}
       {sugerencias.length > 0 && (
         <div className="rounded-xl border border-success/30 bg-success/5 overflow-hidden">
           {/* Header */}
@@ -436,10 +681,10 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-success">
-                {sugerencias.length} patrón{sugerencias.length > 1 ? 'es' : ''} con alta confianza detectado{sugerencias.length > 1 ? 's' : ''}
+                {sugerencias.length} regla{sugerencias.length > 1 ? 's' : ''} sugerida{sugerencias.length > 1 ? 's' : ''} — solo falta tu aprobación
               </p>
               <p className="text-xs text-success/70">
-                Crea reglas para que Nico los concilie automáticamente cuando subas un extracto
+                Detectadas de tus movimientos recurrentes. Al crearlas se aplican de inmediato a lo pendiente.
               </p>
             </div>
             <Badge variant="outline" className="border-success/40 text-success text-[10px] shrink-0">
@@ -451,11 +696,21 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
           <div className="divide-y divide-success/10">
             {sugerencias.map(p => (
               <div key={p.id} className="flex items-start gap-3 px-4 py-3">
+                <div className="mt-0.5 shrink-0">
+                  {p.suggestedType === 'ingreso'
+                    ? <ArrowUpCircle className="h-4 w-4 text-success" />
+                    : <ArrowDownCircle className="h-4 w-4 text-muted-foreground" />}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-0.5">
                     <span className="text-sm font-medium text-foreground">{p.titulo}</span>
+                    {p.suggestedType && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                        {p.suggestedType}
+                      </span>
+                    )}
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/15 text-success font-medium">
-                      {p.confianza}% confianza
+                      {p.confianza}%
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
@@ -478,10 +733,10 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
           </div>
 
           {/* Footer: existing rules count */}
-          {rules.filter(r => r.active).length > 0 && (
+          {activeRulesCount > 0 && (
             <div className="px-4 py-2.5 bg-muted/30 border-t border-success/10 text-xs text-muted-foreground flex items-center gap-1.5">
               <Zap className="h-3 w-3 text-success" />
-              {rules.filter(r => r.active).length} regla{rules.filter(r => r.active).length > 1 ? 's' : ''} activa{rules.filter(r => r.active).length > 1 ? 's' : ''} — se aplican automáticamente al subir extracto
+              {activeRulesCount} regla{activeRulesCount > 1 ? 's' : ''} activa{activeRulesCount > 1 ? 's' : ''} — se aplican automáticamente al subir extracto
             </div>
           )}
         </div>
@@ -535,11 +790,6 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         </div>
       )}
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Zap className="h-3.5 w-3.5 text-accent" />
-        <span><strong>{patrones.length} patrones</strong> detectados — {nicoPatterns.length} de Nico + {patrones.length - nicoPatterns.length} calculados</span>
-      </div>
-
       {tipos.map(tipo => {
         // Excluir tanto los que están arriba como los que ya tienen regla
         // creada — esos viven en el módulo Reglas, no en Patrones.
@@ -554,7 +804,7 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
               <span className={`text-xs font-semibold ${cfg.color}`}>{cfg.label}</span>
               <span className={`text-xs ${cfg.color} opacity-70`}>({patronesTipo.length})</span>
             </div>
-            <div className="space-y-2">
+            <div className="grid gap-2 md:grid-cols-2">
               {patronesTipo.map(patron => {
                 const SevIcon = SEV_CONFIG[patron.severidad].icon;
                 return (
@@ -594,17 +844,23 @@ export default function NicoPatrones({ onPreguntarNico }: { onPreguntarNico?: (p
         );
       })}
 
-      {patrones.length === 0 && (
-        <div className="text-center py-12 text-muted-foreground text-sm">
-          Necesito más datos de transacciones, facturas e inventario para detectar patrones.
+      {patrones.length === 0 && sugerencias.length === 0 && (
+        <div className="text-center py-12 rounded-xl border border-dashed border-border">
+          <Sparkles className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
+          <p className="text-sm font-medium text-foreground mb-1">Todavía no hay patrones</p>
+          <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+            Subí más extractos bancarios y facturas — con más movimiento, Nico detecta
+            recurrencias y te sugiere reglas para conciliar solo.
+          </p>
         </div>
       )}
 
-      {/* Crear Regla Modal */}
+      {/* Crear/editar Regla Modal (editRule = corrección de tipo invertido) */}
       <CrearReglaModal
         open={reglaModal.open}
         onClose={() => setReglaModal({ open: false })}
         patron={reglaModal.patron}
+        editRule={reglaModal.editRule}
       />
     </div>
   );

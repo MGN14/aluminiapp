@@ -4,15 +4,20 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Ship, ChevronRight, AlertCircle, Search, ArrowUp, LineChart, List } from 'lucide-react';
+import { Plus, Ship, ChevronRight, AlertCircle, Search, ArrowUp, LineChart, List, Clock } from 'lucide-react';
 import { useImports, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import ImportModal from '@/components/imports/ImportModal';
 import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
+import { computeTotalDays, computeStageAverages } from '@/lib/importStages';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
+
+const todayIso = () => new Date().toISOString().split('T')[0];
 
 const ESTADO_BADGE: Record<ImportEstado, { bg: string; color: string; border: string }> = {
   cotizacion:  { bg: 'bg-slate-100',  color: 'text-slate-700',  border: 'border-slate-300' },
@@ -42,6 +47,16 @@ export default function Importaciones() {
   const [filter, setFilter] = useState<Filter>('abiertos');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'pedidos' | 'analisis'>('pedidos');
+  // Diálogo "¿en qué fecha cambió de estado?" al avanzar desde la lista
+  const [advancing, setAdvancing] = useState<{ row: ImportRow; fecha: string } | null>(null);
+
+  // Promedio de días por etapa a través de todas las importaciones con historial
+  const stageAverages = useMemo(() => {
+    const rows = (data?.all ?? []).filter(r => (r.import_estado_history?.length ?? 0) > 0);
+    if (!rows.length) return null;
+    const avgs = computeStageAverages(rows.map(r => ({ history: r.import_estado_history!, estado: r.estado })));
+    return Object.keys(avgs).length ? avgs : null;
+  }, [data]);
 
   const filtered = useMemo(() => {
     const rows = data?.all ?? [];
@@ -152,6 +167,24 @@ export default function Importaciones() {
           </CardContent>
         </Card>
 
+        {/* Promedios de duración por etapa (histórico) */}
+        {stageAverages && (
+          <Card>
+            <CardContent className="py-3 px-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              <span className="text-xs font-semibold text-muted-foreground inline-flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" /> Demora promedio por etapa:
+              </span>
+              {IMPORT_ESTADOS_ORDER.filter(e => stageAverages[e]).map(e => (
+                <span key={e} className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{IMPORT_ESTADO_LABEL[e]}</span>{' '}
+                  <span className="font-mono">{stageAverages[e]!.promedio}d</span>
+                  <span className="text-[10px]"> ({stageAverages[e]!.muestras})</span>
+                </span>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Tabla */}
         <Card>
           <CardHeader className="pb-2">
@@ -173,19 +206,20 @@ export default function Importaciones() {
                     <TableHead className="font-semibold text-right">Anticipo</TableHead>
                     <TableHead className="font-semibold text-right">Saldo</TableHead>
                     <TableHead className="font-semibold">ETA</TableHead>
+                    <TableHead className="font-semibold text-right">Días</TableHead>
                     <TableHead className="font-semibold text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
                         Cargando importaciones...
                       </TableCell>
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-12">
+                      <TableCell colSpan={10} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
                           <p className="text-muted-foreground">
@@ -234,6 +268,22 @@ export default function Importaciones() {
                               ? format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM yyyy', { locale: es })
                               : <span className="text-muted-foreground">—</span>}
                           </TableCell>
+                          <TableCell className="text-right text-sm font-mono">
+                            {(() => {
+                              const total = row.import_estado_history?.length
+                                ? computeTotalDays(row.import_estado_history, row.estado)
+                                : null;
+                              if (!total) return <span className="text-muted-foreground">—</span>;
+                              return (
+                                <span
+                                  className={total.enCurso ? 'text-primary' : 'text-muted-foreground'}
+                                  title={total.enCurso ? 'Días desde el inicio (en curso)' : 'Días totales hasta la entrega'}
+                                >
+                                  {total.dias}d{total.enCurso ? '…' : ''}
+                                </span>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell className="text-right">
                             <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
                               {canAdvance && (
@@ -242,7 +292,7 @@ export default function Importaciones() {
                                   variant="ghost"
                                   className="h-7 px-2 text-[11px] text-primary gap-1"
                                   title={`Avanzar a "${nextLabel}"`}
-                                  onClick={() => advanceEstado.mutate(row)}
+                                  onClick={() => setAdvancing({ row, fecha: todayIso() })}
                                   disabled={advanceEstado.isPending}
                                 >
                                   <ArrowUp className="h-3 w-3" />
@@ -277,6 +327,51 @@ export default function Importaciones() {
         onOpenChange={(v) => { setShowModal(v); if (!v) setEditing(null); }}
         editing={editing}
       />
+
+      {/* Fecha del cambio de estado (avance rápido desde la lista) */}
+      <Dialog open={!!advancing} onOpenChange={(v) => { if (!v) setAdvancing(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          {advancing && (() => {
+            const idx = IMPORT_ESTADOS_ORDER.indexOf(advancing.row.estado);
+            const next = idx >= 0 && idx < IMPORT_ESTADOS_ORDER.length - 1 ? IMPORT_ESTADOS_ORDER[idx + 1] : null;
+            if (!next) return null;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-base">
+                    Avanzar a "{IMPORT_ESTADO_LABEL[next]}"
+                  </DialogTitle>
+                  <DialogDescription className="text-xs">
+                    {advancing.row.proveedor_nombre}
+                    {advancing.row.ref_pedido ? ` · ${advancing.row.ref_pedido}` : ''} — con esta fecha se calcula
+                    cuánto duró la etapa "{IMPORT_ESTADO_LABEL[advancing.row.estado]}".
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">¿En qué fecha cambió de estado?</Label>
+                  <Input
+                    type="date"
+                    value={advancing.fecha}
+                    max={todayIso()}
+                    onChange={e => setAdvancing({ ...advancing, fecha: e.target.value })}
+                    autoFocus
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  disabled={!advancing.fecha || advanceEstado.isPending}
+                  onClick={async () => {
+                    await advanceEstado.mutateAsync({ row: advancing.row, fecha: advancing.fecha });
+                    setAdvancing(null);
+                  }}
+                >
+                  {advanceEstado.isPending ? 'Guardando…' : 'Confirmar cambio'}
+                </Button>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

@@ -26,6 +26,11 @@ export const IMPORT_ESTADO_LABEL: Record<ImportEstado, string> = {
   cancelado: 'Cancelado',
 };
 
+export interface ImportEstadoHistoryRow {
+  estado: ImportEstado;
+  fecha: string; // YYYY-MM-DD — día en que la importación ENTRÓ a ese estado
+}
+
 export interface ImportRow {
   id: string;
   responsible_id: string | null;
@@ -46,6 +51,8 @@ export interface ImportRow {
   notas: string | null;
   created_at: string;
   updated_at: string;
+  /** Historial de cambios de estado (embebido) — base de las duraciones de etapa */
+  import_estado_history?: ImportEstadoHistoryRow[];
 }
 
 export interface ImportsSummary {
@@ -73,7 +80,7 @@ export function useImports() {
 
       const { data, error } = await supabase
         .from('imports' as never)
-        .select('*')
+        .select('*, import_estado_history(estado, fecha)')
         .order('fecha_estimada_llegada', { ascending: true, nullsFirst: false });
       if (error) throw error;
 
@@ -102,16 +109,38 @@ export function useImports() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['imports', user?.id] });
 
-  type Patch = Partial<Omit<ImportRow, 'id' | 'saldo_pendiente_usd' | 'created_at' | 'updated_at'>>;
+  type Patch = Partial<Omit<ImportRow, 'id' | 'saldo_pendiente_usd' | 'created_at' | 'updated_at' | 'import_estado_history'>>;
+
+  /** Registra (upsert) la fecha en que la importación entró a un estado. */
+  const recordEstadoHistory = async (importId: string, estado: ImportEstado, fecha: string) => {
+    if (!user) return;
+    const { error } = await (supabase as any)
+      .from('import_estado_history')
+      .upsert(
+        { user_id: user.id, import_id: importId, estado, fecha },
+        { onConflict: 'import_id,estado' },
+      );
+    if (error) console.warn('No se pudo registrar historial de estado:', error.message);
+  };
 
   const create = useMutation({
-    mutationFn: async (input: Patch & { proveedor_nombre: string; estado: ImportEstado }) => {
+    mutationFn: async (input: Patch & { proveedor_nombre: string; estado: ImportEstado; estado_fecha?: string }) => {
       if (!user) throw new Error('No auth');
-      const { error } = await supabase.from('imports' as never).insert({
-        user_id: user.id,
-        ...input,
-      } as never);
+      const { estado_fecha, ...payload } = input;
+      const { data, error } = await supabase
+        .from('imports' as never)
+        .insert({ user_id: user.id, ...payload } as never)
+        .select('id')
+        .single();
       if (error) throw error;
+      const newId = (data as unknown as { id: string })?.id;
+      if (newId) {
+        await recordEstadoHistory(
+          newId,
+          input.estado,
+          estado_fecha || input.fecha_cotizacion || new Date().toISOString().split('T')[0],
+        );
+      }
     },
     onSuccess: () => {
       invalidate();
@@ -123,13 +152,17 @@ export function useImports() {
   });
 
   const update = useMutation({
-    mutationFn: async (input: { id: string } & Patch) => {
-      const { id, ...patch } = input;
+    // estado_fecha: fecha en que ocurrió el cambio de estado (si el estado cambió).
+    mutationFn: async (input: { id: string; estado_fecha?: string } & Patch) => {
+      const { id, estado_fecha, ...patch } = input;
       const { error } = await supabase
         .from('imports' as never)
         .update(patch as never)
         .eq('id', id);
       if (error) throw error;
+      if (patch.estado && estado_fecha) {
+        await recordEstadoHistory(id, patch.estado as ImportEstado, estado_fecha);
+      }
     },
     onSuccess: () => {
       invalidate();
@@ -151,23 +184,25 @@ export function useImports() {
     },
   });
 
-  // Atajo: avanzar al siguiente estado del flujo.
+  // Atajo: avanzar al siguiente estado del flujo. `fecha` = día real del cambio
+  // (lo pide el dialog en la lista); default hoy.
   const advanceEstado = useMutation({
-    mutationFn: async (row: ImportRow) => {
+    mutationFn: async ({ row, fecha }: { row: ImportRow; fecha?: string }) => {
       const idx = IMPORT_ESTADOS_ORDER.indexOf(row.estado);
       if (idx < 0 || idx >= IMPORT_ESTADOS_ORDER.length - 1) return; // cancelado o ya entregado
       const nextEstado = IMPORT_ESTADOS_ORDER[idx + 1];
-      // Stamp la fecha del nuevo estado.
-      const today = new Date().toISOString().split('T')[0];
+      const cambioFecha = fecha || new Date().toISOString().split('T')[0];
+      // Stamp la fecha del nuevo estado (columnas legacy del flujo).
       const datePatch: Record<string, string> = {};
-      if (nextEstado === 'anticipo') datePatch.fecha_anticipo = today;
-      if (nextEstado === 'transito') datePatch.fecha_embarque = today;
-      if (nextEstado === 'entregado') datePatch.fecha_arribo_real = today;
+      if (nextEstado === 'anticipo') datePatch.fecha_anticipo = cambioFecha;
+      if (nextEstado === 'transito') datePatch.fecha_embarque = cambioFecha;
+      if (nextEstado === 'entregado') datePatch.fecha_arribo_real = cambioFecha;
       const { error } = await supabase
         .from('imports' as never)
         .update({ estado: nextEstado, ...datePatch } as never)
         .eq('id', row.id);
       if (error) throw error;
+      await recordEstadoHistory(row.id, nextEstado, cambioFecha);
     },
     onSuccess: () => {
       invalidate();

@@ -23,6 +23,9 @@ export interface ReglaPatronSugerido {
   suggestedAmountMin?: number;
   suggestedAmountMax?: number;
   suggestedType?: 'ingreso' | 'egreso';
+  /** Pre-llenados derivados de cómo el usuario YA clasificó estas TX a mano */
+  suggestedCategoryId?: string;
+  suggestedResponsibleId?: string;
 }
 
 interface CrearReglaModalProps {
@@ -82,8 +85,9 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
       setAmountMax(patron?.suggestedAmountMax?.toLocaleString('es-CO') ?? '');
       setDayMin('');
       setDayMax('');
-      setCategoryId('');
-      setResponsibleId('');
+      // Derivados de cómo el usuario ya venía clasificando estas TX a mano
+      setCategoryId(patron?.suggestedCategoryId ?? '');
+      setResponsibleId(patron?.suggestedResponsibleId ?? '');
       setMovementNature('__none__');
       setAutoConciliate(true);
       setKeywordIsRegex(false);
