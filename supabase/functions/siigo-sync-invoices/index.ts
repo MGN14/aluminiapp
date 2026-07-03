@@ -268,6 +268,24 @@ serve(async (req) => {
           debug[`probe_${name}`] = { error: (e as Error).message };
         }
       }
+      // ¿Existe el tipo de documento FC (factura de compra) en esta cuenta?
+      // Si no hay tipos FC, o hay tipos pero 0 documentos, el "bug" no es de
+      // código: las compras no están registradas como FC en Siigo (viven como
+      // documento soporte / causación contable / otra empresa).
+      try {
+        const dtRes = await fetch(`${SIIGO_BASE}/v1/document-types?type=FC`, { headers: apiHeaders });
+        const dtText = await dtRes.text().catch(() => "");
+        let dt: Array<{ id?: number; code?: string; name?: string; active?: boolean }> | null = null;
+        try { dt = JSON.parse(dtText); } catch { /* raw abajo */ }
+        debug.probe_doc_types_fc = {
+          status: dtRes.status,
+          count: Array.isArray(dt) ? dt.length : null,
+          types: Array.isArray(dt) ? dt.slice(0, 8).map(t => `${t.id}:${t.name ?? t.code}${t.active === false ? ' (inactivo)' : ''}`) : null,
+          raw: !Array.isArray(dt) ? dtText.slice(0, 300) : undefined,
+        };
+      } catch (e) {
+        debug.probe_doc_types_fc = { error: (e as Error).message };
+      }
       return json({ ok: true, probe: true, since, until, debug });
     }
 
