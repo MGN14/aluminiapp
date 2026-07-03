@@ -46,9 +46,6 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
   const { user } = useAuth();
   const { createRule, updateRule, applyPendingRulesViaRPC } = useReconciliationRules();
   const isEdit = !!editRule;
-  // Keyword bloqueada cuando la regla nace de un patrón detectado: es el texto
-  // exacto con el que la app encontró las TX; editarla rompe el matching.
-  const keywordLocked = !isEdit && !!patron?.suggestedKeyword;
 
   const [name, setName] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -229,50 +226,23 @@ export default function CrearReglaModal({ open, onClose, patron, editRule }: Cre
 
           {/* Keyword */}
           <div>
-            <Label className="text-sm font-medium">
-              {keywordLocked
-                ? 'Palabra clave (detectada del patrón)'
-                : keywordIsRegex ? 'Regex (case-insensitive) *' : 'Palabra clave en la descripción bancaria *'}
-            </Label>
-            {keywordLocked ? (
-              <>
-                {/* La keyword viene del detector de patrones: es EXACTAMENTE el texto
-                    con el que la app encontró las transacciones. Editarla a mano rompía
-                    la regla (dejaba de matchear), así que acá queda bloqueada. */}
-                <div className="mt-1.5 flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/50">
-                  <Lock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="font-mono text-sm uppercase truncate">{keyword}</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Es el texto con el que Nico identificó el patrón en tus extractos — no se puede editar
-                  para garantizar que la regla matchee. Si necesitás otra palabra, creá la regla desde el módulo Reglas.
-                </p>
-              </>
-            ) : (
-              <>
-                <Input
-                  value={keyword}
-                  onChange={e => setKeyword(keywordIsRegex ? e.target.value : e.target.value.toUpperCase())}
-                  placeholder={keywordIsRegex ? 'Ej: PAGO.*ALUMINIOS|FERR' : 'Ej: NETFLIX, CLARO, ARRIENDO...'}
-                  className={`mt-1.5 font-mono ${keywordIsRegex ? '' : 'uppercase'}`}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {keywordIsRegex
-                    ? 'Regex POSIX (ej: "ALUMINIOS|FERR" matchea cualquiera de los dos). Sin distinguir mayúsculas.'
-                    : 'Si la transacción contiene esta palabra, Nico aplica la regla automáticamente (sin distinguir mayúsculas).'}
-                </p>
-                <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded bg-muted/40 border border-border">
-                  <Switch
-                    id="regex-toggle"
-                    checked={keywordIsRegex}
-                    onCheckedChange={setKeywordIsRegex}
-                  />
-                  <Label htmlFor="regex-toggle" className="text-xs cursor-pointer">
-                    Usar regex (avanzado) — para patrones complejos con OR / wildcards
-                  </Label>
-                </div>
-              </>
-            )}
+            <Label className="text-sm font-medium">Palabra clave (detectada del patrón)</Label>
+            {/* La keyword viene del detector de patrones: es EXACTAMENTE el texto
+                con el que la app encontró las transacciones. Editarla a mano rompía
+                la regla (dejaba de matchear), así que queda bloqueada SIEMPRE —
+                también en edición. Toda regla nace de un patrón. */}
+            <div className="mt-1.5 flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/50">
+              <Lock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="font-mono text-sm uppercase truncate">{keyword}</span>
+              {keywordIsRegex && (
+                <Badge variant="outline" className="text-[10px] py-0 shrink-0">regex</Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Es el texto con el que Nico identificó el patrón en tus extractos — no se puede editar
+              para garantizar que la regla matchee. Si quedó mal, eliminá la regla: la sugerencia
+              reaparece en Patrones y la creás de nuevo.
+            </p>
           </div>
 
           {/* Type */}
