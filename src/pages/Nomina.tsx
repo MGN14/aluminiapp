@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
+import EmployeesSection from '@/components/nomina/EmployeesSection';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -176,6 +177,9 @@ export default function Nomina() {
             </p>
           </div>
         </div>
+
+        {/* ── Empleados: prestaciones y cumplimiento por persona ── */}
+        <EmployeesSection />
 
         <div className="grid lg:grid-cols-2 gap-6">
           {/* ── Registro mensual ── */}
