@@ -1,6 +1,8 @@
 name = "aluminia-invoice-inbox"
 main = "worker.js"
 compatibility_date = "2026-06-01"
+# Sin URL HTTP pública: el Worker solo se invoca por Email Routing
+workers_dev = false
 
 [vars]
 # Edge function que recibe los adjuntos (verify_jwt=false, auth por x-inbox-secret)
