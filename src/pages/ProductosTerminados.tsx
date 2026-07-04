@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Boxes, Calculator, Ruler, Settings } from 'lucide-react';
+import { Boxes, Calculator, Ruler, Settings, Factory } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import CotizacionesView from '@/components/productos-terminados/CotizacionesView';
 import ConfiguracionView from '@/components/productos-terminados/ConfiguracionView';
+import ProduccionView from '@/components/productos-terminados/ProduccionView';
 import TemplatesConfigView from '@/components/productos-terminados/TemplatesConfigView';
 
-type Tab = 'cotizaciones' | 'configuracion';
+type Tab = 'cotizaciones' | 'produccion' | 'configuracion';
 type ConfigSub = 'plantillas' | 'm2';
 
 export default function ProductosTerminados() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab: Tab = searchParams.get('tab') === 'configuracion' ? 'configuracion' : 'cotizaciones';
+  const tabParam = searchParams.get('tab');
+  const initialTab: Tab = tabParam === 'configuracion' ? 'configuracion' : tabParam === 'produccion' ? 'produccion' : 'cotizaciones';
   const [tab, setTab] = useState<Tab>(initialTab);
   const [configSub, setConfigSub] = useState<ConfigSub>(
     searchParams.get('sub') === 'm2' ? 'm2' : 'plantillas',
@@ -52,6 +54,17 @@ export default function ProductosTerminados() {
             Cotizaciones
           </button>
           <button
+            onClick={() => setTab('produccion')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              tab === 'produccion'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Factory className="h-4 w-4" />
+            Producción
+          </button>
+          <button
             onClick={() => setTab('configuracion')}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
               tab === 'configuracion'
@@ -68,6 +81,7 @@ export default function ProductosTerminados() {
         {tab === 'cotizaciones' && (
           <CotizacionesView onSwitchToConfig={() => setTab('configuracion')} />
         )}
+        {tab === 'produccion' && <ProduccionView />}
         {tab === 'configuracion' && (
           <div className="space-y-5">
             {/* Sub-tabs: plantillas paramétricas vs productos por m² */}
