@@ -109,3 +109,8 @@ verify_jwt = false
 
 [functions.match-bank-payments]
 verify_jwt = false
+
+# Buzón de facturas de compra: Cloudflare Email Worker → POST server-to-server
+# autenticado con header x-inbox-secret (INVOICE_INBOX_SECRET). Sin JWT posible.
+[functions.receive-purchase-invoice]
+verify_jwt = false

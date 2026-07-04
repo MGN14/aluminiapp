@@ -1,0 +1,9 @@
+name = "aluminia-invoice-inbox"
+main = "worker.js"
+compatibility_date = "2026-06-01"
+
+[vars]
+# Edge function que recibe los adjuntos (verify_jwt=false, auth por x-inbox-secret)
+INBOX_ENDPOINT = "https://flmelenvmvhsogtzjjow.supabase.co/functions/v1/receive-purchase-invoice"
+
+# El secreto NO va acá: `npx wrangler secret put INVOICE_INBOX_SECRET`

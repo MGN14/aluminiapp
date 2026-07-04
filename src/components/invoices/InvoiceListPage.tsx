@@ -25,6 +25,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import InvoiceUploadModal from '@/components/invoices/InvoiceUploadModal';
+import BulkPurchaseUploadModal from '@/components/invoices/BulkPurchaseUploadModal';
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
@@ -107,6 +108,7 @@ export default function InvoiceListPage({ type }: Props) {
   // mes con facturas). Se resetea al cambiar de año.
   const [monthOverride, setMonthOverride] = useState<number | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [resumeDraft, setResumeDraft] = useState<Invoice | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -600,6 +602,20 @@ export default function InvoiceListPage({ type }: Props) {
               </span>
               <span className="text-[10px] text-muted-foreground font-normal leading-none">Verifica CUFE en el catálogo oficial</span>
             </Button>
+            {type === 'compra' && (
+              <Button
+                variant="outline"
+                onClick={() => setBulkUploadOpen(true)}
+                className="gap-2 h-auto py-2 flex-col items-start"
+                title="Sube en lote los ZIP/XML de factura electrónica DIAN que te mandan tus proveedores. Los XML se leen al instante sin IA y se dedupean por CUFE."
+              >
+                <span className="flex items-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  Subir facturas (ZIP/XML/PDF)
+                </span>
+                <span className="text-[10px] text-muted-foreground font-normal leading-none">Lote · XML directo sin IA</span>
+              </Button>
+            )}
             <Button onClick={handleOpenUpload} className="gap-2">
               <Upload className="h-4 w-4" />
               Subir factura PDF
@@ -1058,6 +1074,14 @@ export default function InvoiceListPage({ type }: Props) {
         onInvoiceSaved={fetchInvoices}
         resumeDraft={resumeDraft}
       />
+
+      {type === 'compra' && (
+        <BulkPurchaseUploadModal
+          open={bulkUploadOpen}
+          onClose={() => setBulkUploadOpen(false)}
+          onImported={fetchInvoices}
+        />
+      )}
 
       <AlertDialog open={!!deleteId} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
         <AlertDialogContent>

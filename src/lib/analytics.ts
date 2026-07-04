@@ -25,6 +25,7 @@ export type AppEventType =
   | 'siigo_connected'
   | 'dian_connected'
   | 'invoice_uploaded'
+  | 'purchase_invoices_bulk_import'
   | 'first_value_action'
   // Uso de Nico IA
   | 'nico_query'
