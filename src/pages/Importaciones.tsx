@@ -415,7 +415,13 @@ export default function Importaciones() {
                           <TableCell className="text-right"><CostCell usd={arancel.usd} cop={arancel.cop} /></TableCell>
                           <TableCell className="text-right"><CostCell usd={iva.usd} cop={iva.cop} /></TableCell>
                           <TableCell className="text-right"><CostCell usd={agencia.usd} cop={agencia.cop} /></TableCell>
-                          <TableCell className="text-right text-sm font-mono">{fmtUSD(row.monto_total_usd)}</TableCell>
+                          {/* Total USD = mercancía + flete (el saldo sigue siendo vs mercancía) */}
+                          <TableCell
+                            className="text-right text-sm font-mono"
+                            title={`Mercancía ${fmtUSD(row.monto_total_usd)} + flete ${fmtUSD(flete.usd)}`}
+                          >
+                            {fmtUSD(Number(row.monto_total_usd ?? 0) + flete.usd)}
+                          </TableCell>
                           <TableCell className="text-right text-sm font-mono font-bold text-destructive">{fmtUSD(row.saldo_pendiente_usd)}</TableCell>
                           <TableCell className="text-sm">
                             {row.fecha_estimada_llegada
