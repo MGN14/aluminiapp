@@ -20,6 +20,23 @@ export interface ProductLite {
 
 const normalizeRef = (r: string) => r.trim().toLowerCase();
 
+// Ajuste atómico de stock físico (stock = stock + delta en el UPDATE, sin
+// read-modify-write) → dos operarios despachando a la vez no se pisan.
+// Si el RPC todavía no existe en la base (migración sin aplicar), cae al
+// método viejo: leer el stock actual y escribir el valor absoluto.
+async function adjustStockPhysical(productId: string, delta: number, fallbackCurrent: number): Promise<void> {
+  if (delta === 0) return;
+  const { error } = await (supabase.rpc as any)('apply_stock_delta', { p_product_id: productId, p_delta: delta });
+  if (!error) return;
+  const missingFn = /function|schema cache|not.*found|404/i.test(String(error.message || error.code || ''));
+  if (!missingFn) throw error;
+  const { error: upError } = await supabase
+    .from('inventory_products')
+    .update({ stock_physical: fallbackCurrent + delta })
+    .eq('id', productId);
+  if (upError) throw upError;
+}
+
 export async function fetchProductsByRefs(
   userId: string,
   refs: string[],
@@ -148,13 +165,7 @@ export async function applyRemisionInventory({
 
   for (const [productId, delta] of deltaByProduct.entries()) {
     const product = matched.find((m) => m.product.id === productId)!.product;
-    const currentPhysical = product.stock_physical ?? 0;
-    const newPhysical = currentPhysical + delta;
-    const { error: upError } = await supabase
-      .from('inventory_products')
-      .update({ stock_physical: newPhysical })
-      .eq('id', productId);
-    if (upError) throw upError;
+    await adjustStockPhysical(productId, delta, product.stock_physical ?? 0);
   }
 
   return { applied: matched.length, unmatched };
@@ -188,11 +199,8 @@ export async function reverseRemisionInventory(remisionId: string): Promise<void
 
   for (const p of (products ?? []) as Array<{ id: string; stock_physical: number | null }>) {
     const delta = deltaByProduct.get(p.id) ?? 0;
-    const current = p.stock_physical ?? 0;
-    await supabase
-      .from('inventory_products')
-      .update({ stock_physical: current + delta })
-      .eq('id', p.id);
+    if (delta === 0) continue;
+    await adjustStockPhysical(p.id, delta, p.stock_physical ?? 0);
   }
 
   const ids = rows.map((r) => r.id);

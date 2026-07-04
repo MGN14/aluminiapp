@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useScannerGun } from '@/hooks/useScannerGun';
+import { useOnline } from '@/hooks/useOnline';
 import { parseScan, normalizeRef } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
 import { printRemisionToWindow } from '@/lib/printRemision';
@@ -34,6 +35,7 @@ export default function GuidedPick({ remision, company, userId, toast, onBack, o
   const navigate = useNavigate();
   const { user } = useAuth();
   const qc = useQueryClient();
+  const online = useOnline();
 
   const { data: products = [], isLoading: loadingP } = useQuery({
     queryKey: ['pick-products', user?.id],
@@ -198,33 +200,50 @@ export default function GuidedPick({ remision, company, userId, toast, onBack, o
   useScannerGun({ onScan: handleScan, enabled: !saving });
 
   const adjust = async (task: PickTask, delta: number) => {
-    if (delta > 0) {
-      const res = await insertScan({ reference: task.reference, location: task.location, quantity: 1 });
-      if (!('duplicate' in res) && res.id) myScanIds.current.push(res.id);
-    } else {
-      const ref = normalizeRef(task.reference);
-      const cands = scans.filter(s => normalizeRef(s.reference) === ref && ((s.location || '').trim().toUpperCase() === task.location || !(s.location || '').trim()));
-      if (cands.length === 0) return;
-      const target = cands.reduce((a, b) => (a.scanned_at > b.scanned_at ? a : b));
-      await (supabase as any).from('dispatch_scans').delete().eq('id', target.id);
+    try {
+      if (delta > 0) {
+        const res = await insertScan({ reference: task.reference, location: task.location, quantity: 1 });
+        if (!('duplicate' in res) && res.id) myScanIds.current.push(res.id);
+      } else {
+        const ref = normalizeRef(task.reference);
+        const cands = scans.filter(s => normalizeRef(s.reference) === ref && ((s.location || '').trim().toUpperCase() === task.location || !(s.location || '').trim()));
+        if (cands.length === 0) return;
+        const target = cands.reduce((a, b) => (a.scanned_at > b.scanned_at ? a : b));
+        const { error } = await (supabase as any).from('dispatch_scans').delete().eq('id', target.id);
+        if (error) throw error;
+      }
+      refreshScans();
+    } catch {
+      flashMsg('warn', 'No se pudo registrar el ajuste — revisá la conexión');
+      beep('warn');
     }
-    refreshScans();
   };
 
   const completeTask = async (task: PickTask) => {
     const remaining = task.qty - (scannedByTask[task.key] || 0);
     if (remaining <= 0) return;
-    const res = await insertScan({ reference: task.reference, location: task.location, quantity: remaining });
-    if (!('duplicate' in res) && res.id) myScanIds.current.push(res.id);
-    refreshScans();
+    try {
+      const res = await insertScan({ reference: task.reference, location: task.location, quantity: remaining });
+      if (!('duplicate' in res) && res.id) myScanIds.current.push(res.id);
+      refreshScans();
+    } catch {
+      flashMsg('warn', 'No se pudo completar la tarea — revisá la conexión');
+      beep('warn');
+    }
   };
 
   const undoLast = async () => {
     const id = myScanIds.current.pop();
     if (!id) return;
-    await (supabase as any).from('dispatch_scans').delete().eq('id', id);
-    setLastTaskKey(null);
-    flashMsg('warn', 'Último escaneo deshecho');
+    try {
+      const { error } = await (supabase as any).from('dispatch_scans').delete().eq('id', id);
+      if (error) throw error;
+      setLastTaskKey(null);
+      flashMsg('warn', 'Último escaneo deshecho');
+    } catch {
+      myScanIds.current.push(id); // sigue en el server: se puede reintentar
+      flashMsg('warn', 'No se pudo deshacer — revisá la conexión');
+    }
     beep('warn');
     refreshScans();
   };
@@ -284,6 +303,13 @@ export default function GuidedPick({ remision, company, userId, toast, onBack, o
           {user?.email && <span className="inline-flex items-center gap-1.5"><User className="h-3.5 w-3.5" /> {user.email}</span>}
           {operatorCount > 1 && <span className="inline-flex items-center gap-1.5 text-blue-600 font-semibold"><Users className="h-3.5 w-3.5" /> {operatorCount} operarios en este pedido</span>}
         </div>
+
+        {!online && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            Sin conexión — los escaneos NO se están registrando. Esperá el wifi antes de seguir.
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">

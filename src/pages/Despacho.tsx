@@ -9,9 +9,10 @@ import { parseScan, normalizeRef } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
 import type { InventoryProduct } from '@/hooks/useInventoryData';
 import {
-  fetchProductsByRefs, applyRemisionInventory, type RemisionItemInput,
+  fetchProductsByRefs, applyRemisionInventory, reverseRemisionInventory, type RemisionItemInput,
 } from '@/lib/remisionInventory';
 import { useDataOwner } from '@/hooks/useDataOwner';
+import { useOnline } from '@/hooks/useOnline';
 import { printRemisionToWindow } from '@/lib/printRemision';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -32,6 +33,7 @@ export default function Despacho() {
   const { dataOwnerId } = useDataOwner();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const online = useOnline();
 
   const [mode, setMode] = useState<null | 'libre' | 'pedido'>(null);
   const [step, setStep] = useState<'setup' | 'scan'>('setup');
@@ -149,7 +151,9 @@ export default function Despacho() {
     addItem(parsed.reference, parsed.quantity);
   }, [addItem, flashMsg]);
 
-  useScannerGun({ onScan: handleScan, enabled: step === 'scan' && !saving });
+  // No escuchamos con el diálogo de revisión abierto: un escaneo ahí cambiaría
+  // la lista por debajo de lo que el operario está confirmando.
+  useScannerGun({ onScan: handleScan, enabled: step === 'scan' && !saving && !showConfirm });
 
   const adjust = (key: string, delta: number) =>
     setScanned(prev => {
@@ -187,6 +191,12 @@ export default function Despacho() {
   };
 
   const totalUnits = useMemo(() => Object.values(scanned).reduce((s, c) => s + c.quantity, 0), [scanned]);
+  // Refs escaneadas que no existen en el inventario: van a la remisión pero NO
+  // descuentan stock — el operario tiene que verlo antes de confirmar.
+  const unmatchedKeys = useMemo(
+    () => order.filter(k => (scanned[k]?.quantity || 0) > 0 && !productByRef.has(k)),
+    [order, scanned, productByRef],
+  );
 
   const handleResponsibleChange = (v: string) => {
     if (v === NEW_RESP) { setCreatingResp(true); setResponsibleId(''); setBeneficiary(''); return; }
@@ -230,7 +240,9 @@ export default function Despacho() {
 
   const generarRemision = async () => {
     if (!user?.id) return;
-    if (order.length === 0) { toast({ title: 'Escaneá al menos un paquete', variant: 'destructive' }); return; }
+    // Líneas en 0 (ajustadas con "−" hasta vaciarlas) no van a la remisión.
+    const liveKeys = order.filter(k => (scanned[k]?.quantity || 0) > 0);
+    if (liveKeys.length === 0) { toast({ title: 'Escaneá al menos un paquete', variant: 'destructive' }); return; }
     if (!beneficiary.trim() && !responsibleId) { toast({ title: 'Falta el cliente', variant: 'destructive' }); return; }
 
     // Abrimos la ventana de impresión YA, dentro del gesto del click, para que
@@ -238,8 +250,13 @@ export default function Despacho() {
     const printWin = window.open('', '_blank', 'width=820,height=1040');
 
     setSaving(true);
+    // Si algo falla a mitad de camino (wifi de bodega), deshacemos lo que
+    // alcanzó a insertarse para que el reintento arranque limpio — lo escaneado
+    // sigue en localStorage hasta que todo salga bien.
+    let remisionId: string | null = null;
+    let committed = false;
     try {
-      const items: RemisionItemInput[] = order.map(k => {
+      const items: RemisionItemInput[] = liveKeys.map(k => {
         const line = scanned[k];
         const prod = productByRef.get(k);
         return {
@@ -270,6 +287,7 @@ export default function Despacho() {
         })
         .select('id, number').single();
       if (remError) throw remError;
+      remisionId = remision.id;
 
       const itemsToInsert = items.map(i => ({
         remision_id: remision.id,
@@ -287,21 +305,26 @@ export default function Despacho() {
         userId: user.id, remisionId: remision.id, remisionType: 'venta',
         movementDate: today, items, productMap,
       });
+      committed = true;
 
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 
       // Imprimir la remisión (formato carta, diálogo de impresora nativo).
+      // A esta altura todo está guardado: un fallo de impresión no debe
+      // disparar el rollback (se reimprime desde Remisiones).
       if (printWin) {
-        printRemisionToWindow(printWin, {
-          company: {
-            name: company?.company_name, nit: company?.company_nit,
-            address: company?.company_address, city: company?.company_city,
-          },
-          number: remision.number ?? '',
-          date: today,
-          beneficiary: beneficiary.trim(),
-          items: items.map(i => ({ reference: i.reference, product_name: i.product_name, units: i.units })),
-        });
+        try {
+          printRemisionToWindow(printWin, {
+            company: {
+              name: company?.company_name, nit: company?.company_nit,
+              address: company?.company_address, city: company?.company_city,
+            },
+            number: remision.number ?? '',
+            date: today,
+            beneficiary: beneficiary.trim(),
+            items: items.map(i => ({ reference: i.reference, product_name: i.product_name, units: i.units })),
+          });
+        } catch { try { printWin.close(); } catch { /* ignore */ } }
       }
 
       toast({
@@ -311,7 +334,18 @@ export default function Despacho() {
       navigate('/remisiones');
     } catch (e: any) {
       if (printWin) { try { printWin.close(); } catch { /* ignore */ } }
-      toast({ title: 'No se pudo generar la remisión', description: e.message, variant: 'destructive' });
+      if (remisionId && !committed) {
+        // Best-effort: revertir movimientos/stock si alcanzaron a aplicarse y
+        // borrar la remisión a medias (los items caen por cascade / delete).
+        try { await reverseRemisionInventory(remisionId); } catch { /* ignore */ }
+        try { await supabase.from('remision_items').delete().eq('remision_id', remisionId); } catch { /* ignore */ }
+        try { await supabase.from('remisiones').delete().eq('id', remisionId); } catch { /* ignore */ }
+      }
+      toast({
+        title: 'No se pudo generar la remisión',
+        description: `${e.message}${online ? '' : ' — sin conexión: reintentá cuando vuelva el wifi, lo escaneado no se pierde.'}`,
+        variant: 'destructive',
+      });
       setSaving(false);
     }
   };
@@ -435,6 +469,13 @@ export default function Despacho() {
           </div>
         )}
 
+        {!online && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            Sin conexión — podés seguir escaneando (queda en la tablet), pero esperá el wifi para generar la remisión.
+          </div>
+        )}
+
         {/* Tarjeta de escaneo */}
         <div className={`rounded-2xl border-2 px-5 py-4 flex items-center gap-4 transition-colors ${
           accent === 'green' ? 'border-emerald-400 bg-emerald-50/40'
@@ -555,11 +596,16 @@ export default function Despacho() {
                   <div className="text-xs text-muted-foreground">unidades</div>
                 </div>
               </div>
+              {unmatchedKeys.length > 0 && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <strong>{unmatchedKeys.length} referencia{unmatchedKeys.length === 1 ? '' : 's'} sin match en inventario</strong> — va{unmatchedKeys.length === 1 ? '' : 'n'} a la remisión pero no descuenta{unmatchedKeys.length === 1 ? '' : 'n'} stock: {unmatchedKeys.map(k => scanned[k]?.reference).filter(Boolean).join(', ')}
+                </div>
+              )}
               <div className="max-h-48 overflow-auto rounded-xl border divide-y">
                 {order.map(k => {
-                  const line = scanned[k]; if (!line) return null;
+                  const line = scanned[k]; if (!line || line.quantity <= 0) return null;
                   return (
-                    <div key={k} className="flex items-center justify-between px-3 py-1.5 text-sm">
+                    <div key={k} className={`flex items-center justify-between px-3 py-1.5 text-sm ${!productByRef.has(k) ? 'bg-amber-50/60' : ''}`}>
                       <span className="font-medium truncate">{line.reference}</span>
                       <span className="font-mono tabular-nums">{line.quantity}</span>
                     </div>

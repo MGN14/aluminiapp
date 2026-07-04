@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useScannerGun } from '@/hooks/useScannerGun';
+import { useOnline } from '@/hooks/useOnline';
 import { parseScan, normalizeRef } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
 import { supabase } from '@/integrations/supabase/client';
@@ -20,6 +21,7 @@ const STORAGE_KEY = 'conteo:session:v1';
 export default function ConteoFisicoPanel({ products }: Props) {
   const { toast } = useToast();
   const { user } = useAuth();
+  const online = useOnline();
 
   const productByRef = useMemo(() => {
     const m = new Map<string, InventoryProduct>();
@@ -247,6 +249,13 @@ export default function ConteoFisicoPanel({ products }: Props) {
       {user?.email && (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground -mt-2">
           <User className="h-3.5 w-3.5" /> Operario: <span className="font-medium text-foreground">{user.email}</span>
+        </div>
+      )}
+
+      {!online && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          Sin conexión — podés seguir contando (queda en la tablet), pero esperá el wifi para cerrar el conteo.
         </div>
       )}
 

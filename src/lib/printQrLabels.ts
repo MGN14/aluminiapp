@@ -98,8 +98,21 @@ export async function printQrLabels(rows: LabelRow[]): Promise<void> {
   win.document.write(html);
   win.document.close();
   win.focus();
-  // Pequeño respiro para que el navegador renderice los SVG antes de imprimir.
-  setTimeout(() => {
-    try { win.print(); } catch { /* el usuario puede imprimir con Ctrl+P */ }
-  }, 350);
+
+  // Imprimir recién cuando los SVG estén renderizados: con "Imprimir todo"
+  // pueden ser cientos de QR y un timeout corto en una tablet lenta saca
+  // páginas en blanco. Esperamos el load de la ventana (+2 frames de pintura),
+  // con un fallback proporcional al total por si el load ya pasó o nunca llega.
+  const totalLabels = rows.reduce((s, r) => s + Math.max(1, Math.floor(r.copies || 1)), 0);
+  let printed = false;
+  const doPrint = () => {
+    if (printed) return;
+    printed = true;
+    try { win.focus(); win.print(); } catch { /* el usuario puede imprimir con Ctrl+P */ }
+  };
+  const afterPaint = () => {
+    try { win.requestAnimationFrame(() => win.requestAnimationFrame(doPrint)); } catch { doPrint(); }
+  };
+  try { win.addEventListener('load', afterPaint); } catch { /* ventana cross-origin rara: cae al timeout */ }
+  setTimeout(afterPaint, Math.min(4000, 500 + totalLabels * 8));
 }
