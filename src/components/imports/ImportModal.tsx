@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADOS_ORDER, IMPORT_ESTADO_LABEL } from '@/hooks/useImports';
-import { useImportPayments } from '@/hooks/useImportPayments';
+import { useImportPayments, fetchTrmForDate } from '@/hooks/useImportPayments';
 import { computeStageDurations, computeTotalDays } from '@/lib/importStages';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -99,7 +99,15 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const [fechaEta, setFechaEta] = useState('');
   const [refPedido, setRefPedido] = useState('');
   const [notas, setNotas] = useState('');
+  const [arancelPct, setArancelPct] = useState<number>(5);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // TRM oficial de hoy — para el costeo estimado cuando aún no hay abonos
+  const { data: trmHoy = null } = useQuery({
+    queryKey: ['trm-hoy'],
+    queryFn: () => fetchTrmForDate(todayIso()),
+    staleTime: 60 * 60_000,
+  });
 
   const { data: proveedores = [] } = useProveedoresConocidos(open);
   // TRM causación = promedio ponderado de los abonos (imports_liquidation).
@@ -130,6 +138,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setFechaEta(editing.fecha_estimada_llegada ?? '');
       setRefPedido(editing.ref_pedido ?? '');
       setNotas(editing.notas ?? '');
+      setArancelPct(Number(editing.arancel_pct ?? 5));
     } else {
       setProveedorSel('');
       setProveedorLibre('');
@@ -143,6 +152,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setFechaEta('');
       setRefPedido('');
       setNotas('');
+      setArancelPct(5);
     }
     setErrMsg(null);
   }, [open, editing]);
@@ -189,6 +199,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       fecha_estimada_llegada: fechaEta || null,
       ref_pedido: refPedido.trim() || null,
       notas: notas.trim() || null,
+      arancel_pct: arancelPct,
     };
     // Solo las fechas con valor — el historial se upsertea por estado.
     const fechasLlenas = Object.fromEntries(
@@ -318,12 +329,13 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-sm">Monto total (USD)</Label>
+          <Label className="text-sm">Mercancía (USD)</Label>
           <Input
             type="number" step="0.01" min={0}
             value={montoTotal}
             onChange={e => setMontoTotal(e.target.value === '' ? '' : +e.target.value)}
             className="font-mono"
+            title="Valor de la mercancía facturada por el proveedor (sin flete). El total del contenedor = mercancía + flete, en el Resumen."
           />
         </div>
       </div>
@@ -423,7 +435,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 <p className={cn('text-xl font-bold font-mono leading-tight', saldoVivo > 0 ? 'text-destructive' : 'text-success')}>
                   {fmtUSD0(saldoVivo)}
                 </p>
-                <p className="text-[10px] text-muted-foreground">de {fmtUSD0(totalNum)} USD</p>
+                <p className="text-[10px] text-muted-foreground">de {fmtUSD0(totalNum)} mercancía</p>
               </div>
               <div className="rounded-xl border border-border bg-card px-3 py-2.5">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Pagado</p>
@@ -507,6 +519,71 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                     </div>
                   </div>
                 )}
+
+                {/* ── COSTEO ESTIMADO: mercancía + flete → CIF → arancel → IVA ── */}
+                {(() => {
+                  const trmCosteo = trmPonderada != null ? Number(trmPonderada) : (trmHoy ?? null);
+                  const totalUsdContenedor = totalNum + flete.usd;
+                  if (totalUsdContenedor <= 0) return null;
+                  const cifCop = trmCosteo ? totalUsdContenedor * trmCosteo + flete.cop : null;
+                  const arancelCop = cifCop != null ? cifCop * (arancelPct / 100) : null;
+                  const ivaCop = cifCop != null && arancelCop != null ? (cifCop + arancelCop) * 0.19 : null;
+                  const cajaTotal = cifCop != null && arancelCop != null && ivaCop != null
+                    ? cifCop + arancelCop + ivaCop : null;
+                  const fmtCOP = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
+                  return (
+                    <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-semibold text-muted-foreground">Costeo estimado del contenedor</Label>
+                        <span className="text-[10px] text-muted-foreground">
+                          TRM {trmCosteo ? `$${Number(trmCosteo).toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
+                          {trmPonderada != null ? ' (abonos)' : trmHoy ? ' (hoy)' : ''}
+                        </span>
+                      </div>
+                      <div className="text-xs space-y-1 font-mono">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground font-sans">Mercancía + flete (Total USD)</span>
+                          <span className="font-semibold">{fmtUSD0(totalNum)} + {fmtUSD0(flete.usd)} = {fmtUSD0(totalUsdContenedor)}</span>
+                        </div>
+                        {cifCop != null && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground font-sans">CIF en pesos</span>
+                            <span>{fmtCOP(cifCop)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground font-sans flex items-center gap-1.5">
+                            Arancel
+                            <Input
+                              type="number" step="0.5" min={0} max={40}
+                              value={arancelPct}
+                              onChange={e => setArancelPct(e.target.value === '' ? 0 : +e.target.value)}
+                              className="h-6 w-16 text-xs font-mono px-1.5 inline-block"
+                              title="% de arancel según partida arancelaria — se guarda con el pedido"
+                            />
+                            <span className="font-sans">%</span>
+                          </span>
+                          <span>{arancelCop != null ? fmtCOP(arancelCop) : '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground font-sans">IVA importación 19% (CIF + arancel)</span>
+                          <span>{ivaCop != null ? fmtCOP(ivaCop) : '—'}</span>
+                        </div>
+                        {cajaTotal != null && (
+                          <div className="flex justify-between border-t border-border pt-1 mt-1">
+                            <span className="font-sans font-semibold text-foreground">Caja necesaria (nacionalizar)</span>
+                            <span className="font-semibold">{fmtCOP(cajaTotal)}</span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        El IVA de importación es <strong>descontable</strong>: afecta la caja pero NO entra al costeo
+                        de la mercancía. Al costeo van mercancía + flete + arancel (+ agencia). Estimación — los
+                        valores reales van en la pestaña Costeo.
+                      </p>
+                    </div>
+                  );
+                })()}
 
                 {/* ¿Cuándo montar el próximo pedido? Lead time real de tus entregas */}
                 {leadTimeProm != null && (

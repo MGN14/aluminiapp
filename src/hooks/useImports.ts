@@ -70,6 +70,8 @@ export interface ImportRow {
   fecha_arribo_real: string | null;
   ref_pedido: string | null;
   notas: string | null;
+  /** % de arancel estimado para el costeo (default 5) */
+  arancel_pct: number | null;
   created_at: string;
   updated_at: string;
   /** Historial de cambios de estado (embebido) — base de las duraciones de etapa */
