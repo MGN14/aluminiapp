@@ -99,32 +99,38 @@ export default function CosteoCsvTools({ importId, montoTotalUsd }: {
   const hayDiff = items.length > 0 && registrado > 0 && Math.abs(diff) > 1;
 
   // ── 3. Aplicar landed cost al inventario ──────────────────────────────
+  // ENTRADA de kardex por referencia: suma el stock del contenedor y
+  // recalcula el costo promedio ponderado (RPC kardex_movimiento, atómico).
   const aplicarAlInventario = async () => {
     if (!landed || landed.items.length === 0) return;
-    const conCosto = landed.items.filter(i => i.landed_unit_cop > 0);
+    const conCosto = landed.items.filter(i => i.landed_unit_cop > 0 && i.cantidad > 0);
     if (!window.confirm(
-      `Vas a actualizar cost_per_unit de ${conCosto.length} referencia(s) en Inventarios con el landed cost real de este contenedor. ¿Continuar?`
+      `Vas a registrar la ENTRADA de ${conCosto.length} referencia(s) al inventario: suma el stock del contenedor y recalcula el costo promedio ponderado con el landed cost real. ¿Continuar?`
     )) return;
     setApplying(true);
     let updated = 0;
     const missing: string[] = [];
     for (const it of conCosto) {
-      const { data, error } = await (supabase as any)
-        .from('inventory_products')
-        .update({ cost_per_unit: Math.round(it.landed_unit_cop * 100) / 100 })
-        .ilike('reference', it.reference.trim())
-        .select('id');
-      if (!error && (data?.length ?? 0) > 0) updated += data.length;
+      const { error } = await (supabase as any).rpc('kardex_movimiento', {
+        p_reference: it.reference.trim(),
+        p_tipo: 'entrada_importacion',
+        p_cantidad: it.cantidad,
+        p_costo_unitario: Math.round(it.landed_unit_cop * 100) / 100,
+        p_origen_tipo: 'import',
+        p_origen_id: importId,
+        p_notas: 'Entrada contenedor (landed cost)',
+      });
+      if (!error) updated += 1;
       else missing.push(it.reference);
     }
     setApplying(false);
     setApplied({ updated, missing });
     qc.invalidateQueries({ queryKey: ['inventory'] });
     toast({
-      title: `Landed cost aplicado a ${updated} referencia(s)`,
+      title: `Entrada registrada: ${updated} referencia(s) al kardex`,
       description: missing.length
-        ? `${missing.length} no existen en inventario: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '…' : ''} — crealas en Inventarios y volvé a aplicar.`
-        : 'Rentabilidad ya ve el costo real de este contenedor.',
+        ? `${missing.length} fallaron (¿no existen en inventario?): ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '…' : ''} — crealas y volvé a aplicar.`
+        : 'Stock sumado y costo promedio recalculado. Rentabilidad ya ve el costo real.',
       ...(missing.length ? { duration: 12000 } : {}),
     });
   };
