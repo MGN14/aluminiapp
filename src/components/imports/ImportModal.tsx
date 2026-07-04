@@ -240,8 +240,27 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const saldoVivo = totalNum - pagadoVivo;
   const pagadoPct = totalNum > 0 ? Math.min(100, Math.round((pagadoVivo / totalNum) * 100)) : 0;
 
-  // Flete del contenedor (costos adicionales tipo 'flete')
-  const flete = sumImportCosts(editing?.import_costs, 'flete');
+  // Flete del contenedor — EN VIVO (misma query key que la pestaña Costeo,
+  // así agregar un costo ahí refresca el header al instante). El embebido
+  // editing.import_costs era un snapshot congelado al abrir el modal: con
+  // flete recién cargado, el total seguía mostrando solo la mercancía.
+  const { data: costosVivos } = useQuery({
+    queryKey: ['import_costs', editing?.id],
+    enabled: !!editing?.id,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('import_costs')
+        .select('*')
+        .eq('import_id', editing!.id)
+        .order('orden');
+      return data ?? [];
+    },
+  });
+  const flete = sumImportCosts(
+    (costosVivos as { tipo: never; monto: number; moneda: never }[] | undefined) ?? editing?.import_costs,
+    'flete',
+  );
+  const totalUsdContenedor = totalNum + flete.usd;
 
   // ETA: días restantes (o atraso) para pedidos abiertos
   const etaDias = fechaEta && estado !== 'entregado' && estado !== 'cancelado'
@@ -444,13 +463,15 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                   <div className="h-full rounded-full bg-success" style={{ width: `${pagadoPct}%` }} />
                 </div>
               </div>
-              <div className="rounded-xl border border-border bg-card px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Flete</p>
+              <div className="rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Total USD (mercancía + flete)</p>
                 <p className="text-xl font-bold font-mono leading-tight text-foreground">
-                  {flete.usd > 0 ? fmtUSD0(flete.usd) : '—'}
+                  {fmtUSD0(totalUsdContenedor)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  {flete.usd > 0 ? 'USD · cargado en Costeo' : 'cargalo en la pestaña Costeo'}
+                  {flete.usd > 0
+                    ? `${fmtUSD0(totalNum)} mercancía + ${fmtUSD0(flete.usd)} flete`
+                    : `${fmtUSD0(totalNum)} mercancía · flete: cargalo en Costeo`}
                 </p>
               </div>
               <div className={cn(
