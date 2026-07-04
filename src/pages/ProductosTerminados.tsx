@@ -1,16 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Boxes, Calculator, Settings } from 'lucide-react';
+import { Boxes, Calculator, Ruler, Settings } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import CotizacionesView from '@/components/productos-terminados/CotizacionesView';
 import ConfiguracionView from '@/components/productos-terminados/ConfiguracionView';
+import TemplatesConfigView from '@/components/productos-terminados/TemplatesConfigView';
 
 type Tab = 'cotizaciones' | 'configuracion';
+type ConfigSub = 'plantillas' | 'm2';
 
 export default function ProductosTerminados() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab: Tab = searchParams.get('tab') === 'configuracion' ? 'configuracion' : 'cotizaciones';
   const [tab, setTab] = useState<Tab>(initialTab);
+  const [configSub, setConfigSub] = useState<ConfigSub>(
+    searchParams.get('sub') === 'm2' ? 'm2' : 'plantillas',
+  );
 
   // Sync URL ?tab=... cuando cambia el state (deep-link friendly)
   useEffect(() => {
@@ -63,7 +68,36 @@ export default function ProductosTerminados() {
         {tab === 'cotizaciones' && (
           <CotizacionesView onSwitchToConfig={() => setTab('configuracion')} />
         )}
-        {tab === 'configuracion' && <ConfiguracionView />}
+        {tab === 'configuracion' && (
+          <div className="space-y-5">
+            {/* Sub-tabs: plantillas paramétricas vs productos por m² */}
+            <div className="flex items-center bg-muted/40 rounded-lg p-0.5 w-fit">
+              <button
+                onClick={() => setConfigSub('plantillas')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  configSub === 'plantillas'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Ruler className="h-3.5 w-3.5" />
+                Plantillas de producto
+              </button>
+              <button
+                onClick={() => setConfigSub('m2')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  configSub === 'm2'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Boxes className="h-3.5 w-3.5" />
+                Productos por m²
+              </button>
+            </div>
+            {configSub === 'plantillas' ? <TemplatesConfigView /> : <ConfiguracionView />}
+          </div>
+        )}
       </div>
     </AppLayout>
   );

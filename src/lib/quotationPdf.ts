@@ -37,6 +37,8 @@ export interface QuotationPdfData {
     area_m2: number;
     price_per_m2: number;
     line_subtotal: number;
+    /** Esquema del producto rasterizado (PNG dataURL 4:3, fondo blanco). */
+    drawingPng?: string | null;
   }>;
   // Totales
   subtotalBase: number;
@@ -314,10 +316,11 @@ export function generateQuotationPdf(data: QuotationPdfData): jsPDF {
     const productLine1 = `${it.system} · ${it.color}`;
     const productLine2 = it.description ?? '';
     const dim = `${fmtNum(it.width_m, 2)} × ${fmtNum(it.height_m, 2)} m`;
+    const hasDrawing = !!it.drawingPng;
 
-    // Calcular alto real basado en si hay descripción
+    // Calcular alto real basado en si hay descripción / dibujo
     const linesNeeded = productLine2 ? 2 : 1;
-    const dynRowH = Math.max(rowH, 5 + linesNeeded * 4);
+    const dynRowH = hasDrawing ? 21 : Math.max(rowH, 5 + linesNeeded * 4);
 
     ensureSpace(dynRowH + 2);
 
@@ -340,17 +343,28 @@ export function generateQuotationPdf(data: QuotationPdfData): jsPDF {
     doc.text(String(idx + 1), cx, y + 5.5);
     cx += COL.n;
 
+    // Dibujo del producto (líneas cotizadas desde plantilla paramétrica)
+    if (hasDrawing) {
+      try {
+        doc.addImage(it.drawingPng!, 'PNG', cx, y + 2, 22, 16.5, undefined, 'FAST');
+      } catch {
+        /* best-effort: sin dibujo si falla el raster */
+      }
+    }
+    const textX = hasDrawing ? cx + 24 : cx;
+    const textW = COL.desc - (hasDrawing ? 26 : 2);
+
     // Producto: línea 1 negrita (sistema·color), línea 2 muted (descripción)
     setText(doc, COLORS.ink);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
-    doc.text(productLine1, cx, y + 4.5);
+    doc.text(doc.splitTextToSize(productLine1, textW)[0] ?? '', textX, y + 4.5);
     if (productLine2) {
       setText(doc, COLORS.muted);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
-      const truncated = doc.splitTextToSize(productLine2, COL.desc - 2)[0];
-      doc.text(truncated, cx, y + 8);
+      const truncated = doc.splitTextToSize(productLine2, textW)[0];
+      doc.text(truncated, textX, y + 8);
     }
     cx += COL.desc;
 

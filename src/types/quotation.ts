@@ -1,3 +1,5 @@
+import type { TemplateItemSnapshot } from '@/types/productTemplate';
+
 export interface AluminumCatalogEntry {
   id: string;
   user_id: string;
@@ -79,6 +81,10 @@ export interface QuotationItem {
   line_subtotal: number;
   sort_order: number;
   created_at: string;
+  /** Plantilla paramétrica origen (null en líneas del cotizador clásico por m²). */
+  template_id?: string | null;
+  /** Despiece + parámetros de dibujo congelados al momento de cotizar. */
+  template_snapshot?: TemplateItemSnapshot | null;
 }
 
 export interface QuotationItemDraft {
@@ -89,6 +95,8 @@ export interface QuotationItemDraft {
   height_m: number;
   quantity: number;
   price_per_m2: number;
+  template_id?: string | null;
+  template_snapshot?: TemplateItemSnapshot | null;
 }
 
 export interface QuotationTotals {

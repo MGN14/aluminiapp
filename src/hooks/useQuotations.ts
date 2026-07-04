@@ -198,6 +198,8 @@ export function useQuotationMutations() {
           price_per_m2: it.price_per_m2,
           line_subtotal: round2(subtotal),
           sort_order: idx,
+          template_id: it.template_id ?? null,
+          template_snapshot: it.template_snapshot ?? null,
         };
       });
 
@@ -277,6 +279,8 @@ export function useQuotationMutations() {
           price_per_m2: it.price_per_m2,
           line_subtotal: round2(subtotal),
           sort_order: idx,
+          template_id: it.template_id ?? null,
+          template_snapshot: it.template_snapshot ?? null,
         };
       });
       const { error: iErr } = await (supabase
@@ -379,6 +383,8 @@ export function useQuotationMutations() {
           price_per_m2: it.price_per_m2,
           line_subtotal: it.line_subtotal,
           sort_order: it.sort_order,
+          template_id: it.template_id ?? null,
+          template_snapshot: it.template_snapshot ?? null,
         }));
         const { error: iErr } = await (supabase
           .from('quotation_items' as never)

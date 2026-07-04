@@ -18,11 +18,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Plus, Search, FileText, Loader2, Sparkles } from 'lucide-react';
+import { Plus, Search, FileText, Loader2, Sparkles, Ruler } from 'lucide-react';
 import { useQuotations } from '@/hooks/useQuotations';
 import type { QuotationStatus } from '@/types/quotation';
 import NewQuoteModal from '@/components/quotes/NewQuoteModal';
 import QuoteDetailModal from '@/components/quotes/QuoteDetailModal';
+import TemplateQuoteModal from '@/components/productos-terminados/TemplateQuoteModal';
 
 const STATUS_LABELS: Record<
   QuotationStatus,
@@ -57,6 +58,7 @@ export default function CotizacionesView({ onSwitchToConfig }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QuotationStatus | 'all'>('all');
   const [showNewQuote, setShowNewQuote] = useState(false);
+  const [showTemplateQuote, setShowTemplateQuote] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
 
   const { data: quotes = [], isLoading } = useQuotations({ status: statusFilter, search });
@@ -72,10 +74,16 @@ export default function CotizacionesView({ onSwitchToConfig }: Props) {
             Cotizá a partir de tus productos terminados. Envialas por email o WhatsApp.
           </p>
         </div>
-        <Button size="sm" onClick={handleNewQuote}>
-          <Plus className="h-4 w-4 mr-1.5" />
-          Nueva cotización
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => setShowTemplateQuote(true)}>
+            <Ruler className="h-4 w-4 mr-1.5" />
+            Cotizar con plantillas
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleNewQuote}>
+            <Plus className="h-4 w-4 mr-1.5" />
+            Cotización por m²
+          </Button>
+        </div>
       </div>
 
       {isEmpty ? (
@@ -93,11 +101,15 @@ export default function CotizacionesView({ onSwitchToConfig }: Props) {
             </div>
             <div className="flex flex-wrap gap-2 justify-center">
               <Button variant="outline" size="sm" onClick={onSwitchToConfig}>
-                Configurar productos terminados
+                Configurar plantillas
               </Button>
-              <Button size="sm" onClick={handleNewQuote}>
+              <Button size="sm" onClick={() => setShowTemplateQuote(true)}>
+                <Ruler className="h-4 w-4 mr-1.5" />
+                Cotizar con plantillas
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleNewQuote}>
                 <Plus className="h-4 w-4 mr-1.5" />
-                Nueva cotización
+                Cotización por m²
               </Button>
             </div>
           </CardContent>
@@ -202,6 +214,14 @@ export default function CotizacionesView({ onSwitchToConfig }: Props) {
         onOpenChange={setShowNewQuote}
         onCreated={(id) => {
           setShowNewQuote(false);
+          setDetailId(id);
+        }}
+      />
+      <TemplateQuoteModal
+        open={showTemplateQuote}
+        onOpenChange={setShowTemplateQuote}
+        onCreated={(id) => {
+          setShowTemplateQuote(false);
           setDetailId(id);
         }}
       />

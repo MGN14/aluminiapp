@@ -216,6 +216,9 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
         height_m: Number(it.height_m),
         quantity: Number(it.quantity),
         price_per_m2: Number(it.price_per_m2),
+        // Preservar el vínculo/despiece de plantilla al editar (update = delete+insert)
+        template_id: it.template_id ?? null,
+        template_snapshot: it.template_snapshot ?? null,
       })),
     );
     setDefaultsLoaded(true);
@@ -445,6 +448,8 @@ export default function NewQuoteModal({ open, onOpenChange, onCreated, editing }
         height_m: Number(it.height_m),
         quantity: Number(it.quantity),
         price_per_m2: Number(it.price_per_m2),
+        template_id: it.template_id ?? null,
+        template_snapshot: it.template_snapshot ?? null,
       })),
     };
 

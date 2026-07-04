@@ -19,6 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { generateQuotationPdf } from '@/lib/quotationPdf';
+import { quotationItemsForPdf } from '@/lib/productDrawing';
 import { jsPdfToBlobAndBase64, uploadQuotationPdf } from '@/lib/quotationPdfStorage';
 import { useQuotationMutations } from '@/hooks/useQuotations';
 import type { QuotationDetail } from '@/hooks/useQuotations';
@@ -167,17 +168,7 @@ ${companyName || ''}`.trim();
       quoteNumber: detail.quote_number,
       issueDate: detail.issue_date,
       validUntil: detail.valid_until,
-      items: detail.items.map((it) => ({
-        description: it.description ?? null,
-        system: it.system,
-        color: it.color,
-        width_m: Number(it.width_m),
-        height_m: Number(it.height_m),
-        quantity: Number(it.quantity),
-        area_m2: Number(it.area_m2),
-        price_per_m2: Number(it.price_per_m2),
-        line_subtotal: Number(it.line_subtotal),
-      })),
+      items: await quotationItemsForPdf(detail.items),
       subtotalBase: Number(detail.subtotal_base),
       laborPct: Number(detail.labor_pct),
       laborAmount: Number(detail.labor_amount),

@@ -49,9 +49,11 @@ import {
   useQuotationMutations,
 } from '@/hooks/useQuotations';
 import { generateQuotationPdf } from '@/lib/quotationPdf';
+import { quotationItemsForPdf } from '@/lib/productDrawing';
 import type { QuotationStatus } from '@/types/quotation';
 import NewQuoteModal from './NewQuoteModal';
 import SendQuoteDialog from './SendQuoteDialog';
+import ProductDrawing from '@/components/productos-terminados/ProductDrawing';
 
 const LETTERHEAD_BUCKET = 'letterheads';
 
@@ -197,17 +199,7 @@ export default function QuoteDetailModal({
         quoteNumber: detail.quote_number,
         issueDate: detail.issue_date,
         validUntil: detail.valid_until,
-        items: detail.items.map((it) => ({
-          description: it.description ?? null,
-          system: it.system,
-          color: it.color,
-          width_m: Number(it.width_m),
-          height_m: Number(it.height_m),
-          quantity: Number(it.quantity),
-          area_m2: Number(it.area_m2),
-          price_per_m2: Number(it.price_per_m2),
-          line_subtotal: Number(it.line_subtotal),
-        })),
+        items: await quotationItemsForPdf(detail.items),
         subtotalBase: Number(detail.subtotal_base),
         laborPct: Number(detail.labor_pct),
         laborAmount: Number(detail.labor_amount),
@@ -357,6 +349,41 @@ export default function QuoteDetailModal({
                           {it.description && (
                             <div className="text-xs text-muted-foreground">
                               {it.description}
+                            </div>
+                          )}
+                          {it.template_snapshot && (
+                            <div className="mt-1.5 flex items-start gap-2.5">
+                              <div className="w-16 shrink-0">
+                                <ProductDrawing
+                                  tipo={it.template_snapshot.tipo}
+                                  naves={it.template_snapshot.naves}
+                                  apertura={it.template_snapshot.apertura}
+                                  widthM={Number(it.width_m)}
+                                  heightM={Number(it.height_m)}
+                                  showDims={false}
+                                  className="h-14"
+                                />
+                              </div>
+                              <details className="text-[11px] text-muted-foreground min-w-0">
+                                <summary className="cursor-pointer select-none hover:text-foreground">
+                                  Despiece ({it.template_snapshot.despiece.length} piezas)
+                                </summary>
+                                <div className="mt-1 space-y-0.5">
+                                  {it.template_snapshot.despiece.map((d, i) => (
+                                    <div key={i} className="tabular-nums">
+                                      {d.label}: {d.qty} {d.unidad}
+                                      {d.reference ? (
+                                        <span className="font-mono text-[10px]"> · {d.reference}</span>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                  <div className="pt-0.5 border-t border-border tabular-nums">
+                                    Costo unit: {formatCurrency(Number(it.template_snapshot.cost_total))}{' '}
+                                    · Precio unit: {formatCurrency(Number(it.template_snapshot.price_unit))}{' '}
+                                    · Margen {Number(it.template_snapshot.margen_pct)}%
+                                  </div>
+                                </div>
+                              </details>
                             </div>
                           )}
                         </TableCell>
