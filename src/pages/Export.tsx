@@ -239,6 +239,8 @@ export default function Export() {
         { value: 'Aplica Retefuente', fontWeight: 'bold' as const },
         { value: 'Retefuente Calculada', fontWeight: 'bold' as const },
         { value: 'Tasa Retefuente', fontWeight: 'bold' as const },
+        { value: 'Naturaleza', fontWeight: 'bold' as const },
+        { value: 'Factura', fontWeight: 'bold' as const },
         { value: 'Notas', fontWeight: 'bold' as const },
       ];
 
@@ -256,10 +258,61 @@ export default function Export() {
         { type: String, value: tx.has_retefuente ? 'Sí' : 'No' },
         { type: Number, value: tx.retefuente_amount > 0 ? tx.retefuente_amount : 0 },
         { type: String, value: tx.has_retefuente ? `${(tx.retefuente_rate * 100).toFixed(1)}%` : '' },
+        // Naturaleza: clave para el contador — traspasos NO son ingreso/gasto
+        { type: String, value: (tx as { movement_nature?: string | null }).movement_nature ?? 'operativo' },
+        { type: String, value: (tx as { invoice_id?: string | null }).invoice_id ? 'Sí' : '' },
         { type: String, value: tx.notes || '' },
       ] as const);
 
       const sheet1Data = [txHeader, ...txRows];
+
+      // ── Hoja 4: Resumen por categoría con cuenta PUC sugerida (solo
+      // movimientos operativos — traspasos/préstamos/aportes excluidos).
+      // La cuenta es SUGERIDA por heurística de nombre; el contador la ajusta.
+      const sugerirPUC = (catName: string, esIngreso: boolean): string => {
+        const n = catName.toLowerCase();
+        if (esIngreso) return n.includes('venta') ? '4135 — Comercio' : '4295 — Otros ingresos';
+        if (n.includes('nómina') || n.includes('nomina')) return '5105/7205 — Gastos de personal';
+        if (n.includes('impuesto')) return '5115 — Impuestos';
+        if (n.includes('proveedor')) return '6205 — Compras de mercancías';
+        if (n.includes('servicio')) return '5135 — Servicios';
+        if (n.includes('arriendo')) return '5120 — Arrendamientos';
+        if (n.includes('financier') || n.includes('banco') || n.includes('interes')) return '5305 — Gastos financieros';
+        if (n.includes('transporte') || n.includes('flete')) return '5235 — Fletes y transporte';
+        return '5195 — Diversos';
+      };
+      const porCategoria = new Map<string, { ingresos: number; egresos: number; count: number }>();
+      for (const tx of transactions) {
+        const nature = (tx as { movement_nature?: string | null }).movement_nature;
+        if (nature && nature !== 'operativo') continue;
+        const cat = getCategoryName(tx) || 'Sin categoría';
+        const acc = porCategoria.get(cat) ?? { ingresos: 0, egresos: 0, count: 0 };
+        const amt = tx.amount ?? 0;
+        if (amt > 0) acc.ingresos += amt; else acc.egresos += Math.abs(amt);
+        acc.count++;
+        porCategoria.set(cat, acc);
+      }
+      const pucHeader = [
+        { value: 'Categoría', fontWeight: 'bold' as const },
+        { value: 'Cuenta PUC sugerida', fontWeight: 'bold' as const },
+        { value: 'Ingresos', fontWeight: 'bold' as const },
+        { value: 'Egresos', fontWeight: 'bold' as const },
+        { value: 'Neto', fontWeight: 'bold' as const },
+        { value: 'Movs', fontWeight: 'bold' as const },
+      ];
+      const sheet4Data = [
+        pucHeader,
+        ...[...porCategoria.entries()]
+          .sort((a, b) => (b[1].ingresos + b[1].egresos) - (a[1].ingresos + a[1].egresos))
+          .map(([cat, v]) => [
+            { type: String, value: cat },
+            { type: String, value: sugerirPUC(cat, v.ingresos >= v.egresos) },
+            { type: Number, value: Math.round(v.ingresos) },
+            { type: Number, value: Math.round(v.egresos) },
+            { type: Number, value: Math.round(v.ingresos - v.egresos) },
+            { type: Number, value: v.count },
+          ]),
+      ] as any;
 
       const dianHeader = [
         { value: 'Concepto', fontWeight: 'bold' as const },
@@ -298,29 +351,30 @@ export default function Export() {
         [{ type: String, value: 'Pendientes por Conciliar' }, { type: Number, value: pending }],
       ] as any;
 
-      return { sheet1Data, sheet2Data, sheet3Data };
+      return { sheet1Data, sheet2Data, sheet3Data, sheet4Data };
   };
 
   const XLSX_OPTIONS = {
-    sheets: ['Transacciones', 'Resumen DIAN', 'Resumen General'],
+    sheets: ['Transacciones', 'Resumen DIAN', 'Resumen General', 'Por Categoría (PUC)'],
     columns: [
       [
         { width: 12 }, { width: 50 }, { width: 15 }, { width: 12 },
         { width: 18 }, { width: 15 }, { width: 10 }, { width: 10 },
         { width: 15 }, { width: 10 }, { width: 12 }, { width: 15 },
-        { width: 10 }, { width: 25 },
+        { width: 10 }, { width: 12 }, { width: 8 }, { width: 25 },
       ],
       [{ width: 30 }, { width: 15 }, { width: 18 }, { width: 15 }],
       [{ width: 25 }, { width: 18 }],
+      [{ width: 22 }, { width: 30 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 8 }],
     ],
   };
 
   // Genera un Blob del xlsx (sin disparar descarga). Usado por el envío por email.
   const buildWorkbookBlob = async (): Promise<Blob> => {
-    const { sheet1Data, sheet2Data, sheet3Data } = buildWorkbookData();
+    const { sheet1Data, sheet2Data, sheet3Data, sheet4Data } = buildWorkbookData();
     // Sin `fileName`, writeXlsxFile devuelve Blob (TS elige el overload void por los `as any`).
     const result = await (writeXlsxFile as unknown as (d: unknown, o: unknown) => Promise<Blob>)(
-      [sheet1Data, sheet2Data, sheet3Data],
+      [sheet1Data, sheet2Data, sheet3Data, sheet4Data],
       XLSX_OPTIONS,
     );
     return result;
@@ -334,10 +388,10 @@ export default function Export() {
         return;
       }
 
-      const { sheet1Data, sheet2Data, sheet3Data } = buildWorkbookData();
+      const { sheet1Data, sheet2Data, sheet3Data, sheet4Data } = buildWorkbookData();
       const fileName = `aluminia_export_${new Date().toISOString().split('T')[0]}.xlsx`;
 
-      await writeXlsxFile([sheet1Data, sheet2Data, sheet3Data] as any, {
+      await writeXlsxFile([sheet1Data, sheet2Data, sheet3Data, sheet4Data] as any, {
         ...XLSX_OPTIONS,
         fileName,
       } as any);

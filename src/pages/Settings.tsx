@@ -18,6 +18,7 @@ import TaxSettingsCard from '@/components/settings/TaxSettingsCard';
 import BusinessAboutSection from '@/components/settings/BusinessAboutSection';
 import InitialFinancialStateCard from '@/components/settings/InitialFinancialStateCard';
 import SiigoConnectionCard from '@/components/settings/SiigoConnectionCard';
+import AuditLogCard from '@/components/settings/AuditLogCard';
 import QuotationDefaultsCard from '@/components/settings/QuotationDefaultsCard';
 import ApiKeysSection from '@/components/settings/ApiKeysSection';
 import { useToast } from '@/hooks/use-toast';
@@ -397,6 +398,9 @@ export default function Settings() {
 
         {/* Conexiones contables/fiscales */}
         <SiigoConnectionCard />
+
+        {/* Auditoría de cambios (gap ERP #5) */}
+        <AuditLogCard />
 
         {/* Conexión MCP / API para Claude, ChatGPT, etc. */}
         <ApiKeysSection />
