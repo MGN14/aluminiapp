@@ -1,48 +1,48 @@
--- KARDEX + costo promedio ponderado automático (gap ERP #2).
+-- KARDEX reconciliado sobre la tabla inventory_movements EXISTENTE.
 --
--- Cada movimiento de inventario queda registrado y las ENTRADAS con costo
--- recalculan el promedio ponderado del producto:
+-- La versión original de esta migración (20260704200000_kardex) creaba una
+-- tabla inventory_movements nueva, pero esa tabla ya existe en producción
+-- desde 20260408164259 (movement_type/quantity/unit_cost/total_cost/
+-- movement_date + source_type/source_id) con datos reales de remisiones,
+-- entradas manuales y siigo-sync. En vez de duplicar el ledger, el kardex
+-- EVOLUCIONA esa tabla: columnas aditivas para la foto clásica de kardex
+-- (tipo granular, stock y costo promedio resultantes) y un único punto de
+-- escritura (RPC kardex_movimiento) que llena esquema viejo + nuevo en la
+-- misma fila:
+--   movement_type  ← 'entrada' | 'salida' (derivado de tipo)
+--   quantity/unit_cost/total_cost/movement_date ← equivalentes kardex
+--   source_type/source_id ← origen ('import' | 'production_order' | 'manual')
+--   tipo/reference/stock_resultante/costo_promedio_resultante ← kardex nuevo
+--
+-- Así los flujos viejos (remisiones, entrada manual, teórico gerencial que
+-- filtra source_type IN ('entrada_manual','remision'), stock inicial) siguen
+-- intactos, y las entradas kardex aparecen en el historial de inventario
+-- existente sin tocar el frontend.
+--
+-- Costo promedio ponderado (método fiscal estándar para PyMEs colombianas):
 --   nuevo_costo = (stock_actual × costo_actual + qty × costo_entrada) / (stock_actual + qty)
--- Las SALIDAS descargan stock al costo promedio vigente (método promedio,
--- el estándar fiscal colombiano para PyMEs).
---
--- Un solo punto de escritura: el RPC kardex_movimiento (atómico, FOR UPDATE
--- sobre el producto). Los flujos existentes se integran acá:
---   entrada_importacion → botón "Aplicar landed cost" (qty + costo landed)
---   salida_produccion / entrada_produccion → apply_production_order
---   ajuste → correcciones manuales
+-- Las salidas descargan al promedio vigente sin cambiarlo.
 
-CREATE TABLE IF NOT EXISTS public.inventory_movements (
-  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  product_id uuid REFERENCES public.inventory_products(id) ON DELETE SET NULL,
-  reference text NOT NULL,
-  tipo text NOT NULL CHECK (tipo IN (
-    'entrada_importacion', 'entrada_produccion', 'entrada_ajuste',
-    'salida_produccion', 'salida_despacho', 'salida_ajuste'
-  )),
-  cantidad numeric(14, 3) NOT NULL CHECK (cantidad > 0),
-  /** Costo unitario del movimiento: en entradas, el costo de ingreso; en
-      salidas, el promedio vigente al momento de salir. */
-  costo_unitario numeric(14, 2),
-  /** Foto DESPUÉS del movimiento — el kardex clásico. */
-  stock_resultante numeric(14, 3),
-  costo_promedio_resultante numeric(14, 2),
-  origen_tipo text,   -- 'import' | 'production_order' | 'manual' | ...
-  origen_id uuid,
-  notas text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
+ALTER TABLE public.inventory_movements
+  ADD COLUMN IF NOT EXISTS reference text,
+  ADD COLUMN IF NOT EXISTS tipo text,
+  ADD COLUMN IF NOT EXISTS stock_resultante numeric,
+  ADD COLUMN IF NOT EXISTS costo_promedio_resultante numeric;
 
+COMMENT ON COLUMN public.inventory_movements.tipo IS
+  'Tipo granular de kardex (entrada_importacion, salida_produccion, …). NULL en filas legacy (remisiones, entradas manuales, siigo).';
+COMMENT ON COLUMN public.inventory_movements.stock_resultante IS
+  'Foto del stock_system DESPUÉS del movimiento — kardex clásico. Solo la escribe kardex_movimiento().';
+COMMENT ON COLUMN public.inventory_movements.costo_promedio_resultante IS
+  'Costo promedio ponderado DESPUÉS del movimiento. Solo la escribe kardex_movimiento().';
+
+-- Parcial: las filas legacy no tienen reference (llegan por product_id).
 CREATE INDEX IF NOT EXISTS inventory_movements_ref_idx
-  ON public.inventory_movements(user_id, lower(reference), created_at DESC);
+  ON public.inventory_movements(user_id, lower(reference), created_at DESC)
+  WHERE reference IS NOT NULL;
 
-ALTER TABLE public.inventory_movements ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "inventory_movements_owner_select" ON public.inventory_movements;
-CREATE POLICY "inventory_movements_owner_select"
-  ON public.inventory_movements FOR SELECT TO authenticated
-  USING (user_id = public.current_data_owner());
--- Solo escribe el RPC (SECURITY DEFINER)
+-- RLS: la tabla ya tiene las 4 policies owner_or_collab (20260507120000).
+-- Las escrituras de kardex entran por el RPC (SECURITY DEFINER) igualmente.
 
 CREATE OR REPLACE FUNCTION public.kardex_movimiento(
   p_reference text,
@@ -64,8 +64,15 @@ DECLARE
   v_es_entrada boolean := p_tipo LIKE 'entrada%';
   v_stock_nuevo numeric;
   v_costo_nuevo numeric;
+  v_costo_mov numeric;
 BEGIN
   IF v_owner IS NULL THEN RAISE EXCEPTION 'No autorizado'; END IF;
+  IF p_tipo NOT IN (
+    'entrada_importacion', 'entrada_produccion', 'entrada_ajuste',
+    'salida_produccion', 'salida_despacho', 'salida_ajuste'
+  ) THEN
+    RAISE EXCEPTION 'Tipo de movimiento inválido: %', p_tipo;
+  END IF;
   IF p_cantidad <= 0 THEN RAISE EXCEPTION 'Cantidad debe ser > 0'; END IF;
   IF v_es_entrada AND (p_costo_unitario IS NULL OR p_costo_unitario < 0) THEN
     RAISE EXCEPTION 'Las entradas requieren costo unitario';
@@ -90,9 +97,11 @@ BEGIN
         (v_prod.stock_system * v_prod.cost_per_unit + p_cantidad * p_costo_unitario)
         / (v_prod.stock_system + p_cantidad), 2);
     END IF;
+    v_costo_mov := p_costo_unitario;
   ELSE
     v_stock_nuevo := COALESCE(v_prod.stock_system, 0) - p_cantidad;
     v_costo_nuevo := v_prod.cost_per_unit; -- salidas no cambian el promedio
+    v_costo_mov := COALESCE(v_prod.cost_per_unit, 0); -- salida al promedio vigente
   END IF;
 
   UPDATE public.inventory_products
@@ -100,12 +109,15 @@ BEGIN
   WHERE id = v_prod.id;
 
   INSERT INTO public.inventory_movements
-    (user_id, product_id, reference, tipo, cantidad, costo_unitario,
-     stock_resultante, costo_promedio_resultante, origen_tipo, origen_id, notas)
+    (user_id, product_id, movement_type, quantity, unit_cost, total_cost,
+     movement_date, source_type, source_id, notes,
+     reference, tipo, stock_resultante, costo_promedio_resultante)
   VALUES
-    (v_owner, v_prod.id, trim(p_reference), p_tipo, p_cantidad,
-     CASE WHEN v_es_entrada THEN p_costo_unitario ELSE v_prod.cost_per_unit END,
-     v_stock_nuevo, v_costo_nuevo, p_origen_tipo, p_origen_id, p_notas);
+    (v_owner, v_prod.id,
+     CASE WHEN v_es_entrada THEN 'entrada' ELSE 'salida' END,
+     p_cantidad, COALESCE(v_costo_mov, 0), round(p_cantidad * COALESCE(v_costo_mov, 0), 2),
+     CURRENT_DATE, p_origen_tipo, p_origen_id, p_notas,
+     trim(p_reference), p_tipo, v_stock_nuevo, v_costo_nuevo);
 
   RETURN jsonb_build_object(
     'ok', true, 'stock', v_stock_nuevo, 'costo_promedio', v_costo_nuevo
@@ -114,6 +126,9 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.kardex_movimiento(text, text, numeric, numeric, text, uuid, text) TO authenticated;
+
+COMMENT ON FUNCTION public.kardex_movimiento(text, text, numeric, numeric, text, uuid, text) IS
+  'Único punto de escritura del kardex: registra el movimiento en inventory_movements (esquema legacy + columnas kardex) y actualiza stock_system/cost_per_unit con promedio ponderado. Atómico (FOR UPDATE sobre el producto).';
 
 -- ── Integración: producción pasa por el kardex ──────────────────────────────
 -- apply_production_order ahora registra movimientos de kardex en vez de tocar
@@ -216,4 +231,4 @@ END;
 $$;
 
 COMMENT ON TABLE public.inventory_movements IS
-  'Kardex: cada entrada/salida con costo, stock y promedio resultante. Método promedio ponderado. Escribe solo kardex_movimiento().';
+  'Ledger unificado de inventario: filas legacy (remisiones, entradas manuales, siigo-sync) + kardex (tipo/stock_resultante/costo_promedio_resultante via kardex_movimiento(), método promedio ponderado).';
