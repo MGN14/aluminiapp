@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -6,12 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useImports, type ImportRow, type ImportEstado, IMPORT_ESTADOS_ORDER, IMPORT_ESTADO_LABEL } from '@/hooks/useImports';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADOS_ORDER, IMPORT_ESTADO_LABEL } from '@/hooks/useImports';
 import { useImportPayments } from '@/hooks/useImportPayments';
 import { computeStageDurations, computeTotalDays } from '@/lib/importStages';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Trash2, Clock } from 'lucide-react';
+import { Trash2, Clock, Ship, CalendarClock } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import ImportPaymentsSection from './ImportPaymentsSection';
 import ImportCostingSection from './ImportCostingSection';
 import ExchangeDiffPanel from './ExchangeDiffPanel';
@@ -23,6 +25,17 @@ interface Props {
 }
 
 const todayIso = () => new Date().toISOString().split('T')[0];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysFromToday = (dateStr: string) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const now = new Date();
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / DAY_MS);
+};
+
+const fmtUSD0 = (n: number) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+const fmtFecha = (iso: string) =>
+  new Date(iso + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
 
 const OTRO_PROVEEDOR = '__otro__';
 
@@ -61,10 +74,15 @@ function useProveedoresConocidos(enabled: boolean) {
   });
 }
 
-// Modal para crear / editar una importación. Maneja todos los campos del flujo
-// cotización→entregado. saldo_pendiente_usd se computa en DB, no aparece acá.
+// Modal de importación, organizado alrededor del goal del usuario:
+//   contenedor COSTEADO · TIEMPOS claros · SALDO fácil de ver ·
+//   conciliar con extractos · saber cuándo montar el próximo pedido.
+//
+// Estructura: header con los 4 números que importan (saldo, pago, flete, ETA)
+// + 4 pestañas (Resumen / Abonos / Costeo / Datos) en vez del formulario
+// interminable de una sola corrida.
 export default function ImportModal({ open, onOpenChange, editing }: Props) {
-  const { create, update, remove } = useImports();
+  const { create, update, remove, data: importsData } = useImports();
   const isEdit = !!editing;
 
   const [proveedorSel, setProveedorSel] = useState<string>(''); // responsible_id | __otro__
@@ -75,7 +93,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const [precioSmm, setPrecioSmm] = useState<number | ''>('');
   const [montoTotal, setMontoTotal] = useState<number | ''>('');
   const [anticipo, setAnticipo] = useState<number | ''>('');
-  // Fechas del flujo = una por ESTADO (mismos estados que el select de arriba).
+  // Fechas del flujo = una por ESTADO (mismos estados que el select).
   // Se guardan en import_estado_history; las columnas legacy se mapean al guardar.
   const [estadoFechas, setEstadoFechas] = useState<Record<string, string>>({});
   const [fechaEta, setFechaEta] = useState('');
@@ -84,9 +102,8 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const { data: proveedores = [] } = useProveedoresConocidos(open);
-  // TRM causación: ya no la ingresa el usuario — es el promedio ponderado de
-  // los abonos del contenedor (imports_liquidation.trm_promedio_ponderada).
-  const { liquidation } = useImportPayments(isEdit ? editing?.id : null);
+  // TRM causación = promedio ponderado de los abonos (imports_liquidation).
+  const { liquidation, payments } = useImportPayments(isEdit ? editing?.id : null);
   const trmPonderada = liquidation?.trm_promedio_ponderada ?? null;
 
   const estadoCambio = isEdit && editing ? estado !== editing.estado : false;
@@ -162,9 +179,8 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       precio_smm_cerrado_usd_ton: precioSmm === '' ? null : Number(precioSmm),
       monto_total_usd: montoTotal === '' ? null : Number(montoTotal),
       // anticipo_pagado_usd SOLO al crear. En edición lo sincroniza el trigger
-      // desde los abonos — mandarlo acá pisaba el valor real con el que estaba
-      // cargado al ABRIR el modal (agregabas un abono adentro, guardabas, y el
-      // anticipo/saldo retrocedían al valor viejo).
+      // desde los abonos — mandarlo pisaba el valor real con el que estaba
+      // cargado al ABRIR el modal.
       ...(isEdit ? {} : { anticipo_pagado_usd: anticipo === '' ? 0 : Number(anticipo) }),
       // Columnas legacy mapeadas desde las fechas por estado
       fecha_cotizacion: estadoFechas.cotizacion || null,
@@ -205,287 +221,360 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   };
 
   const saving = create.isPending || update.isPending;
-  // En edición, el anticipo REAL viene de la liquidación (suma de abonos, se
-  // actualiza en vivo al agregar uno adentro del modal). El state `anticipo`
-  // solo aplica al crear.
-  const anticipoVivo = isEdit
+  // En edición, el pagado REAL viene de la liquidación (suma de abonos, en vivo).
+  const pagadoVivo = isEdit
     ? Number(liquidation?.total_pagado_usd ?? editing?.anticipo_pagado_usd ?? 0)
     : (typeof anticipo === 'number' ? anticipo : 0);
-  // saldo computado en vivo para mostrarlo al usuario
-  const saldoPreview =
-    (typeof montoTotal === 'number' ? montoTotal : 0) - anticipoVivo;
+  const totalNum = typeof montoTotal === 'number' ? montoTotal : 0;
+  const saldoVivo = totalNum - pagadoVivo;
+  const pagadoPct = totalNum > 0 ? Math.min(100, Math.round((pagadoVivo / totalNum) * 100)) : 0;
+
+  // Flete del contenedor (costos adicionales tipo 'flete')
+  const flete = sumImportCosts(editing?.import_costs, 'flete');
+
+  // ETA: días restantes (o atraso) para pedidos abiertos
+  const etaDias = fechaEta && estado !== 'entregado' && estado !== 'cancelado'
+    ? daysFromToday(fechaEta)
+    : null;
+
+  // Lead time promedio de pedidos ENTREGADOS → "¿cuándo monto el próximo?"
+  const leadTimeProm = useMemo(() => {
+    const rows = importsData?.all ?? [];
+    const dias = rows
+      .filter(r => r.estado === 'entregado' && (r.import_estado_history?.length ?? 0) > 0)
+      .map(r => computeTotalDays(r.import_estado_history!, r.estado))
+      .filter((t): t is { dias: number; enCurso: boolean } => !!t && !t.enCurso && t.dias > 0)
+      .map(t => t.dias);
+    if (!dias.length) return null;
+    return Math.round(dias.reduce((a, b) => a + b, 0) / dias.length);
+  }, [importsData]);
+
+  const stages = isEdit && editing?.import_estado_history?.length
+    ? computeStageDurations(editing.import_estado_history, editing.estado)
+    : [];
+  const totalDias = isEdit && editing?.import_estado_history?.length
+    ? computeTotalDays(editing.import_estado_history, editing.estado)
+    : null;
+
+  // ── Bloques de formulario reutilizados entre "Datos" (edit) y creación ──
+  const camposDatos = (
+    <>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="space-y-1.5 col-span-2">
+          <Label className="text-sm">Proveedor *</Label>
+          <Select value={proveedorSel} onValueChange={setProveedorSel}>
+            <SelectTrigger>
+              <SelectValue placeholder="Elegí un proveedor…" />
+            </SelectTrigger>
+            <SelectContent>
+              {proveedores.map(p => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+              <SelectItem value={OTRO_PROVEEDOR}>Otro (escribir nombre)</SelectItem>
+            </SelectContent>
+          </Select>
+          {proveedores.length === 0 && (
+            <p className="text-[10px] text-muted-foreground">
+              La lista sale de los beneficiarios con categoría "Proveedores" en Conciliación bancaria.
+            </p>
+          )}
+          {proveedorSel === OTRO_PROVEEDOR && (
+            <Input
+              required
+              value={proveedorLibre}
+              onChange={e => setProveedorLibre(e.target.value)}
+              placeholder="Ej: Shandong Mingxin, Aluminios JH"
+            />
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-sm">Ref. interna</Label>
+          <Input
+            value={refPedido}
+            onChange={e => setRefPedido(e.target.value)}
+            placeholder="PO-2026-001"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-sm">Cantidad (ton)</Label>
+          <Input
+            type="number" step="0.001" min={0}
+            value={cantidadTon}
+            onChange={e => setCantidadTon(e.target.value === '' ? '' : +e.target.value)}
+            className="font-mono"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-sm">Precio SMM (USD/ton)</Label>
+          <Input
+            type="number" step="0.01" min={0}
+            value={precioSmm}
+            onChange={e => setPrecioSmm(e.target.value === '' ? '' : +e.target.value)}
+            placeholder="Ej: 2600"
+            className="font-mono"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-sm">Monto total (USD)</Label>
+          <Input
+            type="number" step="0.01" min={0}
+            value={montoTotal}
+            onChange={e => setMontoTotal(e.target.value === '' ? '' : +e.target.value)}
+            className="font-mono"
+          />
+        </div>
+      </div>
+
+      {/* Fechas del flujo — una por estado (con esto se miden las etapas) */}
+      <div className="space-y-1.5">
+        <Label className="text-sm font-semibold text-muted-foreground">Fechas del flujo (entrada a cada estado)</Label>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {IMPORT_ESTADOS_ORDER.map(e => (
+            <div key={e}>
+              <Label className="text-xs">{IMPORT_ESTADO_LABEL[e]}</Label>
+              <Input
+                type="date"
+                value={estadoFechas[e] ?? ''}
+                max={todayIso()}
+                onChange={ev => setEstadoFechas(prev => ({ ...prev, [e]: ev.target.value }))}
+              />
+            </div>
+          ))}
+          <div>
+            <Label className="text-xs font-medium text-primary">ETA llegada (estimada)</Label>
+            <Input type="date" value={fechaEta} onChange={e => setFechaEta(e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-sm">Notas</Label>
+        <Textarea
+          value={notas}
+          onChange={e => setNotas(e.target.value)}
+          placeholder="Detalles del pedido, contactos, condiciones..."
+          rows={2}
+        />
+      </div>
+    </>
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? 'Editar importación' : 'Nueva importación'}</DialogTitle>
-          <DialogDescription className="text-xs">
-            Pedido a proveedor del exterior. El flujo es cotización → anticipo → producción → tránsito → aduana → entregado.
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Proveedor + estado + ref */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5 col-span-2">
-              <Label className="text-sm">Proveedor *</Label>
-              <Select value={proveedorSel} onValueChange={setProveedorSel}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Elegí un proveedor…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {proveedores.map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                  <SelectItem value={OTRO_PROVEEDOR}>Otro (escribir nombre)</SelectItem>
-                </SelectContent>
-              </Select>
-              {proveedores.length === 0 && (
-                <p className="text-[10px] text-muted-foreground">
-                  La lista sale de los beneficiarios con categoría "Proveedores" en Conciliación bancaria.
-                </p>
-              )}
-              {proveedorSel === OTRO_PROVEEDOR && (
-                <Input
-                  required
-                  value={proveedorLibre}
-                  onChange={e => setProveedorLibre(e.target.value)}
-                  placeholder="Ej: Shandong Mingxin, Aluminios JH"
-                  autoFocus
-                />
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">Estado *</Label>
-              <Select value={estado} onValueChange={(v) => setEstado(v as ImportEstado)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {IMPORT_ESTADOS_ORDER.map(e => (
-                    <SelectItem key={e} value={e}>{IMPORT_ESTADO_LABEL[e]}</SelectItem>
-                  ))}
-                  <SelectItem value="cancelado">Cancelado</SelectItem>
-                </SelectContent>
-              </Select>
-              {estadoCambio && (
-                <div className="pt-1">
-                  <Label className="text-xs text-muted-foreground">Fecha del cambio *</Label>
+      <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto p-0">
+        {/* ── HEADER: lo que importa, grande y con contraste ─────────────── */}
+        <div className="px-6 pt-5 pb-4 border-b border-border bg-gradient-to-br from-white to-slate-50/70 dark:from-zinc-900 dark:to-zinc-950 rounded-t-lg">
+          <DialogHeader className="space-y-0">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <DialogTitle className="flex items-center gap-2 text-lg truncate">
+                  <Ship className="h-5 w-5 text-primary shrink-0" />
+                  {isEdit ? editing!.proveedor_nombre : 'Nueva importación'}
+                  {isEdit && editing!.ref_pedido && (
+                    <span className="text-sm font-normal text-muted-foreground font-mono">· {editing!.ref_pedido}</span>
+                  )}
+                </DialogTitle>
+                {!isEdit && (
+                  <DialogDescription className="text-xs mt-1">
+                    Pedido a proveedor del exterior. Cotización → producción → tránsito → aduana → entregado.
+                  </DialogDescription>
+                )}
+              </div>
+              {/* Estado — siempre a mano, con fecha del cambio si cambió */}
+              <div className="shrink-0 w-[180px] space-y-1">
+                <Select value={estado} onValueChange={(v) => setEstado(v as ImportEstado)}>
+                  <SelectTrigger className="h-8 text-xs font-medium"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {IMPORT_ESTADOS_ORDER.map(e => (
+                      <SelectItem key={e} value={e}>{IMPORT_ESTADO_LABEL[e]}</SelectItem>
+                    ))}
+                    {isEdit && editing!.estado === 'anticipo' && (
+                      <SelectItem value="anticipo" disabled>Anticipo pagado (viejo)</SelectItem>
+                    )}
+                    <SelectItem value="cancelado">Cancelado</SelectItem>
+                  </SelectContent>
+                </Select>
+                {estadoCambio && (
                   <Input
                     type="date"
                     required
                     value={estadoFecha}
                     max={todayIso()}
                     onChange={e => setEstadoFecha(e.target.value)}
-                    title="Día en que la importación pasó a este estado. Con esto se calculan las duraciones de cada etapa."
+                    className="h-8 text-xs"
+                    title="¿En qué fecha cambió de estado? Con esto se miden las etapas."
                   />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Cantidad + precio SMM + TRM causación (automática) */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-sm">Cantidad (ton)</Label>
-              <Input
-                type="number" step="0.001" min={0}
-                value={cantidadTon}
-                onChange={e => setCantidadTon(e.target.value === '' ? '' : +e.target.value)}
-                className="font-mono"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">Precio SMM cerrado (USD/ton)</Label>
-              <Input
-                type="number" step="0.01" min={0}
-                value={precioSmm}
-                onChange={e => setPrecioSmm(e.target.value === '' ? '' : +e.target.value)}
-                placeholder="Ej: 2600"
-                className="font-mono"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">
-                TRM causación
-                <span className="ml-1 text-[10px] text-muted-foreground font-normal">(auto)</span>
-              </Label>
-              <Input
-                value={trmPonderada != null ? `$${Number(trmPonderada).toLocaleString('es-CO', { maximumFractionDigits: 2 })}` : isEdit ? 'Sin abonos aún' : 'Se calcula con los abonos'}
-                readOnly
-                disabled
-                className="font-mono bg-muted"
-                title="Promedio ponderado de las TRM de los abonos de este contenedor. Se actualiza solo con cada abono."
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-sm">Ref. interna</Label>
-            <Input
-              value={refPedido}
-              onChange={e => setRefPedido(e.target.value)}
-              placeholder="PO-2026-001"
-            />
-          </div>
-
-          {/* Montos USD */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-sm">Monto total (USD)</Label>
-              <Input
-                type="number" step="0.01" min={0}
-                value={montoTotal}
-                onChange={e => setMontoTotal(e.target.value === '' ? '' : +e.target.value)}
-                className="font-mono"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">
-                Anticipo pagado (USD)
-                {isEdit && (
-                  <span className="ml-1 text-[10px] text-muted-foreground font-normal">
-                    (se calcula desde abonos)
-                  </span>
                 )}
-              </Label>
-              <Input
-                type="number" step="0.01" min={0}
-                value={isEdit ? anticipoVivo : anticipo}
-                onChange={e => setAnticipo(e.target.value === '' ? '' : +e.target.value)}
-                disabled={isEdit}
-                title={isEdit ? 'Editá los abonos abajo para cambiar el total. Este campo se sincroniza solo.' : ''}
-                className="font-mono"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">Saldo pendiente</Label>
-              <Input
-                value={`$${saldoPreview.toLocaleString('es-CO', { maximumFractionDigits: 2 })}`}
-                readOnly
-                disabled
-                className="font-mono bg-muted"
-              />
-            </div>
-          </div>
-
-          {/* Fechas del flujo — una por ESTADO (los mismos del select de arriba).
-              La fecha = día en que el pedido ENTRÓ a ese estado; con eso se
-              calculan las duraciones de etapa. */}
-          <div className="space-y-1.5">
-            <Label className="text-sm font-semibold text-muted-foreground">Fechas del flujo (entrada a cada estado)</Label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {IMPORT_ESTADOS_ORDER.map(e => (
-                <div key={e}>
-                  <Label className="text-xs">{IMPORT_ESTADO_LABEL[e]}</Label>
-                  <Input
-                    type="date"
-                    value={estadoFechas[e] ?? ''}
-                    max={todayIso()}
-                    onChange={ev => setEstadoFechas(prev => ({ ...prev, [e]: ev.target.value }))}
-                  />
-                </div>
-              ))}
-              <div>
-                <Label className="text-xs">ETA llegada (estimada)</Label>
-                <Input type="date" value={fechaEta} onChange={e => setFechaEta(e.target.value)} />
               </div>
             </div>
-          </div>
+          </DialogHeader>
 
-          {/* Duración de etapas (historial de cambios de estado) */}
-          {isEdit && editing && (editing.import_estado_history?.length ?? 0) > 0 && (() => {
-            const stages = computeStageDurations(editing.import_estado_history!, editing.estado);
-            const total = computeTotalDays(editing.import_estado_history!, editing.estado);
-            if (!stages.length) return null;
-            return (
-              <div className="space-y-1.5">
-                <Label className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5" />
-                  Duración de etapas
-                  {total && (
-                    <span className="font-normal text-xs">
-                      — {total.dias} día{total.dias !== 1 ? 's' : ''} {total.enCurso ? 'en curso' : 'en total'}
-                    </span>
-                  )}
-                </Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {stages.map(s => (
-                    <div
-                      key={s.estado}
-                      className={`px-2.5 py-1.5 rounded-lg border text-xs ${
-                        s.enCurso
-                          ? 'border-primary/40 bg-primary/5 text-primary'
-                          : 'border-border bg-muted/40 text-muted-foreground'
-                      }`}
-                      title={`Desde ${s.desde}${s.hasta ? ` hasta ${s.hasta}` : ' (en curso)'}`}
-                    >
-                      <span className="font-medium">{IMPORT_ESTADO_LABEL[s.estado]}</span>
-                      {s.estado !== 'entregado' && (
-                        <span className="ml-1 font-mono">
-                          {s.dias}d{s.enCurso ? '…' : ''}
+          {/* Strip de números grandes (solo edición — al crear no hay datos aún) */}
+          {isEdit && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+              <div className={cn(
+                'rounded-xl border px-3 py-2.5',
+                saldoVivo > 0 ? 'border-destructive/25 bg-destructive/5' : 'border-success/25 bg-success/5',
+              )}>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Saldo por pagar</p>
+                <p className={cn('text-xl font-bold font-mono leading-tight', saldoVivo > 0 ? 'text-destructive' : 'text-success')}>
+                  {fmtUSD0(saldoVivo)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">de {fmtUSD0(totalNum)} USD</p>
+              </div>
+              <div className="rounded-xl border border-border bg-card px-3 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Pagado</p>
+                <p className="text-xl font-bold font-mono leading-tight text-foreground">{fmtUSD0(pagadoVivo)}</p>
+                <div className="h-1.5 rounded-full bg-muted mt-1.5 overflow-hidden">
+                  <div className="h-full rounded-full bg-success" style={{ width: `${pagadoPct}%` }} />
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-card px-3 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Flete</p>
+                <p className="text-xl font-bold font-mono leading-tight text-foreground">
+                  {flete.usd > 0 ? fmtUSD0(flete.usd) : '—'}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {flete.usd > 0 ? 'USD · cargado en Costeo' : 'cargalo en la pestaña Costeo'}
+                </p>
+              </div>
+              <div className={cn(
+                'rounded-xl border px-3 py-2.5',
+                etaDias != null && etaDias < 0 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/20' : 'border-border bg-card',
+              )}>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 flex items-center gap-1">
+                  <CalendarClock className="h-3 w-3" /> ETA llegada
+                </p>
+                <p className="text-xl font-bold leading-tight text-foreground">
+                  {fechaEta ? fmtFecha(fechaEta) : '—'}
+                </p>
+                <p className={cn('text-[10px]', etaDias != null && etaDias < 0 ? 'text-amber-700 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>
+                  {etaDias == null
+                    ? (estado === 'entregado' ? 'entregado' : 'sin ETA — ponela en Datos')
+                    : etaDias >= 0 ? `en ${etaDias} día${etaDias !== 1 ? 's' : ''}` : `atrasada ${-etaDias}d`}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-6 pb-5 pt-3 space-y-4">
+          {isEdit && editing ? (
+            <Tabs defaultValue="resumen">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="resumen">Resumen</TabsTrigger>
+                <TabsTrigger value="abonos">
+                  Abonos{payments.length > 0 ? ` (${payments.length})` : ''}
+                </TabsTrigger>
+                <TabsTrigger value="costeo">Costeo</TabsTrigger>
+                <TabsTrigger value="datos">Datos</TabsTrigger>
+              </TabsList>
+
+              {/* ── RESUMEN: tiempos + diferencia en cambio ── */}
+              <TabsContent value="resumen" className="space-y-4 pt-3">
+                {stages.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5" />
+                      Tiempos del contenedor
+                      {totalDias && (
+                        <span className="font-normal text-xs">
+                          — {totalDias.dias} día{totalDias.dias !== 1 ? 's' : ''} {totalDias.enCurso ? 'en curso' : 'en total'}
                         </span>
                       )}
+                    </Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {stages.map(s => (
+                        <div
+                          key={s.estado}
+                          className={cn(
+                            'px-2.5 py-1.5 rounded-lg border text-xs',
+                            s.enCurso
+                              ? 'border-primary/40 bg-primary/5 text-primary'
+                              : 'border-border bg-muted/40 text-muted-foreground',
+                          )}
+                          title={`Desde ${s.desde}${s.hasta ? ` hasta ${s.hasta}` : ' (en curso)'}`}
+                        >
+                          <span className="font-medium">{IMPORT_ESTADO_LABEL[s.estado]}</span>
+                          {s.estado !== 'entregado' && (
+                            <span className="ml-1 font-mono">{s.dias}d{s.enCurso ? '…' : ''}</span>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                )}
+
+                {/* ¿Cuándo montar el próximo pedido? Lead time real de tus entregas */}
+                {leadTimeProm != null && (
+                  <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-xs leading-relaxed">
+                    <span className="font-semibold text-primary">Próximo pedido:</span>{' '}
+                    tus contenedores entregados demoraron en promedio <strong>{leadTimeProm} días</strong> de
+                    cotización a entrega. Un pedido montado hoy llegaría alrededor del{' '}
+                    <strong>
+                      {new Date(Date.now() + leadTimeProm * DAY_MS).toLocaleDateString('es-CO', { day: '2-digit', month: 'long' })}
+                    </strong>. Restale tu inventario de seguridad y esa es la fecha límite para ordenar.
+                  </div>
+                )}
+
+                <ExchangeDiffPanel
+                  importId={editing.id}
+                  trmCausacion={editing.trm_causacion ?? null}
+                  montoTotalUsd={totalNum}
+                  anticipoPagadoUsd={Number(editing.anticipo_pagado_usd) || 0}
+                  estado={estado}
+                />
+              </TabsContent>
+
+              {/* ── ABONOS: pagos + conciliación con extractos ── */}
+              <TabsContent value="abonos" className="pt-3">
+                <ImportPaymentsSection importId={editing.id} />
+              </TabsContent>
+
+              {/* ── COSTEO: flete, arancel, IVA, agencia + landed cost ── */}
+              <TabsContent value="costeo" className="pt-3">
+                <ImportCostingSection importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
+              </TabsContent>
+
+              {/* ── DATOS: el formulario clásico ── */}
+              <TabsContent value="datos" className="space-y-4 pt-3">
+                {camposDatos}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDelete}
+                  disabled={remove.isPending}
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Eliminar importación
+                </Button>
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <div className="space-y-4">
+              {camposDatos}
+              <div className="space-y-1.5">
+                <Label className="text-sm">Anticipo ya pagado (USD, opcional)</Label>
+                <Input
+                  type="number" step="0.01" min={0}
+                  value={anticipo}
+                  onChange={e => setAnticipo(e.target.value === '' ? '' : +e.target.value)}
+                  className="font-mono"
+                />
               </div>
-            );
-          })()}
-
-          {/* Abonos (solo al editar — necesita id) */}
-          {isEdit && editing && (
-            <ImportPaymentsSection importId={editing.id} />
+            </div>
           )}
-
-          {/* Diferencia en cambio. Todo en vivo (monto total + TRM causación del
-              form, abonos del hook) para no mezclar valores guardados con editados. */}
-          {isEdit && editing && (
-            <ExchangeDiffPanel
-              importId={editing.id}
-              trmCausacion={editing.trm_causacion ?? null}
-              montoTotalUsd={montoTotal === '' ? 0 : Number(montoTotal)}
-              anticipoPagadoUsd={Number(editing.anticipo_pagado_usd) || 0}
-              estado={estado}
-            />
-          )}
-
-          {/* Costeo referencia a referencia (packing list + landed cost).
-              Necesita import_id, por eso solo en modo edición. */}
-          {isEdit && editing && (
-            <ImportCostingSection importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
-          )}
-
-          {/* Notas */}
-          <div className="space-y-1.5">
-            <Label className="text-sm">Notas</Label>
-            <Textarea
-              value={notas}
-              onChange={e => setNotas(e.target.value)}
-              placeholder="Detalles del pedido, contactos, condiciones..."
-              rows={2}
-            />
-          </div>
 
           {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
 
-          <div className="flex items-center gap-2">
-            {isEdit && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleDelete}
-                disabled={remove.isPending}
-                className="text-destructive border-destructive/30 hover:bg-destructive/10"
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Eliminar
-              </Button>
-            )}
-            <Button type="submit" disabled={saving || !proveedorNombre} className="flex-1">
-              {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear importación'}
-            </Button>
-          </div>
+          <Button type="submit" disabled={saving || !proveedorNombre} className="w-full">
+            {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear importación'}
+          </Button>
         </form>
       </DialogContent>
     </Dialog>
