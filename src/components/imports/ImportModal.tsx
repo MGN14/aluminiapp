@@ -16,6 +16,7 @@ import { Trash2, Clock, Ship, CalendarClock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ImportPaymentsSection from './ImportPaymentsSection';
 import ImportCostingSection from './ImportCostingSection';
+import CosteoCsvTools from './CosteoCsvTools';
 import ExchangeDiffPanel from './ExchangeDiffPanel';
 
 interface Props {
@@ -634,6 +635,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
 
               {/* ── COSTEO: flete, arancel, IVA, agencia + landed cost ── */}
               <TabsContent value="costeo" className="pt-3">
+                <CosteoCsvTools importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
                 <ImportCostingSection importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
               </TabsContent>
 
