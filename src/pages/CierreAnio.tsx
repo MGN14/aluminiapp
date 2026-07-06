@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -186,6 +187,7 @@ export default function CierreAnio() {
   });
 
   return (
+    <AppLayout>
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
@@ -305,5 +307,6 @@ export default function CierreAnio() {
         </Card>
       )}
     </div>
+    </AppLayout>
   );
 }

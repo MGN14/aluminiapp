@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADOS_ORDER, IMPORT_ESTADO_LABEL } from '@/hooks/useImports';
 import { useImportPayments, fetchTrmForDate } from '@/hooks/useImportPayments';
 import { computeStageDurations, computeTotalDays, computeStageAverages } from '@/lib/importStages';
+import { computeImportBreakdown } from '@/lib/importCosting';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -257,7 +258,9 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
           estado_fechas: fechasFlujo,
         });
       } else {
-        await create.mutateAsync({ ...payload, estado_fecha: fechasFlujo[estado] || estadoFecha });
+        // estado_fechas: todas las fechas de flujo puestas al crear — el total
+        // de días arranca desde la primera etapa, no desde el estado actual.
+        await create.mutateAsync({ ...payload, estado_fecha: fechasFlujo[estado] || estadoFecha, estado_fechas: fechasFlujo });
       }
       onOpenChange(false);
     } catch (err) {
@@ -303,11 +306,6 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const costosArr = (costosVivos as { tipo: never; monto: number; moneda: never }[] | undefined) ?? editing?.import_costs;
   const flete = sumImportCosts(costosArr, 'flete');
   const seguro = sumImportCosts(costosArr, 'seguro');
-  const arancelReal = sumImportCosts(costosArr, 'arancel');
-  const ivaReal = sumImportCosts(costosArr, 'iva_importacion');
-  const agencia = sumImportCosts(costosArr, 'nacionalizacion');
-  const bancarios = sumImportCosts(costosArr, 'gastos_bancarios');
-  const otrosCostos = sumImportCosts(costosArr, 'otro');
   const totalUsdContenedor = totalNum + flete.usd + seguro.usd;
 
   // ETA: días restantes (o atraso) para pedidos abiertos
@@ -695,20 +693,16 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 {(() => {
                   const trmCosteo = trmPonderada != null ? Number(trmPonderada) : (trmHoy ?? null);
                   const fmtCOP = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
-                  const cifUsd = totalNum + flete.usd + seguro.usd;
-                  const cifCop = trmCosteo ? cifUsd * trmCosteo + flete.cop + seguro.cop : null;
-                  // Arancel/IVA: si hay valor REAL cargado en costos, manda el real;
-                  // si no, se estima con el % editable.
-                  const arancelRealCop = trmCosteo ? arancelReal.cop + arancelReal.usd * trmCosteo : arancelReal.cop;
-                  const usaArancelReal = arancelRealCop > 0;
-                  const arancelCop = usaArancelReal ? arancelRealCop : (cifCop != null ? cifCop * (arancelPct / 100) : null);
-                  const ivaRealCop = trmCosteo ? ivaReal.cop + ivaReal.usd * trmCosteo : ivaReal.cop;
-                  const usaIvaReal = ivaRealCop > 0;
-                  const ivaCop = usaIvaReal ? ivaRealCop : (cifCop != null && arancelCop != null ? (cifCop + arancelCop) * (ivaPct / 100) : null);
-                  const otrosCop = (trmCosteo ? (agencia.usd + bancarios.usd + otrosCostos.usd) * trmCosteo : 0)
-                    + agencia.cop + bancarios.cop + otrosCostos.cop;
-                  const totalImportacion = cifCop != null && arancelCop != null && ivaCop != null
-                    ? cifCop + arancelCop + ivaCop + otrosCop : null;
+                  // Misma lib que la lista y los KPIs — arancel/IVA real manda
+                  // sobre el estimado por %.
+                  const bd = computeImportBreakdown({
+                    mercanciaUsd: totalNum,
+                    costs: costosArr,
+                    trm: trmCosteo,
+                    arancelPct,
+                    ivaPct,
+                  });
+                  const { cifUsd, cifCop, arancelCop, usaArancelReal, ivaCop, usaIvaReal, otrosCop, totalImportacionCop: totalImportacion } = bd;
                   const rowUsd = (v: { usd: number; cop: number }) => (
                     <span>
                       {v.usd > 0 ? fmtUSD0(v.usd) : v.cop > 0 ? '' : '—'}

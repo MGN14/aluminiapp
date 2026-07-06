@@ -120,8 +120,6 @@ const reportItems: NavItem[] = [
   { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins, permKey: 'cuentas_por_pagar' },
   { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet, permKey: 'flujo_caja' },
   { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks, permKey: 'relacion_pagos' },
-  { title: 'Informe para Banco', url: '/informe-banco', icon: Building2, highlight: true, permKey: 'informe_banco' },
-  { title: 'Cierre de Año', url: '/cierre-anio', icon: CalendarCheck, permKey: 'cierre_anio' },
   { title: 'Bodega (operación)', url: '/reportes/bodega', icon: Boxes, adminOnly: true },
 ];
 
@@ -133,6 +131,7 @@ const reportItemsGerencial: NavItem[] = [
 const exportItems: NavItem[] = [
   { title: 'Exportar movimientos', url: '/export', icon: Download, permKey: 'exportar' },
   { title: 'Campañas Email', url: '/admin/campaigns', icon: Mail, founderOnly: true },
+  { title: 'Informe para Banco', url: '/informe-banco', icon: Building2, highlight: true, permKey: 'informe_banco' },
   { title: 'Ojo, viene la DIAN', url: '/financial-health', icon: ShieldCheck, highlight: true, permKey: 'informe_dian' },
 ];
 
@@ -632,6 +631,22 @@ export default function AppSidebar() {
                     >
                       <CreditCard style={{ width: 15, height: 15, flexShrink: 0 }} />
                       {!collapsed && <span>Créditos</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              {/* Cierre de Año: encima de Colaboradores (pedido de Nico) */}
+              {hasModule('cierre_anio') && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={currentPath === '/cierre-anio'}>
+                    <NavLink
+                      to="/cierre-anio"
+                      style={navItemStyle(currentPath === '/cierre-anio')}
+                      onMouseEnter={handleHoverEnter(currentPath === '/cierre-anio')}
+                      onMouseLeave={handleHoverLeave(currentPath === '/cierre-anio')}
+                    >
+                      <CalendarCheck style={{ width: 15, height: 15, flexShrink: 0 }} />
+                      {!collapsed && <span>Cierre de Año</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

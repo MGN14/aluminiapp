@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, Lock as LockIcon } from 'lucide-react';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import { fetchTrmForDate } from '@/hooks/useImportPayments';
+import { computeImportBreakdown } from '@/lib/importCosting';
 import { supabase } from '@/integrations/supabase/client';
 import ImportModal from '@/components/imports/ImportModal';
 import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
@@ -56,6 +57,18 @@ const fmtUSD = (n: number | null | undefined) => {
   if (n === null || n === undefined) return '—';
   return `$${Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 };
+
+/** Variación % con color: subir costos = rojo, bajar = verde. */
+function DeltaLine({ pct, label }: { pct: number | null; label: string }) {
+  if (pct == null) return null;
+  return (
+    <p className={cn('text-[11px] font-medium inline-flex items-center gap-1', pct > 0 ? 'text-destructive' : 'text-success')}>
+      {pct > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {pct > 0 ? '+' : ''}{pct.toFixed(1)}% {label}
+    </p>
+  );
+}
+
 type Filter = 'abiertos' | 'todos' | ImportEstado;
 
 export default function Importaciones() {
@@ -101,48 +114,84 @@ export default function Importaciones() {
     return Object.keys(avgs).length ? avgs : null;
   }, [data]);
 
-  // ── KPIs de contenedores en general ──────────────────────────────────────
-  // Pedidos por año + variación de precio en USD (SMM cerrado) y en COP/ton
-  // (SMM × TRM ponderada de los abonos, fallback trm_causacion).
+  // ── KPIs de materia prima ─────────────────────────────────────────────────
+  // Cómo se viene comportando el contenedor: precio SMM, Total Importación en
+  // COP, COP/ton nacionalizado y TRM pagada — cada uno con variación vs el
+  // pedido anterior y vs el año pasado (promedios anuales).
   const kpis = useMemo(() => {
     const rows = (data?.all ?? []).filter(r => r.estado !== 'cancelado');
     if (!rows.length) return null;
     const fechaRef = (r: ImportRow) => r.fecha_cotizacion ?? r.created_at.slice(0, 10);
     const ordered = [...rows].sort((a, b) => fechaRef(a).localeCompare(fechaRef(b)));
     const yearOf = (r: ImportRow) => Number(fechaRef(r).slice(0, 4));
+    const pct = (curr: number | null, prev: number | null) =>
+      curr != null && prev != null && prev > 0 ? ((curr - prev) / prev) * 100 : null;
+    const avg = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null);
 
     const pedidosEsteAnio = ordered.filter(r => yearOf(r) === currentYear).length;
     const pedidosAnioPasado = ordered.filter(r => yearOf(r) === currentYear - 1).length;
+    const tonsDe = (yr: number) => ordered.filter(r => yearOf(r) === yr).reduce((s, r) => s + Number(r.cantidad_ton ?? 0), 0);
+    const tonEsteAnio = tonsDe(currentYear);
+    const tonAnioPasado = tonsDe(currentYear - 1);
 
-    const conPrecio = ordered.filter(r => r.precio_smm_cerrado_usd_ton != null && Number(r.precio_smm_cerrado_usd_ton) > 0);
+    // SMM (USD/ton): último vs pedido anterior + promedio del año vs año pasado
+    const conPrecio = ordered.filter(r => Number(r.precio_smm_cerrado_usd_ton ?? 0) > 0);
     const last = conPrecio[conPrecio.length - 1];
     const prev = conPrecio[conPrecio.length - 2];
     const usdLast = last ? Number(last.precio_smm_cerrado_usd_ton) : null;
-    const usdPrev = prev ? Number(prev.precio_smm_cerrado_usd_ton) : null;
-    const usdDeltaPct = usdLast != null && usdPrev != null && usdPrev > 0
-      ? ((usdLast - usdPrev) / usdPrev) * 100
-      : null;
+    const usdDeltaPct = pct(usdLast, prev ? Number(prev.precio_smm_cerrado_usd_ton) : null);
+    const smmDe = (yr: number) => avg(conPrecio.filter(r => yearOf(r) === yr).map(r => Number(r.precio_smm_cerrado_usd_ton)));
+    const usdYoYPct = pct(smmDe(currentYear), smmDe(currentYear - 1));
 
-    const copPerTon = (r: ImportRow | undefined) => {
-      if (!r?.precio_smm_cerrado_usd_ton) return null;
-      const trm = trmByImport.get(r.id) ?? (r.trm_causacion ? Number(r.trm_causacion) : null);
-      return trm ? Number(r.precio_smm_cerrado_usd_ton) * trm : null;
-    };
-    const copLast = copPerTon(last);
-    const copPrev = copPerTon(prev);
-    const copDeltaPct = copLast != null && copPrev != null && copPrev > 0
-      ? ((copLast - copPrev) / copPrev) * 100
-      : null;
+    // Total Importación en COP por pedido (real o estimado ≈ — misma lib que
+    // el Resumen) y COP/ton nacionalizado (Total ÷ toneladas).
+    const trmDe = (r: ImportRow) => trmByImport.get(r.id) ?? (r.trm_causacion ? Number(r.trm_causacion) : null) ?? trmHoy;
+    const conTotal = ordered
+      .map(r => ({
+        r,
+        total: computeImportBreakdown({
+          mercanciaUsd: Number(r.monto_total_usd ?? 0),
+          costs: r.import_costs,
+          trm: trmDe(r),
+          arancelPct: Number(r.arancel_pct ?? 5),
+          ivaPct: Number(r.iva_pct ?? 19),
+        }).totalImportacionCop,
+      }))
+      .filter((x): x is { r: ImportRow; total: number } => x.total != null && x.total > 0);
+    const totLast = conTotal[conTotal.length - 1]?.total ?? null;
+    const totDeltaPct = pct(totLast, conTotal[conTotal.length - 2]?.total ?? null);
+
+    const conNac = conTotal
+      .filter(x => Number(x.r.cantidad_ton ?? 0) > 0)
+      .map(x => ({ r: x.r, porTon: x.total / Number(x.r.cantidad_ton) }));
+    const nacLast = conNac[conNac.length - 1]?.porTon ?? null;
+    const nacDeltaPct = pct(nacLast, conNac[conNac.length - 2]?.porTon ?? null);
+    const nacDe = (yr: number) => avg(conNac.filter(x => yearOf(x.r) === yr).map(x => x.porTon));
+    const nacYoYPct = pct(nacDe(currentYear), nacDe(currentYear - 1));
+
+    // TRM pagada (ponderada de los abonos): última vs pedido anterior
+    const conTrm = ordered
+      .map(r => trmByImport.get(r.id) ?? null)
+      .filter((t): t is number => t != null && t > 0);
+    const trmLast = conTrm[conTrm.length - 1] ?? null;
+    const trmDeltaPct = pct(trmLast, conTrm[conTrm.length - 2] ?? null);
 
     // Flete USD promedio por pedido (solo pedidos que ya tienen flete cargado)
     const fletes = ordered
       .map(r => sumImportCosts(r.import_costs, 'flete').usd)
       .filter(v => v > 0);
-    const fleteProm = fletes.length ? fletes.reduce((a, b) => a + b, 0) / fletes.length : null;
+    const fleteProm = avg(fletes);
     const fleteUltimo = fletes.length ? fletes[fletes.length - 1] : null;
 
-    return { pedidosEsteAnio, pedidosAnioPasado, usdLast, usdDeltaPct, copLast, copDeltaPct, fleteProm, fleteUltimo };
-  }, [data, currentYear, trmByImport]);
+    return {
+      pedidosEsteAnio, pedidosAnioPasado, tonEsteAnio, tonAnioPasado,
+      usdLast, usdDeltaPct, usdYoYPct,
+      totLast, totDeltaPct,
+      nacLast, nacDeltaPct, nacYoYPct,
+      trmLast, trmDeltaPct,
+      fleteProm, fleteUltimo,
+    };
+  }, [data, currentYear, trmByImport, trmHoy]);
 
   const filtered = useMemo(() => {
     const rows = data?.all ?? [];
@@ -221,14 +270,17 @@ export default function Importaciones() {
           <ImportPriceAnalysis />
         ) : (
         <>
-        {/* KPIs de contenedores en general */}
+        {/* KPIs de materia prima: cada uno con variación vs pedido anterior y vs año pasado */}
         {kpis && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             <Card>
               <CardContent className="py-3 px-4">
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Pedidos {currentYear}</p>
                 <p className="text-2xl font-bold tabular-nums">{kpis.pedidosEsteAnio}</p>
-                <p className="text-[11px] text-muted-foreground">{kpis.pedidosAnioPasado} en {currentYear - 1}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {kpis.pedidosAnioPasado} en {currentYear - 1}
+                  {kpis.tonEsteAnio > 0 && ` · ${kpis.tonEsteAnio.toLocaleString('es-CO', { maximumFractionDigits: 1 })} t${kpis.tonAnioPasado > 0 ? ` (${kpis.tonAnioPasado.toLocaleString('es-CO', { maximumFractionDigits: 1 })} t en ${currentYear - 1})` : ''}`}
+                </p>
               </CardContent>
             </Card>
             <Card>
@@ -237,28 +289,38 @@ export default function Importaciones() {
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.usdLast != null ? `$${kpis.usdLast.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                {kpis.usdDeltaPct != null && (
-                  <p className={cn('text-[11px] font-medium inline-flex items-center gap-1', kpis.usdDeltaPct > 0 ? 'text-destructive' : 'text-success')}>
-                    {kpis.usdDeltaPct > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                    {kpis.usdDeltaPct > 0 ? '+' : ''}{kpis.usdDeltaPct.toFixed(1)}% vs pedido anterior
-                  </p>
-                )}
+                <DeltaLine pct={kpis.usdDeltaPct} label="vs pedido anterior" />
+                <DeltaLine pct={kpis.usdYoYPct} label={`vs ${currentYear - 1}`} />
               </CardContent>
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">COP/ton último</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="CIF + arancel + IVA + otros costos del último contenedor, en pesos. Usa el estimado (≈) mientras no esté cargado el costo real.">Total Importación (COP)</p>
                 <p className="text-2xl font-bold tabular-nums font-mono">
-                  {kpis.copLast != null ? fmtCOPShort(kpis.copLast) : '—'}
+                  {kpis.totLast != null ? fmtCOPShort(kpis.totLast) : '—'}
                 </p>
-                {kpis.copDeltaPct != null ? (
-                  <p className={cn('text-[11px] font-medium inline-flex items-center gap-1', kpis.copDeltaPct > 0 ? 'text-destructive' : 'text-success')}>
-                    {kpis.copDeltaPct > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                    {kpis.copDeltaPct > 0 ? '+' : ''}{kpis.copDeltaPct.toFixed(1)}% vs pedido anterior
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground">SMM × TRM de abonos</p>
-                )}
+                <DeltaLine pct={kpis.totDeltaPct} label="vs pedido anterior" />
+                {kpis.totDeltaPct == null && <p className="text-[11px] text-muted-foreground">CIF + arancel + IVA + otros</p>}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-3 px-4">
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Total Importación ÷ toneladas del pedido — el costo real de la materia prima puesta en bodega.">COP/ton nacionalizado</p>
+                <p className="text-2xl font-bold tabular-nums font-mono">
+                  {kpis.nacLast != null ? fmtCOPShort(kpis.nacLast) : '—'}
+                </p>
+                <DeltaLine pct={kpis.nacDeltaPct} label="vs pedido anterior" />
+                <DeltaLine pct={kpis.nacYoYPct} label={`vs ${currentYear - 1}`} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-3 px-4">
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">TRM pagada</p>
+                <p className="text-2xl font-bold tabular-nums font-mono">
+                  {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
+                </p>
+                <DeltaLine pct={kpis.trmDeltaPct} label="vs pedido anterior" />
+                {kpis.trmDeltaPct == null && <p className="text-[11px] text-muted-foreground">ponderada de los abonos</p>}
               </CardContent>
             </Card>
             <Card>
@@ -380,21 +442,23 @@ export default function Importaciones() {
                     filtered.map(row => {
                       const badge = ESTADO_BADGE[row.estado];
                       const flete = sumImportCosts(row.import_costs, 'flete');
-                      const seguro = sumImportCosts(row.import_costs, 'seguro');
                       const arancel = sumImportCosts(row.import_costs, 'arancel');
                       const iva = sumImportCosts(row.import_costs, 'iva_importacion');
                       const agencia = sumImportCosts(row.import_costs, 'nacionalizacion');
-                      // Estimados de arancel/IVA cuando aún no está cargado el real:
-                      // CIF COP × arancel_pct, (CIF + arancel) × iva_pct — mismo
-                      // cálculo del Resumen del pedido. TRM: abonos → causación → hoy.
+                      // Estimados de arancel/IVA cuando aún no está cargado el
+                      // real — misma lib que el Resumen. TRM: abonos → causación → hoy.
                       const trmEst = trmByImport.get(row.id)
                         ?? (row.trm_causacion ? Number(row.trm_causacion) : null)
                         ?? trmHoy;
-                      const cifUsd = Number(row.monto_total_usd ?? 0) + flete.usd + seguro.usd;
-                      const cifCop = trmEst && cifUsd > 0 ? cifUsd * trmEst + flete.cop + seguro.cop : null;
-                      const arancelEst = cifCop != null ? cifCop * (Number(row.arancel_pct ?? 5) / 100) : null;
-                      const ivaEst = cifCop != null && arancelEst != null
-                        ? (cifCop + arancelEst) * (Number(row.iva_pct ?? 19) / 100) : null;
+                      const bd = computeImportBreakdown({
+                        mercanciaUsd: Number(row.monto_total_usd ?? 0),
+                        costs: row.import_costs,
+                        trm: trmEst,
+                        arancelPct: Number(row.arancel_pct ?? 5),
+                        ivaPct: Number(row.iva_pct ?? 19),
+                      });
+                      const arancelEst = bd.arancelCop != null && bd.arancelCop > 0 ? bd.arancelCop : null;
+                      const ivaEst = bd.ivaCop != null && bd.ivaCop > 0 ? bd.ivaCop : null;
                       const hayArancelReal = arancel.usd > 0 || arancel.cop > 0;
                       const hayIvaReal = iva.usd > 0 || iva.cop > 0;
                       return (

@@ -40,17 +40,9 @@ export interface ImportCostRow {
   moneda: 'USD' | 'COP';
 }
 
-/** Suma de costos adicionales de un tipo, separada por moneda. */
-export function sumImportCosts(costs: ImportCostRow[] | undefined, tipo: ImportCostRow['tipo']): { usd: number; cop: number } {
-  let usd = 0;
-  let cop = 0;
-  for (const c of costs ?? []) {
-    if (c.tipo !== tipo) continue;
-    if (c.moneda === 'USD') usd += Number(c.monto ?? 0);
-    else cop += Number(c.monto ?? 0);
-  }
-  return { usd, cop };
-}
+// La suma por tipo vive en la lib de costeo (misma fuente que el desglose
+// del Resumen y los KPIs) — re-export para no romper imports existentes.
+export { sumImportCosts } from '@/lib/importCosting';
 
 export interface ImportRow {
   id: string;
@@ -181,9 +173,9 @@ export function useImports() {
   };
 
   const create = useMutation({
-    mutationFn: async (input: Patch & { proveedor_nombre: string; estado: ImportEstado; estado_fecha?: string }) => {
+    mutationFn: async (input: Patch & { proveedor_nombre: string; estado: ImportEstado; estado_fecha?: string; estado_fechas?: Partial<Record<ImportEstado, string>> }) => {
       if (!user) throw new Error('No auth');
-      const { estado_fecha, ...payload } = input;
+      const { estado_fecha, estado_fechas, ...payload } = input;
       const { data, error } = await supabase
         .from('imports' as never)
         .insert({ user_id: user.id, ...payload } as never)
@@ -192,11 +184,16 @@ export function useImports() {
       if (error) throw error;
       const newId = (data as unknown as { id: string })?.id;
       if (newId) {
-        await recordEstadoHistory(
-          newId,
-          input.estado,
-          estado_fecha || input.fecha_cotizacion || new Date().toISOString().split('T')[0],
-        );
+        // TODAS las fechas de flujo que el usuario puso al crear — no solo la
+        // del estado actual. Si el pedido nace ya "en tránsito" con fecha de
+        // cotización de hace 2 meses, el total de días arranca en cotización.
+        const fechas: Partial<Record<ImportEstado, string>> = { ...(estado_fechas ?? {}) };
+        if (!fechas[input.estado]) {
+          fechas[input.estado] = estado_fecha || input.fecha_cotizacion || new Date().toISOString().split('T')[0];
+        }
+        for (const [estado, fecha] of Object.entries(fechas)) {
+          if (fecha) await recordEstadoHistory(newId, estado as ImportEstado, fecha);
+        }
       }
     },
     onSuccess: () => {
