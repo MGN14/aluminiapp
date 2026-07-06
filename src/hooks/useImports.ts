@@ -54,6 +54,7 @@ export function sumImportCosts(costs: ImportCostRow[] | undefined, tipo: ImportC
 
 export interface ImportRow {
   id: string;
+  user_id: string;
   responsible_id: string | null;
   proveedor_nombre: string;
   estado: ImportEstado;
@@ -72,6 +73,11 @@ export interface ImportRow {
   notas: string | null;
   /** % de arancel estimado para el costeo (default 5) */
   arancel_pct: number | null;
+  /** % de IVA de importación para el costeo (default 19) */
+  iva_pct: number | null;
+  /** Cerrada = checklist documental completo; solo el admin puede modificarla */
+  cerrada: boolean;
+  cerrada_at: string | null;
   created_at: string;
   updated_at: string;
   /** Historial de cambios de estado (embebido) — base de las duraciones de etapa */

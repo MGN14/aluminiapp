@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, Lock as LockIcon } from 'lucide-react';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import { supabase } from '@/integrations/supabase/client';
 import ImportModal from '@/components/imports/ImportModal';
@@ -387,28 +387,39 @@ export default function Importaciones() {
                             )}
                           </TableCell>
                           {/* Estado editable en línea — mismos estados que el modal.
-                              El cambio pide fecha en el dialog antes de aplicarse. */}
+                              El cambio pide fecha en el dialog antes de aplicarse.
+                              Cerrada = candado: se reabre desde el modal (solo admin). */}
                           <TableCell onClick={(e) => e.stopPropagation()}>
-                            <Select
-                              value={row.estado}
-                              onValueChange={(v) => {
-                                if (v !== row.estado) setChanging({ row, estado: v as ImportEstado, fecha: todayIso() });
-                              }}
-                              disabled={changeEstado.isPending}
-                            >
-                              <SelectTrigger className={cn('h-7 w-[150px] text-[11px] font-medium border', badge.bg, badge.color, badge.border)}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {IMPORT_ESTADOS_ORDER.map(e => (
-                                  <SelectItem key={e} value={e}>{IMPORT_ESTADO_LABEL[e]}</SelectItem>
-                                ))}
-                                {row.estado === 'anticipo' && (
-                                  <SelectItem value="anticipo" disabled>Anticipo pagado (viejo)</SelectItem>
-                                )}
-                                <SelectItem value="cancelado">Cancelado</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            {row.cerrada ? (
+                              <span
+                                className={cn('inline-flex items-center gap-1 h-7 px-2.5 rounded-md border text-[11px] font-medium', badge.bg, badge.color, badge.border)}
+                                title="Importación cerrada — solo el admin puede reabrirla (desde el modal)"
+                              >
+                                <LockIcon className="h-3 w-3" />
+                                {IMPORT_ESTADO_LABEL[row.estado]} · Cerrada
+                              </span>
+                            ) : (
+                              <Select
+                                value={row.estado}
+                                onValueChange={(v) => {
+                                  if (v !== row.estado) setChanging({ row, estado: v as ImportEstado, fecha: todayIso() });
+                                }}
+                                disabled={changeEstado.isPending}
+                              >
+                                <SelectTrigger className={cn('h-7 w-[150px] text-[11px] font-medium border', badge.bg, badge.color, badge.border)}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {IMPORT_ESTADOS_ORDER.map(e => (
+                                    <SelectItem key={e} value={e}>{IMPORT_ESTADO_LABEL[e]}</SelectItem>
+                                  ))}
+                                  {row.estado === 'anticipo' && (
+                                    <SelectItem value="anticipo" disabled>Anticipo pagado (viejo)</SelectItem>
+                                  )}
+                                  <SelectItem value="cancelado">Cancelado</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
                           </TableCell>
                           <TableCell className="text-right text-sm font-mono">{fmtUSD(row.precio_smm_cerrado_usd_ton)}</TableCell>
                           <TableCell className="text-right"><CostCell usd={flete.usd} cop={flete.cop} /></TableCell>

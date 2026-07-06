@@ -9,13 +9,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADOS_ORDER, IMPORT_ESTADO_LABEL } from '@/hooks/useImports';
 import { useImportPayments, fetchTrmForDate } from '@/hooks/useImportPayments';
-import { computeStageDurations, computeTotalDays } from '@/lib/importStages';
+import { computeStageDurations, computeTotalDays, computeStageAverages } from '@/lib/importStages';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Trash2, Clock, Ship, CalendarClock } from 'lucide-react';
+import { usePermissions } from '@/hooks/usePermissions';
+import { Trash2, Clock, Ship, CalendarClock, ArrowRight, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ImportPaymentsSection from './ImportPaymentsSection';
 import ImportCostingSection from './ImportCostingSection';
+import ImportCostsTable from './ImportCostsTable';
+import ImportCierreSection from './ImportCierreSection';
 import CosteoCsvTools from './CosteoCsvTools';
 import ExchangeDiffPanel from './ExchangeDiffPanel';
 
@@ -79,12 +82,18 @@ function useProveedoresConocidos(enabled: boolean) {
 //   contenedor COSTEADO · TIEMPOS claros · SALDO fácil de ver ·
 //   conciliar con extractos · saber cuándo montar el próximo pedido.
 //
-// Estructura: header con los 4 números que importan (saldo, pago, flete, ETA)
-// + 4 pestañas (Resumen / Abonos / Costeo / Datos) en vez del formulario
-// interminable de una sola corrida.
+// Estructura: header con los 4 números que importan + 3 pestañas con el
+// RESUMEN como protagonista (cierre + tiempos + costeo casilla por casilla),
+// Costeo = abonos + landed cost por referencia, Datos = formulario.
 export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const { create, update, remove, data: importsData } = useImports();
+  const { user } = useAuth();
+  const { isAdmin } = usePermissions();
   const isEdit = !!editing;
+  // "Admin" del cierre = dueño de la cuenta (los colaboradores no cierran/reabren)
+  const esAdmin = isAdmin || (isEdit && user?.id === editing?.user_id);
+  const cerrada = isEdit ? !!editing?.cerrada : false;
+  const bloqueada = cerrada && !esAdmin;
 
   const [proveedorSel, setProveedorSel] = useState<string>(''); // responsible_id | __otro__
   const [proveedorLibre, setProveedorLibre] = useState('');
@@ -101,6 +110,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const [refPedido, setRefPedido] = useState('');
   const [notas, setNotas] = useState('');
   const [arancelPct, setArancelPct] = useState<number>(5);
+  const [ivaPct, setIvaPct] = useState<number>(19);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
   // TRM oficial de hoy — para el costeo estimado cuando aún no hay abonos
@@ -140,6 +150,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setRefPedido(editing.ref_pedido ?? '');
       setNotas(editing.notas ?? '');
       setArancelPct(Number(editing.arancel_pct ?? 5));
+      setIvaPct(Number(editing.iva_pct ?? 19));
     } else {
       setProveedorSel('');
       setProveedorLibre('');
@@ -154,6 +165,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setRefPedido('');
       setNotas('');
       setArancelPct(5);
+      setIvaPct(19);
     }
     setErrMsg(null);
   }, [open, editing]);
@@ -201,6 +213,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       ref_pedido: refPedido.trim() || null,
       notas: notas.trim() || null,
       arancel_pct: arancelPct,
+      iva_pct: ivaPct,
     };
     // Solo las fechas con valor — el historial se upsertea por estado.
     const fechasLlenas = Object.fromEntries(
@@ -257,11 +270,17 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       return data ?? [];
     },
   });
-  const flete = sumImportCosts(
-    (costosVivos as { tipo: never; monto: number; moneda: never }[] | undefined) ?? editing?.import_costs,
-    'flete',
-  );
-  const totalUsdContenedor = totalNum + flete.usd;
+  // Costos por tipo — CADA CASILLA APARTE (mercancía, flete, seguro, arancel,
+  // IVA, agencia, bancarios, otros). CIF = mercancía + flete + seguro.
+  const costosArr = (costosVivos as { tipo: never; monto: number; moneda: never }[] | undefined) ?? editing?.import_costs;
+  const flete = sumImportCosts(costosArr, 'flete');
+  const seguro = sumImportCosts(costosArr, 'seguro');
+  const arancelReal = sumImportCosts(costosArr, 'arancel');
+  const ivaReal = sumImportCosts(costosArr, 'iva_importacion');
+  const agencia = sumImportCosts(costosArr, 'nacionalizacion');
+  const bancarios = sumImportCosts(costosArr, 'gastos_bancarios');
+  const otrosCostos = sumImportCosts(costosArr, 'otro');
+  const totalUsdContenedor = totalNum + flete.usd + seguro.usd;
 
   // ETA: días restantes (o atraso) para pedidos abiertos
   const etaDias = fechaEta && estado !== 'entregado' && estado !== 'cancelado'
@@ -278,6 +297,14 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       .map(t => t.dias);
     if (!dias.length) return null;
     return Math.round(dias.reduce((a, b) => a + b, 0) / dias.length);
+  }, [importsData]);
+
+  // Promedio histórico por etapa (todas las importaciones) → análisis de tiempo
+  const stageProm = useMemo(() => {
+    const rows = (importsData?.all ?? []).filter(r => (r.import_estado_history?.length ?? 0) > 0);
+    if (!rows.length) return null;
+    const avgs = computeStageAverages(rows.map(r => ({ history: r.import_estado_history!, estado: r.estado })));
+    return Object.keys(avgs).length ? avgs : null;
   }, [importsData]);
 
   const stages = isEdit && editing?.import_estado_history?.length
@@ -360,7 +387,9 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
         </div>
       </div>
 
-      {/* Fechas del flujo — una por estado (con esto se miden las etapas) */}
+      {/* Fechas del flujo — una por estado, en orden: Cotización → En producción
+          → En tránsito → En aduana → Entregado (Entregado SIEMPRE la última).
+          La ETA no va acá: es estimada y vive en el Resumen. */}
       <div className="space-y-1.5">
         <Label className="text-sm font-semibold text-muted-foreground">Fechas del flujo (entrada a cada estado)</Label>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -375,10 +404,6 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
               />
             </div>
           ))}
-          <div>
-            <Label className="text-xs font-medium text-primary">ETA llegada (estimada)</Label>
-            <Input type="date" value={fechaEta} onChange={e => setFechaEta(e.target.value)} />
-          </div>
         </div>
       </div>
 
@@ -408,6 +433,11 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                   {isEdit && editing!.ref_pedido && (
                     <span className="text-sm font-normal text-muted-foreground font-mono">· {editing!.ref_pedido}</span>
                   )}
+                  {cerrada && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-success bg-success/10 border border-success/30 rounded-full px-2 py-0.5">
+                      <Lock className="h-3 w-3" /> Cerrada
+                    </span>
+                  )}
                 </DialogTitle>
                 {!isEdit && (
                   <DialogDescription className="text-xs mt-1">
@@ -417,7 +447,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
               </div>
               {/* Estado — siempre a mano, con fecha del cambio si cambió */}
               <div className="shrink-0 w-[180px] space-y-1">
-                <Select value={estado} onValueChange={(v) => setEstado(v as ImportEstado)}>
+                <Select value={estado} onValueChange={(v) => setEstado(v as ImportEstado)} disabled={bloqueada}>
                   <SelectTrigger className="h-8 text-xs font-medium"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {IMPORT_ESTADOS_ORDER.map(e => (
@@ -465,14 +495,14 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 </div>
               </div>
               <div className="rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Total USD (mercancía + flete)</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Total contenedor (USD)</p>
                 <p className="text-xl font-bold font-mono leading-tight text-foreground">
                   {fmtUSD0(totalUsdContenedor)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  {flete.usd > 0
-                    ? `${fmtUSD0(totalNum)} mercancía + ${fmtUSD0(flete.usd)} flete`
-                    : `${fmtUSD0(totalNum)} mercancía · flete: cargalo en Costeo`}
+                  {flete.usd > 0 || seguro.usd > 0
+                    ? 'mercancía + flete + seguro — desglose en Resumen'
+                    : `${fmtUSD0(totalNum)} mercancía · flete/seguro: cargalos en Resumen`}
                 </p>
               </div>
               <div className={cn(
@@ -487,7 +517,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 </p>
                 <p className={cn('text-[10px]', etaDias != null && etaDias < 0 ? 'text-amber-700 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>
                   {etaDias == null
-                    ? (estado === 'entregado' ? 'entregado' : 'sin ETA — ponela en Datos')
+                    ? (estado === 'entregado' ? 'entregado' : 'sin ETA — ponela en Resumen')
                     : etaDias >= 0 ? `en ${etaDias} día${etaDias !== 1 ? 's' : ''}` : `atrasada ${-etaDias}d`}
                 </p>
               </div>
@@ -498,81 +528,191 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
         <form onSubmit={handleSubmit} className="px-6 pb-5 pt-3 space-y-4">
           {isEdit && editing ? (
             <Tabs defaultValue="resumen">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="resumen">Resumen</TabsTrigger>
-                <TabsTrigger value="abonos">
-                  Abonos{payments.length > 0 ? ` (${payments.length})` : ''}
+              {/* Resumen es el protagonista: pestaña destacada, todo lo importante vive ahí */}
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger
+                  value="resumen"
+                  className="font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                >
+                  Resumen
                 </TabsTrigger>
-                <TabsTrigger value="costeo">Costeo</TabsTrigger>
+                <TabsTrigger value="costeo">
+                  Costeo{payments.length > 0 ? ` (${payments.length})` : ''}
+                </TabsTrigger>
                 <TabsTrigger value="datos">Datos</TabsTrigger>
               </TabsList>
 
-              {/* ── RESUMEN: tiempos + diferencia en cambio ── */}
+              {/* ── RESUMEN: cierre + tiempos + costeo casilla por casilla ── */}
               <TabsContent value="resumen" className="space-y-4 pt-3">
-                {stages.length > 0 && (
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
-                      <Clock className="h-3.5 w-3.5" />
-                      Tiempos del contenedor
-                      {totalDias && (
-                        <span className="font-normal text-xs">
-                          — {totalDias.dias} día{totalDias.dias !== 1 ? 's' : ''} {totalDias.enCurso ? 'en curso' : 'en total'}
-                        </span>
-                      )}
-                    </Label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {stages.map(s => (
-                        <div
-                          key={s.estado}
-                          className={cn(
-                            'px-2.5 py-1.5 rounded-lg border text-xs',
-                            s.enCurso
-                              ? 'border-primary/40 bg-primary/5 text-primary'
-                              : 'border-border bg-muted/40 text-muted-foreground',
-                          )}
-                          title={`Desde ${s.desde}${s.hasta ? ` hasta ${s.hasta}` : ' (en curso)'}`}
-                        >
-                          <span className="font-medium">{IMPORT_ESTADO_LABEL[s.estado]}</span>
-                          {s.estado !== 'entregado' && (
-                            <span className="ml-1 font-mono">{s.dias}d{s.enCurso ? '…' : ''}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Cierre con checklist (aparece al llegar a 'entregado') */}
+                <ImportCierreSection
+                  importId={editing.id}
+                  cerrada={cerrada}
+                  cerradaAt={editing.cerrada_at ?? null}
+                  estado={estado}
+                  esAdmin={!!esAdmin}
+                  paymentsCount={payments.length}
+                />
 
-                {/* ── COSTEO ESTIMADO: mercancía + flete → CIF → arancel → IVA ── */}
+                {/* ── TIEMPOS DEL CONTENEDOR: legibles, con análisis vs histórico ── */}
+                <div className="rounded-xl border border-border bg-card px-4 py-3 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <Label className="text-sm font-semibold flex items-center gap-1.5">
+                      <Clock className="h-4 w-4 text-primary" />
+                      Tiempos del contenedor
+                    </Label>
+                    {totalDias && (
+                      <span className="text-sm font-bold font-mono">
+                        {totalDias.dias} día{totalDias.dias !== 1 ? 's' : ''}
+                        <span className="font-sans font-normal text-xs text-muted-foreground"> {totalDias.enCurso ? 'en curso' : 'en total'}</span>
+                        {leadTimeProm != null && (
+                          <span className="font-sans font-normal text-xs text-muted-foreground"> · prom. histórico {leadTimeProm}d</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+
+                  {stages.length > 0 ? (
+                    <div className="flex flex-wrap items-stretch gap-1">
+                      {stages.map((s, i) => {
+                        const prom = s.estado !== 'entregado' ? stageProm?.[s.estado]?.promedio : undefined;
+                        const delta = prom != null && !s.enCurso ? s.dias - prom : null;
+                        return (
+                          <div key={s.estado} className="flex items-center gap-1">
+                            <div
+                              className={cn(
+                                'rounded-lg border px-2.5 py-1.5 min-w-[92px]',
+                                s.enCurso ? 'border-primary/50 bg-primary/5' : 'border-border bg-muted/30',
+                              )}
+                              title={`Desde ${s.desde}${s.hasta && s.hasta !== s.desde ? ` hasta ${s.hasta}` : s.enCurso ? ' (en curso)' : ''}`}
+                            >
+                              <p className={cn('text-[10px] font-semibold uppercase tracking-wide', s.enCurso ? 'text-primary' : 'text-muted-foreground')}>
+                                {IMPORT_ESTADO_LABEL[s.estado]}
+                              </p>
+                              {s.estado === 'entregado' ? (
+                                <p className="text-base font-bold leading-tight">{fmtFecha(s.desde)}</p>
+                              ) : (
+                                <p className={cn('text-base font-bold font-mono leading-tight', s.enCurso ? 'text-primary' : 'text-foreground')}>
+                                  {s.dias}d{s.enCurso ? '…' : ''}
+                                </p>
+                              )}
+                              <p className="text-[9.5px] text-muted-foreground leading-tight">
+                                {s.estado === 'entregado'
+                                  ? 'entrega'
+                                  : s.enCurso
+                                    ? (prom != null ? `desde ${fmtFecha(s.desde)} · prom ${prom}d` : `desde ${fmtFecha(s.desde)}`)
+                                    : delta != null && delta !== 0
+                                      ? <span className={delta > 0 ? 'text-destructive font-medium' : 'text-success font-medium'}>{delta > 0 ? '+' : '−'}{Math.abs(delta)}d vs prom</span>
+                                      : (prom != null ? 'igual al promedio' : `${fmtFecha(s.desde)}${s.hasta ? ` → ${fmtFecha(s.hasta)}` : ''}`)}
+                              </p>
+                            </div>
+                            {i < stages.length - 1 && <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Sin fechas del flujo todavía — cargalas en la pestaña Datos y acá se miden las etapas.
+                    </p>
+                  )}
+
+                  {/* Análisis de la etapa en curso vs promedio histórico */}
+                  {(() => {
+                    const enCurso = stages.find(s => s.enCurso);
+                    const prom = enCurso ? stageProm?.[enCurso.estado]?.promedio : undefined;
+                    if (!enCurso || prom == null) return null;
+                    const resto = prom - enCurso.dias;
+                    return (
+                      <p className={cn('text-[11px] leading-relaxed', enCurso.dias > prom ? 'text-amber-600 font-medium' : 'text-muted-foreground')}>
+                        {IMPORT_ESTADO_LABEL[enCurso.estado]} lleva <strong>{enCurso.dias} día{enCurso.dias !== 1 ? 's' : ''}</strong> — tu promedio
+                        histórico en esa etapa es {prom}d{resto > 0
+                          ? ` (quedarían ~${resto}d si se comporta como siempre).`
+                          : ` — ya se pasó ${enCurso.dias - prom}d del promedio, vale la pena averiguar por qué.`}
+                      </p>
+                    );
+                  })()}
+
+                  {/* ETA — estimada, vive acá en el Resumen (la real de aduana va en Datos) */}
+                  <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2.5">
+                    <Label className="text-xs font-medium flex items-center gap-1">
+                      <CalendarClock className="h-3.5 w-3.5 text-primary" /> ETA llegada (estimada)
+                    </Label>
+                    <Input
+                      type="date"
+                      value={fechaEta}
+                      onChange={e => setFechaEta(e.target.value)}
+                      disabled={bloqueada}
+                      className="h-8 w-40 text-xs"
+                    />
+                    {etaDias != null && (
+                      <span className={cn('text-xs font-medium', etaDias < 0 ? 'text-amber-600' : 'text-muted-foreground')}>
+                        {etaDias >= 0 ? `en ${etaDias} día${etaDias !== 1 ? 's' : ''}` : `atrasada ${-etaDias}d`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── COSTEO DEL CONTENEDOR: cada casilla aparte ── */}
                 {(() => {
                   const trmCosteo = trmPonderada != null ? Number(trmPonderada) : (trmHoy ?? null);
-                  const totalUsdContenedor = totalNum + flete.usd;
-                  if (totalUsdContenedor <= 0) return null;
-                  const cifCop = trmCosteo ? totalUsdContenedor * trmCosteo + flete.cop : null;
-                  const arancelCop = cifCop != null ? cifCop * (arancelPct / 100) : null;
-                  const ivaCop = cifCop != null && arancelCop != null ? (cifCop + arancelCop) * 0.19 : null;
-                  const cajaTotal = cifCop != null && arancelCop != null && ivaCop != null
-                    ? cifCop + arancelCop + ivaCop : null;
                   const fmtCOP = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
+                  const cifUsd = totalNum + flete.usd + seguro.usd;
+                  const cifCop = trmCosteo ? cifUsd * trmCosteo + flete.cop + seguro.cop : null;
+                  // Arancel/IVA: si hay valor REAL cargado en costos, manda el real;
+                  // si no, se estima con el % editable.
+                  const arancelRealCop = trmCosteo ? arancelReal.cop + arancelReal.usd * trmCosteo : arancelReal.cop;
+                  const usaArancelReal = arancelRealCop > 0;
+                  const arancelCop = usaArancelReal ? arancelRealCop : (cifCop != null ? cifCop * (arancelPct / 100) : null);
+                  const ivaRealCop = trmCosteo ? ivaReal.cop + ivaReal.usd * trmCosteo : ivaReal.cop;
+                  const usaIvaReal = ivaRealCop > 0;
+                  const ivaCop = usaIvaReal ? ivaRealCop : (cifCop != null && arancelCop != null ? (cifCop + arancelCop) * (ivaPct / 100) : null);
+                  const otrosCop = (trmCosteo ? (agencia.usd + bancarios.usd + otrosCostos.usd) * trmCosteo : 0)
+                    + agencia.cop + bancarios.cop + otrosCostos.cop;
+                  const totalImportacion = cifCop != null && arancelCop != null && ivaCop != null
+                    ? cifCop + arancelCop + ivaCop + otrosCop : null;
+                  const rowUsd = (v: { usd: number; cop: number }) => (
+                    <span>
+                      {v.usd > 0 ? fmtUSD0(v.usd) : v.cop > 0 ? '' : '—'}
+                      {v.cop > 0 && <span className="text-muted-foreground">{v.usd > 0 ? ' + ' : ''}{fmtCOP(v.cop)} COP</span>}
+                    </span>
+                  );
                   return (
-                    <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-1.5">
+                    <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-2">
                       <div className="flex items-center justify-between">
-                        <Label className="text-sm font-semibold text-muted-foreground">Costeo estimado del contenedor</Label>
+                        <Label className="text-sm font-semibold">Costeo del contenedor</Label>
                         <span className="text-[10px] text-muted-foreground">
-                          TRM {trmCosteo ? `$${Number(trmCosteo).toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
-                          {trmPonderada != null ? ' (abonos)' : trmHoy ? ' (hoy)' : ''}
+                          {trmCosteo
+                            ? `TRM $${Number(trmCosteo).toLocaleString('es-CO', { maximumFractionDigits: 0 })}${trmPonderada != null ? ' (promediada de abonos)' : ' (hoy — sin abonos aún)'}`
+                            : 'sin TRM — registrá abonos'}
                         </span>
                       </div>
+
                       <div className="text-xs space-y-1 font-mono">
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground font-sans">Mercancía + flete (Total USD)</span>
-                          <span className="font-semibold">{fmtUSD0(totalNum)} + {fmtUSD0(flete.usd)} = {fmtUSD0(totalUsdContenedor)}</span>
+                          <span className="text-muted-foreground font-sans">Mercancía (FOB)</span>
+                          <span className="font-semibold">{fmtUSD0(totalNum)}</span>
                         </div>
-                        {cifCop != null && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground font-sans">CIF en pesos</span>
-                            <span>{fmtCOP(cifCop)}</span>
-                          </div>
-                        )}
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground font-sans">Flete internacional</span>
+                          {rowUsd(flete)}
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground font-sans">Seguro</span>
+                          {rowUsd(seguro)}
+                        </div>
+                        <div className="flex justify-between border-t border-border pt-1">
+                          <span className="font-sans font-medium text-foreground">Total USD</span>
+                          <span className="font-semibold">{fmtUSD0(cifUsd)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground font-sans">× TRM promediada de abonos</span>
+                          <span>{trmCosteo ? `$${Number(trmCosteo).toLocaleString('es-CO', { maximumFractionDigits: 2 })}` : '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-sans font-medium text-foreground">CIF en pesos</span>
+                          <span className="font-semibold">{cifCop != null ? fmtCOP(cifCop) : '—'}</span>
+                        </div>
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground font-sans flex items-center gap-1.5">
                             Arancel
@@ -580,35 +720,64 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                               type="number" step="0.5" min={0} max={40}
                               value={arancelPct}
                               onChange={e => setArancelPct(e.target.value === '' ? 0 : +e.target.value)}
+                              disabled={bloqueada || usaArancelReal}
                               className="h-6 w-16 text-xs font-mono px-1.5 inline-block"
                               title="% de arancel según partida arancelaria — se guarda con el pedido"
                             />
                             <span className="font-sans">%</span>
+                            {usaArancelReal && <span className="font-sans text-[9px] text-success font-medium">real cargado</span>}
                           </span>
                           <span>{arancelCop != null ? fmtCOP(arancelCop) : '—'}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground font-sans">IVA importación 19% (CIF + arancel)</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground font-sans flex items-center gap-1.5">
+                            IVA importación
+                            <Input
+                              type="number" step="0.5" min={0} max={30}
+                              value={ivaPct}
+                              onChange={e => setIvaPct(e.target.value === '' ? 0 : +e.target.value)}
+                              disabled={bloqueada || usaIvaReal}
+                              className="h-6 w-16 text-xs font-mono px-1.5 inline-block"
+                              title="% de IVA de importación (base: CIF + arancel) — se guarda con el pedido"
+                            />
+                            <span className="font-sans">% (CIF + arancel)</span>
+                            {usaIvaReal && <span className="font-sans text-[9px] text-success font-medium">real cargado</span>}
+                          </span>
                           <span>{ivaCop != null ? fmtCOP(ivaCop) : '—'}</span>
                         </div>
-                        {cajaTotal != null && (
-                          <div className="flex justify-between border-t border-border pt-1 mt-1">
-                            <span className="font-sans font-semibold text-foreground">Caja necesaria (nacionalizar)</span>
-                            <span className="font-semibold">{fmtCOP(cajaTotal)}</span>
+                        {otrosCop > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground font-sans">Otros costos (agencia, bancarios, otros)</span>
+                            <span>{fmtCOP(otrosCop)}</span>
                           </div>
                         )}
                       </div>
+
+                      {/* Módulo de costos: se cargan acá mismo, donde se ven */}
+                      <div className="pt-1">
+                        <ImportCostsTable importId={editing.id} disabled={bloqueada} />
+                      </div>
+
+                      <div className="flex justify-between items-center border-t-2 border-border pt-2">
+                        <span className="text-sm font-bold">
+                          Total Importación{editing.ref_pedido ? <span className="font-mono font-semibold text-muted-foreground"> · {editing.ref_pedido}</span> : ''}
+                        </span>
+                        <span className="text-base font-bold font-mono">
+                          {totalImportacion != null ? fmtCOP(totalImportacion) : '—'}
+                        </span>
+                      </div>
+
                       <p className="text-[10px] text-muted-foreground leading-relaxed">
                         El IVA de importación es <strong>descontable</strong>: afecta la caja pero NO entra al costeo
-                        de la mercancía. Al costeo van mercancía + flete + arancel (+ agencia). Estimación — los
-                        valores reales van en la pestaña Costeo.
+                        de la mercancía. Al costo del inventario van mercancía + flete + seguro + arancel (+ agencia) —
+                        el detalle por referencia está en la pestaña Costeo.
                       </p>
                     </div>
                   );
                 })()}
 
                 {/* ¿Cuándo montar el próximo pedido? Lead time real de tus entregas */}
-                {leadTimeProm != null && (
+                {leadTimeProm != null && estado !== 'entregado' && (
                   <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-xs leading-relaxed">
                     <span className="font-semibold text-primary">Próximo pedido:</span>{' '}
                     tus contenedores entregados demoraron en promedio <strong>{leadTimeProm} días</strong> de
@@ -628,15 +797,13 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 />
               </TabsContent>
 
-              {/* ── ABONOS: pagos + conciliación con extractos ── */}
-              <TabsContent value="abonos" className="pt-3">
+              {/* ── COSTEO: abonos (TRM real) + landed cost referencia a referencia ── */}
+              <TabsContent value="costeo" className="space-y-4 pt-3">
                 <ImportPaymentsSection importId={editing.id} />
-              </TabsContent>
-
-              {/* ── COSTEO: flete, arancel, IVA, agencia + landed cost ── */}
-              <TabsContent value="costeo" className="pt-3">
-                <CosteoCsvTools importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
-                <ImportCostingSection importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
+                <div>
+                  <CosteoCsvTools importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
+                  <ImportCostingSection importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
+                </div>
               </TabsContent>
 
               {/* ── DATOS: el formulario clásico ── */}
@@ -647,7 +814,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                   variant="outline"
                   size="sm"
                   onClick={handleDelete}
-                  disabled={remove.isPending}
+                  disabled={remove.isPending || bloqueada}
                   className="text-destructive border-destructive/30 hover:bg-destructive/10"
                 >
                   <Trash2 className="h-4 w-4 mr-1" />
@@ -658,23 +825,35 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
           ) : (
             <div className="space-y-4">
               {camposDatos}
-              <div className="space-y-1.5">
-                <Label className="text-sm">Anticipo ya pagado (USD, opcional)</Label>
-                <Input
-                  type="number" step="0.01" min={0}
-                  value={anticipo}
-                  onChange={e => setAnticipo(e.target.value === '' ? '' : +e.target.value)}
-                  className="font-mono"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Anticipo ya pagado (USD, opcional)</Label>
+                  <Input
+                    type="number" step="0.01" min={0}
+                    value={anticipo}
+                    onChange={e => setAnticipo(e.target.value === '' ? '' : +e.target.value)}
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">ETA llegada (estimada)</Label>
+                  <Input type="date" value={fechaEta} onChange={e => setFechaEta(e.target.value)} />
+                </div>
               </div>
             </div>
           )}
 
           {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
 
-          <Button type="submit" disabled={saving || !proveedorNombre} className="w-full">
-            {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear importación'}
-          </Button>
+          {bloqueada ? (
+            <p className="text-xs text-muted-foreground text-center border border-border rounded-lg py-2.5 flex items-center justify-center gap-1.5">
+              <Lock className="h-3.5 w-3.5" /> Importación cerrada — solo el administrador puede modificarla.
+            </p>
+          ) : (
+            <Button type="submit" disabled={saving || !proveedorNombre} className="w-full">
+              {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear importación'}
+            </Button>
+          )}
         </form>
       </DialogContent>
     </Dialog>

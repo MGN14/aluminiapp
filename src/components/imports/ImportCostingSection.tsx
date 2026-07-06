@@ -6,13 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, Trash2, Upload, PackageOpen, Calculator, Info } from 'lucide-react';
 import { useImportItems } from '@/hooks/useImportItems';
-import {
-  COST_TIPO_LABEL, BASIS_LABEL, DEFAULT_BASIS_BY_TIPO,
-  type ImportCostTipo, type AllocationBasis,
-} from '@/lib/landedCost';
 import PackingListImport from './PackingListImport';
 
 const fmtCop = (n: number | null | undefined) =>
@@ -47,8 +42,8 @@ function useInventoryCosts() {
 export default function ImportCostingSection({ importId, montoTotalUsd }: { importId: string; montoTotalUsd?: number | null }) {
   const [trmOverride, setTrmOverride] = useState<number | ''>('');
   const {
-    items, costs, landed, trmPonderada, trmEfectiva, isLoading,
-    addItems, updateItem, removeItem, addCost, updateCost, removeCost,
+    items, landed, trmPonderada, trmEfectiva,
+    addItems, updateItem, removeItem,
   } = useImportItems(importId, trmOverride === '' ? null : Number(trmOverride));
   const { data: invCosts } = useInventoryCosts();
   const [showImport, setShowImport] = useState(false);
@@ -59,7 +54,6 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
   }, [landed]);
 
   const noTrm = trmEfectiva === null || trmEfectiva <= 0;
-  const fallbackSet = useMemo(() => new Set(landed.fallbackCostIds), [landed.fallbackCostIds]);
 
   // Conciliación: ¿la suma de FOB del packing list cuadra con el monto total
   // del pedido tecleado en la cabecera? Si difieren, el costeo puede estar
@@ -179,84 +173,8 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
         )}
       </div>
 
-      {/* ── Costos adicionales ── */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold text-muted-foreground">Costos del pedido ({costs.length})</Label>
-          <Button
-            type="button" size="sm" variant="outline" className="h-7 text-xs gap-1"
-            onClick={() => addCost.mutate({ tipo: 'flete', concepto: null, monto: 0, moneda: 'USD', trm: null, base_asignacion: DEFAULT_BASIS_BY_TIPO.flete, orden: costs.length })}
-          >
-            <Plus className="h-3.5 w-3.5" /> Costo
-          </Button>
-        </div>
-
-        {costs.length > 0 && (
-          <div className="overflow-x-auto border rounded-lg">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/60">
-                  <TableHead className="text-[11px]">Tipo</TableHead>
-                  <TableHead className="text-[11px] text-right">Monto</TableHead>
-                  <TableHead className="text-[11px]">Moneda</TableHead>
-                  <TableHead className="text-[11px]">Prorrateo</TableHead>
-                  <TableHead className="w-8" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {costs.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="p-1">
-                      <Select value={c.tipo} onValueChange={(v) => updateCost.mutate({ id: c.id, tipo: v as ImportCostTipo, base_asignacion: DEFAULT_BASIS_BY_TIPO[v as ImportCostTipo] })}>
-                        <SelectTrigger className="h-7 text-xs w-44"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {(Object.keys(COST_TIPO_LABEL) as ImportCostTipo[]).map((t) => (
-                            <SelectItem key={t} value={t} className="text-xs">{COST_TIPO_LABEL[t]}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell className="p-1">
-                      <Input type="number" step="0.01" defaultValue={c.monto} className="h-7 text-xs font-mono w-28 text-right"
-                        onBlur={(e) => Number(e.target.value) !== c.monto && updateCost.mutate({ id: c.id, monto: Number(e.target.value) || 0 })} />
-                    </TableCell>
-                    <TableCell className="p-1">
-                      <Select value={c.moneda} onValueChange={(v) => updateCost.mutate({ id: c.id, moneda: v as 'USD' | 'COP' })}>
-                        <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="USD" className="text-xs">USD</SelectItem>
-                          <SelectItem value="COP" className="text-xs">COP</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell className="p-1">
-                      <div className="flex items-center gap-1">
-                        <Select value={c.base_asignacion} onValueChange={(v) => updateCost.mutate({ id: c.id, base_asignacion: v as AllocationBasis })}>
-                          <SelectTrigger className="h-7 text-xs w-32"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {(Object.keys(BASIS_LABEL) as AllocationBasis[]).map((b) => (
-                              <SelectItem key={b} value={b} className="text-xs">{BASIS_LABEL[b]}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {fallbackSet.has(c.id) && (
-                          <span title="Ninguna referencia tiene esa base (ej: sin peso). Se prorrateó con otra base para no perder el costo." className="text-[9px] text-amber-600 font-medium whitespace-nowrap">⚠ auto</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="p-1">
-                      <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeCost.mutate(c.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
+      {/* Los costos del contenedor (flete, seguro, aduana…) se cargan en el
+          RESUMEN (ImportCostsTable) — acá solo se consumen para el landed. */}
 
       {/* Conciliación FOB packing list vs total del pedido */}
       {showMismatch && (
