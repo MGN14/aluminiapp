@@ -44,8 +44,14 @@ export function computeStageDurations(
   const fechas = new Map<string, string>();
   for (const h of history) fechas.set(h.estado, h.fecha);
 
-  // Solo estados del flujo con fecha registrada, en orden.
-  const enFlujo = IMPORT_ESTADOS_ORDER.filter(e => fechas.has(e));
+  // Regla de flujo: fechas de etapas POSTERIORES al estado actual no cuentan
+  // (fila huérfana de 'entregado' con el pedido aún en tránsito congelaba la
+  // etapa en curso y el total). Para cancelado/legacy (fuera del flujo) se
+  // toma todo el historial.
+  const idxActual = IMPORT_ESTADOS_ORDER.indexOf(estadoActual as ImportEstado);
+  const enFlujo = IMPORT_ESTADOS_ORDER.filter(
+    (e, i) => fechas.has(e) && (idxActual === -1 || i <= idxActual),
+  );
   if (!enFlujo.length) return [];
 
   const cerrada = estadoActual === 'entregado' || estadoActual === 'cancelado';
@@ -78,7 +84,11 @@ export function computeTotalDays(
     .sort();
   if (!fechas.length) return null;
   const inicio = fechas[0];
-  const entregado = history.find(h => h.estado === 'entregado')?.fecha;
+  // La fecha de 'entregado' solo cierra el total si el pedido REALMENTE está
+  // entregado (o cancelado) — regla de flujo, ver computeStageDurations.
+  const entregado = (estadoActual === 'entregado' || estadoActual === 'cancelado')
+    ? history.find(h => h.estado === 'entregado')?.fecha
+    : undefined;
   if (entregado) return { dias: Math.max(0, daysBetween(inicio, entregado)), enCurso: false };
   if (estadoActual === 'cancelado') return null;
   return { dias: Math.max(0, daysBetween(inicio, todayIso())), enCurso: true };

@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, Lock as LockIcon } from 'lucide-react';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
+import { fetchTrmForDate } from '@/hooks/useImportPayments';
 import { supabase } from '@/integrations/supabase/client';
 import ImportModal from '@/components/imports/ImportModal';
 import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
@@ -68,6 +69,14 @@ export default function Importaciones() {
   const [changing, setChanging] = useState<{ row: ImportRow; estado: ImportEstado; fecha: string } | null>(null);
 
   const currentYear = new Date().getFullYear();
+
+  // TRM de hoy — fallback para estimar arancel/IVA cuando el pedido aún no
+  // tiene abonos (sin TRM ponderada) ni TRM de causación.
+  const { data: trmHoy = null } = useQuery({
+    queryKey: ['trm-hoy'],
+    queryFn: () => fetchTrmForDate(todayIso()),
+    staleTime: 60 * 60_000,
+  });
 
   // TRM ponderada por importación (de los abonos) — para el KPI de COP/ton.
   const { data: liqRows = [] } = useQuery({
@@ -333,8 +342,8 @@ export default function Importaciones() {
                     <TableHead className="font-semibold">Estado</TableHead>
                     <TableHead className="font-semibold text-right">SMM cerrado</TableHead>
                     <TableHead className="font-semibold text-right">Flete</TableHead>
-                    <TableHead className="font-semibold text-right">Arancel</TableHead>
-                    <TableHead className="font-semibold text-right">IVA import.</TableHead>
+                    <TableHead className="font-semibold text-right" title="Con ≈ es el estimado que calcula la app (CIF × %). Cuando cargués el real en el Resumen del pedido, manda el real.">Arancel</TableHead>
+                    <TableHead className="font-semibold text-right" title="Con ≈ es el estimado que calcula la app ((CIF + arancel) × %). Cuando cargués el real en el Resumen del pedido, manda el real.">IVA</TableHead>
                     <TableHead className="font-semibold text-right">Agencia</TableHead>
                     <TableHead className="font-semibold text-right">Total USD</TableHead>
                     <TableHead className="font-semibold text-right">Saldo</TableHead>
@@ -371,9 +380,23 @@ export default function Importaciones() {
                     filtered.map(row => {
                       const badge = ESTADO_BADGE[row.estado];
                       const flete = sumImportCosts(row.import_costs, 'flete');
+                      const seguro = sumImportCosts(row.import_costs, 'seguro');
                       const arancel = sumImportCosts(row.import_costs, 'arancel');
                       const iva = sumImportCosts(row.import_costs, 'iva_importacion');
                       const agencia = sumImportCosts(row.import_costs, 'nacionalizacion');
+                      // Estimados de arancel/IVA cuando aún no está cargado el real:
+                      // CIF COP × arancel_pct, (CIF + arancel) × iva_pct — mismo
+                      // cálculo del Resumen del pedido. TRM: abonos → causación → hoy.
+                      const trmEst = trmByImport.get(row.id)
+                        ?? (row.trm_causacion ? Number(row.trm_causacion) : null)
+                        ?? trmHoy;
+                      const cifUsd = Number(row.monto_total_usd ?? 0) + flete.usd + seguro.usd;
+                      const cifCop = trmEst && cifUsd > 0 ? cifUsd * trmEst + flete.cop + seguro.cop : null;
+                      const arancelEst = cifCop != null ? cifCop * (Number(row.arancel_pct ?? 5) / 100) : null;
+                      const ivaEst = cifCop != null && arancelEst != null
+                        ? (cifCop + arancelEst) * (Number(row.iva_pct ?? 19) / 100) : null;
+                      const hayArancelReal = arancel.usd > 0 || arancel.cop > 0;
+                      const hayIvaReal = iva.usd > 0 || iva.cop > 0;
                       return (
                         <TableRow
                           key={row.id}
@@ -423,8 +446,21 @@ export default function Importaciones() {
                           </TableCell>
                           <TableCell className="text-right text-sm font-mono">{fmtUSD(row.precio_smm_cerrado_usd_ton)}</TableCell>
                           <TableCell className="text-right"><CostCell usd={flete.usd} cop={flete.cop} /></TableCell>
-                          <TableCell className="text-right"><CostCell usd={arancel.usd} cop={arancel.cop} /></TableCell>
-                          <TableCell className="text-right"><CostCell usd={iva.usd} cop={iva.cop} /></TableCell>
+                          {/* Arancel / IVA: real cargado si existe; si no, el estimado de la app (≈) */}
+                          <TableCell className="text-right">
+                            {hayArancelReal
+                              ? <CostCell usd={arancel.usd} cop={arancel.cop} />
+                              : arancelEst != null
+                                ? <span className="font-mono text-sm text-muted-foreground" title={`Estimado: CIF × ${Number(row.arancel_pct ?? 5)}% — cargá el real en el Resumen cuando lo pagues`}>≈{fmtCOPShort(arancelEst)}</span>
+                                : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {hayIvaReal
+                              ? <CostCell usd={iva.usd} cop={iva.cop} />
+                              : ivaEst != null
+                                ? <span className="font-mono text-sm text-muted-foreground" title={`Estimado: (CIF + arancel) × ${Number(row.iva_pct ?? 19)}% — cargá el real en el Resumen cuando lo pagues`}>≈{fmtCOPShort(ivaEst)}</span>
+                                : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
                           <TableCell className="text-right"><CostCell usd={agencia.usd} cop={agencia.cop} /></TableCell>
                           {/* Total USD = mercancía + flete (el saldo sigue siendo vs mercancía) */}
                           <TableCell

@@ -154,6 +154,32 @@ export function useImports() {
     if (error) console.warn('No se pudo registrar historial de estado:', error.message);
   };
 
+  /** Borra la fecha de UN estado (el usuario la vació en el grid de Datos). */
+  const deleteEstadoHistory = async (importId: string, estado: ImportEstado) => {
+    const { error } = await (supabase as any)
+      .from('import_estado_history')
+      .delete()
+      .eq('import_id', importId)
+      .eq('estado', estado);
+    if (error) console.warn('No se pudo borrar historial de estado:', error.message);
+  };
+
+  /** Regla de flujo: al fijar un estado, las etapas POSTERIORES no pueden
+   *  tener fecha (un 'entregado' huérfano con el pedido en tránsito rompía
+   *  los tiempos). Se borran del historial. */
+  const deleteEstadoHistoryBeyond = async (importId: string, estado: ImportEstado) => {
+    const idx = IMPORT_ESTADOS_ORDER.indexOf(estado);
+    if (idx === -1) return; // cancelado/legacy: fuera del flujo, no se toca
+    const beyond = IMPORT_ESTADOS_ORDER.slice(idx + 1);
+    if (!beyond.length) return;
+    const { error } = await (supabase as any)
+      .from('import_estado_history')
+      .delete()
+      .eq('import_id', importId)
+      .in('estado', beyond);
+    if (error) console.warn('No se pudo limpiar historial posterior:', error.message);
+  };
+
   const create = useMutation({
     mutationFn: async (input: Patch & { proveedor_nombre: string; estado: ImportEstado; estado_fecha?: string }) => {
       if (!user) throw new Error('No auth');
@@ -185,7 +211,8 @@ export function useImports() {
   const update = useMutation({
     // estado_fecha: fecha del cambio de estado (si el estado cambió).
     // estado_fechas: fechas de flujo por estado (grid "Fechas del flujo" del
-    // modal) — se upsertean todas las que vengan al historial.
+    // modal) — valor = upsert, string vacío = borrar la fila del historial.
+    // Al final se limpian las etapas posteriores al estado (regla de flujo).
     mutationFn: async (input: { id: string; estado_fecha?: string; estado_fechas?: Partial<Record<ImportEstado, string>> } & Patch) => {
       const { id, estado_fecha, estado_fechas, ...patch } = input;
       const { error } = await supabase
@@ -199,7 +226,11 @@ export function useImports() {
       if (estado_fechas) {
         for (const [estado, fecha] of Object.entries(estado_fechas)) {
           if (fecha) await recordEstadoHistory(id, estado as ImportEstado, fecha);
+          else await deleteEstadoHistory(id, estado as ImportEstado);
         }
+      }
+      if (patch.estado) {
+        await deleteEstadoHistoryBeyond(id, patch.estado as ImportEstado);
       }
     },
     onSuccess: () => {
@@ -228,10 +259,13 @@ export function useImports() {
     mutationFn: async ({ row, estado, fecha }: { row: ImportRow; estado: ImportEstado; fecha?: string }) => {
       const cambioFecha = fecha || new Date().toISOString().split('T')[0];
       // Stamp la fecha del nuevo estado (columnas legacy del flujo).
-      const datePatch: Record<string, string> = {};
+      const datePatch: Record<string, string | null> = {};
       if (estado === 'cotizacion') datePatch.fecha_cotizacion = cambioFecha;
       if (estado === 'transito') datePatch.fecha_embarque = cambioFecha;
       if (estado === 'entregado') datePatch.fecha_arribo_real = cambioFecha;
+      // Regla de flujo: si el pedido NO está entregado, no puede quedar con
+      // fecha de arribo real (generaba un 'entregado' fantasma en el timeline).
+      if (estado !== 'entregado' && estado !== 'cancelado') datePatch.fecha_arribo_real = null;
       const { error } = await supabase
         .from('imports' as never)
         .update({ estado, ...datePatch } as never)
@@ -239,6 +273,7 @@ export function useImports() {
       if (error) throw error;
       if (estado !== 'cancelado') {
         await recordEstadoHistory(row.id, estado, cambioFecha);
+        await deleteEstadoHistoryBeyond(row.id, estado);
       }
     },
     onSuccess: () => {

@@ -139,12 +139,17 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       setPrecioSmm(editing.precio_smm_cerrado_usd_ton ?? '');
       setMontoTotal(editing.monto_total_usd ?? '');
       setAnticipo(editing.anticipo_pagado_usd ?? '');
-      // Fechas por estado: historial primero, columnas legacy como fallback
+      // Fechas por estado: historial primero, columnas legacy como fallback.
+      // Regla de flujo: fecha_arribo_real solo mapea a 'entregado' si el
+      // pedido REALMENTE está entregado (mapearlo siempre creaba un
+      // 'entregado' fantasma en pedidos aún en tránsito).
       const fechas: Record<string, string> = {};
       for (const h of editing.import_estado_history ?? []) fechas[h.estado] = h.fecha;
       if (!fechas.cotizacion && editing.fecha_cotizacion) fechas.cotizacion = editing.fecha_cotizacion;
       if (!fechas.transito && editing.fecha_embarque) fechas.transito = editing.fecha_embarque;
-      if (!fechas.entregado && editing.fecha_arribo_real) fechas.entregado = editing.fecha_arribo_real;
+      if (!fechas.entregado && editing.fecha_arribo_real && editing.estado === 'entregado') {
+        fechas.entregado = editing.fecha_arribo_real;
+      }
       setEstadoFechas(fechas);
       setFechaEta(editing.fecha_estimada_llegada ?? '');
       setRefPedido(editing.ref_pedido ?? '');
@@ -187,12 +192,32 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
     ? (proveedores.find(p => p.id === proveedorSel)?.name ?? '')
     : proveedorLibre.trim();
 
+  // Regla de flujo: las etapas DESPUÉS del estado actual no llevan fecha.
+  const idxEstado = IMPORT_ESTADOS_ORDER.indexOf(estado);
+  const etapaFutura = (e: ImportEstado) =>
+    idxEstado !== -1 && IMPORT_ESTADOS_ORDER.indexOf(e) > idxEstado;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrMsg(null);
     if (!proveedorNombre) {
       setErrMsg('Tenés que elegir o escribir un proveedor');
       return;
+    }
+    // Regla de flujo: fechas en orden cronológico según las etapas
+    // (cotización ≤ producción ≤ tránsito ≤ aduana ≤ entregado).
+    let prevEtapa: { estado: ImportEstado; fecha: string } | null = null;
+    for (const et of IMPORT_ESTADOS_ORDER) {
+      if (etapaFutura(et)) continue;
+      const f = estadoFechas[et];
+      if (!f) continue;
+      if (prevEtapa && f < prevEtapa.fecha) {
+        setErrMsg(
+          `Las fechas del flujo deben ir en orden: ${IMPORT_ESTADO_LABEL[et]} (${f}) no puede ser anterior a ${IMPORT_ESTADO_LABEL[prevEtapa.estado]} (${prevEtapa.fecha}).`,
+        );
+        return;
+      }
+      prevEtapa = { estado: et, fecha: f };
     }
     const payload = {
       proveedor_nombre: proveedorNombre,
@@ -205,19 +230,22 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       // desde los abonos — mandarlo pisaba el valor real con el que estaba
       // cargado al ABRIR el modal.
       ...(isEdit ? {} : { anticipo_pagado_usd: anticipo === '' ? 0 : Number(anticipo) }),
-      // Columnas legacy mapeadas desde las fechas por estado
+      // Columnas legacy mapeadas desde las fechas por estado (respetando la
+      // regla de flujo: nada de fechas para etapas que aún no llegaron)
       fecha_cotizacion: estadoFechas.cotizacion || null,
-      fecha_embarque: estadoFechas.transito || null,
-      fecha_arribo_real: estadoFechas.entregado || null,
+      fecha_embarque: (etapaFutura('transito') ? null : estadoFechas.transito) || null,
+      fecha_arribo_real: estado === 'entregado' ? (estadoFechas.entregado || null) : null,
       fecha_estimada_llegada: fechaEta || null,
       ref_pedido: refPedido.trim() || null,
       notas: notas.trim() || null,
       arancel_pct: arancelPct,
       iva_pct: ivaPct,
     };
-    // Solo las fechas con valor — el historial se upsertea por estado.
-    const fechasLlenas = Object.fromEntries(
-      Object.entries(estadoFechas).filter(([, f]) => !!f),
+    // Todas las etapas del flujo: con valor = upsert, vacía = borrar del
+    // historial (así se corrige una fecha mal puesta). Las etapas futuras
+    // van vacías → se limpian.
+    const fechasFlujo = Object.fromEntries(
+      IMPORT_ESTADOS_ORDER.map(et => [et, etapaFutura(et) ? '' : (estadoFechas[et] ?? '')]),
     ) as Partial<Record<ImportEstado, string>>;
     try {
       if (isEdit && editing) {
@@ -226,10 +254,10 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
           ...payload,
           // Solo registra historial si el estado realmente cambió
           estado_fecha: estadoCambio ? estadoFecha : undefined,
-          estado_fechas: fechasLlenas,
+          estado_fechas: fechasFlujo,
         });
       } else {
-        await create.mutateAsync({ ...payload, estado_fecha: fechasLlenas[estado] ?? estadoFecha });
+        await create.mutateAsync({ ...payload, estado_fecha: fechasFlujo[estado] || estadoFecha });
       }
       onOpenChange(false);
     } catch (err) {
@@ -389,22 +417,32 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
 
       {/* Fechas del flujo — una por estado, en orden: Cotización → En producción
           → En tránsito → En aduana → Entregado (Entregado SIEMPRE la última).
-          La ETA no va acá: es estimada y vive en el Resumen. */}
+          Regla de flujo: las etapas posteriores al estado actual quedan
+          bloqueadas (se desbloquean al avanzar el estado) y las fechas deben
+          ir en orden cronológico. La ETA no va acá: vive en el Resumen. */}
       <div className="space-y-1.5">
         <Label className="text-sm font-semibold text-muted-foreground">Fechas del flujo (entrada a cada estado)</Label>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {IMPORT_ESTADOS_ORDER.map(e => (
-            <div key={e}>
-              <Label className="text-xs">{IMPORT_ESTADO_LABEL[e]}</Label>
-              <Input
-                type="date"
-                value={estadoFechas[e] ?? ''}
-                max={todayIso()}
-                onChange={ev => setEstadoFechas(prev => ({ ...prev, [e]: ev.target.value }))}
-              />
-            </div>
-          ))}
+          {IMPORT_ESTADOS_ORDER.map(e => {
+            const futura = etapaFutura(e);
+            return (
+              <div key={e}>
+                <Label className={cn('text-xs', futura && 'text-muted-foreground/60')}>{IMPORT_ESTADO_LABEL[e]}</Label>
+                <Input
+                  type="date"
+                  value={futura ? '' : (estadoFechas[e] ?? '')}
+                  max={todayIso()}
+                  disabled={futura}
+                  title={futura ? `El pedido está en "${IMPORT_ESTADO_LABEL[estado]}" — esta etapa se desbloquea al avanzar el estado` : undefined}
+                  onChange={ev => setEstadoFechas(prev => ({ ...prev, [e]: ev.target.value }))}
+                />
+              </div>
+            );
+          })}
         </div>
+        <p className="text-[10px] text-muted-foreground">
+          Solo hasta la etapa actual ({IMPORT_ESTADO_LABEL[estado]}) — las fechas deben ir en orden y las etapas futuras se desbloquean al avanzar el estado.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -731,7 +769,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground font-sans flex items-center gap-1.5">
-                            IVA importación
+                            IVA
                             <Input
                               type="number" step="0.5" min={0} max={30}
                               value={ivaPct}
