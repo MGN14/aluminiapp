@@ -193,12 +193,13 @@ export default function Importaciones() {
     const trmDeltaPct = pct(trmLast, conTrm[conTrm.length - 2] ?? null);
     const trmProm = avg(conTrm);
 
-    // Flete USD promedio por pedido (solo pedidos que ya tienen flete cargado)
+    // Flete USD por pedido (solo pedidos que ya tienen flete cargado)
     const fletes = ordered
       .map(r => sumImportCosts(r.import_costs, 'flete').usd)
       .filter(v => v > 0);
     const fleteProm = avg(fletes);
     const fleteUltimo = fletes.length ? fletes[fletes.length - 1] : null;
+    const fleteDeltaPct = pct(fleteUltimo, fletes.length > 1 ? fletes[fletes.length - 2] : null);
 
     return {
       pedidosEsteAnio, pedidosAnioPasado, tonEsteAnio, tonAnioPasado,
@@ -206,7 +207,7 @@ export default function Importaciones() {
       totLast, totDeltaPct, totProm,
       nacLast, nacDeltaPct, nacYoYPct, nacProm,
       trmLast, trmDeltaPct, trmProm,
-      fleteProm, fleteUltimo,
+      fleteProm, fleteUltimo, fleteDeltaPct,
     };
   }, [data, currentYear, trmByImport, trmHoy]);
 
@@ -448,6 +449,7 @@ export default function Importaciones() {
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.fleteUltimo != null ? `$${kpis.fleteUltimo.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
+                <DeltaLine pct={kpis.fleteDeltaPct} label="vs pedido anterior" />
                 <p className="text-[11px] text-muted-foreground">
                   {kpis.fleteProm != null ? `promedio $${kpis.fleteProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'cargalo en costos del pedido'}
                 </p>
