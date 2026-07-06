@@ -155,6 +155,7 @@ export default function Importaciones() {
     const usdDeltaPct = pct(usdLast, prev ? Number(prev.precio_smm_cerrado_usd_ton) : null);
     const smmDe = (yr: number) => avg(conPrecio.filter(r => yearOf(r) === yr).map(r => Number(r.precio_smm_cerrado_usd_ton)));
     const usdYoYPct = pct(smmDe(currentYear), smmDe(currentYear - 1));
+    const usdProm = avg(conPrecio.map(r => Number(r.precio_smm_cerrado_usd_ton)));
 
     // Total Importación en COP por pedido (real o estimado ≈ — misma lib que
     // el Resumen) y COP/ton nacionalizado (Total ÷ toneladas).
@@ -173,6 +174,7 @@ export default function Importaciones() {
       .filter((x): x is { r: ImportRow; total: number } => x.total != null && x.total > 0);
     const totLast = conTotal[conTotal.length - 1]?.total ?? null;
     const totDeltaPct = pct(totLast, conTotal[conTotal.length - 2]?.total ?? null);
+    const totProm = avg(conTotal.map(x => x.total));
 
     const conNac = conTotal
       .filter(x => Number(x.r.cantidad_ton ?? 0) > 0)
@@ -181,6 +183,7 @@ export default function Importaciones() {
     const nacDeltaPct = pct(nacLast, conNac[conNac.length - 2]?.porTon ?? null);
     const nacDe = (yr: number) => avg(conNac.filter(x => yearOf(x.r) === yr).map(x => x.porTon));
     const nacYoYPct = pct(nacDe(currentYear), nacDe(currentYear - 1));
+    const nacProm = avg(conNac.map(x => x.porTon));
 
     // TRM pagada (ponderada de los abonos): última vs pedido anterior
     const conTrm = ordered
@@ -188,6 +191,7 @@ export default function Importaciones() {
       .filter((t): t is number => t != null && t > 0);
     const trmLast = conTrm[conTrm.length - 1] ?? null;
     const trmDeltaPct = pct(trmLast, conTrm[conTrm.length - 2] ?? null);
+    const trmProm = avg(conTrm);
 
     // Flete USD promedio por pedido (solo pedidos que ya tienen flete cargado)
     const fletes = ordered
@@ -198,10 +202,10 @@ export default function Importaciones() {
 
     return {
       pedidosEsteAnio, pedidosAnioPasado, tonEsteAnio, tonAnioPasado,
-      usdLast, usdDeltaPct, usdYoYPct,
-      totLast, totDeltaPct,
-      nacLast, nacDeltaPct, nacYoYPct,
-      trmLast, trmDeltaPct,
+      usdLast, usdDeltaPct, usdYoYPct, usdProm,
+      totLast, totDeltaPct, totProm,
+      nacLast, nacDeltaPct, nacYoYPct, nacProm,
+      trmLast, trmDeltaPct, trmProm,
       fleteProm, fleteUltimo,
     };
   }, [data, currentYear, trmByImport, trmHoy]);
@@ -396,6 +400,9 @@ export default function Importaciones() {
                 </p>
                 <DeltaLine pct={kpis.usdDeltaPct} label="vs pedido anterior" />
                 <DeltaLine pct={kpis.usdYoYPct} label={`vs ${currentYear - 1}`} />
+                {kpis.usdProm != null && (
+                  <p className="text-[11px] text-muted-foreground">promedio ${kpis.usdProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -405,7 +412,9 @@ export default function Importaciones() {
                   {kpis.totLast != null ? fmtCOPShort(kpis.totLast) : '—'}
                 </p>
                 <DeltaLine pct={kpis.totDeltaPct} label="vs pedido anterior" />
-                {kpis.totDeltaPct == null && <p className="text-[11px] text-muted-foreground">CIF + arancel + IVA + otros</p>}
+                {kpis.totProm != null
+                  ? <p className="text-[11px] text-muted-foreground">promedio {fmtCOPShort(kpis.totProm)}</p>
+                  : <p className="text-[11px] text-muted-foreground">CIF + arancel + IVA + otros</p>}
               </CardContent>
             </Card>
             <Card>
@@ -416,6 +425,9 @@ export default function Importaciones() {
                 </p>
                 <DeltaLine pct={kpis.nacDeltaPct} label="vs pedido anterior" />
                 <DeltaLine pct={kpis.nacYoYPct} label={`vs ${currentYear - 1}`} />
+                {kpis.nacProm != null && (
+                  <p className="text-[11px] text-muted-foreground">promedio {fmtCOPShort(kpis.nacProm)}</p>
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -425,7 +437,9 @@ export default function Importaciones() {
                   {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
                 <DeltaLine pct={kpis.trmDeltaPct} label="vs pedido anterior" />
-                {kpis.trmDeltaPct == null && <p className="text-[11px] text-muted-foreground">ponderada de los abonos</p>}
+                {kpis.trmProm != null
+                  ? <p className="text-[11px] text-muted-foreground">promedio ${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })} · ponderada de abonos</p>
+                  : <p className="text-[11px] text-muted-foreground">ponderada de los abonos</p>}
               </CardContent>
             </Card>
             <Card>
