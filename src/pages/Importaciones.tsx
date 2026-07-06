@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, Lock as LockIcon } from 'lucide-react';
+import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, Lock as LockIcon, Radar as RadarIcon, AlertTriangle, PackageCheck, Factory } from 'lucide-react';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import { fetchTrmForDate } from '@/hooks/useImportPayments';
 import { computeImportBreakdown } from '@/lib/importCosting';
@@ -22,6 +22,19 @@ import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
 
 const todayIso = () => new Date().toISOString().split('T')[0];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const isoDiffDays = (a: string, b: string) => {
+  const [ay, am, ad] = a.split('-').map(Number);
+  const [by, bm, bd] = b.split('-').map(Number);
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / DAY_MS);
+};
+const isoAddDays = (iso: string, d: number) => {
+  const [y, m, dd] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, dd + d)).toISOString().slice(0, 10);
+};
+const fmtFechaCorta = (iso: string) =>
+  new Date(iso + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
 
 /** COP compacto para columnas de costos: $3,2M / $850k */
 const fmtCOPShort = (n: number) => {
@@ -193,6 +206,98 @@ export default function Importaciones() {
     };
   }, [data, currentYear, trmByImport, trmHoy]);
 
+  // ── Radar de abastecimiento ───────────────────────────────────────────────
+  // El análisis que el negocio necesita: (1) el contenedor que LLEGA — cuánta
+  // plata hay que tener lista; (2) los que vienen detrás — a qué precio
+  // promedio quedó la compra abierta; (3) cuándo montar el próximo pedido
+  // para no quedar sin stock (cadencia de pedidos vs lead time).
+  const radar = useMemo(() => {
+    const abiertos = data?.abiertos ?? [];
+    if (!abiertos.length) return null;
+    const all = (data?.all ?? []).filter(r => r.estado !== 'cancelado');
+    const hoy = todayIso();
+    const fechaRef = (r: ImportRow) => r.fecha_cotizacion ?? r.created_at.slice(0, 10);
+    const avg = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null);
+
+    // Lead time cotización→entrega: entregados reales; si no hay (negocio
+    // arrancando), proxy con la ETA de los pedidos abiertos que la tienen.
+    const ltEntregados = all
+      .filter(r => r.estado === 'entregado' && (r.import_estado_history?.length ?? 0) > 0)
+      .map(r => computeTotalDays(r.import_estado_history!, r.estado))
+      .filter((t): t is { dias: number; enCurso: boolean } => !!t && !t.enCurso && t.dias > 0)
+      .map(t => t.dias);
+    const ltProxy = abiertos
+      .filter(r => r.fecha_estimada_llegada)
+      .map(r => isoDiffDays(fechaRef(r), r.fecha_estimada_llegada!))
+      .filter(d => d > 0);
+    const leadTime = avg(ltEntregados) ?? avg(ltProxy);
+
+    // Llegada (real o estimada) de cada pedido abierto
+    const conLlegada = abiertos
+      .map(r => ({
+        r,
+        llega: r.fecha_estimada_llegada
+          ?? (leadTime != null ? isoAddDays(fechaRef(r), Math.round(leadTime)) : null),
+        etaEstimada: !r.fecha_estimada_llegada,
+      }))
+      .sort((a, b) => (a.llega ?? '9999').localeCompare(b.llega ?? '9999'));
+
+    // (1) Prioridad: el que llega primero
+    const proximo = conLlegada.find(x => x.llega != null) ?? conLlegada[0];
+    const proximoDias = proximo?.llega ? isoDiffDays(hoy, proximo.llega) : null;
+    const proximoBd = proximo
+      ? computeImportBreakdown({
+          mercanciaUsd: Number(proximo.r.monto_total_usd ?? 0),
+          costs: proximo.r.import_costs,
+          trm: trmByImport.get(proximo.r.id) ?? (proximo.r.trm_causacion ? Number(proximo.r.trm_causacion) : null) ?? trmHoy,
+          arancelPct: Number(proximo.r.arancel_pct ?? 5),
+          ivaPct: Number(proximo.r.iva_pct ?? 19),
+        })
+      : null;
+    const cajaNacionalizar = proximoBd
+      ? (proximoBd.arancelCop ?? 0) + (proximoBd.ivaCop ?? 0) + proximoBd.otrosCop
+      : null;
+
+    // (2) Los que vienen detrás + promedio ponderado de compra abierto
+    const detras = conLlegada.filter(x => x !== proximo);
+    const conSmm = abiertos.filter(r => Number(r.precio_smm_cerrado_usd_ton ?? 0) > 0);
+    const pesoTon = (r: ImportRow) => Number(r.cantidad_ton ?? 0) > 0 ? Number(r.cantidad_ton) : 1;
+    const smmPonderado = conSmm.length
+      ? conSmm.reduce((s, r) => s + Number(r.precio_smm_cerrado_usd_ton) * pesoTon(r), 0)
+        / conSmm.reduce((s, r) => s + pesoTon(r), 0)
+      : null;
+    const smmUltimo = conSmm.length
+      ? Number([...conSmm].sort((a, b) => fechaRef(a).localeCompare(fechaRef(b)))[conSmm.length - 1].precio_smm_cerrado_usd_ton)
+      : null;
+
+    // (3) ¿Cuándo montar el próximo? Ritmo de pedidos (cadencia entre
+    // cotizaciones) vs lead time: el siguiente debe llegar ~cadencia días
+    // después de la última llegada estimada.
+    const fechasPedidos = all.map(fechaRef).sort();
+    const diffs: number[] = [];
+    for (let i = 1; i < fechasPedidos.length; i++) {
+      const d = isoDiffDays(fechasPedidos[i - 1], fechasPedidos[i]);
+      if (d > 0) diffs.push(d);
+    }
+    const cadencia = avg(diffs.slice(-6));
+    const llegadas = conLlegada.map(x => x.llega).filter((f): f is string => !!f).sort();
+    const ultimaLlegada = llegadas[llegadas.length - 1] ?? null;
+    const montarAntesDe = ultimaLlegada && cadencia != null && leadTime != null
+      ? isoAddDays(ultimaLlegada, Math.round(cadencia - leadTime))
+      : null;
+    const diasParaMontar = montarAntesDe ? isoDiffDays(hoy, montarAntesDe) : null;
+    const llegariaHoy = leadTime != null ? isoAddDays(hoy, Math.round(leadTime)) : null;
+
+    return {
+      proximo, proximoDias, cajaNacionalizar,
+      saldoProximo: proximo ? Number(proximo.r.saldo_pendiente_usd ?? 0) : null,
+      detras, smmPonderado, smmUltimo,
+      leadTime: leadTime != null ? Math.round(leadTime) : null,
+      cadencia: cadencia != null ? Math.round(cadencia) : null,
+      montarAntesDe, diasParaMontar, llegariaHoy,
+    };
+  }, [data, trmByImport, trmHoy]);
+
   const filtered = useMemo(() => {
     const rows = data?.all ?? [];
     const q = search.trim().toLowerCase();
@@ -335,6 +440,124 @@ export default function Importaciones() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* ── Radar de abastecimiento: prioridad, futuros y cuándo montar ── */}
+        {radar && (
+          <Card className="border-primary/25">
+            <CardContent className="py-4 px-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <RadarIcon className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold">Radar de abastecimiento</span>
+                {radar.leadTime != null && (
+                  <span className="text-[10px] text-muted-foreground">
+                    lead time ~{radar.leadTime}d{radar.cadencia != null ? ` · pedís cada ~${radar.cadencia}d` : ''}
+                  </span>
+                )}
+              </div>
+              <div className="grid md:grid-cols-3 gap-3">
+                {/* 1 · Prioridad: el que llega */}
+                {radar.proximo && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-primary flex items-center gap-1">
+                      <PackageCheck className="h-3 w-3" /> Prioridad · llega{' '}
+                      {radar.proximoDias != null
+                        ? radar.proximoDias <= 0 ? 'YA' : `en ${radar.proximoDias} día${radar.proximoDias !== 1 ? 's' : ''}`
+                        : '—'}
+                    </p>
+                    <p className="text-sm font-semibold">
+                      {radar.proximo.r.proveedor_nombre}
+                      {radar.proximo.r.ref_pedido && <span className="font-mono text-xs text-muted-foreground"> · {radar.proximo.r.ref_pedido}</span>}
+                      {radar.proximo.llega && <span className="font-normal text-xs text-muted-foreground"> — {fmtFechaCorta(radar.proximo.llega)}</span>}
+                    </p>
+                    <div className="text-[11px] space-y-0.5">
+                      {radar.saldoProximo != null && radar.saldoProximo > 0 ? (
+                        <p><span className="text-muted-foreground">Saldo por girar:</span> <span className="font-mono font-semibold text-destructive">{fmtUSD(radar.saldoProximo)}</span></p>
+                      ) : (
+                        <p className="text-success font-medium">Mercancía 100% pagada ✓</p>
+                      )}
+                      {radar.cajaNacionalizar != null && radar.cajaNacionalizar > 0 && (
+                        <p>
+                          <span className="text-muted-foreground">Caja para nacionalizar:</span>{' '}
+                          <span className="font-mono font-semibold">≈{fmtCOPShort(radar.cajaNacionalizar)}</span>
+                          <span className="text-muted-foreground"> (arancel + IVA + agencia)</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2 · Los que vienen detrás — promedio de compra abierto */}
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                    <Factory className="h-3 w-3" /> Vienen detrás ({radar.detras.length})
+                  </p>
+                  {radar.smmPonderado != null && (
+                    <p className="text-[11px]">
+                      <span className="text-muted-foreground">Compra abierta promediada:</span>{' '}
+                      <span className="font-mono font-semibold">${radar.smmPonderado.toLocaleString('en-US', { maximumFractionDigits: 0 })}/t</span>
+                      {radar.smmUltimo != null && Math.round(radar.smmUltimo) !== Math.round(radar.smmPonderado) && (
+                        <span className="text-muted-foreground"> · último pedido ${radar.smmUltimo.toLocaleString('en-US', { maximumFractionDigits: 0 })}/t</span>
+                      )}
+                    </p>
+                  )}
+                  <div className="text-[11px] space-y-0.5">
+                    {radar.detras.length === 0 ? (
+                      <p className="text-muted-foreground">Nada en camino detrás del que llega.</p>
+                    ) : radar.detras.slice(0, 3).map(x => (
+                      <p key={x.r.id} className="text-muted-foreground">
+                        <span className="font-mono text-foreground">{x.r.ref_pedido ?? x.r.proveedor_nombre}</span>
+                        {Number(x.r.precio_smm_cerrado_usd_ton ?? 0) > 0 && ` · $${Number(x.r.precio_smm_cerrado_usd_ton).toLocaleString('en-US', { maximumFractionDigits: 0 })}/t`}
+                        {x.llega && ` · llega ~${fmtFechaCorta(x.llega)}${x.etaEstimada ? ' (est.)' : ''}`}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3 · Alerta: cuándo montar el próximo pedido */}
+                <div className={cn(
+                  'rounded-lg border px-3 py-2.5 space-y-1',
+                  radar.diasParaMontar != null && radar.diasParaMontar <= 0
+                    ? 'border-destructive/40 bg-destructive/5'
+                    : radar.diasParaMontar != null && radar.diasParaMontar <= 14
+                      ? 'border-amber-400/50 bg-amber-50/50 dark:bg-amber-950/10'
+                      : 'border-border bg-muted/20',
+                )}>
+                  <p className={cn(
+                    'text-[10px] font-semibold uppercase tracking-wide flex items-center gap-1',
+                    radar.diasParaMontar != null && radar.diasParaMontar <= 0 ? 'text-destructive'
+                      : radar.diasParaMontar != null && radar.diasParaMontar <= 14 ? 'text-amber-600' : 'text-muted-foreground',
+                  )}>
+                    <AlertTriangle className="h-3 w-3" /> Próximo pedido
+                  </p>
+                  {radar.montarAntesDe && radar.diasParaMontar != null ? (
+                    <p className="text-[11px] leading-relaxed">
+                      {radar.diasParaMontar <= 0 ? (
+                        <>
+                          <span className="font-semibold text-destructive">Ya vas tarde:</span> con tu ritmo (pedido cada ~{radar.cadencia}d,
+                          lead time ~{radar.leadTime}d) tocaba montarlo antes del <strong>{fmtFechaCorta(radar.montarAntesDe)}</strong>.
+                          {radar.llegariaHoy && <> Uno montado hoy llega ~<strong>{fmtFechaCorta(radar.llegariaHoy)}</strong>.</>}
+                        </>
+                      ) : radar.diasParaMontar <= 14 ? (
+                        <>
+                          Montalo antes del <strong>{fmtFechaCorta(radar.montarAntesDe)}</strong> (en {radar.diasParaMontar} día{radar.diasParaMontar !== 1 ? 's' : ''}) para
+                          que llegue cuando se acabe el anterior.
+                        </>
+                      ) : (
+                        <>
+                          Tranquilo: el siguiente se monta antes del <strong>{fmtFechaCorta(radar.montarAntesDe)}</strong> ({radar.diasParaMontar} días).
+                        </>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Sin datos para estimar todavía — con ETAs cargadas y pedidos entregados, acá te digo cuándo montar el próximo.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Filtros + búsqueda */}
@@ -550,7 +773,7 @@ export default function Importaciones() {
                                   className={total.enCurso ? 'text-primary' : 'text-muted-foreground'}
                                   title={total.enCurso ? 'Días desde el inicio (en curso)' : 'Días totales hasta la entrega'}
                                 >
-                                  {total.dias}d{total.enCurso ? '…' : ''}
+                                  {total.dias}d
                                 </span>
                               );
                             })()}

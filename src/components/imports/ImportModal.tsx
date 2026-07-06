@@ -629,18 +629,24 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                                 <p className="text-base font-bold leading-tight">{fmtFecha(s.desde)}</p>
                               ) : (
                                 <p className={cn('text-base font-bold font-mono leading-tight', s.enCurso ? 'text-primary' : 'text-foreground')}>
-                                  {s.dias}d{s.enCurso ? '…' : ''}
+                                  {s.dias}d
                                 </p>
                               )}
+                              {/* Fecha de inicio de la etapa SIEMPRE visible (pedido de Nico) */}
                               <p className="text-[9.5px] text-muted-foreground leading-tight">
                                 {s.estado === 'entregado'
                                   ? 'entrega'
-                                  : s.enCurso
-                                    ? (prom != null ? `desde ${fmtFecha(s.desde)} · prom ${prom}d` : `desde ${fmtFecha(s.desde)}`)
+                                  : `${fmtFecha(s.desde)}${s.enCurso ? ' → hoy' : s.hasta && s.hasta !== s.desde ? ` → ${fmtFecha(s.hasta)}` : ''}`}
+                              </p>
+                              {s.estado !== 'entregado' && prom != null && (
+                                <p className="text-[9.5px] leading-tight">
+                                  {s.enCurso
+                                    ? <span className="text-muted-foreground">prom {prom}d</span>
                                     : delta != null && delta !== 0
                                       ? <span className={delta > 0 ? 'text-destructive font-medium' : 'text-success font-medium'}>{delta > 0 ? '+' : '−'}{Math.abs(delta)}d vs prom</span>
-                                      : (prom != null ? 'igual al promedio' : `${fmtFecha(s.desde)}${s.hasta ? ` → ${fmtFecha(s.hasta)}` : ''}`)}
-                              </p>
+                                      : <span className="text-muted-foreground">igual al prom</span>}
+                                </p>
+                              )}
                             </div>
                             {i < stages.length - 1 && <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />}
                           </div>
