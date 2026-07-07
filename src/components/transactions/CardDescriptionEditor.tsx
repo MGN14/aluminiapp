@@ -12,44 +12,12 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Pencil, Search, Check, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-interface Suggestion {
-  description: string;
-  count: number;
-}
-
-// Descripciones existentes del usuario, excluyendo las sintéticas de tarjeta
-// ("Compra TC *2047", "Pago/abono TC *2047") que son justo lo que se quiere
-// reemplazar. Una sola columna, cacheada 10 min y solo se pide al abrir el
-// primer editor — cero costo si nadie edita.
-async function querySuggestions(): Promise<Suggestion[]> {
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('description')
-    .is('deleted_at', null)
-    .not('description', 'ilike', 'compra tc %')
-    .not('description', 'ilike', 'pago/abono tc %')
-    .limit(10000);
-  if (error) throw error;
-
-  const counts = new Map<string, number>();
-  for (const row of (data ?? []) as { description: string | null }[]) {
-    const d = (row.description ?? '').trim();
-    if (!d) continue;
-    counts.set(d, (counts.get(d) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([description, count]) => ({ description, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 400);
-}
+import { useDescriptionSuggestions } from '@/hooks/useDescriptionSuggestions';
 
 interface Props {
   currentDescription: string;
@@ -61,13 +29,7 @@ export default function CardDescriptionEditor({ currentDescription, onPick }: Pr
   const [search, setSearch] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: suggestions = [], isLoading } = useQuery({
-    queryKey: ['conciliacion', 'descripciones-sugeridas'],
-    queryFn: querySuggestions,
-    enabled: open,
-    staleTime: 10 * 60_000,
-    gcTime: 60 * 60_000,
-  });
+  const { suggestions, isLoading } = useDescriptionSuggestions(open);
 
   useEffect(() => {
     if (open) {

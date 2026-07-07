@@ -10,7 +10,7 @@
  * Conciliación la aplica en vivo al asignar categoría/beneficiario.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -24,9 +24,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useCardDescriptionRules, CardDescriptionRule } from '@/hooks/useCardDescriptionRules';
+import { useDescriptionSuggestions } from '@/hooks/useDescriptionSuggestions';
 import { Category, Responsible } from '@/types/transaction';
-import { CreditCard, Loader2, Plus, Trash2, Wand2 } from 'lucide-react';
+import { ChevronDown, CreditCard, Loader2, Plus, Search, Trash2, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Mismas queryKeys que Conciliación → comparten cache (0 requests extra si
@@ -44,6 +46,74 @@ async function queryResponsibles(): Promise<Responsible[]> {
 }
 
 const NONE = '_none';
+
+/** Desplegable CERRADO de descripciones existentes en conciliación — la regla
+ *  no acepta texto libre a propósito: la descripción resultante tiene que ser
+ *  una que ya exista en los extractos (consistencia con reglas normales de
+ *  Nico, que matchean por esas mismas descripciones). */
+function DescriptionPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const { suggestions, isLoading } = useDescriptionSuggestions(open);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const base = q ? suggestions.filter((s) => s.description.toLowerCase().includes(q)) : suggestions;
+    return base.slice(0, 50);
+  }, [suggestions, search]);
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className={`h-8 w-full justify-between text-xs font-normal ${!value ? 'text-muted-foreground' : ''}`}
+        >
+          <span className="truncate">{value || 'Elegir descripción existente…'}</span>
+          <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="p-0 w-[320px]" align="start">
+        <div className="p-2 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <Input
+              placeholder="Buscar descripción…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-7 pl-7 text-xs"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="max-h-[240px] overflow-y-auto">
+          {isLoading && (
+            <div className="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin" /> Cargando descripciones…
+            </div>
+          )}
+          {filtered.map((s) => (
+            <button
+              key={s.description}
+              className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left ${s.description === value ? 'bg-muted' : ''}`}
+              onClick={() => { onChange(s.description); setOpen(false); }}
+            >
+              <span className="truncate">{s.description}</span>
+              <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">{s.count}</span>
+            </button>
+          ))}
+          {!isLoading && filtered.length === 0 && (
+            <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+              No hay descripciones que coincidan
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function CardDescriptionRulesSection() {
   const { cardRules, isLoading, createRule, toggleRule, deleteRule, applyRuleToExisting } = useCardDescriptionRules();
@@ -160,15 +230,9 @@ export default function CardDescriptionRulesSection() {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1 flex-1 min-w-[200px]">
-          <p className="text-[11px] text-muted-foreground">Descripción a poner</p>
-          <Input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Ej: IMPTO GOBIERNO 4X1000"
-            className="h-8 text-xs"
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-          />
+        <div className="space-y-1 flex-1 min-w-[220px]">
+          <p className="text-[11px] text-muted-foreground">Descripción a poner (de tus extractos)</p>
+          <DescriptionPicker value={description} onChange={setDescription} />
         </div>
         <Button size="sm" className="h-8 gap-1" onClick={handleCreate} disabled={!canCreate || saving}>
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
