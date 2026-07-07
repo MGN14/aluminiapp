@@ -56,6 +56,12 @@ interface TransactionFiltersProps {
   categories: Category[];
   responsibles: Responsible[];
   descriptionOptions: DescriptionOption[];
+  /** El selector de extracto vive en el padre (arriba del banner), pero para el
+   *  usuario es UN filtro más: si está activo, "Limpiar filtros" también lo
+   *  resetea y el botón aparece aunque sea lo único filtrando. */
+  statementFilterActive?: boolean;
+  statementFilterLabel?: string;
+  onClearStatementFilter?: () => void;
 }
 
 export const defaultFilters: TransactionFilterState = {
@@ -70,7 +76,7 @@ export const defaultFilters: TransactionFilterState = {
   descSearch: '',
 };
 
-export default function TransactionFilters({ filters, onFiltersChange, counts, categories, responsibles, descriptionOptions }: TransactionFiltersProps) {
+export default function TransactionFilters({ filters, onFiltersChange, counts, categories, responsibles, descriptionOptions, statementFilterActive, statementFilterLabel, onClearStatementFilter }: TransactionFiltersProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   const update = (partial: Partial<TransactionFilterState>) => {
@@ -84,10 +90,12 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
     filters.responsibleId !== null ||
     (filters.descSearch ?? '').trim() !== '' ||
     filters.dateFrom !== undefined ||
-    filters.dateTo !== undefined;
+    filters.dateTo !== undefined ||
+    !!statementFilterActive;
 
   const clearFilters = () => {
     onFiltersChange({ ...defaultFilters, sortOrder: filters.sortOrder });
+    onClearStatementFilter?.();
   };
 
   // Quick date helpers
@@ -304,6 +312,20 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
 
         {/* Sort por Monto y Fecha movido a los headers de la tabla
             (clickeable directamente desde la columna). */}
+
+        {/* Extracto activo — el selector vive arriba del banner y no se leía
+            como filtro: el chip lo hace visible y quitable desde acá. */}
+        {statementFilterActive && (
+          <Badge
+            variant="outline"
+            className="h-7 gap-1 text-xs font-normal border-primary/40 text-primary max-w-[240px] cursor-pointer hover:bg-primary/5"
+            onClick={onClearStatementFilter}
+            title="Quitar filtro de extracto"
+          >
+            <span className="truncate">{statementFilterLabel ?? 'Extracto filtrado'}</span>
+            <X className="h-3 w-3 shrink-0" />
+          </Badge>
+        )}
 
         {/* Clear filters */}
         {hasActiveFilters && (

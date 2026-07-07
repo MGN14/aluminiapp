@@ -49,6 +49,35 @@ const TX_COL_DEFAULTS: Record<string, number> = {
   fecha: 80, desc: 300, monto: 112, tipo: 92, categoria: 184, beneficiario: 184, factura: 152, naturaleza: 132,
 };
 
+// Filas que se montan por tanda (ver renderizado por ventanas más abajo).
+// 150 cubre de sobra la pantalla + scroll inmediato sin costo perceptible.
+const ROWS_CHUNK = 150;
+
+/** Fila centinela al final de la tabla: al entrar al viewport (margen 500px)
+ *  carga la siguiente tanda. El botón queda como fallback/afordancia visible. */
+function LoadMoreRow({ remaining, onMore }: { remaining: number; onMore: () => void }) {
+  const cellRef = useRef<HTMLTableCellElement | null>(null);
+  useEffect(() => {
+    const el = cellRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const obs = new IntersectionObserver(
+      (entries) => { if (entries.some((e) => e.isIntersecting)) onMore(); },
+      { rootMargin: '500px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [onMore]);
+  return (
+    <TableRow>
+      <td ref={cellRef} colSpan={8} className="py-3 text-center">
+        <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={onMore}>
+          Mostrar más ({remaining.toLocaleString('es-CO')} restantes)
+        </Button>
+      </td>
+    </TableRow>
+  );
+}
+
 // ─── Persistencia de filtros en sessionStorage ───
 // Chrome/Safari pueden "discard" pestañas inactivas para liberar memoria.
 // Cuando el user vuelve, el componente se re-monta desde cero y los useState
@@ -515,6 +544,24 @@ export default function Transactions() {
     return { ingresos, egresos, neto: ingresos - egresos };
   }, [filteredTransactions]);
 
+  // ── Renderizado por ventanas ──────────────────────────────────────────
+  // La tabla montaba TODAS las filas de una (cada una con sus dropdowns de
+  // categoría/beneficiario). Con "Todos los extractos" de un año son miles de
+  // filas → segundos de bloqueo en cada entrada a la página, la sensación de
+  // "recalcula cada vez que entro y salgo". Mostramos de a tandas y una fila
+  // centinela va cargando más al acercarse al fondo del scroll.
+  const [visibleCount, setVisibleCount] = useState(ROWS_CHUNK);
+  useEffect(() => {
+    setVisibleCount(ROWS_CHUNK);
+  }, [filters, selectedStatement, selectedYear]);
+  const showMoreRows = useCallback(() => setVisibleCount((c) => c + ROWS_CHUNK), []);
+  const visibleTransactions = useMemo(
+    () => (filteredTransactions.length > visibleCount
+      ? filteredTransactions.slice(0, visibleCount)
+      : filteredTransactions),
+    [filteredTransactions, visibleCount],
+  );
+
   // Indica si hay filtros activos (más allá del default). Sirve para sólo
   // mostrar la suma cuando tiene sentido — sumar "todos los movimientos" del
   // statement ya está implícito en el extracto, no aporta.
@@ -537,15 +584,17 @@ export default function Transactions() {
   // lo facturado y la plata del banco. Medimos (a) % de cobros de venta
   // conciliados contra cartera, (b) líneas sin explicar, (c) traspasos sin
   // pierna espejo en otra cuenta.
-  const cierre = useMemo(() => {
-    const nameById = new Map(categories.map((c) => [c.id, c.name]));
-    return computeCierreKpis(transactions, nameById);
-  }, [transactions, categories]);
-
   const traspasosSinEspejo = useMemo(
     () => findUnmatchedTraspasos(transactions),
     [transactions],
   );
+
+  const cierre = useMemo(() => {
+    const nameById = new Map(categories.map((c) => [c.id, c.name]));
+    // Pasamos los traspasos ya calculados — antes findUnmatchedTraspasos corría
+    // DOS veces por montaje (acá adentro y en el memo de arriba).
+    return computeCierreKpis(transactions, nameById, traspasosSinEspejo);
+  }, [transactions, categories, traspasosSinEspejo]);
 
   // Anchos de columna redimensionables (Excel-like), persistidos.
   const { widths: colWidths, startResize, total: colTotal } = useColumnWidths(TX_COL_DEFAULTS, 'aluminia_tx_colwidths_v1');
@@ -779,6 +828,9 @@ export default function Transactions() {
             categories={categories}
             responsibles={responsibles}
             descriptionOptions={descriptionOptions}
+            statementFilterActive={selectedStatement !== 'all'}
+            statementFilterLabel={statementFilterLabel}
+            onClearStatementFilter={() => setSelectedStatement('all')}
           />
 
           <Card className="rounded-2xl border-black/[0.06] shadow-[0_1px_3px_rgba(0,0,0,0.05)] overflow-hidden">
@@ -892,7 +944,7 @@ export default function Transactions() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredTransactions.map((transaction) => (
+                      {visibleTransactions.map((transaction) => (
                         <TransactionRow
                           key={transaction.id}
                           transaction={transaction}
@@ -904,6 +956,12 @@ export default function Transactions() {
                           onTransactionUpdated={handleTransactionUpdated}
                         />
                       ))}
+                      {filteredTransactions.length > visibleCount && (
+                        <LoadMoreRow
+                          remaining={filteredTransactions.length - visibleCount}
+                          onMore={showMoreRows}
+                        />
+                      )}
                     </TableBody>
                   </Table>
                 </div>

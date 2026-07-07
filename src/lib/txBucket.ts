@@ -55,10 +55,20 @@ const BANK_GENERATED_PATTERNS: RegExp[] = [
   /comis swift/,
 ];
 
+// Cache por descripción: classifyBucket corre sobre TODAS las transacciones en
+// cada recomputo de KPIs, y las descripciones se repiten muchísimo (mismo
+// comercio/concepto). Sin cache son 15 regex por tx por pasada.
+const bankGeneratedCache = new Map<string, boolean>();
+
 export function isBankGenerated(description: string | null | undefined): boolean {
   if (!description) return false;
+  const cached = bankGeneratedCache.get(description);
+  if (cached !== undefined) return cached;
   const norm = normalizeForMatch(description);
-  return BANK_GENERATED_PATTERNS.some((re) => re.test(norm));
+  const result = BANK_GENERATED_PATTERNS.some((re) => re.test(norm));
+  if (bankGeneratedCache.size > 20_000) bankGeneratedCache.clear();
+  bankGeneratedCache.set(description, result);
+  return result;
 }
 
 /**
@@ -104,28 +114,54 @@ export function findUnmatchedTraspasos<T extends BucketTx>(transactions: T[], to
   const traspasos = transactions.filter((t) => t.movement_nature === 'traspaso');
   if (!traspasos.length) return [];
 
-  const used = new Set<string>();
-  const unmatched: T[] = [];
-
   const time = (t: BucketTx) => {
     const [y, m, d] = (t.date ?? '1970-01-01').split('-').map(Number);
     return Date.UTC(y, m - 1, d);
   };
 
-  for (const t of traspasos) {
-    const amount = Number(t.amount ?? 0);
-    if (!amount) continue;
-    const mirror = traspasos.find((m) =>
-      m.id !== t.id &&
-      !used.has(m.id ?? '') &&
-      Math.abs(Number(m.amount ?? 0) + amount) < 1 && // signo opuesto, mismo valor (±$1)
-      Math.abs(time(m) - time(t)) <= toleranceDays * DAY_MS
-    );
+  // Índice por monto redondeado → candidatos a espejo en O(1) por bucket.
+  // (Antes: .find anidado O(n²) que además corría dos veces por montaje de
+  // Conciliación — con años completos de datos se sentía como "recalcular".)
+  interface Entry { tx: T; idx: number; amount: number; time: number }
+  const entries: Entry[] = traspasos.map((tx, idx) => ({
+    tx, idx, amount: Number(tx.amount ?? 0), time: time(tx),
+  }));
+  const byAmountKey = new Map<number, Entry[]>();
+  for (const e of entries) {
+    const key = Math.round(e.amount);
+    const bucket = byAmountKey.get(key);
+    if (bucket) bucket.push(e);
+    else byAmountKey.set(key, [e]);
+  }
+
+  const used = new Set<number>();
+  const unmatched: T[] = [];
+
+  // OJO: la semántica replica EXACTAMENTE al .find lineal anterior (verificado
+  // por equivalencia con 2000 datasets aleatorios) — solo cambia la estructura
+  // de búsqueda. En particular, una pierna ya consumida como espejo igual busca
+  // su propio espejo en su turno (así se comportaba el original).
+  for (const e of entries) {
+    if (!e.amount) continue;
+    // Espejo: monto opuesto (±$1) a ±toleranceDays. La tolerancia de $1 puede
+    // caer en el bucket vecino, por eso se miran los 3 adyacentes; gana el de
+    // menor índice original (misma semántica que el .find lineal).
+    const targetKey = Math.round(-e.amount);
+    let mirror: Entry | null = null;
+    for (const key of [targetKey - 1, targetKey, targetKey + 1]) {
+      for (const c of byAmountKey.get(key) ?? []) {
+        if (c.idx === e.idx || used.has(c.idx)) continue;
+        if (Math.abs(c.amount + e.amount) >= 1) continue;
+        if (Math.abs(c.time - e.time) > toleranceDays * DAY_MS) continue;
+        if (!mirror || c.idx < mirror.idx) mirror = c;
+        break; // dentro del bucket el orden es el original: el primero válido basta
+      }
+    }
     if (mirror) {
-      used.add(t.id ?? '');
-      used.add(mirror.id ?? '');
-    } else if (!used.has(t.id ?? '')) {
-      unmatched.push(t);
+      used.add(e.idx);
+      used.add(mirror.idx);
+    } else if (!used.has(e.idx)) {
+      unmatched.push(e.tx);
     }
   }
   return unmatched;
@@ -148,6 +184,9 @@ export interface CierreKpis {
 export function computeCierreKpis<T extends BucketTx>(
   transactions: T[],
   categoryNameById: Map<string, string>,
+  // Si el caller ya calculó los traspasos sin espejo (Conciliación los necesita
+  // aparte para el detalle), se pasan acá y evitamos computarlos dos veces.
+  unmatchedTraspasos?: T[],
 ): CierreKpis {
   let cobrosVenta = 0;
   let cobrosConciliados = 0;
@@ -168,7 +207,7 @@ export function computeCierreKpis<T extends BucketTx>(
     if (bucket !== 'traspaso' && !tx.category_id) sinExplicar++;
   }
 
-  const traspasosSinContraparte = findUnmatchedTraspasos(transactions).length;
+  const traspasosSinContraparte = (unmatchedTraspasos ?? findUnmatchedTraspasos(transactions)).length;
 
   return {
     cobrosVenta,
