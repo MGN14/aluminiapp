@@ -1,0 +1,243 @@
+/**
+ * Sección "Reglas de tarjeta" dentro del módulo de Reglas de Nico.
+ *
+ * Reglas INVERSAS: categoría + beneficiario → descripción. Pensadas para los
+ * movimientos de tarjeta de crédito que entran sin comercio ("Compra TC *2047").
+ * Ej: Impuestos + DIAN → "IMPTO GOBIERNO 4X1000".
+ *
+ * Al crear una regla se aplica retroactivamente a los movimientos de tarjeta
+ * que ya tengan esa combinación asignada; hacia adelante, la fila de
+ * Conciliación la aplica en vivo al asignar categoría/beneficiario.
+ */
+
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useCardDescriptionRules, CardDescriptionRule } from '@/hooks/useCardDescriptionRules';
+import { Category, Responsible } from '@/types/transaction';
+import { CreditCard, Loader2, Plus, Trash2, Wand2 } from 'lucide-react';
+import { toast } from 'sonner';
+
+// Mismas queryKeys que Conciliación → comparten cache (0 requests extra si
+// el usuario ya pasó por esa página).
+async function queryCategories(): Promise<Category[]> {
+  const { data, error } = await supabase.from('categories').select('*').order('name');
+  if (error) throw error;
+  return (data as Category[]) || [];
+}
+
+async function queryResponsibles(): Promise<Responsible[]> {
+  const { data, error } = await supabase.from('responsibles').select('*').order('name');
+  if (error) throw error;
+  return (data as Responsible[]) || [];
+}
+
+const NONE = '_none';
+
+export default function CardDescriptionRulesSection() {
+  const { cardRules, isLoading, createRule, toggleRule, deleteRule, applyRuleToExisting } = useCardDescriptionRules();
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['conciliacion', 'categories'],
+    queryFn: queryCategories,
+    staleTime: 10 * 60_000,
+  });
+  const { data: responsibles = [] } = useQuery({
+    queryKey: ['conciliacion', 'responsibles'],
+    queryFn: queryResponsibles,
+    staleTime: 10 * 60_000,
+  });
+
+  const [categoryId, setCategoryId] = useState<string>(NONE);
+  const [responsibleId, setResponsibleId] = useState<string>(NONE);
+  const [description, setDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+
+  const catName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? '—';
+  const respName = (id: string | null) => responsibles.find((r) => r.id === id)?.name ?? '—';
+
+  const canCreate = description.trim() !== '' && (categoryId !== NONE || responsibleId !== NONE);
+
+  const handleCreate = async () => {
+    if (!canCreate) return;
+    setSaving(true);
+    try {
+      const rule = await createRule.mutateAsync({
+        category_id: categoryId === NONE ? null : categoryId,
+        responsible_id: responsibleId === NONE ? null : responsibleId,
+        description: description.trim(),
+      });
+      // Retroactivo inmediato: renombrar los "Compra TC..." que ya tengan la combinación.
+      const renamed = await applyRuleToExisting(rule);
+      toast.success(
+        renamed > 0
+          ? `Regla creada — ${renamed} movimiento${renamed > 1 ? 's' : ''} de tarjeta renombrado${renamed > 1 ? 's' : ''}.`
+          : 'Regla creada. Se aplicará al asignar esa combinación en Conciliación.',
+      );
+      setCategoryId(NONE);
+      setResponsibleId(NONE);
+      setDescription('');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Intenta de nuevo';
+      toast.error(
+        msg.includes('duplicate') || msg.includes('uniq')
+          ? 'Ya existe una regla para esa combinación de categoría y beneficiario.'
+          : `No pude crear la regla: ${msg}`,
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApply = async (rule: CardDescriptionRule) => {
+    setApplyingId(rule.id);
+    try {
+      const renamed = await applyRuleToExisting(rule);
+      toast[renamed > 0 ? 'success' : 'info'](
+        renamed > 0
+          ? `${renamed} movimiento${renamed > 1 ? 's' : ''} renombrado${renamed > 1 ? 's' : ''}.`
+          : 'No hay movimientos de tarjeta pendientes con esa combinación.',
+      );
+    } catch (e) {
+      toast.error('Error aplicando la regla: ' + (e instanceof Error ? e.message : 'intenta de nuevo'));
+    } finally {
+      setApplyingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3 pt-6 mt-6 border-t border-border">
+      <div className="flex items-center gap-2">
+        <CreditCard className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-semibold text-foreground">Reglas de tarjeta — descripción automática</h3>
+      </div>
+      <p className="text-xs text-muted-foreground max-w-2xl">
+        Al revés de las reglas normales: cuando asignás esta <strong>categoría + beneficiario</strong> a
+        un movimiento de tarjeta (que entra como &laquo;Compra TC *1234&raquo; porque el CSV no trae el
+        comercio), la <strong>descripción se reemplaza sola</strong>. Ej: Impuestos + DIAN →
+        &laquo;IMPTO GOBIERNO 4X1000&raquo;.
+      </p>
+
+      {/* Crear regla */}
+      <div className="rounded-xl border border-border bg-card p-3 flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <p className="text-[11px] text-muted-foreground">Categoría</p>
+          <Select value={categoryId} onValueChange={setCategoryId}>
+            <SelectTrigger className="h-8 w-[160px] text-xs">
+              <SelectValue placeholder="Categoría" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Cualquiera</SelectItem>
+              {categories.filter((c) => c.active).map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[11px] text-muted-foreground">Beneficiario</p>
+          <Select value={responsibleId} onValueChange={setResponsibleId}>
+            <SelectTrigger className="h-8 w-[160px] text-xs">
+              <SelectValue placeholder="Beneficiario" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Cualquiera</SelectItem>
+              {responsibles.filter((r) => r.active).map((r) => (
+                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1 flex-1 min-w-[200px]">
+          <p className="text-[11px] text-muted-foreground">Descripción a poner</p>
+          <Input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Ej: IMPTO GOBIERNO 4X1000"
+            className="h-8 text-xs"
+            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+          />
+        </div>
+        <Button size="sm" className="h-8 gap-1" onClick={handleCreate} disabled={!canCreate || saving}>
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+          Crear regla
+        </Button>
+      </div>
+
+      {/* Lista */}
+      {isLoading ? (
+        <div className="flex justify-center py-4">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : cardRules.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">Todavía no hay reglas de tarjeta.</p>
+      ) : (
+        <div className="space-y-2">
+          {cardRules.map((rule) => (
+            <div
+              key={rule.id}
+              className={`rounded-xl border p-3 flex items-center justify-between gap-3 flex-wrap ${
+                rule.active ? 'border-border bg-card' : 'border-border bg-muted/30 opacity-70'
+              }`}
+            >
+              <div className="flex items-center gap-2 flex-wrap text-xs min-w-0">
+                <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">💳 tarjeta</Badge>
+                <span className="text-muted-foreground">
+                  {catName(rule.category_id)} + {respName(rule.responsible_id)}
+                </span>
+                <span className="text-muted-foreground">→</span>
+                <span className="font-medium text-foreground truncate">«{rule.description}»</span>
+                {rule.match_count > 0 && (
+                  <span className="text-[10px] text-muted-foreground">
+                    Aplicada {rule.match_count} {rule.match_count === 1 ? 'vez' : 'veces'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => handleApply(rule)}
+                  disabled={applyingId === rule.id || !rule.active}
+                  title="Renombrar los movimientos de tarjeta ya categorizados con esta combinación"
+                >
+                  {applyingId === rule.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                  Aplicar a existentes
+                </Button>
+                <Switch
+                  checked={rule.active}
+                  onCheckedChange={(v) => toggleRule.mutate({ id: rule.id, active: v })}
+                  aria-label="Activar regla de tarjeta"
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 text-destructive hover:text-destructive"
+                  onClick={() => deleteRule.mutate(rule.id, {
+                    onSuccess: () => toast.success('Regla de tarjeta eliminada'),
+                  })}
+                  aria-label="Eliminar regla de tarjeta"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

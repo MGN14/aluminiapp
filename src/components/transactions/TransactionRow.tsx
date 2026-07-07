@@ -27,6 +27,11 @@ import InvoiceSelector, { InvoiceTag } from './InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { classifyBucket, bucketWantsInvoice } from '@/lib/txBucket';
+import {
+  type CardDescriptionRule,
+  findMatchingCardRule,
+  isSyntheticCardDescription,
+} from '@/hooks/useCardDescriptionRules';
 
 interface TransactionRowProps {
   transaction: Transaction;
@@ -39,6 +44,9 @@ interface TransactionRowProps {
   /** Solo tarjeta de crédito: el CSV no trae comercio ("Compra TC *2047"),
    *  así que la descripción se puede reemplazar desde la fila. */
   canEditDescription?: boolean;
+  /** Reglas inversas de tarjeta (cat+beneficiario → descripción). Solo se
+   *  evalúan cuando canEditDescription y la descripción sigue sintética. */
+  cardDescriptionRules?: CardDescriptionRule[];
 }
 
 function formatCurrency(value: number | null) {
@@ -60,6 +68,7 @@ export default function TransactionRow({
   onResponsibleAdded,
   onTransactionUpdated,
   canEditDescription,
+  cardDescriptionRules,
 }: TransactionRowProps) {
   const { user } = useAuth();
   
@@ -89,8 +98,22 @@ export default function TransactionRow({
     }
   }, [localTransaction.responsible_id, localTransaction.category_id, localTransaction.type, localTransaction.description, onTransactionUpdated, localTransaction]);
 
+  /**
+   * Regla inversa de tarjeta: si esta fila es de tarjeta, su descripción sigue
+   * siendo la sintética ("Compra TC *2047") y la combinación resultante de
+   * categoría+beneficiario matchea una regla activa, agregamos la descripción
+   * de la regla al mismo update (un solo guardado, un solo render).
+   */
+  const withCardDescription = (updates: Partial<Transaction>): Partial<Transaction> => {
+    if (!canEditDescription || !cardDescriptionRules?.length) return updates;
+    if (!isSyntheticCardDescription(localTransaction.description)) return updates;
+    const merged = { ...localTransaction, ...updates };
+    const rule = findMatchingCardRule(cardDescriptionRules, merged.category_id, merged.responsible_id);
+    return rule ? { ...updates, description: rule.description } : updates;
+  };
+
   const handleCategoryChange = (categoryId: string | null) => {
-    updateField({ category_id: categoryId, category: null });
+    updateField(withCardDescription({ category_id: categoryId, category: null }));
   };
 
   const handleTypeChange = (type: SimpleTransactionType) => {
@@ -347,7 +370,7 @@ export default function TransactionRow({
             options={responsibleOptions}
             value={localTransaction.responsible_id}
             onChange={(value) => {
-              updateField({ responsible_id: value });
+              updateField(withCardDescription({ responsible_id: value }));
               // Auto-assign N/A tag when responsible is "Banco"
               const selectedResp = responsibles.find(r => r.id === value);
               if (selectedResp && selectedResp.name.toLowerCase() === 'banco' && !derivedTags.includes('na') && !derivedInvoiceId) {

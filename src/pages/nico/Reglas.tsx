@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useReconciliationRules, ReconciliationRule } from '@/hooks/useReconciliationRules';
 import CrearReglaModal from '@/components/nico/CrearReglaModal';
+import CardDescriptionRulesSection from '@/components/nico/CardDescriptionRulesSection';
 import { Pencil, Trash2, Zap, Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -105,14 +106,17 @@ export default function NicoReglas() {
 
   if (rules.length === 0) {
     return (
-      <div className="text-center py-12">
-        <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
-          <Sparkles className="h-5 w-5 text-muted-foreground" />
+      <div>
+        <div className="text-center py-12">
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+            <Sparkles className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <p className="text-sm font-medium text-foreground mb-1">Aún no tenés reglas configuradas</p>
+          <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+            Las reglas se crean desde la pestaña <strong>Patrones</strong>, sobre las sugerencias de alta confianza que detecta Nico.
+          </p>
         </div>
-        <p className="text-sm font-medium text-foreground mb-1">Aún no tenés reglas configuradas</p>
-        <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-          Las reglas se crean desde la pestaña <strong>Patrones</strong>, sobre las sugerencias de alta confianza que detecta Nico.
-        </p>
+        <CardDescriptionRulesSection />
       </div>
     );
   }
@@ -291,6 +295,9 @@ export default function NicoReglas() {
           </div>
         ))}
       </div>
+
+      {/* Reglas inversas de tarjeta: categoría+beneficiario → descripción */}
+      <CardDescriptionRulesSection />
 
       {/* Edit modal (reuses CrearReglaModal in edit mode) */}
       <CrearReglaModal

@@ -38,6 +38,7 @@ import { AnimatedNumber } from '@/components/ui/animated-number';
 import { cn } from '@/lib/utils';
 import { normalizeDesc, isNoiseAmount } from '@/lib/descriptionMatch';
 import { computeCierreKpis, findUnmatchedTraspasos } from '@/lib/txBucket';
+import { useCardDescriptionRules } from '@/hooks/useCardDescriptionRules';
 import { useColumnWidths, ColResizer } from '@/components/transactions/columnResize';
 
 const copFmt = (n: number) =>
@@ -249,6 +250,10 @@ export default function Transactions() {
 
   const { getPlanLimits } = useSubscription();
   const limits = getPlanLimits();
+
+  // Reglas inversas de tarjeta (cat+beneficiario → descripción). Una sola
+  // instancia acá; las filas las reciben por prop (misma referencia).
+  const { cardRules } = useCardDescriptionRules();
 
   const statementsQuery = useQuery({
     queryKey: ['conciliacion', 'statements'],
@@ -967,6 +972,7 @@ export default function Transactions() {
                           onResponsibleAdded={invalidateResponsibles}
                           onTransactionUpdated={handleTransactionUpdated}
                           canEditDescription={tarjetaStatementIds.has(transaction.statement_id)}
+                          cardDescriptionRules={cardRules}
                         />
                       ))}
                       {filteredTransactions.length > visibleCount && (
