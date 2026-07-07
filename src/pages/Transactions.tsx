@@ -289,6 +289,18 @@ export default function Transactions() {
     return { monthly, weekly, tarjeta };
   }, [filteredStatements]);
 
+  // Ids de extractos de tarjeta (sobre TODOS los statements, sin filtro de año):
+  // esas filas habilitan el editor de descripción — el CSV de tarjeta no trae
+  // comercio y "Compra TC *2047" no le dice nada al auxiliar.
+  const tarjetaStatementIds = useMemo(
+    () => new Set(
+      statements
+        .filter((s) => (s.bank_name ?? '').toLowerCase().startsWith('tarjeta'))
+        .map((s) => s.id),
+    ),
+    [statements],
+  );
+
   // Resolución del filtro de extracto a ids concretos:
   //   'all' → todos los activos · 'group:X' → el módulo entero · uuid → ese extracto
   const selectedStatementIds = useMemo(() => {
@@ -954,6 +966,7 @@ export default function Transactions() {
                           onCategoryAdded={invalidateCategories}
                           onResponsibleAdded={invalidateResponsibles}
                           onTransactionUpdated={handleTransactionUpdated}
+                          canEditDescription={tarjetaStatementIds.has(transaction.statement_id)}
                         />
                       ))}
                       {filteredTransactions.length > visibleCount && (

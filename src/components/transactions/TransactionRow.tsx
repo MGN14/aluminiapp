@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { useTransactionEdit } from '@/hooks/useTransactionEdit';
 import SaveStatusIndicator from './SaveStatusIndicator';
 import { SearchableSelect } from './SearchableSelect';
+import CardDescriptionEditor from './CardDescriptionEditor';
 import InvoiceSelector, { InvoiceTag } from './InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -35,6 +36,9 @@ interface TransactionRowProps {
   onCategoryAdded?: () => void;
   onResponsibleAdded?: () => void;
   onTransactionUpdated?: (transaction: Transaction) => void;
+  /** Solo tarjeta de crédito: el CSV no trae comercio ("Compra TC *2047"),
+   *  así que la descripción se puede reemplazar desde la fila. */
+  canEditDescription?: boolean;
 }
 
 function formatCurrency(value: number | null) {
@@ -47,14 +51,15 @@ function formatCurrency(value: number | null) {
   }).format(value);
 }
 
-export default function TransactionRow({ 
-  transaction, 
-  categories, 
-  responsibles, 
+export default function TransactionRow({
+  transaction,
+  categories,
+  responsibles,
   onViewDetail,
   onCategoryAdded,
   onResponsibleAdded,
   onTransactionUpdated,
+  canEditDescription,
 }: TransactionRowProps) {
   const { user } = useAuth();
   
@@ -66,20 +71,23 @@ export default function TransactionRow({
   const prevResponsibleRef = useRef(transaction.responsible_id);
   const prevCategoryRef = useRef(transaction.category_id);
   const prevTypeRef = useRef(transaction.type);
+  const prevDescriptionRef = useRef(transaction.description);
 
   useEffect(() => {
     const changed =
       localTransaction.responsible_id !== prevResponsibleRef.current ||
       localTransaction.category_id !== prevCategoryRef.current ||
-      localTransaction.type !== prevTypeRef.current;
+      localTransaction.type !== prevTypeRef.current ||
+      localTransaction.description !== prevDescriptionRef.current;
 
     if (changed) {
       prevResponsibleRef.current = localTransaction.responsible_id;
       prevCategoryRef.current = localTransaction.category_id;
       prevTypeRef.current = localTransaction.type;
+      prevDescriptionRef.current = localTransaction.description;
       onTransactionUpdated?.(localTransaction);
     }
-  }, [localTransaction.responsible_id, localTransaction.category_id, localTransaction.type, onTransactionUpdated, localTransaction]);
+  }, [localTransaction.responsible_id, localTransaction.category_id, localTransaction.type, localTransaction.description, onTransactionUpdated, localTransaction]);
 
   const handleCategoryChange = (categoryId: string | null) => {
     updateField({ category_id: categoryId, category: null });
@@ -273,6 +281,12 @@ export default function TransactionRow({
               <span className="text-sm truncate flex-1 cursor-help">
                 {localTransaction.description}
               </span>
+              {canEditDescription && (
+                <CardDescriptionEditor
+                  currentDescription={localTransaction.description ?? ''}
+                  onPick={(description) => updateField({ description })}
+                />
+              )}
               <Button
                 variant="ghost"
                 size="sm"

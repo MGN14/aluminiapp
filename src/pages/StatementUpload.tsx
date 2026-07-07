@@ -8,7 +8,6 @@ import AppLayout from '@/components/layout/AppLayout';
 import PDFUploader from '@/components/PDFUploader';
 import WeeklyCsvUploader from '@/components/statements/WeeklyCsvUploader';
 import CreditCardCsvUploader from '@/components/statements/CreditCardCsvUploader';
-import CreditCardPdfUploader from '@/components/statements/CreditCardPdfUploader';
 import DeleteStatementButton from '@/components/statements/DeleteStatementButton';
 import StatementConfigModal from '@/components/statements/StatementConfigModal';
 import { Button } from '@/components/ui/button';
@@ -515,53 +514,23 @@ export default function StatementUpload() {
             </div>
           </div>
 
-          {/* Tarjeta de crédito — PDF (recomendado: trae el comercio de cada
-              compra) o CSV (rápido pero sin descripción: el portal no la incluye).
-              Ambos importan SOLO las compras como gasto ("solo compras = gasto"). */}
-          <div
-            className="upload-split"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 20,
-              alignItems: 'stretch',
-              marginTop: 20,
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <h2
-                style={{
-                  fontFamily: 'inherit',
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: '#1d1d1f',
-                  margin: 0,
-                  letterSpacing: '-0.01em',
-                }}
-              >
-                Tarjeta de crédito (PDF) — recomendado
-              </h2>
-              <div className="upload-card-wrap">
-                <CreditCardPdfUploader onUploadComplete={fetchStatements} />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <h2
-                style={{
-                  fontFamily: 'inherit',
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: '#1d1d1f',
-                  margin: 0,
-                  letterSpacing: '-0.01em',
-                }}
-              >
-                Tarjeta de crédito (CSV) — sin comercio
-              </h2>
-              <div className="upload-card-wrap">
-                <CreditCardCsvUploader onUploadComplete={fetchStatements} />
-              </div>
+          {/* Tarjeta de crédito (CSV) — formato distinto al de cuenta bancaria.
+              Importa SOLO las compras como gasto (decisión "solo compras = gasto"). */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+            <h2
+              style={{
+                fontFamily: 'inherit',
+                fontSize: 15,
+                fontWeight: 600,
+                color: '#1d1d1f',
+                margin: 0,
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Tarjeta de crédito (CSV)
+            </h2>
+            <div className="upload-card-wrap">
+              <CreditCardCsvUploader onUploadComplete={fetchStatements} />
             </div>
           </div>
 
