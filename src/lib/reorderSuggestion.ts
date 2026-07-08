@@ -32,6 +32,12 @@ export const CONSUMO_VENTANA_DIAS = 90;
 export const SAFETY_DIAS = 15;
 /** Cobertura de consumo que define las referencias "críticas" (80%). */
 export const CONSUMO_CRITICO_PCT = 0.8;
+/**
+ * El pedido se dispara cuando esta cantidad de referencias críticas quiebra —
+ * UNA sola referencia quebrando es alerta puntual (se resuelve con reposición
+ * local o parcial), no motivo para montar un contenedor (decisión de Nico).
+ */
+export const UMBRAL_REFS_QUIEBRE = 3;
 /** Defaults conservadores por etapa (días) mientras no haya datos medidos. */
 export const DEFAULT_ETAPAS = { produccion: 35, transito: 40, nacionalizacion: 10 } as const;
 /** Duración sana máxima de una etapa (descarta fechas basura). */
@@ -101,15 +107,24 @@ export interface QuiebreProducto {
 }
 
 export interface ReorderSuggestion {
-  /** Fecha límite para montar el pedido (ISO); null si faltan datos. */
+  /** Fecha límite para montar el pedido (ISO); null si faltan datos o no hay
+   *  quiebre grupal (menos de UMBRAL_REFS_QUIEBRE referencias críticas quiebran). */
   fechaLimite: string | null;
   diasParaDecidir: number | null;
-  /** Primer quiebre entre referencias críticas. */
-  quiebre: QuiebreProducto | null;
+  /** Fecha del quiebre GRUPAL: cuando quiebra la referencia número UMBRAL. */
+  fechaQuiebreGrupal: string | null;
+  /** Las referencias que quiebran hasta la fecha grupal (definen el pedido). */
+  refsGrupal: QuiebreProducto[];
+  /** Quiebres puntuales que NO disparan pedido (menos que el umbral, o
+   *  anteriores a la fecha grupal): alertas para reposición local/parcial. */
+  alertas: QuiebreProducto[];
+  /** Si montás un pedido HOY, fecha estimada de disponibilidad en bodega. */
+  llegadaSiPidoHoy: string;
   /** Detalle de las referencias críticas (para la tabla del card). */
   criticos: QuiebreProducto[];
   leadTime: LeadTimeEstimate;
   safetyDias: number;
+  umbralRefs: number;
   /** Datos que alimentaron el cálculo (transparencia / confianza). */
   datos: {
     referenciasConConsumo: number;
@@ -288,9 +303,11 @@ export function computeReorderSuggestion(params: {
   transito: TransitoItem[];
   ventanaDias?: number;
   safetyDias?: number;
+  umbralRefs?: number;
 }): ReorderSuggestion {
   const { todayIso, imports, stock, salidas, transito } = params;
   const safetyDias = params.safetyDias ?? SAFETY_DIAS;
+  const umbralRefs = params.umbralRefs ?? UMBRAL_REFS_QUIEBRE;
 
   const leadTime = estimateLeadTime(imports);
   const quiebres = projectQuiebres({
@@ -300,18 +317,24 @@ export function computeReorderSuggestion(params: {
   const base = {
     leadTime,
     safetyDias,
+    umbralRefs,
+    llegadaSiPidoHoy: addDays(todayIso, leadTime.totalDias),
     datos: {
       referenciasConConsumo: quiebres.length,
       ventanaDias: params.ventanaDias ?? CONSUMO_VENTANA_DIAS,
       llegadasEnTransito: transito.length,
     },
   };
+  const vacio = {
+    fechaLimite: null, diasParaDecidir: null, fechaQuiebreGrupal: null,
+    refsGrupal: [], alertas: [], criticos: [] as QuiebreProducto[],
+  };
 
   if (!stock.length) {
-    return { ...base, fechaLimite: null, diasParaDecidir: null, quiebre: null, criticos: [], motivoSinFecha: 'sin_stock_data' };
+    return { ...base, ...vacio, motivoSinFecha: 'sin_stock_data' };
   }
   if (!quiebres.length) {
-    return { ...base, fechaLimite: null, diasParaDecidir: null, quiebre: null, criticos: [], motivoSinFecha: 'sin_consumo' };
+    return { ...base, ...vacio, motivoSinFecha: 'sin_consumo' };
   }
 
   // Referencias críticas: las que concentran el 80% del consumo diario.
@@ -325,22 +348,34 @@ export function computeReorderSuggestion(params: {
     if (acumulado >= consumoTotal * CONSUMO_CRITICO_PCT) break;
   }
 
-  const conQuiebre = criticos.filter((q) => q.fechaQuiebre != null);
-  const quiebre = conQuiebre.length
-    ? conQuiebre.reduce((min, q) => (q.fechaQuiebre! < min.fechaQuiebre! ? q : min))
-    : null;
+  // El pedido se dispara con el quiebre GRUPAL: la fecha en que quiebra la
+  // referencia número `umbralRefs` (ordenadas por fecha de quiebre). Una o
+  // dos referencias quebrando antes son ALERTAS puntuales, no pedido.
+  const conQuiebre = criticos
+    .filter((q) => q.fechaQuiebre != null)
+    .sort((a, b) => a.fechaQuiebre!.localeCompare(b.fechaQuiebre!));
 
-  if (!quiebre) {
-    // Nada crítico quiebra dentro del horizonte — no hay urgencia.
-    return { ...base, fechaLimite: null, diasParaDecidir: null, quiebre: null, criticos, motivoSinFecha: null };
+  if (conQuiebre.length < umbralRefs) {
+    return {
+      ...base, ...vacio,
+      alertas: conQuiebre,
+      criticos,
+      motivoSinFecha: null,
+    };
   }
 
-  const fechaLimite = addDays(quiebre.fechaQuiebre!, -(leadTime.totalDias + safetyDias));
+  const refsGrupal = conQuiebre.slice(0, umbralRefs);
+  const fechaQuiebreGrupal = refsGrupal[umbralRefs - 1].fechaQuiebre!;
+  const fechaLimite = addDays(fechaQuiebreGrupal, -(leadTime.totalDias + safetyDias));
+
   return {
     ...base,
     fechaLimite,
     diasParaDecidir: daysBetween(todayIso, fechaLimite),
-    quiebre,
+    fechaQuiebreGrupal,
+    refsGrupal,
+    // Quiebres anteriores a la fecha grupal que conviene vigilar puntualmente.
+    alertas: conQuiebre.filter((q) => q.fechaQuiebre! < fechaQuiebreGrupal),
     criticos,
     motivoSinFecha: null,
   };

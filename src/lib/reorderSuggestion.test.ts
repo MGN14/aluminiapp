@@ -105,45 +105,92 @@ describe('projectQuiebres', () => {
 });
 
 describe('computeReorderSuggestion', () => {
-  it('fecha límite = quiebre crítico − lead time − colchón', () => {
-    const sug = computeReorderSuggestion({
-      todayIso: HOY,
-      imports: [],
-      stock: [
-        { productId: 'p1', reference: 'A', stockPhysical: 900 }, // 3/día → 300 días (no crítica en fecha)
-        { productId: 'p2', reference: 'B', stockPhysical: 450 }, // 3/día → 150 días
-      ],
-      salidas: [
-        { productId: 'p1', quantity: 270 },
-        { productId: 'p2', quantity: 270 },
-      ],
-      transito: [],
-    });
-    // Quiebre crítico: B al 2026-12-05. Lead time default 85 + colchón 15 = 100.
-    expect(sug.quiebre?.reference).toBe('B');
-    expect(sug.quiebre?.fechaQuiebre).toBe('2026-12-05');
-    expect(sug.fechaLimite).toBe('2026-08-27');
-    expect(sug.diasParaDecidir).toBe(50);
-    expect(sug.leadTime.tieneDefaults).toBe(true);
-    expect(sug.safetyDias).toBe(SAFETY_DIAS);
+  // Helper: ref con consumo 3/día y stock para N días de cobertura.
+  const ref = (id: string, name: string, diasCobertura: number) => ({
+    stock: { productId: id, reference: name, stockPhysical: diasCobertura * 3 },
+    salida: { productId: id, quantity: 270 }, // 3/día en ventana de 90
   });
 
-  it('una referencia marginal no define la fecha (80% del consumo manda)', () => {
+  it('el quiebre GRUPAL (3ª referencia) define la fecha, no el primero', () => {
+    const a = ref('p1', 'A', 100); // quiebra 2026-10-16
+    const b = ref('p2', 'B', 120); // quiebra 2026-11-05
+    const c = ref('p3', 'C', 150); // quiebra 2026-12-05 ← 3ª = grupal
+    const d = ref('p4', 'D', 300);
+    const sug = computeReorderSuggestion({
+      todayIso: HOY,
+      imports: [],
+      stock: [a.stock, b.stock, c.stock, d.stock],
+      salidas: [a.salida, b.salida, c.salida, d.salida],
+      transito: [],
+    });
+    expect(sug.fechaQuiebreGrupal).toBe('2026-12-05');
+    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['A', 'B', 'C']);
+    // Lead time default 85 + colchón 15 = 100 días antes del grupal.
+    expect(sug.fechaLimite).toBe('2026-08-27');
+    expect(sug.diasParaDecidir).toBe(50);
+    // A y B quiebran antes del grupal → alertas puntuales, no disparadores.
+    expect(sug.alertas.map((q) => q.reference)).toEqual(['A', 'B']);
+    expect(sug.safetyDias).toBe(SAFETY_DIAS);
+    expect(sug.llegadaSiPidoHoy).toBe('2026-10-01'); // hoy + 85
+  });
+
+  it('menos de 3 referencias quebrando = alerta puntual, SIN fecha de pedido', () => {
+    const a = ref('p1', 'LIV-40-5', 60);
+    const b = ref('p2', 'B', 500);
+    const c = ref('p3', 'C', 500);
+    const sug = computeReorderSuggestion({
+      todayIso: HOY,
+      imports: [],
+      stock: [a.stock, b.stock, c.stock],
+      salidas: [a.salida, b.salida, c.salida],
+      transito: [],
+    });
+    expect(sug.fechaLimite).toBeNull();
+    expect(sug.motivoSinFecha).toBeNull(); // no es falta de datos: no hay urgencia
+    expect(sug.alertas.map((q) => q.reference)).toEqual(['LIV-40-5']);
+  });
+
+  it('una referencia marginal no entra al criterio (80% del consumo manda)', () => {
     const sug = computeReorderSuggestion({
       todayIso: HOY,
       imports: [],
       stock: [
-        { productId: 'p1', reference: 'GRANDE', stockPhysical: 9000 }, // 90/día → 100 días
-        { productId: 'p2', reference: 'MARGINAL', stockPhysical: 1 },  // 0.01/día → quiebra ya
+        { productId: 'p1', reference: 'G1', stockPhysical: 3000 }, // 30/día → 100d
+        { productId: 'p2', reference: 'G2', stockPhysical: 3300 }, // 30/día → 110d
+        { productId: 'p3', reference: 'G3', stockPhysical: 3600 }, // 30/día → 120d
+        { productId: 'p4', reference: 'MARGINAL', stockPhysical: 1 }, // quiebra ya, consumo ínfimo
       ],
       salidas: [
-        { productId: 'p1', quantity: 8100 },
-        { productId: 'p2', quantity: 1 },
+        { productId: 'p1', quantity: 2700 },
+        { productId: 'p2', quantity: 2700 },
+        { productId: 'p3', quantity: 2700 },
+        { productId: 'p4', quantity: 1 },
       ],
       transito: [],
     });
-    // GRANDE concentra >80% del consumo → MARGINAL queda fuera del criterio.
-    expect(sug.quiebre?.reference).toBe('GRANDE');
+    // MARGINAL queda fuera de las críticas: ni en refsGrupal ni definiendo fecha.
+    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['G1', 'G2', 'G3']);
+    expect(sug.alertas.map((q) => q.reference)).not.toContain('MARGINAL');
+  });
+
+  it('lo que viene en tránsito empuja el quiebre grupal', () => {
+    const a = ref('p1', 'A', 50);
+    const b = ref('p2', 'B', 60);
+    const c = ref('p3', 'C', 70); // 3ª: quiebra 2026-09-16 sin tránsito
+    const sinTransito = computeReorderSuggestion({
+      todayIso: HOY, imports: [],
+      stock: [a.stock, b.stock, c.stock],
+      salidas: [a.salida, b.salida, c.salida],
+      transito: [],
+    });
+    const conTransito = computeReorderSuggestion({
+      todayIso: HOY, imports: [],
+      stock: [a.stock, b.stock, c.stock],
+      salidas: [a.salida, b.salida, c.salida],
+      // Llega reposición de C antes de su quiebre → el grupal cambia de fecha.
+      transito: [{ reference: 'C', cantidad: 600, fechaDisponible: '2026-09-01' }],
+    });
+    expect(conTransito.fechaQuiebreGrupal! > sinTransito.fechaQuiebreGrupal!).toBe(true);
   });
 
   it('sin consumo registrado → sin fecha con motivo', () => {

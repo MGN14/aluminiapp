@@ -16,6 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import ImportModal from '@/components/imports/ImportModal';
 import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
 import ReorderSuggestionCard from '@/components/imports/ReorderSuggestionCard';
+import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
 import { computeTotalDays, computeStageAverages } from '@/lib/importStages';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -212,6 +213,11 @@ export default function Importaciones() {
       fleteProm, fleteUltimo, fleteDeltaPct,
     };
   }, [data, currentYear, trmByImport, trmHoy]);
+
+  // Sugerencia de próximo pedido — MISMA fuente que la card de arriba (antes
+  // el radar calculaba su propia fecha con cadencia de pedidos y se
+  // contradecía con la card en pantalla).
+  const reorder = useReorderSuggestion();
 
   // ── Radar de abastecimiento ───────────────────────────────────────────────
   // El análisis que el negocio necesita: (1) el contenedor que LLEGA — cuánta
@@ -537,43 +543,45 @@ export default function Importaciones() {
                 </div>
 
                 {/* 3 · Alerta: cuándo montar el próximo pedido */}
+                {/* Misma fuente que la card de sugerencia — nunca se contradicen. */}
                 <div className={cn(
                   'rounded-lg border px-3 py-2.5 space-y-1',
-                  radar.diasParaMontar != null && radar.diasParaMontar <= 0
+                  reorder.suggestion?.diasParaDecidir != null && reorder.suggestion.diasParaDecidir <= 7
                     ? 'border-destructive/40 bg-destructive/5'
-                    : radar.diasParaMontar != null && radar.diasParaMontar <= 14
+                    : reorder.suggestion?.diasParaDecidir != null && reorder.suggestion.diasParaDecidir <= 30
                       ? 'border-amber-400/50 bg-amber-50/50 dark:bg-amber-950/10'
                       : 'border-border bg-muted/20',
                 )}>
                   <p className={cn(
                     'text-[10px] font-semibold uppercase tracking-wide flex items-center gap-1',
-                    radar.diasParaMontar != null && radar.diasParaMontar <= 0 ? 'text-destructive'
-                      : radar.diasParaMontar != null && radar.diasParaMontar <= 14 ? 'text-amber-600' : 'text-muted-foreground',
+                    reorder.suggestion?.diasParaDecidir != null && reorder.suggestion.diasParaDecidir <= 7 ? 'text-destructive'
+                      : reorder.suggestion?.diasParaDecidir != null && reorder.suggestion.diasParaDecidir <= 30 ? 'text-amber-600' : 'text-muted-foreground',
                   )}>
                     <AlertTriangle className="h-3 w-3" /> Próximo pedido
                   </p>
-                  {radar.montarAntesDe && radar.diasParaMontar != null ? (
+                  {reorder.suggestion?.fechaLimite && reorder.suggestion.diasParaDecidir != null ? (
                     <p className="text-[11px] leading-relaxed">
-                      {radar.diasParaMontar <= 0 ? (
+                      {reorder.suggestion.diasParaDecidir <= 0 ? (
                         <>
-                          <span className="font-semibold text-destructive">Ya vas tarde:</span> con tu ritmo (pedido cada ~{radar.cadencia}d,
-                          lead time ~{radar.leadTime}d) tocaba montarlo antes del <strong>{fmtFechaCorta(radar.montarAntesDe)}</strong>.
-                          {radar.llegariaHoy && <> Uno montado hoy llega ~<strong>{fmtFechaCorta(radar.llegariaHoy)}</strong>.</>}
-                        </>
-                      ) : radar.diasParaMontar <= 14 ? (
-                        <>
-                          Montalo antes del <strong>{fmtFechaCorta(radar.montarAntesDe)}</strong> (en {radar.diasParaMontar} día{radar.diasParaMontar !== 1 ? 's' : ''}) para
-                          que llegue cuando se acabe el anterior.
+                          <span className="font-semibold text-destructive">Fecha límite alcanzada:</span>{' '}
+                          <strong>{fmtFechaCorta(reorder.suggestion.fechaLimite)}</strong>. Uno montado hoy
+                          queda en bodega ~<strong>{fmtFechaCorta(reorder.suggestion.llegadaSiPidoHoy)}</strong>.
                         </>
                       ) : (
                         <>
-                          Tranquilo: el siguiente se monta antes del <strong>{fmtFechaCorta(radar.montarAntesDe)}</strong> ({radar.diasParaMontar} días).
+                          Montalo antes del <strong>{fmtFechaCorta(reorder.suggestion.fechaLimite)}</strong>{' '}
+                          ({reorder.suggestion.diasParaDecidir} día{reorder.suggestion.diasParaDecidir !== 1 ? 's' : ''}) —
+                          detalle en la card de arriba.
                         </>
                       )}
                     </p>
+                  ) : reorder.suggestion ? (
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Sin quiebre grupal a la vista — no hay urgencia de contenedor. Detalle en la card de arriba.
+                    </p>
                   ) : (
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Sin datos para estimar todavía — con ETAs cargadas y pedidos entregados, acá te digo cuándo montar el próximo.
+                      Calculando con stock físico, consumo y tránsito…
                     </p>
                   )}
                 </div>
