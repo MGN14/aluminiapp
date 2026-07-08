@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FileSpreadsheet, ClipboardPaste, AlertCircle, ArrowRight } from 'lucide-react';
 import { parseDelimited, parseLooseNumber } from '@/lib/delimitedParser';
-import { guessMapping, isSummaryReference, hasAnyData, type FieldKey } from '@/lib/packingListParse';
+import { guessMapping, isSummaryReference, hasAnyData, makeCellNumberParser, type FieldKey } from '@/lib/packingListParse';
 import { suffixColorConflict, colorFromSuffix } from '@/lib/refFamily';
 import { readXlsxFile, isExcelFile, type XlsxSheet } from '@/lib/readXlsx';
 import type { NewImportItem, ImportItemSource } from '@/hooks/useImportItems';
@@ -45,6 +45,9 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
   const [hasHeader, setHasHeader] = useState(true);
   const [mapping, setMapping] = useState<FieldKey[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // true = las filas vienen de un .xlsx (números de máquina → parse estricto,
+  // sin heurística es-CO de miles). Ver makeCellNumberParser.
+  const [strictNumbers, setStrictNumbers] = useState(false);
   // Proforma (pedido a producción, refs sin sufijo — China no los maneja) o
   // packing list definitivo (refs con sufijo de color). null = aún sin decidir
   // → se auto-detecta por los sufijos y el usuario puede cambiarlo.
@@ -54,6 +57,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
   const reset = () => {
     setPhase('input'); setPasted(''); setRows([]); setSheets([]); setReadingXlsx(false);
     setHasHeader(true); setMapping([]); setError(null); setTipo(null); setReplaceExisting(true);
+    setStrictNumbers(false);
   };
 
   const ingestRows = (parsed: string[][]) => {
@@ -71,6 +75,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
   };
 
   const ingest = (text: string) => {
+    setStrictNumbers(false);
     ingestRows(parseDelimited(text).rows);
   };
 
@@ -86,6 +91,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
       try {
         const parsed = await readXlsxFile(file);
         if (parsed.length === 0) { setError('El Excel no tiene hojas con datos.'); return; }
+        setStrictNumbers(true);
         if (parsed.length === 1) { ingestRows(parsed[0].rows); return; }
         setSheets(parsed);
         setPhase('sheet');
@@ -117,6 +123,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
   const dataRows = useMemo(() => (hasHeader ? rows.slice(1) : rows), [rows, hasHeader]);
 
   const mapped: NewImportItem[] = useMemo(() => {
+    const num = makeCellNumberParser(strictNumbers, parseLooseNumber);
     const idxOf = (f: FieldKey) => mapping.indexOf(f);
     const ref = idxOf('reference'), desc = idxOf('descripcion'), cant = idxOf('cantidad');
     const uni = idxOf('unidad'), peso = idxOf('peso_kg'), fob = idxOf('fob_total_usd');
@@ -125,17 +132,17 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
       .map((r, i) => ({
         reference: (ref > -1 ? r[ref] : '')?.trim() ?? '',
         descripcion: desc > -1 ? (r[desc]?.trim() || null) : null,
-        cantidad: cant > -1 ? parseLooseNumber(r[cant]) : 0,
+        cantidad: cant > -1 ? num(r[cant]) : 0,
         unidad: uni > -1 ? (r[uni]?.trim() || 'kg') : 'kg',
         // Celda de peso vacía → null (no 0): un 0 falso distorsionaría el
         // prorrateo de costos por peso (la referencia no recibiría flete).
-        peso_kg: peso > -1 && r[peso]?.trim() ? parseLooseNumber(r[peso]) : null,
-        fob_total_usd: fob > -1 ? parseLooseNumber(r[fob]) : 0,
+        peso_kg: peso > -1 && r[peso]?.trim() ? num(r[peso]) : null,
+        fob_total_usd: fob > -1 ? num(r[fob]) : 0,
         orden: i,
         notas: null,
         color: col > -1 ? (r[col]?.trim() || null) : null,
-        bultos: bul > -1 && r[bul]?.trim() ? parseLooseNumber(r[bul]) : null,
-        costo_unitario_excel: cue > -1 && r[cue]?.trim() ? parseLooseNumber(r[cue]) : null,
+        bultos: bul > -1 && r[bul]?.trim() ? num(r[bul]) : null,
+        costo_unitario_excel: cue > -1 && r[cue]?.trim() ? num(r[cue]) : null,
       }))
       .filter((it) =>
         it.reference.length > 0
@@ -144,7 +151,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
         // Notas al pie sin datos ("Tope contenedor: 28.400 kg", "EXCEDE TOPE")
         && hasAnyData(it),
       );
-  }, [dataRows, mapping]);
+  }, [dataRows, mapping, strictNumbers]);
 
   const hasRef = mapping.includes('reference');
   const hasFob = mapping.includes('fob_total_usd');

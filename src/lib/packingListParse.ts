@@ -68,3 +68,27 @@ export function isSummaryReference(reference: string): boolean {
 export function hasAnyData(item: { cantidad: number; peso_kg: number | null; fob_total_usd: number }): boolean {
   return item.cantidad > 0 || (item.peso_kg ?? 0) > 0 || item.fob_total_usd > 0;
 }
+
+/**
+ * Parser numérico según el origen de las filas.
+ *
+ * - CSV / pegado desde Excel: texto formateado por humanos → heurística
+ *   es-CO de parseLooseNumber ("3.120" = tres mil ciento veinte).
+ * - .xlsx leído directo: las celdas ya son números de máquina y se
+ *   stringifican canónicos ("123.90282000000001"). La heurística es-CO los
+ *   DESTRUYE (punto con 3+ decimales = "miles" → 1.2e16 → numeric overflow
+ *   en Postgres). Acá el parse es estricto: Number() tal cual, con fallback
+ *   a la heurística solo si la celda trae texto no canónico.
+ */
+export function makeCellNumberParser(
+  strict: boolean,
+  loose: (raw: string | null | undefined) => number,
+): (raw: string | null | undefined) => number {
+  if (!strict) return loose;
+  return (raw) => {
+    const s = (raw ?? '').trim();
+    if (!s) return 0;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : loose(s);
+  };
+}

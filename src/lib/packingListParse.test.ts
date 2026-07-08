@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { guessField, guessMapping, isSummaryReference, hasAnyData } from './packingListParse';
+import { guessField, guessMapping, isSummaryReference, hasAnyData, makeCellNumberParser } from './packingListParse';
+import { parseLooseNumber } from './delimitedParser';
 
 // Encabezados EXACTOS del formato definitivo de proforma (Cowork, jul 2026).
 const PROFORMA_HEADER = ['REF.', 'Kg/m', 'Descripcion', 'Color', 'UND', 'KG'];
@@ -68,6 +69,26 @@ describe('guessField — casos puntuales', () => {
     expect(guessField('Kg/m')).toBe('ignorar');
     expect(guessField('KG/und')).toBe('ignorar');
     expect(guessField('KG')).toBe('peso_kg');
+  });
+});
+
+describe('makeCellNumberParser — xlsx estricto vs CSV/pegado heurístico', () => {
+  it('REGRESIÓN numeric overflow: el flotante de Excel no se interpreta como miles', () => {
+    // El peso real del Maple: 123.90282000000001 kg. La heurística es-CO lo
+    // convertía en 12.390.282.000.000.001 → overflow de numeric(14,3) en la BD.
+    const strict = makeCellNumberParser(true, parseLooseNumber);
+    expect(strict('123.90282000000001')).toBeCloseTo(123.90282, 5);
+    expect(strict('536.6231134200001')).toBeCloseTo(536.62311, 5);
+    expect(strict('2041')).toBe(2041);
+    expect(strict('')).toBe(0);
+    // Texto no canónico dentro de un xlsx cae al parser flexible.
+    expect(strict('$ 1.234,56')).toBeCloseTo(1234.56, 2);
+  });
+
+  it('CSV/pegado conserva la heurística es-CO (3.120 = tres mil ciento veinte)', () => {
+    const loose = makeCellNumberParser(false, parseLooseNumber);
+    expect(loose('3.120')).toBe(3120);
+    expect(loose('1.234,56')).toBeCloseTo(1234.56, 2);
   });
 });
 
