@@ -22,6 +22,7 @@ import {
   type TransitoItem,
   type ReorderSuggestion,
 } from '@/lib/reorderSuggestion';
+import { refFamilyKey } from '@/lib/refFamily';
 
 interface ItemRow { import_id: string; reference: string; cantidad: number }
 
@@ -131,6 +132,9 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
       reference: it.reference,
       cantidad: Number(it.cantidad ?? 0),
       fechaDisponible: dispPorImport.get(it.import_id)!,
+      // Familia: la base del packing list (LIV-40 + colores) cruza con la
+      // -5 del inventario de Siigo. Ver refFamilyKey.
+      matchKey: refFamilyKey(it.reference),
     }));
 
   const idsConItems = new Set(items.map((it) => it.import_id));
@@ -139,11 +143,40 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     .map((r) => ({ id: r.id, label: r.ref_pedido || r.proveedor_nombre }));
 
   const inv = inventoryQuery.data!;
+
+  // El cálculo es "sobre el -5": si existieran variantes de color como filas
+  // propias (LIV-40-2, LIV-40-3...), se agrupan con la -5 en una sola familia
+  // — stock sumado, consumo sumado. La etiqueta visible es la ref de Siigo
+  // (la -5) cuando existe.
+  interface Familia { key: string; label: string; stock: number; productIds: string[] }
+  const familias = new Map<string, Familia>();
+  for (const p of inv.products) {
+    const key = refFamilyKey(p.reference);
+    if (!key) continue;
+    const f = familias.get(key) ?? { key, label: p.reference, stock: 0, productIds: [] };
+    f.stock += Number(p.stock_physical ?? 0);
+    f.productIds.push(p.id);
+    // Preferir la -5 como etiqueta (es la nomenclatura que usa Nico).
+    if (/-5$/i.test(p.reference.trim())) f.label = p.reference;
+    familias.set(key, f);
+  }
+  const familiaPorProductId = new Map<string, string>();
+  for (const f of familias.values()) {
+    for (const id of f.productIds) familiaPorProductId.set(id, f.key);
+  }
+
   const suggestion = computeReorderSuggestion({
     todayIso: today,
     imports: fechas,
-    stock: inv.products.map((p) => ({ productId: p.id, reference: p.reference, stockPhysical: Number(p.stock_physical ?? 0) })),
-    salidas: inv.salidas.map((s) => ({ productId: s.product_id, quantity: Number(s.quantity ?? 0) })),
+    stock: [...familias.values()].map((f) => ({
+      productId: f.key,
+      reference: f.label,
+      stockPhysical: f.stock,
+      matchKey: f.key,
+    })),
+    salidas: inv.salidas
+      .map((s) => ({ productId: familiaPorProductId.get(s.product_id) ?? '', quantity: Number(s.quantity ?? 0) }))
+      .filter((s) => s.productId !== ''),
     transito,
   });
 

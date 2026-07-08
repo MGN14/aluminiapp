@@ -63,6 +63,10 @@ export interface StockRow {
   productId: string;
   reference: string;
   stockPhysical: number;
+  /** Llave de cruce con las llegadas en tránsito. Default: reference
+   *  normalizada. El caller pasa la FAMILIA (refFamilyKey) para que la base
+   *  del packing list (LIV-40 + colores) cruce con la -5 del inventario. */
+  matchKey?: string;
 }
 
 export interface SalidaRow {
@@ -76,6 +80,8 @@ export interface TransitoItem {
   cantidad: number;
   /** Fecha estimada de disponibilidad EN BODEGA (ETA + nacionalización). */
   fechaDisponible: string;
+  /** Ver StockRow.matchKey. */
+  matchKey?: string;
 }
 
 // ── Salidas del motor ──────────────────────────────────────────────────────
@@ -235,10 +241,11 @@ export function projectQuiebres(params: {
     salidasPorProducto.set(s.productId, (salidasPorProducto.get(s.productId) ?? 0) + Math.abs(Number(s.quantity ?? 0)));
   }
 
-  // Llegadas en tránsito por referencia (case-insensitive).
+  // Llegadas en tránsito por llave de cruce (familia si el caller la pasa;
+  // si no, la referencia normalizada).
   const llegadasPorRef = new Map<string, { fecha: string; qty: number }[]>();
   for (const t of transito) {
-    const key = t.reference.trim().toLowerCase();
+    const key = t.matchKey ?? t.reference.trim().toLowerCase();
     const arr = llegadasPorRef.get(key) ?? [];
     arr.push({ fecha: t.fechaDisponible, qty: Number(t.cantidad ?? 0) });
     llegadasPorRef.set(key, arr);
@@ -252,7 +259,7 @@ export function projectQuiebres(params: {
 
     // Caminar la línea de tiempo: stock se agota a ritmo constante; cada
     // llegada en tránsito repone ANTES de contar el quiebre si cae a tiempo.
-    const llegadas = [...(llegadasPorRef.get(p.reference.trim().toLowerCase()) ?? [])]
+    const llegadas = [...(llegadasPorRef.get(p.matchKey ?? p.reference.trim().toLowerCase()) ?? [])]
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
     let disponible = Math.max(0, Number(p.stockPhysical ?? 0));
     let cursor = todayIso;

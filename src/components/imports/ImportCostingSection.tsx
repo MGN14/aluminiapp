@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Plus, Trash2, Upload, PackageOpen, Calculator, Info } from 'lucide-react';
 import { useImportItems } from '@/hooks/useImportItems';
+import { refFamilyKey } from '@/lib/refFamily';
 import PackingListImport from './PackingListImport';
 
 const fmtCop = (n: number | null | undefined) =>
@@ -32,7 +33,9 @@ function useInventoryCosts() {
       if (error) throw error;
       const m = new Map<string, { cost: number; sale: number }>();
       for (const r of (data ?? []) as Array<{ reference: string; cost_per_unit: number; sale_price: number }>) {
-        if (r.reference) m.set(r.reference.trim().toLowerCase(), { cost: Number(r.cost_per_unit) || 0, sale: Number(r.sale_price) || 0 });
+        // Llave por FAMILIA: el packing list usa la base (LIV-40) y el
+        // inventario de Siigo la -5 (LIV-40-5) — sin esto nunca cruzaban.
+        if (r.reference) m.set(refFamilyKey(r.reference), { cost: Number(r.cost_per_unit) || 0, sale: Number(r.sale_price) || 0 });
       }
       return m;
     },
@@ -261,7 +264,7 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
                 {items.map((it) => {
                   const r = landedById.get(it.id);
                   if (!r) return null;
-                  const inv = invCosts?.get(it.reference.trim().toLowerCase());
+                  const inv = invCosts?.get(refFamilyKey(it.reference));
                   const delta = inv && inv.cost > 0 ? ((r.landed_unit_cop - inv.cost) / inv.cost) * 100 : null;
                   const excel = Number(it.costo_unitario_excel ?? 0) > 0 ? Number(it.costo_unitario_excel) : null;
                   const deltaExcel = excel ? ((r.landed_unit_cop - excel) / excel) * 100 : null;

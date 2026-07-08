@@ -93,6 +93,23 @@ describe('projectQuiebres', () => {
     expect(q.fechaQuiebre).toBe('2026-11-15');
   });
 
+  it('matchKey (familia): el packing list base cruza con la -5 del inventario', () => {
+    // Inventario Siigo: LIV-40-5. Packing list: LIV-40 en dos colores.
+    const [q] = projectQuiebres({
+      todayIso: HOY,
+      stock: [{ productId: 'liv-40', reference: 'LIV-40-5', stockPhysical: 90, matchKey: 'liv-40' }],
+      salidas: [{ productId: 'liv-40', quantity: 270 }], // 3/día → agota 2026-08-07
+      ventanaDias: 90,
+      transito: [
+        { reference: 'LIV-40', cantidad: 100, fechaDisponible: '2026-08-01', matchKey: 'liv-40' }, // Mate
+        { reference: 'LIV-40', cantidad: 200, fechaDisponible: '2026-08-01', matchKey: 'liv-40' }, // Negro
+      ],
+    });
+    // Ambos colores reponen la MISMA familia: 18 + 300 = 318 → 106 días más.
+    expect(q.reference).toBe('LIV-40-5');
+    expect(q.fechaQuiebre).toBe('2026-11-15');
+  });
+
   it('referencia sin consumo no aparece (no dispara alarma)', () => {
     const out = projectQuiebres({
       todayIso: HOY,
