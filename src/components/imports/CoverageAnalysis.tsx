@@ -20,7 +20,7 @@ import { useMemo, useState } from 'react';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
 import { suggestOrderQty } from '@/lib/reorderSuggestion';
 import { refFamilyKey } from '@/lib/refFamily';
-import { ESTACIONALIDAD_MESES_MIN } from '@/lib/demandModel';
+import { ESTACIONALIDAD_MESES_MADURA } from '@/lib/demandModel';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -68,9 +68,9 @@ export default function CoverageAnalysis() {
     return rows.map((r) => {
       const fam = refFamilyKey(r.reference);
       const demanda = demandPorFamilia.get(fam) ?? null;
-      const indice = demanda?.indiceEstacional ?? 1;
-      // Estacionalidad: ajusta la demanda del horizonte (índice 1 = neutro
-      // mientras no haya 12 meses de historia — se activa solo).
+      // Factor = tendencia 30d × estacionalidad (ponderada por madurez).
+      // Activo desde el primer dato — el disclaimer vive en el header.
+      const indice = demanda?.factorDemanda ?? 1;
       const sugerido = suggestOrderQty({ ...r, consumoDiario: r.consumoDiario * indice }, horizonteDias);
       const kgU = kgPorUnidad.get(fam) ?? null;
       return {
@@ -90,15 +90,19 @@ export default function CoverageAnalysis() {
     return { unds, kg, sinKg };
   }, [conSugerido]);
 
-  // Estado de la estacionalidad (a nivel módulo: la familia con más historia).
-  const estacionalidad = useMemo(() => {
+  // Estado de los ajustes de demanda (a nivel módulo).
+  const ajustes = useMemo(() => {
     let meses = 0;
-    let activas = 0;
+    let estacionalActivas = 0;
+    let maduras = 0;
+    let tendenciaActivas = 0;
     for (const d of demandPorFamilia.values()) {
       meses = Math.max(meses, d.mesesDeHistoria);
-      if (d.estacionalidadActiva) activas++;
+      if (d.estacionalidadActiva) estacionalActivas++;
+      if (d.estacionalidadMadura) maduras++;
+      if (d.indiceTendencia !== 1) tendenciaActivas++;
     }
-    return { meses, activas };
+    return { meses, estacionalActivas, maduras, tendenciaActivas };
   }, [demandPorFamilia]);
 
   const handleExport = async () => {
@@ -115,7 +119,9 @@ export default function CoverageAnalysis() {
         'En tránsito': r.enTransito,
         'Cobertura (días)': r.diasCobertura ?? '>400',
         'Fecha quiebre': r.fechaQuiebre ?? '',
-        'Índice estacional': Number(r.indice.toFixed(2)),
+        'Tendencia 30d': Number((r.demanda?.indiceTendencia ?? 1).toFixed(2)),
+        'Índice estacional': Number((r.demanda?.indiceEstacional ?? 1).toFixed(2)),
+        'Factor aplicado': Number(r.indice.toFixed(2)),
         'Sugerido próx. pedido': r.sugerido,
         'Kg estimado': r.kgEstimado !== null ? Number(r.kgEstimado.toFixed(1)) : null,
       }));
@@ -167,10 +173,20 @@ export default function CoverageAnalysis() {
             Horizonte: <strong className="text-foreground">{horizonteDias}d</strong>{' '}
             (lead time {sug.leadTime.totalDias}{sug.leadTime.tieneDefaults ? '≈' : ''} + ciclo {cicloPedidoDias} + colchón {sug.safetyDias})
           </span>
-          <span className="text-muted-foreground">
-            Estacionalidad: {estacionalidad.activas > 0
-              ? <strong className="text-success">activa ({estacionalidad.activas} refs)</strong>
-              : <span title="El índice estacional se activa solo cuando haya 12 meses de ventas registradas">esperando historia ({Math.min(estacionalidad.meses, ESTACIONALIDAD_MESES_MIN)}/{ESTACIONALIDAD_MESES_MIN} meses)</span>}
+          <span className="text-muted-foreground" title="Tendencia: tasa de los últimos 30 días vs la ventana — capta escasez, mercado saturado, regulación, demoras en puerto. Activa desde la primera semana de datos.">
+            Tendencia 30d: {ajustes.tendenciaActivas > 0
+              ? <strong className="text-foreground">activa ({ajustes.tendenciaActivas} refs)</strong>
+              : 'neutra'}
+          </span>
+          <span
+            className="text-muted-foreground"
+            title={`La señal anual se aplica desde el primer dato, ponderada por madurez (${ajustes.meses}/${ESTACIONALIDAD_MESES_MADURA} meses = ${Math.round(Math.min(1, ajustes.meses / ESTACIONALIDAD_MESES_MADURA) * 100)}% del peso). Leela con pinzas hasta madurar.`}
+          >
+            Estacionalidad anual: {ajustes.maduras > 0
+              ? <strong className="text-success">madura</strong>
+              : ajustes.estacionalActivas > 0
+                ? <strong className="text-warning">parcial ({ajustes.meses}/{ESTACIONALIDAD_MESES_MADURA} meses — a medias)</strong>
+                : `acumulando serie (${Math.min(ajustes.meses, ESTACIONALIDAD_MESES_MADURA)}/${ESTACIONALIDAD_MESES_MADURA} meses)`}
           </span>
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 ml-auto" onClick={handleExport} disabled={exporting}>
             {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
@@ -240,7 +256,7 @@ export default function CoverageAnalysis() {
                 <TableCell className={cn('text-xs font-mono text-right font-semibold', r.sugerido > 0 ? 'text-foreground' : 'text-muted-foreground')}>
                   {r.sugerido > 0 ? fmtNum(r.sugerido) : '—'}
                   {r.indice !== 1 && r.sugerido > 0 && (
-                    <span className="text-[9px] text-muted-foreground" title={`Índice estacional ${r.indice.toFixed(2)} aplicado`}> ×{r.indice.toFixed(2)}</span>
+                    <span className="text-[9px] text-muted-foreground" title={`Factor aplicado ${r.indice.toFixed(2)} = tendencia 30d ${(r.demanda?.indiceTendencia ?? 1).toFixed(2)} × estacionalidad ${(r.demanda?.indiceEstacional ?? 1).toFixed(2)} (ponderada por madurez)`}> ×{r.indice.toFixed(2)}</span>
                   )}
                 </TableCell>
                 <TableCell className="text-xs font-mono text-right text-muted-foreground">
@@ -273,10 +289,11 @@ export default function CoverageAnalysis() {
       )}
 
       <p className="text-[11px] text-muted-foreground leading-relaxed">
-        La demanda se mide solo sobre días con stock (†: tuvo quiebre y la tasa fue corregida hacia arriba) — así el
-        sugerido crece solo cuando una referencia se agota repetido. La estacionalidad ya está montada: con 12 meses de
-        ventas registradas el índice mensual se activa automáticamente. Referencias sin ventas registradas no aparecen.
-        El sugerido es punto de partida, no orden de compra.
+        La demanda se mide solo sobre días con stock (†: tuvo quiebre y la tasa fue corregida hacia arriba). El sugerido
+        se ajusta por DOS señales: tendencia de corto plazo (últimos 30 días — escasez, mercado, regulación, puerto) y
+        estacionalidad anual, activa desde el primer dato pero ponderada por madurez — con poca historia pesa poco y se
+        lee con pinzas; a los 12 meses aplica al 100%. Referencias sin ventas registradas no aparecen. El sugerido es
+        punto de partida, no orden de compra.
       </p>
     </div>
   );

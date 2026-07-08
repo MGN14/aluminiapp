@@ -10,19 +10,33 @@
  *    500/90 = 5,6. El sugerido crece solo cuando hay quiebres repetidos,
  *    sin escalones arbitrarios.
  *
- * 2. ESTACIONALIDAD (montada, se activa sola): se acumula la serie mensual
- *    de salidas. Mientras haya <12 meses de historia el índice es 1 (neutro)
- *    y la UI muestra "esperando historia (N/12 meses)". Al cumplir 12, el
- *    índice del mes objetivo = promedio de ese mes calendario ÷ promedio
- *    mensual general, y empieza a ajustar el sugerido automáticamente.
+ * 2. TENDENCIA DE CORTO PLAZO (planteo de Nico: escasez, mercado saturado,
+ *    regulación nueva, demoras en puerto — cambios DENTRO del año): tasa
+ *    censurada de los últimos 30 días vs la de la ventana completa. Activa
+ *    desde la primera semana de datos; acotada para no sobre-reaccionar.
+ *
+ * 3. ESTACIONALIDAD ANUAL (activa desde el primer dato, madura a los 12
+ *    meses): índice del mes objetivo = promedio de ese mes calendario ÷
+ *    promedio mensual general, PONDERADO por madurez (meses/12). Con 3
+ *    meses de historia aplica el 25% de la señal; con 12+, el 100%. El
+ *    disclaimer de "a medias" vive en la UI — decisión de Nico: el dato
+ *    sirve desde el primer momento si se lee sabiendo que le falta tiempo.
  */
 
-// Meses de historia necesarios para activar el índice estacional.
-export const ESTACIONALIDAD_MESES_MIN = 12;
-// Suavizado del índice estacional: se acota para que un solo mes atípico
-// no dispare/hunda el sugerido (0.6x a 1.8x).
-const INDICE_MIN = 0.6;
-const INDICE_MAX = 1.8;
+// Meses de historia para considerar MADURA la estacionalidad anual.
+export const ESTACIONALIDAD_MESES_MADURA = 12;
+// Cotas del índice estacional crudo (un mes atípico no dispara el sugerido).
+const ESTACIONAL_MIN = 0.6;
+const ESTACIONAL_MAX = 1.8;
+// Cotas de la tendencia de corto plazo (30d vs ventana).
+const TENDENCIA_MIN = 0.5;
+const TENDENCIA_MAX = 2.0;
+// Cota del factor combinado (tendencia × estacionalidad).
+const FACTOR_MIN = 0.5;
+const FACTOR_MAX = 2.2;
+// Días de la sub-ventana de tendencia y mínimo de días con stock para medirla.
+const TENDENCIA_DIAS = 30;
+const TENDENCIA_MIN_DIAS_CON_STOCK = 7;
 
 export interface DemandMovement {
   tipo: 'entrada' | 'salida';
@@ -45,9 +59,18 @@ export interface FamilyDemand {
   /** Serie mensual de salidas (toda la historia consultada), 'YYYY-MM'. */
   serieMensual: { mes: string; salidas: number }[];
   mesesDeHistoria: number;
-  /** Índice del próximo mes; 1 mientras no haya historia suficiente. */
+  /** Tendencia de corto plazo: tasa censurada 30d ÷ tasa de la ventana.
+   *  >1 = acelerando (escasez, demanda caliente); <1 = frenando. */
+  indiceTendencia: number;
+  /** Índice estacional del mes objetivo, YA ponderado por madurez
+   *  (señal × meses/12). 1 = neutro o sin muestra del mes. */
   indiceEstacional: number;
+  /** true si hay muestra del mes calendario objetivo en la historia. */
   estacionalidadActiva: boolean;
+  /** true con 12+ meses de historia (señal al 100%). */
+  estacionalidadMadura: boolean;
+  /** Factor combinado que ajusta el sugerido: tendencia × estacional, acotado. */
+  factorDemanda: number;
 }
 
 function addDaysIso(iso: string, days: number): string {
@@ -95,6 +118,9 @@ export function computeFamilyDemand(params: {
   let stock = Math.max(0, Number(params.stockActual ?? 0));
   let diasConStock = 0;
   let salidasVentana = 0;
+  // Sub-ventana de tendencia: los últimos TENDENCIA_DIAS.
+  let diasConStock30 = 0;
+  let salidas30 = 0;
   let vioVentaDespuesDeSeco = false;
   let huboDiaSeco = false;
   let huboQuiebre = false;
@@ -106,12 +132,14 @@ export function computeFamilyDemand(params: {
     // El stock "del día" es el de apertura: el de cierre + lo que salió − lo que entró.
     if (stock > 0.001) {
       diasConStock++;
+      if (i < TENDENCIA_DIAS) diasConStock30++;
       if (huboDiaSeco) huboQuiebre = huboQuiebre || vioVentaDespuesDeSeco;
     } else {
       huboDiaSeco = true;
     }
     if (mov) {
       salidasVentana += mov.salidas;
+      if (i < TENDENCIA_DIAS) salidas30 += mov.salidas;
       if (mov.salidas > 0) vioVentaDespuesDeSeco = true;
       stock = Math.max(0, stock + mov.salidas - mov.entradas);
     }
@@ -124,6 +152,15 @@ export function computeFamilyDemand(params: {
     ? salidasVentana / Math.max(diasConStock, 1)
     : 0;
 
+  // ── Tendencia de corto plazo: tasa 30d vs tasa de la ventana ──
+  // Solo si en los últimos 30 días hubo stock suficiente para "leer" demanda
+  // (una ref agotada 30 días no dice nada de tendencia → neutro).
+  let indiceTendencia = 1;
+  if (consumoDiario > 0 && diasConStock30 >= TENDENCIA_MIN_DIAS_CON_STOCK) {
+    const tasa30 = salidas30 / diasConStock30;
+    indiceTendencia = Math.min(TENDENCIA_MAX, Math.max(TENDENCIA_MIN, tasa30 / consumoDiario));
+  }
+
   // ── Serie mensual + estacionalidad ──
   const serieMensual = [...porMes.entries()]
     .map(([mes, salidas]) => ({ mes, salidas }))
@@ -134,18 +171,28 @@ export function computeFamilyDemand(params: {
         (new Date(todayIso).getTime() - new Date(primerMovimiento).getTime()) / (30.44 * 86_400_000),
       ))
     : 0;
-  const estacionalidadActiva = mesesDeHistoria >= ESTACIONALIDAD_MESES_MIN && serieMensual.length >= 6;
+  const estacionalidadMadura = mesesDeHistoria >= ESTACIONALIDAD_MESES_MADURA;
 
+  // Activa desde el PRIMER dato del mes calendario objetivo (decisión de
+  // Nico: vale desde ya, leída con pinzas). La señal se pondera por madurez:
+  // índice aplicado = 1 + (crudo − 1) × min(meses/12, 1) — con 3 meses pesa
+  // 25%, con 12+ el 100%. El disclaimer "a medias" vive en la UI.
   let indiceEstacional = 1;
-  if (estacionalidadActiva) {
+  let estacionalidadActiva = false;
+  {
     const mesObjetivo = addDaysIso(todayIso, 30).slice(5, 7); // mes calendario del próximo mes
     const delMes = serieMensual.filter((s) => s.mes.slice(5, 7) === mesObjetivo).map((s) => s.salidas);
     const todas = serieMensual.map((s) => s.salidas);
     const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
-    if (delMes.length > 0 && avg(todas) > 0) {
-      indiceEstacional = Math.min(INDICE_MAX, Math.max(INDICE_MIN, avg(delMes) / avg(todas)));
+    if (delMes.length > 0 && todas.length >= 2 && avg(todas) > 0) {
+      estacionalidadActiva = true;
+      const crudo = Math.min(ESTACIONAL_MAX, Math.max(ESTACIONAL_MIN, avg(delMes) / avg(todas)));
+      const madurez = Math.min(1, mesesDeHistoria / ESTACIONALIDAD_MESES_MADURA);
+      indiceEstacional = 1 + (crudo - 1) * madurez;
     }
   }
+
+  const factorDemanda = Math.min(FACTOR_MAX, Math.max(FACTOR_MIN, indiceTendencia * indiceEstacional));
 
   return {
     consumoDiario,
@@ -156,7 +203,10 @@ export function computeFamilyDemand(params: {
     huboQuiebre,
     serieMensual,
     mesesDeHistoria,
+    indiceTendencia,
     indiceEstacional,
     estacionalidadActiva,
+    estacionalidadMadura,
+    factorDemanda,
   };
 }
