@@ -4,6 +4,7 @@ import {
   estimateDisponibilidad,
   projectQuiebres,
   computeReorderSuggestion,
+  suggestOrderQty,
   DEFAULT_ETAPAS,
   SAFETY_DIAS,
 } from './reorderSuggestion';
@@ -208,6 +209,36 @@ describe('computeReorderSuggestion', () => {
       transito: [{ reference: 'C', cantidad: 600, fechaDisponible: '2026-09-01' }],
     });
     expect(conTransito.fechaQuiebreGrupal! > sinTransito.fechaQuiebreGrupal!).toBe(true);
+  });
+
+  it('porReferencia expone TODAS las refs con consumo y su enTransito', () => {
+    const sug = computeReorderSuggestion({
+      todayIso: HOY,
+      imports: [],
+      stock: [
+        { productId: 'f1', reference: 'LIV-40-5', stockPhysical: 90, matchKey: 'liv-40' },
+        { productId: 'f2', reference: 'T077A-5', stockPhysical: 500, matchKey: 't077a' },
+      ],
+      salidas: [
+        { productId: 'f1', quantity: 270 },
+        { productId: 'f2', quantity: 90 },
+      ],
+      transito: [{ reference: 'LIV-40', cantidad: 300, fechaDisponible: '2026-08-01', matchKey: 'liv-40' }],
+    });
+    expect(sug.porReferencia).toHaveLength(2);
+    const liv = sug.porReferencia.find((q) => q.reference === 'LIV-40-5')!;
+    expect(liv.enTransito).toBe(300);
+    expect(sug.porReferencia.find((q) => q.reference === 'T077A-5')!.enTransito).toBe(0);
+  });
+
+  it('suggestOrderQty: consumo × horizonte − (stock + tránsito), nunca negativo', () => {
+    const q = { reference: 'X', consumoDiario: 3, stock: 90, enTransito: 300, fechaQuiebre: null, diasCobertura: null };
+    // 3 × 145 = 435 objetivo − 390 disponible = 45
+    expect(suggestOrderQty(q, 145)).toBe(45);
+    // Sobre-stockeada → 0, no negativo
+    expect(suggestOrderQty({ ...q, stock: 5000 }, 145)).toBe(0);
+    // Redondeo hacia arriba
+    expect(suggestOrderQty({ ...q, consumoDiario: 3.1, stock: 0, enTransito: 0 }, 100)).toBe(310);
   });
 
   it('sin consumo registrado → sin fecha con motivo', () => {

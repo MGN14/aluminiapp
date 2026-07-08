@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, Lock as LockIcon, Radar as RadarIcon, AlertTriangle, PackageCheck, Factory } from 'lucide-react';
+import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, Lock as LockIcon, Radar as RadarIcon, AlertTriangle, PackageCheck, PackageSearch, Factory } from 'lucide-react';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import { fetchTrmForDate } from '@/hooks/useImportPayments';
 import { computeImportBreakdown } from '@/lib/importCosting';
@@ -16,6 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import ImportModal from '@/components/imports/ImportModal';
 import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
 import ReorderSuggestionCard from '@/components/imports/ReorderSuggestionCard';
+import CoverageAnalysis from '@/components/imports/CoverageAnalysis';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
 import { computeTotalDays, computeStageAverages } from '@/lib/importStages';
 import { format } from 'date-fns';
@@ -92,7 +93,7 @@ export default function Importaciones() {
   const [editing, setEditing] = useState<ImportRow | null>(null);
   const [filter, setFilter] = useState<Filter>('abiertos');
   const [search, setSearch] = useState('');
-  const [view, setView] = useState<'pedidos' | 'analisis'>('pedidos');
+  const [view, setView] = useState<'pedidos' | 'analisis' | 'cobertura'>('pedidos');
   // Diálogo "¿en qué fecha cambió de estado?" al cambiar desde el select inline
   const [changing, setChanging] = useState<{ row: ImportRow; estado: ImportEstado; fecha: string } | null>(null);
 
@@ -377,6 +378,14 @@ export default function Importaciones() {
               >
                 <LineChart className="h-3.5 w-3.5" /> Análisis de precios
               </button>
+              <button
+                type="button"
+                onClick={() => setView('cobertura')}
+                className={cn('px-3 py-1.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5',
+                  view === 'cobertura' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <PackageSearch className="h-3.5 w-3.5" /> Cobertura
+              </button>
             </div>
             <Button onClick={openNew} className="gap-2">
               <Plus className="h-4 w-4" />
@@ -387,6 +396,8 @@ export default function Importaciones() {
 
         {view === 'analisis' ? (
           <ImportPriceAnalysis />
+        ) : view === 'cobertura' ? (
+          <CoverageAnalysis />
         ) : (
         <>
         {/* Sugerencia de próximo pedido: quiebre de stock − lead time − colchón */}

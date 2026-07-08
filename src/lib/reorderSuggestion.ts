@@ -107,6 +107,8 @@ export interface QuiebreProducto {
   reference: string;
   consumoDiario: number;
   stock: number;
+  /** Unidades conocidas en camino (packing/proforma de pedidos abiertos). */
+  enTransito: number;
   /** ISO; null = no quiebra dentro del horizonte. */
   fechaQuiebre: string | null;
   diasCobertura: number | null;
@@ -128,6 +130,8 @@ export interface ReorderSuggestion {
   llegadaSiPidoHoy: string;
   /** Detalle de las referencias críticas (para la tabla del card). */
   criticos: QuiebreProducto[];
+  /** TODAS las referencias con consumo (para el análisis de cobertura). */
+  porReferencia: QuiebreProducto[];
   leadTime: LeadTimeEstimate;
   safetyDias: number;
   umbralRefs: number;
@@ -261,6 +265,7 @@ export function projectQuiebres(params: {
     // llegada en tránsito repone ANTES de contar el quiebre si cae a tiempo.
     const llegadas = [...(llegadasPorRef.get(p.matchKey ?? p.reference.trim().toLowerCase()) ?? [])]
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const enTransito = llegadas.reduce((s, l) => s + l.qty, 0);
     let disponible = Math.max(0, Number(p.stockPhysical ?? 0));
     let cursor = todayIso;
     let fechaQuiebre: string | null = null;
@@ -292,6 +297,7 @@ export function projectQuiebres(params: {
       reference: p.reference,
       consumoDiario,
       stock: Number(p.stockPhysical ?? 0),
+      enTransito,
       fechaQuiebre,
       diasCobertura: fechaQuiebre ? daysBetween(todayIso, fechaQuiebre) : null,
     });
@@ -335,6 +341,7 @@ export function computeReorderSuggestion(params: {
   const vacio = {
     fechaLimite: null, diasParaDecidir: null, fechaQuiebreGrupal: null,
     refsGrupal: [], alertas: [], criticos: [] as QuiebreProducto[],
+    porReferencia: [] as QuiebreProducto[],
   };
 
   if (!stock.length) {
@@ -367,6 +374,7 @@ export function computeReorderSuggestion(params: {
       ...base, ...vacio,
       alertas: conQuiebre,
       criticos,
+      porReferencia: quiebres,
       motivoSinFecha: null,
     };
   }
@@ -384,6 +392,22 @@ export function computeReorderSuggestion(params: {
     // Quiebres anteriores a la fecha grupal que conviene vigilar puntualmente.
     alertas: conQuiebre.filter((q) => q.fechaQuiebre! < fechaQuiebreGrupal),
     criticos,
+    porReferencia: quiebres,
     motivoSinFecha: null,
   };
+}
+
+/**
+ * ¿Cuánto pedir de una referencia en el PRÓXIMO pedido?
+ *
+ *   sugerido = consumo diario × horizonte objetivo − (stock + en tránsito)
+ *
+ * El horizonte objetivo es el tiempo que ese pedido tiene que cubrir:
+ * lead time (mientras viaja se consume) + ciclo entre pedidos (hasta que
+ * llegue el SIGUIENTE) + colchón. Nunca negativo; redondeado hacia arriba.
+ */
+export function suggestOrderQty(q: QuiebreProducto, horizonteDias: number): number {
+  const objetivo = q.consumoDiario * horizonteDias;
+  const disponible = q.stock + q.enTransito;
+  return Math.max(0, Math.ceil(objetivo - disponible));
 }

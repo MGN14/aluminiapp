@@ -24,7 +24,7 @@ import {
 } from '@/lib/reorderSuggestion';
 import { refFamilyKey } from '@/lib/refFamily';
 
-interface ItemRow { import_id: string; reference: string; cantidad: number; source?: 'proforma' | 'packing' | null }
+interface ItemRow { import_id: string; reference: string; cantidad: number; peso_kg?: number | null; source?: 'proforma' | 'packing' | null }
 
 export interface PedidoSinItems {
   id: string;
@@ -36,6 +36,12 @@ export interface UseReorderSuggestionResult {
   suggestion: ReorderSuggestion | null;
   /** Pedidos abiertos SIN packing list/proforma: no cuentan como cobertura. */
   pedidosSinItems: PedidoSinItems[];
+  /** kg por unidad por familia (del packing/proforma de pedidos abiertos) —
+   *  para estimar el peso del pedido sugerido. */
+  kgPorUnidad: Map<string, number>;
+  /** Días promedio entre pedidos (fecha_anticipo/cotización), acotado 20-120;
+   *  45 por defecto mientras no haya historia. */
+  cicloPedidoDias: number;
 }
 
 function isoToday(): string {
@@ -91,7 +97,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     queryFn: async () => {
       const { data, error } = await (supabase as never as { from: (t: string) => any })
         .from('import_items')
-        .select('import_id, reference, cantidad, source')
+        .select('import_id, reference, cantidad, peso_kg, source')
         .in('import_id', abiertosIds);
       if (error) throw error;
       const rows = (data ?? []) as ItemRow[];
@@ -109,7 +115,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // en tránsito" y una fecha alarmista mientras la query seguía en vuelo.
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
   if (!importsData || inventoryQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [] };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], kgPorUnidad: new Map(), cicloPedidoDias: 45 };
   }
 
   const today = isoToday();
@@ -186,5 +192,37 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     transito,
   });
 
-  return { isPending: false, suggestion, pedidosSinItems };
+  // kg por unidad por familia — del packing/proforma de los pedidos abiertos.
+  const kgAcc = new Map<string, { kg: number; cant: number }>();
+  for (const it of items) {
+    const kg = Number(it.peso_kg ?? 0);
+    const cant = Number(it.cantidad ?? 0);
+    if (kg <= 0 || cant <= 0) continue;
+    const key = refFamilyKey(it.reference);
+    const acc = kgAcc.get(key) ?? { kg: 0, cant: 0 };
+    acc.kg += kg; acc.cant += cant;
+    kgAcc.set(key, acc);
+  }
+  const kgPorUnidad = new Map<string, number>(
+    [...kgAcc.entries()].map(([k, v]) => [k, v.kg / v.cant]),
+  );
+
+  // Ciclo entre pedidos: promedio de los gaps entre fechas de anticipo (o
+  // cotización) de los últimos pedidos. Acotado a [20, 120]; 45 sin historia.
+  const fechasPedido = (importsData.all ?? [])
+    .filter((r) => r.estado !== 'cancelado')
+    .map((r) => r.fecha_anticipo ?? r.fecha_cotizacion)
+    .filter((f): f is string => !!f)
+    .sort();
+  const gaps: number[] = [];
+  for (let i = 1; i < fechasPedido.length; i++) {
+    const d = Math.round((new Date(fechasPedido[i]).getTime() - new Date(fechasPedido[i - 1]).getTime()) / 86_400_000);
+    if (d > 0) gaps.push(d);
+  }
+  const ultimos = gaps.slice(-6);
+  const cicloPedidoDias = ultimos.length
+    ? Math.min(120, Math.max(20, Math.round(ultimos.reduce((a, b) => a + b, 0) / ultimos.length)))
+    : 45;
+
+  return { isPending: false, suggestion, pedidosSinItems, kgPorUnidad, cicloPedidoDias };
 }
