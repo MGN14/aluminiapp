@@ -236,6 +236,9 @@ export function projectQuiebres(params: {
   salidas: SalidaRow[];
   ventanaDias?: number;
   transito: TransitoItem[];
+  /** Consumo diario por productId ya calculado aguas arriba (ej. censurado
+   *  por días con stock — demandModel). Si falta, salidas ÷ ventana. */
+  consumoPorProducto?: Map<string, number>;
 }): QuiebreProducto[] {
   const { todayIso, stock, salidas, transito } = params;
   const ventana = params.ventanaDias ?? CONSUMO_VENTANA_DIAS;
@@ -258,7 +261,7 @@ export function projectQuiebres(params: {
   const out: QuiebreProducto[] = [];
   for (const p of stock) {
     const totalSalidas = salidasPorProducto.get(p.productId) ?? 0;
-    const consumoDiario = totalSalidas / ventana;
+    const consumoDiario = params.consumoPorProducto?.get(p.productId) ?? (totalSalidas / ventana);
     if (consumoDiario <= 0) continue;
 
     // Caminar la línea de tiempo: stock se agota a ritmo constante; cada
@@ -317,6 +320,7 @@ export function computeReorderSuggestion(params: {
   ventanaDias?: number;
   safetyDias?: number;
   umbralRefs?: number;
+  consumoPorProducto?: Map<string, number>;
 }): ReorderSuggestion {
   const { todayIso, imports, stock, salidas, transito } = params;
   const safetyDias = params.safetyDias ?? SAFETY_DIAS;
@@ -325,6 +329,7 @@ export function computeReorderSuggestion(params: {
   const leadTime = estimateLeadTime(imports);
   const quiebres = projectQuiebres({
     todayIso, stock, salidas, transito, ventanaDias: params.ventanaDias,
+    consumoPorProducto: params.consumoPorProducto,
   });
 
   const base = {

@@ -219,6 +219,12 @@ export default function Importaciones() {
   // el radar calculaba su propia fecha con cadencia de pedidos y se
   // contradecía con la card en pantalla).
   const reorder = useReorderSuggestion();
+  // Pedidos abiertos sin proforma/packing → badge en la lista (es incoherente
+  // una importación sin proforma: queda invisible para la cobertura).
+  const sinProformaIds = useMemo(
+    () => new Set(reorder.pedidosSinItems.map((p) => p.id)),
+    [reorder.pedidosSinItems],
+  );
 
   // ── Radar de abastecimiento ───────────────────────────────────────────────
   // El análisis que el negocio necesita: (1) el contenedor que LLEGA — cuánta
@@ -733,9 +739,21 @@ export default function Importaciones() {
                           onClick={() => openEdit(row)}
                         >
                           <TableCell className="text-sm">
-                            <div className="font-medium">{row.proveedor_nombre}</div>
+                            <div className="font-medium flex items-center gap-1.5">
+                              {row.proveedor_nombre}
+                              {sinProformaIds.has(row.id) && (
+                                <AlertTriangle
+                                  className="h-3.5 w-3.5 text-amber-500 shrink-0"
+                                  aria-label="Sin proforma"
+                                  // Un pedido sin proforma es invisible para la cobertura
+                                />
+                              )}
+                            </div>
                             {row.ref_pedido && (
                               <div className="text-[10px] text-muted-foreground font-mono">{row.ref_pedido}</div>
+                            )}
+                            {sinProformaIds.has(row.id) && (
+                              <div className="text-[10px] text-amber-600">sin proforma — subilo en Costeo</div>
                             )}
                           </TableCell>
                           {/* Estado editable en línea — mismos estados que el modal.

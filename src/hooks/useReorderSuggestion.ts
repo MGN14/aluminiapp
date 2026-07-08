@@ -23,6 +23,7 @@ import {
   type ReorderSuggestion,
 } from '@/lib/reorderSuggestion';
 import { refFamilyKey } from '@/lib/refFamily';
+import { computeFamilyDemand, type FamilyDemand, type DemandMovement } from '@/lib/demandModel';
 
 interface ItemRow { import_id: string; reference: string; cantidad: number; peso_kg?: number | null; source?: 'proforma' | 'packing' | null }
 
@@ -42,6 +43,9 @@ export interface UseReorderSuggestionResult {
   /** Días promedio entre pedidos (fecha_anticipo/cotización), acotado 20-120;
    *  45 por defecto mientras no haya historia. */
   cicloPedidoDias: number;
+  /** Modelo de demanda por familia: consumo censurado, días con stock,
+   *  serie mensual y estado de la estacionalidad. */
+  demandPorFamilia: Map<string, FamilyDemand>;
 }
 
 function isoToday(): string {
@@ -64,6 +68,13 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
       cutoff.setDate(cutoff.getDate() - CONSUMO_VENTANA_DIAS);
       const cutoffIso = cutoff.toISOString().slice(0, 10);
 
+      // Historia larga (400d) para la serie mensual de estacionalidad; el
+      // consumo censurado usa solo la ventana de 90d. Entradas + salidas:
+      // con ambas se reconstruye el stock día a día (días con/sin stock).
+      const cutoffSerie = new Date();
+      cutoffSerie.setDate(cutoffSerie.getDate() - 400);
+      const cutoffSerieIso = cutoffSerie.toISOString().slice(0, 10);
+
       const [prodRes, movRes] = await Promise.all([
         // stock_physical = inventario físico propio (conteo QR). stock_system
         // (Siigo) NO se usa acá a propósito.
@@ -71,18 +82,19 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
           .from('inventory_products')
           .select('id, reference, stock_physical')
           .eq('active', true),
-        // Salidas = despachos reales (las remisiones insertan estos movimientos).
+        // Salidas = despachos reales (remisiones); entradas = recepciones.
         supabase
           .from('inventory_movements')
-          .select('product_id, quantity')
-          .eq('movement_type', 'salida')
-          .gte('movement_date', cutoffIso),
+          .select('product_id, movement_type, quantity, movement_date')
+          .in('movement_type', ['salida', 'entrada'])
+          .gte('movement_date', cutoffSerieIso),
       ]);
       if (prodRes.error) throw prodRes.error;
       if (movRes.error) throw movRes.error;
+      void cutoffIso; // la ventana corta la aplica el modelo de demanda
       return {
         products: (prodRes.data ?? []) as { id: string; reference: string; stock_physical: number | null }[],
-        salidas: (movRes.data ?? []) as { product_id: string; quantity: number }[],
+        movimientos: (movRes.data ?? []) as { product_id: string; movement_type: string; quantity: number; movement_date: string }[],
       };
     },
     staleTime: 10 * 60_000,
@@ -115,7 +127,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // en tránsito" y una fecha alarmista mientras la query seguía en vuelo.
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
   if (!importsData || inventoryQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], kgPorUnidad: new Map(), cicloPedidoDias: 45 };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], kgPorUnidad: new Map(), cicloPedidoDias: 45, demandPorFamilia: new Map() };
   }
 
   const today = isoToday();
@@ -177,6 +189,38 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     for (const id of f.productIds) familiaPorProductId.set(id, f.key);
   }
 
+  // ── Modelo de demanda por familia: consumo CENSURADO por días con stock
+  // (idea de Nico: medir solo cuando había con qué vender) + serie mensual
+  // para estacionalidad (se activa sola a los 12 meses de historia). ──
+  const movsPorFamilia = new Map<string, DemandMovement[]>();
+  for (const m of inv.movimientos) {
+    const fam = familiaPorProductId.get(m.product_id);
+    if (!fam) continue;
+    const arr = movsPorFamilia.get(fam) ?? [];
+    arr.push({
+      tipo: m.movement_type === 'entrada' ? 'entrada' : 'salida',
+      quantity: Number(m.quantity ?? 0),
+      date: (m.movement_date ?? '').slice(0, 10),
+    });
+    movsPorFamilia.set(fam, arr);
+  }
+  const demandPorFamilia = new Map<string, FamilyDemand>();
+  const consumoPorProducto = new Map<string, number>();
+  const salidasVentana: { productId: string; quantity: number }[] = [];
+  for (const f of familias.values()) {
+    const demanda = computeFamilyDemand({
+      todayIso: today,
+      ventanaDias: CONSUMO_VENTANA_DIAS,
+      stockActual: f.stock,
+      movimientos: movsPorFamilia.get(f.key) ?? [],
+    });
+    demandPorFamilia.set(f.key, demanda);
+    if (demanda.consumoDiario > 0) {
+      consumoPorProducto.set(f.key, demanda.consumoDiario);
+      salidasVentana.push({ productId: f.key, quantity: demanda.salidasVentana });
+    }
+  }
+
   const suggestion = computeReorderSuggestion({
     todayIso: today,
     imports: fechas,
@@ -186,10 +230,9 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
       stockPhysical: f.stock,
       matchKey: f.key,
     })),
-    salidas: inv.salidas
-      .map((s) => ({ productId: familiaPorProductId.get(s.product_id) ?? '', quantity: Number(s.quantity ?? 0) }))
-      .filter((s) => s.productId !== ''),
+    salidas: salidasVentana,
     transito,
+    consumoPorProducto,
   });
 
   // kg por unidad por familia — del packing/proforma de los pedidos abiertos.
@@ -224,5 +267,5 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     ? Math.min(120, Math.max(20, Math.round(ultimos.reduce((a, b) => a + b, 0) / ultimos.length)))
     : 45;
 
-  return { isPending: false, suggestion, pedidosSinItems, kgPorUnidad, cicloPedidoDias };
+  return { isPending: false, suggestion, pedidosSinItems, kgPorUnidad, cicloPedidoDias, demandPorFamilia };
 }

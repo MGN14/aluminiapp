@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import ImportPaymentsSection from './ImportPaymentsSection';
 import ImportCostingSection from './ImportCostingSection';
 import ImportCostsTable from './ImportCostsTable';
+import { useImportItems } from '@/hooks/useImportItems';
 import ImportCierreSection from './ImportCierreSection';
 import CosteoCsvTools from './CosteoCsvTools';
 import ExchangeDiffPanel from './ExchangeDiffPanel';
@@ -99,6 +100,9 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const [proveedorSel, setProveedorSel] = useState<string>(''); // responsible_id | __otro__
   const [proveedorLibre, setProveedorLibre] = useState('');
   const [estado, setEstado] = useState<ImportEstado>('cotizacion');
+  // Ítems del pedido (proforma/packing) — para alertar cuando falta el
+  // proforma: un pedido sin ítems es invisible para la cobertura.
+  const { items: itemsDelPedido } = useImportItems(editing?.id ?? null);
   const [estadoFecha, setEstadoFecha] = useState(todayIso()); // fecha real del cambio de estado
   const [cantidadTon, setCantidadTon] = useState<number | ''>('');
   const [precioSmm, setPrecioSmm] = useState<number | ''>('');
@@ -694,6 +698,17 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                     )}
                   </div>
                 </div>
+
+                {/* Sin proforma/packing = pedido invisible para la cobertura.
+                    Es incoherente tener una importación sin proforma (Nico). */}
+                {editing && itemsDelPedido.length === 0 && estado !== 'entregado' && estado !== 'cancelado' && (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
+                    ⚠️ <strong>Este pedido no tiene proforma ni packing list.</strong> Sin él, su carga NO cuenta
+                    como cobertura (el análisis de reorden lo ignora) y no hay costeo por referencia. Subí el
+                    proforma en la pestaña <strong>Costeo</strong> apenas mandes a producción — cuando llegue el
+                    packing list definitivo, lo subís también y la app te muestra las diferencias.
+                  </div>
+                )}
 
                 {/* ── COSTEO DEL CONTENEDOR: cada casilla aparte ── */}
                 {(() => {
