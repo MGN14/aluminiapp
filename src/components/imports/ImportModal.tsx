@@ -835,7 +835,8 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                     cotización a entrega. Un pedido montado hoy llegaría alrededor del{' '}
                     <strong>
                       {new Date(Date.now() + leadTimeProm * DAY_MS).toLocaleDateString('es-CO', { day: '2-digit', month: 'long' })}
-                    </strong>. Restale tu inventario de seguridad y esa es la fecha límite para ordenar.
+                    </strong>. La <strong>fecha límite</strong> calculada con tu stock físico, consumo real y
+                    lo que viene en tránsito está en la card de arriba de la página de Importaciones.
                   </div>
                 )}
 

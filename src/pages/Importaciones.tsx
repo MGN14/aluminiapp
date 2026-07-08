@@ -15,6 +15,7 @@ import { computeImportBreakdown } from '@/lib/importCosting';
 import { supabase } from '@/integrations/supabase/client';
 import ImportModal from '@/components/imports/ImportModal';
 import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
+import ReorderSuggestionCard from '@/components/imports/ReorderSuggestionCard';
 import { computeTotalDays, computeStageAverages } from '@/lib/importStages';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -382,6 +383,9 @@ export default function Importaciones() {
           <ImportPriceAnalysis />
         ) : (
         <>
+        {/* Sugerencia de próximo pedido: quiebre de stock − lead time − colchón */}
+        <ReorderSuggestionCard />
+
         {/* KPIs de materia prima: cada uno con variación vs pedido anterior y vs año pasado */}
         {kpis && (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">

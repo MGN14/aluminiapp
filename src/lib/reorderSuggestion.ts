@@ -1,0 +1,347 @@
+/**
+ * Motor de sugerencia "¿cuándo montar el próximo pedido?" del módulo de
+ * importaciones. Todo sale de datos vivos y se recalcula en cada render:
+ * cuantos más ciclos completos y más ventas registradas, más preciso.
+ *
+ *   fecha límite = fecha de quiebre de stock − lead time − colchón de seguridad
+ *
+ * 1. LEAD TIME SEGMENTADO — en vez de exigir un ciclo completo (hoy no hay
+ *    ninguno), cada etapa se mide por separado con las fechas reales de TODOS
+ *    los pedidos, incluso los que van por la mitad:
+ *      producción      = fecha_anticipo  → fecha_embarque
+ *      tránsito        = fecha_embarque  → fecha_arribo_real
+ *      nacionalización = fecha_arribo_real → fecha de estado 'entregado'
+ *    Si una etapa no tiene datos todavía, usa un default conservador marcado
+ *    como "estimado" — apenas un pedido complete esa etapa, el promedio
+ *    medido reemplaza al default automáticamente.
+ *
+ * 2. QUIEBRE DE STOCK — consumo diario por referencia (salidas de inventario
+ *    de los últimos N días) contra stock físico actual + llegadas en tránsito
+ *    (packing list de pedidos abiertos, a su ETA + nacionalización). La fecha
+ *    crítica es el primer quiebre entre las referencias que concentran el
+ *    grueso del consumo (evita que una referencia marginal dispare la alarma).
+ *
+ * 3. COLCHÓN — días de seguridad fijos (SAFETY_DIAS) para absorber demoras.
+ */
+
+// ── Constantes del modelo ──────────────────────────────────────────────────
+
+/** Ventana de consumo: salidas de los últimos N días. */
+export const CONSUMO_VENTANA_DIAS = 90;
+/** Colchón de seguridad sobre la fecha límite. */
+export const SAFETY_DIAS = 15;
+/** Cobertura de consumo que define las referencias "críticas" (80%). */
+export const CONSUMO_CRITICO_PCT = 0.8;
+/** Defaults conservadores por etapa (días) mientras no haya datos medidos. */
+export const DEFAULT_ETAPAS = { produccion: 35, transito: 40, nacionalizacion: 10 } as const;
+/** Duración sana máxima de una etapa (descarta fechas basura). */
+const MAX_DIAS_ETAPA = 365;
+/** Horizonte máximo de proyección de stock. */
+const MAX_HORIZONTE_DIAS = 400;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// ── Tipos de entrada (shapes mínimos, desacoplados de la BD) ──────────────
+
+export interface ImportFechas {
+  estado: string;
+  fecha_anticipo: string | null;
+  fecha_embarque: string | null;
+  fecha_estimada_llegada: string | null;
+  fecha_arribo_real: string | null;
+  /** Fecha en que entró a 'entregado' (de import_estado_history). */
+  fecha_entregado?: string | null;
+}
+
+export interface StockRow {
+  productId: string;
+  reference: string;
+  stockPhysical: number;
+}
+
+export interface SalidaRow {
+  productId: string;
+  quantity: number;
+}
+
+export interface TransitoItem {
+  /** Referencia del packing list (se cruza con inventory_products.reference). */
+  reference: string;
+  cantidad: number;
+  /** Fecha estimada de disponibilidad EN BODEGA (ETA + nacionalización). */
+  fechaDisponible: string;
+}
+
+// ── Salidas del motor ──────────────────────────────────────────────────────
+
+export interface EtapaEstimate {
+  dias: number;
+  /** 'medido' = promedio de fechas reales; 'default' = sin datos aún. */
+  fuente: 'medido' | 'default';
+  /** Cuántos pedidos aportaron datos a esta etapa. */
+  n: number;
+}
+
+export interface LeadTimeEstimate {
+  produccion: EtapaEstimate;
+  transito: EtapaEstimate;
+  nacionalizacion: EtapaEstimate;
+  totalDias: number;
+  /** true si al menos una etapa sigue en default. */
+  tieneDefaults: boolean;
+}
+
+export interface QuiebreProducto {
+  reference: string;
+  consumoDiario: number;
+  stock: number;
+  /** ISO; null = no quiebra dentro del horizonte. */
+  fechaQuiebre: string | null;
+  diasCobertura: number | null;
+}
+
+export interface ReorderSuggestion {
+  /** Fecha límite para montar el pedido (ISO); null si faltan datos. */
+  fechaLimite: string | null;
+  diasParaDecidir: number | null;
+  /** Primer quiebre entre referencias críticas. */
+  quiebre: QuiebreProducto | null;
+  /** Detalle de las referencias críticas (para la tabla del card). */
+  criticos: QuiebreProducto[];
+  leadTime: LeadTimeEstimate;
+  safetyDias: number;
+  /** Datos que alimentaron el cálculo (transparencia / confianza). */
+  datos: {
+    referenciasConConsumo: number;
+    ventanaDias: number;
+    llegadasEnTransito: number;
+  };
+  /** null = ok; si no, por qué no se puede sugerir fecha. */
+  motivoSinFecha: 'sin_consumo' | 'sin_stock_data' | null;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function daysBetween(aIso: string, bIso: string): number {
+  return Math.round((new Date(bIso + 'T00:00:00Z').getTime() - new Date(aIso + 'T00:00:00Z').getTime()) / DAY_MS);
+}
+
+function addDays(iso: string, days: number): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + Math.round(days));
+  return d.toISOString().slice(0, 10);
+}
+
+function avg(nums: number[]): number {
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+function etapa(duraciones: number[], fallback: number): EtapaEstimate {
+  const valid = duraciones.filter((d) => d > 0 && d <= MAX_DIAS_ETAPA);
+  if (!valid.length) return { dias: fallback, fuente: 'default', n: 0 };
+  return { dias: Math.round(avg(valid)), fuente: 'medido', n: valid.length };
+}
+
+// ── 1. Lead time segmentado ────────────────────────────────────────────────
+
+export function estimateLeadTime(imports: ImportFechas[]): LeadTimeEstimate {
+  const produccion: number[] = [];
+  const transito: number[] = [];
+  const nacionalizacion: number[] = [];
+
+  for (const r of imports) {
+    if (r.estado === 'cancelado') continue;
+    if (r.fecha_anticipo && r.fecha_embarque) {
+      produccion.push(daysBetween(r.fecha_anticipo, r.fecha_embarque));
+    }
+    if (r.fecha_embarque && r.fecha_arribo_real) {
+      transito.push(daysBetween(r.fecha_embarque, r.fecha_arribo_real));
+    }
+    if (r.fecha_arribo_real && r.fecha_entregado) {
+      nacionalizacion.push(daysBetween(r.fecha_arribo_real, r.fecha_entregado));
+    }
+  }
+
+  const p = etapa(produccion, DEFAULT_ETAPAS.produccion);
+  const t = etapa(transito, DEFAULT_ETAPAS.transito);
+  const n = etapa(nacionalizacion, DEFAULT_ETAPAS.nacionalizacion);
+
+  return {
+    produccion: p,
+    transito: t,
+    nacionalizacion: n,
+    totalDias: p.dias + t.dias + n.dias,
+    tieneDefaults: p.fuente === 'default' || t.fuente === 'default' || n.fuente === 'default',
+  };
+}
+
+/** Fecha estimada de disponibilidad EN BODEGA de un pedido abierto. */
+export function estimateDisponibilidad(
+  r: ImportFechas,
+  leadTime: LeadTimeEstimate,
+  todayIso: string,
+): string {
+  const nac = leadTime.nacionalizacion.dias;
+  // Ya arribó a puerto → solo falta nacionalizar.
+  if (r.fecha_arribo_real) {
+    const disp = addDays(r.fecha_arribo_real, nac);
+    return disp >= todayIso ? disp : todayIso;
+  }
+  // Tiene ETA a puerto → ETA + nacionalización (si la ETA ya pasó, contar desde hoy).
+  if (r.fecha_estimada_llegada) {
+    const base = r.fecha_estimada_llegada >= todayIso ? r.fecha_estimada_llegada : todayIso;
+    return addDays(base, nac);
+  }
+  // Embarcado sin ETA → tránsito restante estimado + nacionalización.
+  if (r.fecha_embarque) {
+    const eta = addDays(r.fecha_embarque, leadTime.transito.dias);
+    return addDays(eta >= todayIso ? eta : todayIso, nac);
+  }
+  // En producción → lead time restante desde el anticipo (o desde hoy).
+  const desde = r.fecha_anticipo ?? todayIso;
+  const disp = addDays(desde, leadTime.totalDias);
+  return disp >= todayIso ? disp : addDays(todayIso, nac);
+}
+
+// ── 2. Proyección de quiebre por referencia ────────────────────────────────
+
+export function projectQuiebres(params: {
+  todayIso: string;
+  stock: StockRow[];
+  salidas: SalidaRow[];
+  ventanaDias?: number;
+  transito: TransitoItem[];
+}): QuiebreProducto[] {
+  const { todayIso, stock, salidas, transito } = params;
+  const ventana = params.ventanaDias ?? CONSUMO_VENTANA_DIAS;
+
+  const salidasPorProducto = new Map<string, number>();
+  for (const s of salidas) {
+    salidasPorProducto.set(s.productId, (salidasPorProducto.get(s.productId) ?? 0) + Math.abs(Number(s.quantity ?? 0)));
+  }
+
+  // Llegadas en tránsito por referencia (case-insensitive).
+  const llegadasPorRef = new Map<string, { fecha: string; qty: number }[]>();
+  for (const t of transito) {
+    const key = t.reference.trim().toLowerCase();
+    const arr = llegadasPorRef.get(key) ?? [];
+    arr.push({ fecha: t.fechaDisponible, qty: Number(t.cantidad ?? 0) });
+    llegadasPorRef.set(key, arr);
+  }
+
+  const out: QuiebreProducto[] = [];
+  for (const p of stock) {
+    const totalSalidas = salidasPorProducto.get(p.productId) ?? 0;
+    const consumoDiario = totalSalidas / ventana;
+    if (consumoDiario <= 0) continue;
+
+    // Caminar la línea de tiempo: stock se agota a ritmo constante; cada
+    // llegada en tránsito repone ANTES de contar el quiebre si cae a tiempo.
+    const llegadas = [...(llegadasPorRef.get(p.reference.trim().toLowerCase()) ?? [])]
+      .sort((a, b) => a.fecha.localeCompare(b.fecha));
+    let disponible = Math.max(0, Number(p.stockPhysical ?? 0));
+    let cursor = todayIso;
+    let fechaQuiebre: string | null = null;
+
+    // +1 iteración final sin llegadas pendientes. Congelado ANTES del loop:
+    // los shift() de adentro encogen llegadas.length.
+    const maxIter = llegadas.length + 1;
+    for (let guard = 0; guard < maxIter; guard++) {
+      const agotaEn = disponible / consumoDiario; // días desde cursor
+      const fechaAgote = addDays(cursor, Math.floor(agotaEn));
+      const proxima = llegadas[0];
+      if (proxima && proxima.fecha <= fechaAgote) {
+        // La llegada cae antes del agote: consumir hasta esa fecha y reponer.
+        const diasHasta = Math.max(0, daysBetween(cursor, proxima.fecha));
+        disponible = Math.max(0, disponible - diasHasta * consumoDiario) + proxima.qty;
+        cursor = proxima.fecha;
+        llegadas.shift();
+        continue;
+      }
+      fechaQuiebre = fechaAgote;
+      break;
+    }
+
+    if (fechaQuiebre && daysBetween(todayIso, fechaQuiebre) > MAX_HORIZONTE_DIAS) {
+      fechaQuiebre = null; // fuera de horizonte: no es urgente
+    }
+
+    out.push({
+      reference: p.reference,
+      consumoDiario,
+      stock: Number(p.stockPhysical ?? 0),
+      fechaQuiebre,
+      diasCobertura: fechaQuiebre ? daysBetween(todayIso, fechaQuiebre) : null,
+    });
+  }
+
+  return out.sort((a, b) => b.consumoDiario - a.consumoDiario);
+}
+
+// ── 3. Sugerencia final ────────────────────────────────────────────────────
+
+export function computeReorderSuggestion(params: {
+  todayIso: string;
+  imports: ImportFechas[];
+  stock: StockRow[];
+  salidas: SalidaRow[];
+  transito: TransitoItem[];
+  ventanaDias?: number;
+  safetyDias?: number;
+}): ReorderSuggestion {
+  const { todayIso, imports, stock, salidas, transito } = params;
+  const safetyDias = params.safetyDias ?? SAFETY_DIAS;
+
+  const leadTime = estimateLeadTime(imports);
+  const quiebres = projectQuiebres({
+    todayIso, stock, salidas, transito, ventanaDias: params.ventanaDias,
+  });
+
+  const base = {
+    leadTime,
+    safetyDias,
+    datos: {
+      referenciasConConsumo: quiebres.length,
+      ventanaDias: params.ventanaDias ?? CONSUMO_VENTANA_DIAS,
+      llegadasEnTransito: transito.length,
+    },
+  };
+
+  if (!stock.length) {
+    return { ...base, fechaLimite: null, diasParaDecidir: null, quiebre: null, criticos: [], motivoSinFecha: 'sin_stock_data' };
+  }
+  if (!quiebres.length) {
+    return { ...base, fechaLimite: null, diasParaDecidir: null, quiebre: null, criticos: [], motivoSinFecha: 'sin_consumo' };
+  }
+
+  // Referencias críticas: las que concentran el 80% del consumo diario.
+  // Una referencia marginal (1 unidad/mes) no debe disparar el pedido.
+  const consumoTotal = quiebres.reduce((s, q) => s + q.consumoDiario, 0);
+  const criticos: QuiebreProducto[] = [];
+  let acumulado = 0;
+  for (const q of quiebres) {
+    criticos.push(q);
+    acumulado += q.consumoDiario;
+    if (acumulado >= consumoTotal * CONSUMO_CRITICO_PCT) break;
+  }
+
+  const conQuiebre = criticos.filter((q) => q.fechaQuiebre != null);
+  const quiebre = conQuiebre.length
+    ? conQuiebre.reduce((min, q) => (q.fechaQuiebre! < min.fechaQuiebre! ? q : min))
+    : null;
+
+  if (!quiebre) {
+    // Nada crítico quiebra dentro del horizonte — no hay urgencia.
+    return { ...base, fechaLimite: null, diasParaDecidir: null, quiebre: null, criticos, motivoSinFecha: null };
+  }
+
+  const fechaLimite = addDays(quiebre.fechaQuiebre!, -(leadTime.totalDias + safetyDias));
+  return {
+    ...base,
+    fechaLimite,
+    diasParaDecidir: daysBetween(todayIso, fechaLimite),
+    quiebre,
+    criticos,
+    motivoSinFecha: null,
+  };
+}
