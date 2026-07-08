@@ -27,6 +27,35 @@ describe('guessMapping — formato proforma definitivo', () => {
       'reference', 'descripcion', 'cantidad', 'unidad', 'peso_kg', 'fob_total_usd',
     ]);
   });
+
+  it('mapea el costeo Maple: Usd es el FOB, no USD/TON ni Precio Final', () => {
+    // Encabezados EXACTOS de la hoja "Maple" del costeo de contenedor de Nico.
+    const MAPLE = ['Items', 'Descripcion', 'MM', 'KG/M', 'm', 'Color', 'Bales', 'UNDS', 'KG',
+      'USD/TON', 'Usd', 'Mercancia', 'Flete', 'Arancel', 'IVA', 'Aduanas', 'Transporte',
+      'Costo Unitario', 'Utilidad', 'Precio Final'];
+    expect(guessMapping(MAPLE, MAPLE.length)).toEqual([
+      'reference',     // Items
+      'descripcion',   // Descripcion
+      'ignorar',       // MM
+      'ignorar',       // KG/M — peso por metro
+      'ignorar',       // m
+      'ignorar',       // Color
+      'ignorar',       // Bales
+      'cantidad',      // UNDS
+      'peso_kg',       // KG
+      'ignorar',       // USD/TON — precio por tonelada, no FOB del renglón
+      'fob_total_usd', // Usd — el FOB real
+      'ignorar',       // Mercancia (COP prorrateado)
+      'ignorar',       // Flete
+      'ignorar',       // Arancel
+      'ignorar',       // IVA
+      'ignorar',       // Aduanas
+      'ignorar',       // Transporte
+      'ignorar',       // Costo Unitario ("unitario" contiene "unit" — no es unidad)
+      'ignorar',       // Utilidad
+      'ignorar',       // Precio Final ('precio' matchearía FOB, pero Usd ya lo tomó)
+    ]);
+  });
 });
 
 describe('guessField — casos puntuales', () => {

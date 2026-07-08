@@ -22,6 +22,12 @@ export function guessField(header: string): FieldKey {
   if (!h) return 'ignorar';
   // Peso por metro/unidad ("Kg/m", "kg/und") NO es el peso total del renglón.
   if (/kg\s*\/\s*(m|und|u|pz)/.test(h)) return 'ignorar';
+  // Precio unitario ("USD/TON", "precio/kg") NO es el FOB total del renglón —
+  // en el costeo Maple la columna FOB real se llama "Usd" a secas.
+  if (/(usd|precio|price)\s*\/\s*(ton|kg|und|u|pz|m)\b/.test(h)) return 'ignorar';
+  // Columnas "por unidad" ("Costo Unitario", "peso unitario"): valores unitarios,
+  // no totales del renglón. OJO: "unitario" contiene "unit" y matchearía unidad.
+  if (/unitari/.test(h)) return 'ignorar';
   if (/(ref|código|codigo|item|sku|perfil)/.test(h)) return 'reference';
   if (/(desc|nombre|product|descripc)/.test(h)) return 'descripcion';
   // "UND"/"UNDS" (unidades) es CANTIDAD — va antes que el check de "unidad".

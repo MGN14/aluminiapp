@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { FileSpreadsheet, ClipboardPaste, AlertCircle, ArrowRight } from 'lucide-react';
 import { parseDelimited, parseLooseNumber } from '@/lib/delimitedParser';
 import { guessMapping, isSummaryReference, hasAnyData, type FieldKey } from '@/lib/packingListParse';
+import { readXlsxFile, isExcelFile, type XlsxSheet } from '@/lib/readXlsx';
 import type { NewImportItem } from '@/hooks/useImportItems';
 
 const FIELD_LABEL: Record<FieldKey, string> = {
@@ -27,23 +28,25 @@ interface Props {
   onConfirm: (rows: NewImportItem[]) => void;
 }
 
-type Phase = 'input' | 'map';
+type Phase = 'input' | 'sheet' | 'map';
 
 export default function PackingListImport({ open, onOpenChange, onConfirm }: Props) {
   const [phase, setPhase] = useState<Phase>('input');
   const [pasted, setPasted] = useState('');
   const [rows, setRows] = useState<string[][]>([]);
+  const [sheets, setSheets] = useState<XlsxSheet[]>([]);
+  const [readingXlsx, setReadingXlsx] = useState(false);
   const [hasHeader, setHasHeader] = useState(true);
   const [mapping, setMapping] = useState<FieldKey[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
-    setPhase('input'); setPasted(''); setRows([]); setHasHeader(true); setMapping([]); setError(null);
+    setPhase('input'); setPasted(''); setRows([]); setSheets([]); setReadingXlsx(false);
+    setHasHeader(true); setMapping([]); setError(null);
   };
 
-  const ingest = (text: string) => {
+  const ingestRows = (parsed: string[][]) => {
     setError(null);
-    const { rows: parsed } = parseDelimited(text);
     if (parsed.length === 0) { setError('No se encontraron filas. Revisá el archivo o el texto pegado.'); return; }
     const colCount = Math.max(...parsed.map((r) => r.length));
     const header = parsed[0];
@@ -56,9 +59,33 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
     setPhase('map');
   };
 
-  const onDrop = useCallback((files: File[]) => {
+  const ingest = (text: string) => {
+    ingestRows(parseDelimited(text).rows);
+  };
+
+  const onDrop = useCallback(async (files: File[]) => {
     const file = files[0];
     if (!file) return;
+    setError(null);
+
+    // Excel directo: SheetJS por import() dinámico. Con varias hojas (los
+    // costeos de Nico traen "Contenedor ..." + la del proveedor) se elige cuál.
+    if (isExcelFile(file)) {
+      setReadingXlsx(true);
+      try {
+        const parsed = await readXlsxFile(file);
+        if (parsed.length === 0) { setError('El Excel no tiene hojas con datos.'); return; }
+        if (parsed.length === 1) { ingestRows(parsed[0].rows); return; }
+        setSheets(parsed);
+        setPhase('sheet');
+      } catch (e) {
+        setError(`No se pudo leer el Excel: ${e instanceof Error ? e.message : 'archivo inválido'}`);
+      } finally {
+        setReadingXlsx(false);
+      }
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => ingest(String(reader.result ?? ''));
     reader.onerror = () => setError('No se pudo leer el archivo.');
@@ -67,11 +94,13 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, multiple: false,
-    accept: { 'text/csv': ['.csv'], 'text/plain': ['.txt', '.tsv'] },
-    // Antes un .xlsx arrastrado se rechazaba EN SILENCIO — parecía que no pasó nada.
-    onDropRejected: () => setError(
-      'Los .xlsx no se leen directo: abrí el Excel, seleccioná el rango (encabezados incluidos), copiá y pegalo en el cuadro de abajo.',
-    ),
+    accept: {
+      'text/csv': ['.csv'],
+      'text/plain': ['.txt', '.tsv'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls'],
+    },
+    onDropRejected: () => setError('Formato no soportado. Vale .xlsx, .xls, .csv o pegar el rango copiado de Excel.'),
   });
 
   const dataRows = useMemo(() => (hasHeader ? rows.slice(1) : rows), [rows, hasHeader]);
@@ -144,10 +173,16 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
             >
               <input {...getInputProps()} />
               <FileSpreadsheet className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm font-medium">{isDragActive ? 'Soltá el archivo' : 'Arrastrá el CSV o hacé clic'}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                ¿Tenés un .xlsx? Guardalo como CSV, o copiá el rango y pegalo abajo.
-              </p>
+              {readingXlsx ? (
+                <p className="text-sm font-medium">Leyendo Excel…</p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">{isDragActive ? 'Soltá el archivo' : 'Arrastrá el Excel (.xlsx) o CSV, o hacé clic'}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    El Excel se lee directo — si tiene varias hojas, elegís cuál. También podés pegar el rango abajo.
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -176,6 +211,27 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
                 <AlertCircle className="h-3.5 w-3.5" /> {error}
               </p>
             )}
+          </div>
+        )}
+
+        {phase === 'sheet' && (
+          <div className="space-y-3">
+            <p className="text-sm">El Excel tiene {sheets.length} hojas — ¿cuál es el packing list / proforma?</p>
+            <div className="space-y-2">
+              {sheets.map((s) => (
+                <button
+                  key={s.name}
+                  className="w-full flex items-center justify-between rounded-lg border border-border px-3 py-2.5 text-sm hover:border-primary/50 hover:bg-primary/5 transition-colors text-left"
+                  onClick={() => ingestRows(s.rows)}
+                >
+                  <span className="font-medium flex items-center gap-2">
+                    <FileSpreadsheet className="h-4 w-4 text-muted-foreground" /> {s.name}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{s.rows.length} filas</span>
+                </button>
+              ))}
+            </div>
+            <Button variant="ghost" size="sm" onClick={reset}>Volver</Button>
           </div>
         )}
 
