@@ -151,6 +151,11 @@ export function useImportItems(importId: string | null | undefined, trmOverride?
     qc.invalidateQueries({ queryKey: ['import_items', importId] });
     qc.invalidateQueries({ queryKey: ['import_costs', importId] });
     qc.invalidateQueries({ queryKey: ['import_reference_history'] });
+    // Cobertura / sugerencia de pedido leen los items de TODOS los pedidos
+    // abiertos bajo ['imports', ...] (reorder-items-transito, reorder-inventario,
+    // lista de pedidos). Sin esto, subir la proforma no apagaba el aviso de
+    // "pedido abierto SIN proforma" hasta hacer hard refresh.
+    qc.invalidateQueries({ queryKey: ['imports'] });
   };
 
   // ── Items ──────────────────────────────────────────────────────────────
