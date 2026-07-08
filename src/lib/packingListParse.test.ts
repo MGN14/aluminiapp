@@ -5,12 +5,12 @@ import { guessField, guessMapping, isSummaryReference, hasAnyData } from './pack
 const PROFORMA_HEADER = ['REF.', 'Kg/m', 'Descripcion', 'Color', 'UND', 'KG'];
 
 describe('guessMapping — formato proforma definitivo', () => {
-  it('mapea REF./UND/KG bien y descarta Kg/m y Color', () => {
+  it('mapea REF./UND/KG bien, captura Color y descarta Kg/m', () => {
     expect(guessMapping(PROFORMA_HEADER, 6)).toEqual([
       'reference',   // REF.
       'ignorar',     // Kg/m — peso POR METRO, no total
       'descripcion', // Descripcion
-      'ignorar',     // Color
+      'color',       // Color — se conserva (las refs se repiten por color)
       'cantidad',    // UND = unidades
       'peso_kg',     // KG = peso total del renglón
     ]);
@@ -34,26 +34,26 @@ describe('guessMapping — formato proforma definitivo', () => {
       'USD/TON', 'Usd', 'Mercancia', 'Flete', 'Arancel', 'IVA', 'Aduanas', 'Transporte',
       'Costo Unitario', 'Utilidad', 'Precio Final'];
     expect(guessMapping(MAPLE, MAPLE.length)).toEqual([
-      'reference',     // Items
-      'descripcion',   // Descripcion
-      'ignorar',       // MM
-      'ignorar',       // KG/M — peso por metro
-      'ignorar',       // m
-      'ignorar',       // Color
-      'ignorar',       // Bales
-      'cantidad',      // UNDS
-      'peso_kg',       // KG
-      'ignorar',       // USD/TON — precio por tonelada, no FOB del renglón
-      'fob_total_usd', // Usd — el FOB real
-      'ignorar',       // Mercancia (COP prorrateado)
-      'ignorar',       // Flete
-      'ignorar',       // Arancel
-      'ignorar',       // IVA
-      'ignorar',       // Aduanas
-      'ignorar',       // Transporte
-      'ignorar',       // Costo Unitario ("unitario" contiene "unit" — no es unidad)
-      'ignorar',       // Utilidad
-      'ignorar',       // Precio Final ('precio' matchearía FOB, pero Usd ya lo tomó)
+      'reference',            // Items
+      'descripcion',          // Descripcion
+      'ignorar',              // MM
+      'ignorar',              // KG/M — peso por metro
+      'ignorar',              // m
+      'color',                // Color
+      'bultos',               // Bales — total del contenedor = control de descarga
+      'cantidad',             // UNDS
+      'peso_kg',              // KG
+      'ignorar',              // USD/TON — precio por tonelada, no FOB del renglón
+      'fob_total_usd',        // Usd — el FOB real
+      'ignorar',              // Mercancia (COP prorrateado)
+      'ignorar',              // Flete
+      'ignorar',              // Arancel — la app estima + el real de la declaración manda
+      'ignorar',              // IVA — ídem
+      'ignorar',              // Aduanas — ídem
+      'ignorar',              // Transporte
+      'costo_unitario_excel', // Costo Unitario — se guarda para comparar vs landed
+      'ignorar',              // Utilidad
+      'ignorar',              // Precio Final ('precio' matchearía FOB, pero Usd ya lo tomó)
     ]);
   });
 });

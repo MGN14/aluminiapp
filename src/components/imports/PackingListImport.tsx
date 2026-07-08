@@ -19,6 +19,9 @@ const FIELD_LABEL: Record<FieldKey, string> = {
   unidad: 'Unidad',
   peso_kg: 'Peso (kg)',
   fob_total_usd: 'FOB total (USD) *',
+  color: 'Color',
+  bultos: 'Bultos/Bales',
+  costo_unitario_excel: 'Costo unit. Excel (COP)',
   ignorar: '— Ignorar —',
 };
 
@@ -109,6 +112,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
     const idxOf = (f: FieldKey) => mapping.indexOf(f);
     const ref = idxOf('reference'), desc = idxOf('descripcion'), cant = idxOf('cantidad');
     const uni = idxOf('unidad'), peso = idxOf('peso_kg'), fob = idxOf('fob_total_usd');
+    const col = idxOf('color'), bul = idxOf('bultos'), cue = idxOf('costo_unitario_excel');
     return dataRows
       .map((r, i) => ({
         reference: (ref > -1 ? r[ref] : '')?.trim() ?? '',
@@ -121,6 +125,9 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
         fob_total_usd: fob > -1 ? parseLooseNumber(r[fob]) : 0,
         orden: i,
         notas: null,
+        color: col > -1 ? (r[col]?.trim() || null) : null,
+        bultos: bul > -1 && r[bul]?.trim() ? parseLooseNumber(r[bul]) : null,
+        costo_unitario_excel: cue > -1 && r[cue]?.trim() ? parseLooseNumber(r[cue]) : null,
       }))
       .filter((it) =>
         it.reference.length > 0

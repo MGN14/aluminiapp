@@ -22,6 +22,12 @@ export interface ImportItemRow {
   fob_total_usd: number;
   orden: number;
   notas: string | null;
+  /** Color del renglón (los pedidos repiten referencia por color). */
+  color?: string | null;
+  /** Bultos/bales — el total del contenedor es el control de descarga. */
+  bultos?: number | null;
+  /** Costo unitario COP del Excel del usuario, solo para comparar vs landed. */
+  costo_unitario_excel?: number | null;
 }
 
 export interface ImportCostRow {
@@ -145,6 +151,9 @@ export function useImportItems(importId: string | null | undefined, trmOverride?
         // `orden` entrante, que podía colisionar / saltar de posición).
         orden: items.length + i,
         notas: r.notas ?? null,
+        color: r.color ?? null,
+        bultos: r.bultos === null || r.bultos === undefined ? null : num(r.bultos),
+        costo_unitario_excel: r.costo_unitario_excel === null || r.costo_unitario_excel === undefined ? null : num(r.costo_unitario_excel),
       }));
       const { error } = await supabase.from('import_items' as never).insert(payload as never);
       if (error) throw error;

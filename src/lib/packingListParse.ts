@@ -14,7 +14,9 @@
  *   - La fila TOTAL y las notas al pie no son referencias → se filtran.
  */
 
-export type FieldKey = 'reference' | 'descripcion' | 'cantidad' | 'unidad' | 'peso_kg' | 'fob_total_usd' | 'ignorar';
+export type FieldKey =
+  | 'reference' | 'descripcion' | 'cantidad' | 'unidad' | 'peso_kg' | 'fob_total_usd'
+  | 'color' | 'bultos' | 'costo_unitario_excel' | 'ignorar';
 
 /** Auto-mapeo de columna por nombre de encabezado. */
 export function guessField(header: string): FieldKey {
@@ -25,17 +27,22 @@ export function guessField(header: string): FieldKey {
   // Precio unitario ("USD/TON", "precio/kg") NO es el FOB total del renglón —
   // en el costeo Maple la columna FOB real se llama "Usd" a secas.
   if (/(usd|precio|price)\s*\/\s*(ton|kg|und|u|pz|m)\b/.test(h)) return 'ignorar';
-  // Columnas "por unidad" ("Costo Unitario", "peso unitario"): valores unitarios,
-  // no totales del renglón. OJO: "unitario" contiene "unit" y matchearía unidad.
+  // "Costo Unitario" del Excel del usuario: se guarda para COMPARAR contra el
+  // landed cost que calcula la app (decisión de Nico: su Excel es la vara).
+  if (/(costo|cost|precio|price).*unitari/.test(h)) return 'costo_unitario_excel';
+  // Otras columnas "por unidad" ("peso unitario"): valores unitarios, no
+  // totales del renglón. OJO: "unitario" contiene "unit" y matchearía unidad.
   if (/unitari/.test(h)) return 'ignorar';
   if (/(ref|código|codigo|item|sku|perfil)/.test(h)) return 'reference';
   if (/(desc|nombre|product|descripc)/.test(h)) return 'descripcion';
+  if (/^color(es)?$/.test(h)) return 'color';
+  if (/(bales|bultos|paquetes|pallets)/.test(h)) return 'bultos';
   // "UND"/"UNDS" (unidades) es CANTIDAD — va antes que el check de "unidad".
   if (/^unds?\.?$/.test(h)) return 'cantidad';
   if (/(peso|weight|kg|kgs|net)/.test(h)) return 'peso_kg';
   if (/(fob|valor|amount|total|price|precio|usd)/.test(h)) return 'fob_total_usd';
   if (/(unidad|unit|medida|uom)/.test(h)) return 'unidad';
-  if (/(cant|qty|quantity|pcs|pzas|piezas|bultos|cajas)/.test(h)) return 'cantidad';
+  if (/(cant|qty|quantity|pcs|pzas|piezas|cajas)/.test(h)) return 'cantidad';
   return 'ignorar';
 }
 

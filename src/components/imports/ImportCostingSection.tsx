@@ -53,6 +53,17 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
     return m;
   }, [landed]);
 
+  const totalBultos = useMemo(
+    () => items.reduce((s, it) => s + Number(it.bultos ?? 0), 0),
+    [items],
+  );
+  // ¿Hay costo unitario del Excel para comparar? (decisión de Nico: su Excel
+  // es la vara — la app muestra su cálculo Y el delta contra el del Excel.)
+  const hayCostoExcel = useMemo(
+    () => items.some((it) => Number(it.costo_unitario_excel ?? 0) > 0),
+    [items],
+  );
+
   const noTrm = trmEfectiva === null || trmEfectiva <= 0;
 
   // Conciliación: ¿la suma de FOB del packing list cuadra con el monto total
@@ -100,14 +111,21 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
       {/* ── Packing list ── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold text-muted-foreground">Packing list ({items.length})</Label>
+          <Label className="text-xs font-semibold text-muted-foreground">
+            Packing list ({items.length}
+            {totalBultos > 0 && (
+              <span title="Total de bultos del contenedor — el dato de control al descargar">
+                {' '}· {totalBultos.toLocaleString('es-CO')} bultos
+              </span>
+            )})
+          </Label>
           <div className="flex gap-1.5">
             <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setShowImport(true)}>
               <Upload className="h-3.5 w-3.5" /> Importar CSV/Excel
             </Button>
             <Button
               type="button" size="sm" variant="outline" className="h-7 text-xs gap-1"
-              onClick={() => addItems.mutate([{ reference: '', descripcion: null, cantidad: 0, unidad: 'kg', peso_kg: null, fob_total_usd: 0, orden: items.length, notas: null }])}
+              onClick={() => addItems.mutate([{ reference: '', descripcion: null, cantidad: 0, unidad: 'kg', peso_kg: null, fob_total_usd: 0, orden: items.length, notas: null, color: null, bultos: null, costo_unitario_excel: null }])}
             >
               <Plus className="h-3.5 w-3.5" /> Fila
             </Button>
@@ -125,9 +143,11 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
                 <TableRow className="bg-muted/60">
                   <TableHead className="text-[11px]">Referencia</TableHead>
                   <TableHead className="text-[11px]">Descripción</TableHead>
+                  <TableHead className="text-[11px]">Color</TableHead>
                   <TableHead className="text-[11px] text-right">Cantidad</TableHead>
                   <TableHead className="text-[11px]">Unidad</TableHead>
                   <TableHead className="text-[11px] text-right">Peso kg</TableHead>
+                  <TableHead className="text-[11px] text-right" title="Bultos/bales del renglón">Bultos</TableHead>
                   <TableHead className="text-[11px] text-right">FOB USD</TableHead>
                   <TableHead className="w-8" />
                 </TableRow>
@@ -144,6 +164,10 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
                         onBlur={(e) => e.target.value !== (it.descripcion ?? '') && updateItem.mutate({ id: it.id, descripcion: e.target.value || null })} />
                     </TableCell>
                     <TableCell className="p-1">
+                      <Input defaultValue={it.color ?? ''} className="h-7 text-xs w-16"
+                        onBlur={(e) => e.target.value !== (it.color ?? '') && updateItem.mutate({ id: it.id, color: e.target.value || null })} />
+                    </TableCell>
+                    <TableCell className="p-1">
                       <Input type="number" step="0.001" defaultValue={it.cantidad} className="h-7 text-xs font-mono w-20 text-right"
                         onBlur={(e) => { if (e.target.value === '') return; const v = Number(e.target.value) || 0; if (v !== it.cantidad) updateItem.mutate({ id: it.id, cantidad: v }); }} />
                     </TableCell>
@@ -154,6 +178,10 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
                     <TableCell className="p-1">
                       <Input type="number" step="0.001" defaultValue={it.peso_kg ?? ''} className="h-7 text-xs font-mono w-20 text-right"
                         onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== it.peso_kg) updateItem.mutate({ id: it.id, peso_kg: v }); }} />
+                    </TableCell>
+                    <TableCell className="p-1">
+                      <Input type="number" step="1" defaultValue={it.bultos ?? ''} className="h-7 text-xs font-mono w-16 text-right"
+                        onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (it.bultos ?? null)) updateItem.mutate({ id: it.id, bultos: v }); }} />
                     </TableCell>
                     <TableCell className="p-1">
                       <Input type="number" step="0.01" defaultValue={it.fob_total_usd} className="h-7 text-xs font-mono w-24 text-right"
@@ -218,6 +246,12 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
                   <TableHead className="text-[11px] text-right">+ Importación</TableHead>
                   <TableHead className="text-[11px] text-right">Landed total</TableHead>
                   <TableHead className="text-[11px] text-right">Costo unit.</TableHead>
+                  {hayCostoExcel && (
+                    <>
+                      <TableHead className="text-[11px] text-right" title="Costo unitario del Excel importado con el packing list">Excel</TableHead>
+                      <TableHead className="text-[11px] text-right" title="Costo unit. de la app vs el del Excel — si divergen mucho, revisar TRM/costos cargados o la fórmula del Excel">Δ vs Excel</TableHead>
+                    </>
+                  )}
                   <TableHead className="text-[11px] text-right">Por kg</TableHead>
                   <TableHead className="text-[11px] text-right">Inv. actual</TableHead>
                   <TableHead className="text-[11px] text-right" title="Compara el costo unitario landed contra el cost_per_unit cargado en inventario. Asume la misma unidad de medida.">Δ vs inv.</TableHead>
@@ -229,6 +263,8 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
                   if (!r) return null;
                   const inv = invCosts?.get(it.reference.trim().toLowerCase());
                   const delta = inv && inv.cost > 0 ? ((r.landed_unit_cop - inv.cost) / inv.cost) * 100 : null;
+                  const excel = Number(it.costo_unitario_excel ?? 0) > 0 ? Number(it.costo_unitario_excel) : null;
+                  const deltaExcel = excel ? ((r.landed_unit_cop - excel) / excel) * 100 : null;
                   return (
                     <TableRow key={it.id}>
                       <TableCell className="text-xs font-mono">{it.reference || <span className="text-muted-foreground">—</span>}</TableCell>
@@ -236,6 +272,21 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
                       <TableCell className="text-xs font-mono text-right text-muted-foreground">{fmtCop(r.costos_asignados_cop)}</TableCell>
                       <TableCell className="text-xs font-mono text-right font-semibold">{fmtCop(r.landed_total_cop)}</TableCell>
                       <TableCell className="text-xs font-mono text-right font-semibold text-primary">{fmtCop(r.landed_unit_cop)}</TableCell>
+                      {hayCostoExcel && (
+                        <>
+                          <TableCell className="text-xs font-mono text-right text-muted-foreground">{excel ? fmtCop(excel) : '—'}</TableCell>
+                          <TableCell
+                            className={`text-xs font-mono text-right font-medium ${
+                              deltaExcel === null ? 'text-muted-foreground'
+                                : Math.abs(deltaExcel) <= 3 ? 'text-success'
+                                : Math.abs(deltaExcel) <= 10 ? 'text-warning' : 'text-destructive'
+                            }`}
+                            title={deltaExcel === null ? undefined : 'App vs Excel — verde ≤3%, ámbar ≤10%, rojo >10%'}
+                          >
+                            {deltaExcel === null ? '—' : `${deltaExcel > 0 ? '+' : ''}${deltaExcel.toFixed(1)}%`}
+                          </TableCell>
+                        </>
+                      )}
                       <TableCell className="text-xs font-mono text-right">{r.landed_por_kg_cop ? fmtCop(r.landed_por_kg_cop) : '—'}</TableCell>
                       <TableCell className="text-xs font-mono text-right text-muted-foreground">{inv ? fmtCop(inv.cost) : '—'}</TableCell>
                       <TableCell className={`text-xs font-mono text-right font-medium ${delta === null ? 'text-muted-foreground' : delta > 0 ? 'text-destructive' : 'text-success'}`}>
@@ -249,7 +300,7 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
                   <TableCell className="text-xs font-mono text-right">{fmtCop(landed.totals.fob_total_cop)}</TableCell>
                   <TableCell className="text-xs font-mono text-right">{fmtCop(landed.totals.costos_total_cop)}</TableCell>
                   <TableCell className="text-xs font-mono text-right">{fmtCop(landed.totals.landed_total_cop)}</TableCell>
-                  <TableCell colSpan={4} />
+                  <TableCell colSpan={hayCostoExcel ? 6 : 4} />
                 </TableRow>
               </TableBody>
             </Table>
