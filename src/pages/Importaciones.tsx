@@ -169,6 +169,7 @@ export default function Importaciones() {
           trm: trmDe(r),
           arancelPct: Number(r.arancel_pct ?? 5),
           ivaPct: Number(r.iva_pct ?? 19),
+          cantidadKg: Number(r.cantidad_ton ?? 0) > 0 ? Number(r.cantidad_ton) * 1000 : null,
         }).totalImportacionCop,
       }))
       .filter((x): x is { r: ImportRow; total: number } => x.total != null && x.total > 0);
@@ -257,6 +258,7 @@ export default function Importaciones() {
           trm: trmByImport.get(proximo.r.id) ?? (proximo.r.trm_causacion ? Number(proximo.r.trm_causacion) : null) ?? trmHoy,
           arancelPct: Number(proximo.r.arancel_pct ?? 5),
           ivaPct: Number(proximo.r.iva_pct ?? 19),
+          cantidadKg: Number(proximo.r.cantidad_ton ?? 0) > 0 ? Number(proximo.r.cantidad_ton) * 1000 : null,
         })
       : null;
     const cajaNacionalizar = proximoBd
@@ -695,6 +697,7 @@ export default function Importaciones() {
                         trm: trmEst,
                         arancelPct: Number(row.arancel_pct ?? 5),
                         ivaPct: Number(row.iva_pct ?? 19),
+                        cantidadKg: Number(row.cantidad_ton ?? 0) > 0 ? Number(row.cantidad_ton) * 1000 : null,
                       });
                       const arancelEst = bd.arancelCop != null && bd.arancelCop > 0 ? bd.arancelCop : null;
                       const ivaEst = bd.ivaCop != null && bd.ivaCop > 0 ? bd.ivaCop : null;

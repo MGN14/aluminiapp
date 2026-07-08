@@ -707,8 +707,9 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                     trm: trmCosteo,
                     arancelPct,
                     ivaPct,
+                    cantidadKg: cantidadTon === '' ? null : Number(cantidadTon) * 1000,
                   });
-                  const { cifUsd, cifCop, arancelCop, usaArancelReal, ivaCop, usaIvaReal, otrosCop, totalImportacionCop: totalImportacion } = bd;
+                  const { cifUsd, cifCop, arancelCop, usaArancelReal, ivaCop, usaIvaReal, otrosCop, totalImportacionCop: totalImportacion, fobUsdKg, pisoAplicado, pisoFobUsdKg, cifAduanaCop } = bd;
                   const rowUsd = (v: { usd: number; cop: number }) => (
                     <span>
                       {v.usd > 0 ? fmtUSD0(v.usd) : v.cop > 0 ? '' : '—'}
@@ -751,6 +752,18 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                           <span className="font-sans font-medium text-foreground">CIF en pesos</span>
                           <span className="font-semibold">{cifCop != null ? fmtCOP(cifCop) : '—'}</span>
                         </div>
+                        {/* Piso FOB aduanero: si el precio del pedido quedó bajo el umbral
+                            legal (pasa cuando baja el SMM), la DIAN liquida arancel e IVA
+                            sobre la base mínima — no sobre el valor factura. */}
+                        {pisoAplicado && cifAduanaCop != null && (
+                          <div className="font-sans rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 my-1 text-[11px] leading-relaxed text-foreground">
+                            ⚖️ <strong>Piso FOB aplicado:</strong> tu precio es{' '}
+                            <strong>{fobUsdKg?.toFixed(2)} USD/kg</strong>, bajo el mínimo legal de{' '}
+                            <strong>{pisoFobUsdKg.toFixed(2)} USD/kg</strong>. Arancel e IVA estimados
+                            sobre la base aduanera mínima: <strong>{fmtCOP(cifAduanaCop)}</strong> (no
+                            sobre tu CIF factura).
+                          </div>
+                        )}
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground font-sans flex items-center gap-1.5">
                             Arancel
