@@ -8,9 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FileSpreadsheet, ClipboardPaste, AlertCircle, ArrowRight } from 'lucide-react';
 import { parseDelimited, parseLooseNumber } from '@/lib/delimitedParser';
+import { guessMapping, isSummaryReference, hasAnyData, type FieldKey } from '@/lib/packingListParse';
 import type { NewImportItem } from '@/hooks/useImportItems';
-
-type FieldKey = 'reference' | 'descripcion' | 'cantidad' | 'unidad' | 'peso_kg' | 'fob_total_usd' | 'ignorar';
 
 const FIELD_LABEL: Record<FieldKey, string> = {
   reference: 'Referencia *',
@@ -21,18 +20,6 @@ const FIELD_LABEL: Record<FieldKey, string> = {
   fob_total_usd: 'FOB total (USD) *',
   ignorar: '— Ignorar —',
 };
-
-// Heurística para auto-mapear columnas por el nombre del encabezado.
-function guessField(header: string): FieldKey {
-  const h = header.toLowerCase().trim();
-  if (/(ref|código|codigo|item|sku|perfil)/.test(h)) return 'reference';
-  if (/(desc|nombre|product|descripc)/.test(h)) return 'descripcion';
-  if (/(peso|weight|kg|kgs|net)/.test(h)) return 'peso_kg';
-  if (/(fob|valor|amount|total|price|precio|usd)/.test(h)) return 'fob_total_usd';
-  if (/(unidad|unit|medida|uom)/.test(h)) return 'unidad';
-  if (/(cant|qty|quantity|pcs|pzas|piezas|bultos|cajas)/.test(h)) return 'cantidad';
-  return 'ignorar';
-}
 
 interface Props {
   open: boolean;
@@ -60,8 +47,8 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
     if (parsed.length === 0) { setError('No se encontraron filas. Revisá el archivo o el texto pegado.'); return; }
     const colCount = Math.max(...parsed.map((r) => r.length));
     const header = parsed[0];
-    // Auto-mapear desde el encabezado.
-    const guessed: FieldKey[] = Array.from({ length: colCount }, (_, i) => guessField(header[i] ?? ''));
+    // Auto-mapear desde el encabezado (cada campo a una sola columna).
+    const guessed: FieldKey[] = guessMapping(header, colCount);
     setRows(parsed);
     setMapping(guessed);
     // Si ninguna columna del header mapeó a algo, probablemente NO hay header.
@@ -81,6 +68,10 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, multiple: false,
     accept: { 'text/csv': ['.csv'], 'text/plain': ['.txt', '.tsv'] },
+    // Antes un .xlsx arrastrado se rechazaba EN SILENCIO — parecía que no pasó nada.
+    onDropRejected: () => setError(
+      'Los .xlsx no se leen directo: abrí el Excel, seleccioná el rango (encabezados incluidos), copiá y pegalo en el cuadro de abajo.',
+    ),
   });
 
   const dataRows = useMemo(() => (hasHeader ? rows.slice(1) : rows), [rows, hasHeader]);
@@ -102,7 +93,13 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
         orden: i,
         notas: null,
       }))
-      .filter((it) => it.reference.length > 0);
+      .filter((it) =>
+        it.reference.length > 0
+        // Fila TOTAL/SUBTOTAL (trae números pero no es referencia)
+        && !isSummaryReference(it.reference)
+        // Notas al pie sin datos ("Tope contenedor: 28.400 kg", "EXCEDE TOPE")
+        && hasAnyData(it),
+      );
   }, [dataRows, mapping]);
 
   const hasRef = mapping.includes('reference');
