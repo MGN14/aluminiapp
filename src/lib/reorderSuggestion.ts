@@ -112,6 +112,10 @@ export interface QuiebreProducto {
   /** ISO; null = no quiebra dentro del horizonte. */
   fechaQuiebre: string | null;
   diasCobertura: number | null;
+  /** true = sin salidas registradas en la ventana: no hay tasa de consumo.
+   *  Antes estas referencias se OCULTABAN del análisis (por eso "cobertura
+   *  muestra 15 de 126"); ahora aparecen marcadas, con su stock y tránsito. */
+  sinConsumo?: boolean;
 }
 
 export interface ReorderSuggestion {
@@ -262,13 +266,28 @@ export function projectQuiebres(params: {
   for (const p of stock) {
     const totalSalidas = salidasPorProducto.get(p.productId) ?? 0;
     const consumoDiario = params.consumoPorProducto?.get(p.productId) ?? (totalSalidas / ventana);
-    if (consumoDiario <= 0) continue;
 
     // Caminar la línea de tiempo: stock se agota a ritmo constante; cada
     // llegada en tránsito repone ANTES de contar el quiebre si cae a tiempo.
     const llegadas = [...(llegadasPorRef.get(p.matchKey ?? p.reference.trim().toLowerCase()) ?? [])]
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
     const enTransito = llegadas.reduce((s, l) => s + l.qty, 0);
+
+    if (consumoDiario <= 0) {
+      // Sin salidas en la ventana → no hay tasa para proyectar quiebre, pero
+      // la referencia EXISTE y debe verse (con su stock y su tránsito). No
+      // dispara pedido sugerido (suggestOrderQty con consumo 0 devuelve 0).
+      out.push({
+        reference: p.reference,
+        consumoDiario: 0,
+        stock: Math.max(0, Number(p.stockPhysical ?? 0)),
+        enTransito,
+        fechaQuiebre: null,
+        diasCobertura: null,
+        sinConsumo: true,
+      });
+      continue;
+    }
     let disponible = Math.max(0, Number(p.stockPhysical ?? 0));
     let cursor = todayIso;
     let fechaQuiebre: string | null = null;
@@ -332,13 +351,17 @@ export function computeReorderSuggestion(params: {
     consumoPorProducto: params.consumoPorProducto,
   });
 
+  // Las filas sinConsumo se muestran en Cobertura pero NO participan del
+  // modelo de pedido (no tienen tasa para proyectar quiebre).
+  const conConsumo = quiebres.filter((q) => !q.sinConsumo);
+
   const base = {
     leadTime,
     safetyDias,
     umbralRefs,
     llegadaSiPidoHoy: addDays(todayIso, leadTime.totalDias),
     datos: {
-      referenciasConConsumo: quiebres.length,
+      referenciasConConsumo: conConsumo.length,
       ventanaDias: params.ventanaDias ?? CONSUMO_VENTANA_DIAS,
       llegadasEnTransito: transito.length,
     },
@@ -352,16 +375,18 @@ export function computeReorderSuggestion(params: {
   if (!stock.length) {
     return { ...base, ...vacio, motivoSinFecha: 'sin_stock_data' };
   }
-  if (!quiebres.length) {
-    return { ...base, ...vacio, motivoSinFecha: 'sin_consumo' };
+  if (!conConsumo.length) {
+    // Sin tasa de consumo en NINGUNA referencia: no hay pedido que proyectar,
+    // pero el inventario igual se lista en Cobertura (filas sinConsumo).
+    return { ...base, ...vacio, porReferencia: quiebres, motivoSinFecha: 'sin_consumo' };
   }
 
   // Referencias críticas: las que concentran el 80% del consumo diario.
   // Una referencia marginal (1 unidad/mes) no debe disparar el pedido.
-  const consumoTotal = quiebres.reduce((s, q) => s + q.consumoDiario, 0);
+  const consumoTotal = conConsumo.reduce((s, q) => s + q.consumoDiario, 0);
   const criticos: QuiebreProducto[] = [];
   let acumulado = 0;
-  for (const q of quiebres) {
+  for (const q of conConsumo) {
     criticos.push(q);
     acumulado += q.consumoDiario;
     if (acumulado >= consumoTotal * CONSUMO_CRITICO_PCT) break;

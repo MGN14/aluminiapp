@@ -111,14 +111,25 @@ describe('projectQuiebres', () => {
     expect(q.fechaQuiebre).toBe('2026-11-15');
   });
 
-  it('referencia sin consumo no aparece (no dispara alarma)', () => {
+  it('referencia sin consumo APARECE marcada pero no dispara alarma', () => {
+    // Contrato nuevo (2026-07-04): antes se ocultaban y "Cobertura mostraba
+    // 15 de 126 referencias". Ahora se listan con sinConsumo=true, sin fecha
+    // de quiebre (nunca alarman) y con consumo 0 (sugerido siempre 0).
     const out = projectQuiebres({
       todayIso: HOY,
       stock: [{ productId: 'p1', reference: 'X', stockPhysical: 10 }],
       salidas: [],
       transito: [],
     });
-    expect(out).toEqual([]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      reference: 'X',
+      sinConsumo: true,
+      consumoDiario: 0,
+      stock: 10,
+      fechaQuiebre: null,
+      diasCobertura: null,
+    });
   });
 });
 

@@ -240,15 +240,21 @@ export default function CoverageAnalysis() {
                     ? `Vendió ${fmtNum(r.demanda.salidasVentana)} en ${r.demanda.diasConStock} días con stock (ventana ${r.demanda.ventanaDias}d)${r.demanda.huboQuiebre ? ' — tuvo quiebre: la tasa ingenua subestimaba' : ''}`
                     : undefined}
                 >
-                  {r.consumoDiario.toFixed(1)}
+                  {r.sinConsumo ? <span className="text-muted-foreground">—</span> : r.consumoDiario.toFixed(1)}
                   {r.demanda?.huboQuiebre && <span className="text-warning" title="Estuvo agotada dentro de la ventana — demanda corregida por censura">†</span>}
                 </TableCell>
                 <TableCell className="text-xs font-mono text-right">{fmtNum(r.stock)}</TableCell>
                 <TableCell className={cn('text-xs font-mono text-right', r.enTransito > 0 ? 'text-primary font-medium' : 'text-muted-foreground')}>
                   {r.enTransito > 0 ? `+${fmtNum(r.enTransito)}` : '—'}
                 </TableCell>
-                <TableCell className={cn('text-xs font-mono text-right font-semibold', coberturaColor(r.diasCobertura))}>
-                  {r.diasCobertura === null ? '>400d' : `${r.diasCobertura}d`}
+                <TableCell
+                  className={cn(
+                    'text-xs font-mono text-right font-semibold',
+                    r.sinConsumo ? 'text-muted-foreground font-normal' : coberturaColor(r.diasCobertura),
+                  )}
+                  title={r.sinConsumo ? 'Sin salidas registradas en la ventana — la cobertura se activa cuando esta referencia tenga despachos (QR/remisión) o consumo de producción' : undefined}
+                >
+                  {r.sinConsumo ? 'sin consumo' : r.diasCobertura === null ? '>400d' : `${r.diasCobertura}d`}
                 </TableCell>
                 <TableCell className="text-xs font-mono text-right text-muted-foreground">
                   {r.fechaQuiebre ? fmtFecha(r.fechaQuiebre) : '—'}
