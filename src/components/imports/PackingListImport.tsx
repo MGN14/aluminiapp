@@ -9,9 +9,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { FileSpreadsheet, ClipboardPaste, AlertCircle, ArrowRight } from 'lucide-react';
 import { parseDelimited, parseLooseNumber } from '@/lib/delimitedParser';
 import { guessMapping, isSummaryReference, hasAnyData, type FieldKey } from '@/lib/packingListParse';
-import { suffixColorConflict } from '@/lib/refFamily';
+import { suffixColorConflict, colorFromSuffix } from '@/lib/refFamily';
 import { readXlsxFile, isExcelFile, type XlsxSheet } from '@/lib/readXlsx';
-import type { NewImportItem } from '@/hooks/useImportItems';
+import type { NewImportItem, ImportItemSource } from '@/hooks/useImportItems';
 
 const FIELD_LABEL: Record<FieldKey, string> = {
   reference: 'Referencia *',
@@ -29,12 +29,14 @@ const FIELD_LABEL: Record<FieldKey, string> = {
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onConfirm: (rows: NewImportItem[]) => void;
+  onConfirm: (rows: NewImportItem[], source: ImportItemSource, replace: boolean) => void;
+  /** Cuántas filas ya existen de cada tipo (para ofrecer reemplazo). */
+  existingCounts?: { proforma: number; packing: number };
 }
 
 type Phase = 'input' | 'sheet' | 'map';
 
-export default function PackingListImport({ open, onOpenChange, onConfirm }: Props) {
+export default function PackingListImport({ open, onOpenChange, onConfirm, existingCounts }: Props) {
   const [phase, setPhase] = useState<Phase>('input');
   const [pasted, setPasted] = useState('');
   const [rows, setRows] = useState<string[][]>([]);
@@ -43,10 +45,15 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
   const [hasHeader, setHasHeader] = useState(true);
   const [mapping, setMapping] = useState<FieldKey[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Proforma (pedido a producción, refs sin sufijo — China no los maneja) o
+  // packing list definitivo (refs con sufijo de color). null = aún sin decidir
+  // → se auto-detecta por los sufijos y el usuario puede cambiarlo.
+  const [tipo, setTipo] = useState<ImportItemSource | null>(null);
+  const [replaceExisting, setReplaceExisting] = useState(true);
 
   const reset = () => {
     setPhase('input'); setPasted(''); setRows([]); setSheets([]); setReadingXlsx(false);
-    setHasHeader(true); setMapping([]); setError(null);
+    setHasHeader(true); setMapping([]); setError(null); setTipo(null); setReplaceExisting(true);
   };
 
   const ingestRows = (parsed: string[][]) => {
@@ -154,10 +161,22 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
     [mapped],
   );
 
+  // Auto-detección del tipo: si hay refs con sufijo de color es packing list
+  // (el proforma nunca los trae — China no maneja sufijos).
+  const tipoDetectado: ImportItemSource = useMemo(() => {
+    const conSufijo = mapped.filter((it) => {
+      const c = colorFromSuffix(it.reference);
+      return c !== null && c !== 'total';
+    }).length;
+    return conSufijo > 0 ? 'packing' : 'proforma';
+  }, [mapped]);
+  const tipoEfectivo: ImportItemSource = tipo ?? tipoDetectado;
+  const existentesDelTipo = existingCounts?.[tipoEfectivo] ?? 0;
+
   const handleConfirm = () => {
     if (!hasRef) { setError('Indicá cuál columna es la Referencia.'); return; }
     if (mapped.length === 0) { setError('No quedó ninguna fila con referencia válida.'); return; }
-    onConfirm(mapped);
+    onConfirm(mapped, tipoEfectivo, existentesDelTipo > 0 && replaceExisting);
     reset();
     onOpenChange(false);
   };
@@ -322,10 +341,50 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
               </p>
             )}
 
+            {/* Tipo de documento: define contra qué se compara y qué manda en
+                el costeo (packing definitivo > proforma). */}
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 space-y-1.5">
+              <div className="flex items-center gap-3 flex-wrap text-xs">
+                <span className="font-medium">Esto es:</span>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={tipoEfectivo === 'proforma'}
+                    onChange={() => setTipo('proforma')}
+                  />
+                  Proforma (pedido a producción)
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={tipoEfectivo === 'packing'}
+                    onChange={() => setTipo('packing')}
+                  />
+                  Packing list definitivo
+                </label>
+                {tipo === null && (
+                  <span className="text-[10px] text-muted-foreground">
+                    (auto-detectado por {tipoDetectado === 'packing' ? 'los sufijos de color' : 'la ausencia de sufijos'})
+                  </span>
+                )}
+              </div>
+              {existentesDelTipo > 0 && (
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs text-amber-700">
+                  <input
+                    type="checkbox"
+                    checked={replaceExisting}
+                    onChange={(e) => setReplaceExisting(e.target.checked)}
+                  />
+                  Reemplazar las {existentesDelTipo} filas de {tipoEfectivo === 'proforma' ? 'proforma' : 'packing list'} ya cargadas
+                  (si no, se suman y quedarían duplicadas)
+                </label>
+              )}
+            </div>
+
             <div className="flex justify-between gap-2">
               <Button variant="ghost" size="sm" onClick={reset}>Volver</Button>
               <Button size="sm" onClick={handleConfirm} disabled={!hasRef || mapped.length === 0}>
-                Agregar {mapped.length} referencia{mapped.length === 1 ? '' : 's'}
+                Agregar {mapped.length} referencia{mapped.length === 1 ? '' : 's'} como {tipoEfectivo === 'proforma' ? 'proforma' : 'packing list'}
               </Button>
             </div>
           </div>

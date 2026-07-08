@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Plus, Trash2, Upload, PackageOpen, Calculator, Info } from 'lucide-react';
 import { useImportItems } from '@/hooks/useImportItems';
 import { refFamilyKey } from '@/lib/refFamily';
+import { comparePackingVsProforma } from '@/lib/packingCompare';
 import PackingListImport from './PackingListImport';
 
 const fmtCop = (n: number | null | undefined) =>
@@ -45,8 +46,9 @@ function useInventoryCosts() {
 export default function ImportCostingSection({ importId, montoTotalUsd }: { importId: string; montoTotalUsd?: number | null }) {
   const [trmOverride, setTrmOverride] = useState<number | ''>('');
   const {
-    items, landed, trmPonderada, trmEfectiva,
-    addItems, updateItem, removeItem,
+    effectiveItems: items, effectiveSource, proformaItems, hayProforma, hayPacking,
+    landed, trmPonderada, trmEfectiva,
+    importItemSet, addItems, updateItem, removeItem,
   } = useImportItems(importId, trmOverride === '' ? null : Number(trmOverride));
   const { data: invCosts } = useInventoryCosts();
   const [showImport, setShowImport] = useState(false);
@@ -65,6 +67,16 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
   const hayCostoExcel = useMemo(
     () => items.some((it) => Number(it.costo_unitario_excel ?? 0) > 0),
     [items],
+  );
+
+  // ── Proforma vs Packing list definitivo (agrupado por familia -5) ──
+  // "El feature de oro": lo pedido a producción vs lo que realmente viene en
+  // el contenedor, con las diferencias arriba. Solo cuando existen AMBOS.
+  const comparacion = useMemo(
+    () => (hayProforma && hayPacking
+      ? comparePackingVsProforma(proformaItems, items)
+      : null),
+    [hayProforma, hayPacking, proformaItems, items],
   );
 
   const noTrm = trmEfectiva === null || trmEfectiva <= 0;
@@ -115,12 +127,17 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <Label className="text-xs font-semibold text-muted-foreground">
-            Packing list ({items.length}
+            {effectiveSource === 'proforma' ? 'Proforma' : 'Packing list'} ({items.length}
             {totalBultos > 0 && (
               <span title="Total de bultos del contenedor — el dato de control al descargar">
                 {' '}· {totalBultos.toLocaleString('es-CO')} bultos
               </span>
             )})
+            {effectiveSource === 'proforma' && (
+              <span className="ml-1 font-normal text-[10px]" title="Cuando subas el packing list definitivo, este proforma queda guardado para compararlos">
+                — pedido a producción; el definitivo lo reemplaza al llegar
+              </span>
+            )}
           </Label>
           <div className="flex gap-1.5">
             <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setShowImport(true)}>
@@ -203,6 +220,72 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
           </div>
         )}
       </div>
+
+      {/* ── Proforma vs Packing list (por familia -5): lo pedido vs lo embarcado ── */}
+      {comparacion && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Info className="h-4 w-4 text-primary" />
+            <Label className="text-xs font-semibold">
+              Proforma vs Packing list — {comparacion.conDiferencia.length === 0
+                ? 'sin diferencias 🎯'
+                : `${comparacion.conDiferencia.length} familia${comparacion.conDiferencia.length > 1 ? 's' : ''} con diferencia`}
+            </Label>
+          </div>
+          {comparacion.conDiferencia.length > 0 && (
+            <div className="overflow-x-auto border rounded-lg border-amber-500/30">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-amber-500/10">
+                    <TableHead className="text-[11px]">Referencia (familia)</TableHead>
+                    <TableHead className="text-[11px] text-right">Pedido (proforma)</TableHead>
+                    <TableHead className="text-[11px] text-right">Embarcado (packing)</TableHead>
+                    <TableHead className="text-[11px] text-right">Δ unds</TableHead>
+                    <TableHead className="text-[11px] text-right">Δ kg</TableHead>
+                    <TableHead className="text-[11px]">Estado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {comparacion.conDiferencia.map((f) => (
+                    <TableRow key={f.familia}>
+                      <TableCell className="text-xs font-mono">{f.label}</TableCell>
+                      <TableCell className="text-xs font-mono text-right">{fmtNum(f.proformaCant)}</TableCell>
+                      <TableCell className="text-xs font-mono text-right">{fmtNum(f.packingCant)}</TableCell>
+                      <TableCell className={`text-xs font-mono text-right font-semibold ${f.deltaCant < 0 ? 'text-destructive' : 'text-success'}`}>
+                        {f.deltaCant > 0 ? '+' : ''}{fmtNum(f.deltaCant)}
+                      </TableCell>
+                      <TableCell className={`text-xs font-mono text-right ${f.deltaKg < 0 ? 'text-destructive' : 'text-success'}`}>
+                        {f.deltaKg > 0 ? '+' : ''}{fmtNum(f.deltaKg)}
+                      </TableCell>
+                      <TableCell className="text-[10px] text-muted-foreground">
+                        {f.estado === 'solo_proforma' ? 'pedida y NO embarcada'
+                          : f.estado === 'solo_packing' ? 'vino sin estar en el proforma'
+                          : 'cantidad distinta'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-muted/30 font-semibold">
+                    <TableCell className="text-xs">Total contenedor</TableCell>
+                    <TableCell className="text-xs font-mono text-right">{fmtNum(comparacion.totales.proformaCant)}</TableCell>
+                    <TableCell className="text-xs font-mono text-right">{fmtNum(comparacion.totales.packingCant)}</TableCell>
+                    <TableCell className={`text-xs font-mono text-right ${comparacion.totales.deltaCant < 0 ? 'text-destructive' : 'text-success'}`}>
+                      {comparacion.totales.deltaCant > 0 ? '+' : ''}{fmtNum(comparacion.totales.deltaCant)}
+                    </TableCell>
+                    <TableCell className={`text-xs font-mono text-right ${comparacion.totales.deltaKg < 0 ? 'text-destructive' : 'text-success'}`}>
+                      {comparacion.totales.deltaKg > 0 ? '+' : ''}{fmtNum(comparacion.totales.deltaKg)}
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Lo que pediste a producción vs lo que viene en el contenedor, agrupado por familia
+            (base + colores = la -5). El costeo y la cobertura usan el packing list.
+          </p>
+        </div>
+      )}
 
       {/* Los costos del contenedor (flete, seguro, aduana…) se cargan en el
           RESUMEN (ImportCostsTable) — acá solo se consumen para el landed. */}
@@ -315,7 +398,12 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
         </div>
       )}
 
-      <PackingListImport open={showImport} onOpenChange={setShowImport} onConfirm={(rows) => addItems.mutate(rows)} />
+      <PackingListImport
+        open={showImport}
+        onOpenChange={setShowImport}
+        existingCounts={{ proforma: proformaItems.length, packing: hayPacking ? items.length : 0 }}
+        onConfirm={(rows, source, replace) => importItemSet.mutate({ rows, source, replace })}
+      />
     </div>
   );
 }

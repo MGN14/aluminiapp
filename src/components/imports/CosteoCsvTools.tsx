@@ -26,7 +26,9 @@ export default function CosteoCsvTools({ importId, montoTotalUsd }: {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const { items, landed, addItems } = useImportItems(importId);
+  // effectiveItems: packing definitivo si existe, si no proforma — el FOB
+  // registrado se compara contra el set que realmente costea.
+  const { effectiveItems: items, landed, addItems } = useImportItems(importId);
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState<{ updated: number; missing: string[] } | null>(null);
 

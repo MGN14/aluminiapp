@@ -28,7 +28,12 @@ export interface ImportItemRow {
   bultos?: number | null;
   /** Costo unitario COP del Excel del usuario, solo para comparar vs landed. */
   costo_unitario_excel?: number | null;
+  /** 'proforma' = pedido a producción · 'packing' = packing list definitivo.
+   *  El costeo y la cobertura usan packing si existe; si no, proforma. */
+  source?: 'proforma' | 'packing';
 }
+
+export type ImportItemSource = 'proforma' | 'packing';
 
 export interface ImportCostRow {
   id: string;
@@ -123,9 +128,23 @@ export function useImportItems(importId: string | null | undefined, trmOverride?
   const trmPonderada = trmQuery.data ?? null;
   const trmEfectiva = num(trmOverride) > 0 ? Number(trmOverride) : trmPonderada;
 
+  // El packing list definitivo MANDA cuando existe; si no, el proforma.
+  // (Filas pre-migración sin source cuentan como packing.)
+  const sourceOf = (r: ImportItemRow): 'proforma' | 'packing' => r.source ?? 'packing';
+  const hayPacking = items.some((r) => sourceOf(r) === 'packing');
+  const effectiveSource: 'proforma' | 'packing' = hayPacking ? 'packing' : 'proforma';
+  const effectiveItems = useMemo(
+    () => items.filter((r) => sourceOf(r) === effectiveSource),
+    [items, effectiveSource],
+  );
+  const proformaItems = useMemo(
+    () => items.filter((r) => sourceOf(r) === 'proforma'),
+    [items],
+  );
+
   const landed: LandedCostResult = useMemo(
-    () => computeLandedCost(items, costs, trmEfectiva),
-    [items, costs, trmEfectiva],
+    () => computeLandedCost(effectiveItems, costs, trmEfectiva),
+    [effectiveItems, costs, trmEfectiva],
   );
 
   const invalidate = () => {
@@ -135,6 +154,47 @@ export function useImportItems(importId: string | null | undefined, trmOverride?
   };
 
   // ── Items ──────────────────────────────────────────────────────────────
+  /** Importa un set completo (proforma o packing). Con replace=true borra las
+   *  filas existentes DEL MISMO tipo primero — re-subir corrige, no duplica. */
+  const importItemSet = useMutation({
+    mutationFn: async ({ rows, source, replace }: { rows: NewImportItem[]; source: ImportItemSource; replace: boolean }) => {
+      if (!user || !importId || rows.length === 0) return;
+      if (replace) {
+        const { error: delErr } = await supabase
+          .from('import_items' as never)
+          .delete()
+          .eq('import_id', importId)
+          .eq('source', source);
+        if (delErr) throw delErr;
+      }
+      const payload = rows.map((r, i) => ({
+        user_id: user.id,
+        import_id: importId,
+        reference: r.reference,
+        descripcion: r.descripcion ?? null,
+        cantidad: num(r.cantidad),
+        unidad: r.unidad || 'kg',
+        peso_kg: r.peso_kg === null || r.peso_kg === undefined ? null : num(r.peso_kg),
+        fob_total_usd: num(r.fob_total_usd),
+        orden: i,
+        notas: r.notas ?? null,
+        color: r.color ?? null,
+        bultos: r.bultos === null || r.bultos === undefined ? null : num(r.bultos),
+        costo_unitario_excel: r.costo_unitario_excel === null || r.costo_unitario_excel === undefined ? null : num(r.costo_unitario_excel),
+        source,
+      }));
+      const { error } = await supabase.from('import_items' as never).insert(payload as never);
+      if (error) throw error;
+    },
+    onSuccess: (_d, { rows, source }) => {
+      invalidate();
+      toast({
+        title: `${rows.length} referencia${rows.length === 1 ? '' : 's'} de ${source === 'proforma' ? 'proforma' : 'packing list'} cargada${rows.length === 1 ? '' : 's'}`,
+      });
+    },
+    onError: (e: Error) => toast({ title: 'Error al importar', description: e.message, variant: 'destructive' }),
+  });
+
   const addItems = useMutation({
     mutationFn: async (rows: NewImportItem[]) => {
       if (!user || !importId || rows.length === 0) return;
@@ -154,6 +214,9 @@ export function useImportItems(importId: string | null | undefined, trmOverride?
         color: r.color ?? null,
         bultos: r.bultos === null || r.bultos === undefined ? null : num(r.bultos),
         costo_unitario_excel: r.costo_unitario_excel === null || r.costo_unitario_excel === undefined ? null : num(r.costo_unitario_excel),
+        // Fila manual: hereda el set activo para no "activar" un packing
+        // fantasma cuando solo hay proforma.
+        source: r.source ?? effectiveSource,
       }));
       const { error } = await supabase.from('import_items' as never).insert(payload as never);
       if (error) throw error;
@@ -226,11 +289,17 @@ export function useImportItems(importId: string | null | undefined, trmOverride?
 
   return {
     items,
+    effectiveItems,
+    effectiveSource,
+    proformaItems,
+    hayProforma: proformaItems.length > 0,
+    hayPacking,
     costs,
     landed,
     trmPonderada,
     trmEfectiva,
     isLoading: itemsQuery.isLoading || costsQuery.isLoading,
+    importItemSet,
     addItems,
     updateItem,
     removeItem,

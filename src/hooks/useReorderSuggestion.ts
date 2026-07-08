@@ -24,7 +24,7 @@ import {
 } from '@/lib/reorderSuggestion';
 import { refFamilyKey } from '@/lib/refFamily';
 
-interface ItemRow { import_id: string; reference: string; cantidad: number }
+interface ItemRow { import_id: string; reference: string; cantidad: number; source?: 'proforma' | 'packing' | null }
 
 export interface PedidoSinItems {
   id: string;
@@ -91,10 +91,16 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     queryFn: async () => {
       const { data, error } = await (supabase as never as { from: (t: string) => any })
         .from('import_items')
-        .select('import_id, reference, cantidad')
+        .select('import_id, reference, cantidad, source')
         .in('import_id', abiertosIds);
       if (error) throw error;
-      return (data ?? []) as ItemRow[];
+      const rows = (data ?? []) as ItemRow[];
+      // Por pedido: el packing list definitivo MANDA; si no hay, el proforma.
+      // (Sumar ambos duplicaría el contenedor en la cobertura.)
+      const conPacking = new Set(rows.filter((r) => (r.source ?? 'packing') === 'packing').map((r) => r.import_id));
+      return rows.filter((r) =>
+        conPacking.has(r.import_id) ? (r.source ?? 'packing') === 'packing' : true,
+      );
     },
     staleTime: 10 * 60_000,
   });
