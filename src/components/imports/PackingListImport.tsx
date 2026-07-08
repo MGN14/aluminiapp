@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { FileSpreadsheet, ClipboardPaste, AlertCircle, ArrowRight } from 'lucide-react';
 import { parseDelimited, parseLooseNumber } from '@/lib/delimitedParser';
 import { guessMapping, isSummaryReference, hasAnyData, type FieldKey } from '@/lib/packingListParse';
+import { suffixColorConflict } from '@/lib/refFamily';
 import { readXlsxFile, isExcelFile, type XlsxSheet } from '@/lib/readXlsx';
 import type { NewImportItem } from '@/hooks/useImportItems';
 
@@ -141,6 +142,17 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
   const hasRef = mapping.includes('reference');
   const hasFob = mapping.includes('fob_total_usd');
   const hasCant = mapping.includes('cantidad');
+
+  // Consistencia sufijo ↔ Color: el proforma viene sin sufijos (China) y el
+  // packing list definitivo CON sufijos + columna Color — si ambos vienen y
+  // se contradicen (-3 negro con Color "Blanco"), es un error de datos que
+  // hay que ver ANTES de confirmar. No bloquea: avisa.
+  const colorConflicts = useMemo(
+    () => mapped
+      .map((it) => suffixColorConflict(it.reference, it.color ?? null))
+      .filter((c): c is string => c !== null),
+    [mapped],
+  );
 
   const handleConfirm = () => {
     if (!hasRef) { setError('Indicá cuál columna es la Referencia.'); return; }
@@ -291,6 +303,17 @@ export default function PackingListImport({ open, onOpenChange, onConfirm }: Pro
             </div>
             {dataRows.length > 6 && (
               <p className="text-[11px] text-muted-foreground">Mostrando 6 de {dataRows.length} filas.</p>
+            )}
+
+            {colorConflicts.length > 0 && (
+              <div className="text-[11px] text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 space-y-0.5">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {colorConflicts.length} fila{colorConflicts.length > 1 ? 's' : ''} con sufijo y color que no cuadran — revisá antes de confirmar:
+                </p>
+                {colorConflicts.slice(0, 5).map((c, i) => <p key={i}>· {c}</p>)}
+                {colorConflicts.length > 5 && <p>· … y {colorConflicts.length - 5} más</p>}
+              </div>
             )}
 
             {error && (

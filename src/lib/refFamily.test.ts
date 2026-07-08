@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { refFamilyKey } from './refFamily';
+import { refFamilyKey, suffixColorConflict, normalizeColor } from './refFamily';
 
 // Referencias REALES de la maestra de inventario y de los packing lists.
 describe('refFamilyKey', () => {
@@ -39,5 +39,39 @@ describe('refFamilyKey', () => {
   it('normaliza espacios y mayúsculas', () => {
     expect(refFamilyKey('  liv-40-5 ')).toBe('liv-40');
     expect(refFamilyKey(null)).toBe('');
+  });
+});
+
+describe('suffixColorConflict — proforma (sin sufijo) vs packing list (con sufijo)', () => {
+  it('proforma: ref base + cualquier color = válido (China no maneja sufijos)', () => {
+    expect(suffixColorConflict('LIV-40', 'Mate')).toBeNull();
+    expect(suffixColorConflict('LIV-40', 'Negro')).toBeNull();
+    expect(suffixColorConflict('T077A', 'Blanco')).toBeNull();
+  });
+
+  it('packing list: sufijo y color coincidentes = válido', () => {
+    expect(suffixColorConflict('LIV-40-3', 'Negro')).toBeNull();
+    expect(suffixColorConflict('LIV-40-2', 'Blanco')).toBeNull();
+    expect(suffixColorConflict('LIV-40-0', 'Crudo')).toBeNull();
+    expect(suffixColorConflict('LIV-40-3', 'NEGRO ')).toBeNull(); // case/espacios
+  });
+
+  it('packing list: sufijo contradiciendo la columna Color = error visible', () => {
+    expect(suffixColorConflict('LIV-40-3', 'Blanco')).toContain('sufijo dice "negro"');
+    expect(suffixColorConflict('LIV-40-2', 'Crudo')).toContain('sufijo dice "blanco"');
+  });
+
+  it('sufijo con columna Color vacía = válido (el sufijo manda)', () => {
+    expect(suffixColorConflict('LIV-40-3', null)).toBeNull();
+    expect(suffixColorConflict('LIV-40-3', '')).toBeNull();
+  });
+
+  it('un renglón físico con -5 (el total) genera aviso', () => {
+    expect(suffixColorConflict('LIV-40-5', 'Mate')).toContain('-5');
+  });
+
+  it('colores no estándar no explotan (se conservan, sin falso conflicto sin sufijo)', () => {
+    expect(suffixColorConflict('LIV-40', 'Champagne')).toBeNull();
+    expect(normalizeColor('Champagne')).toBe('champagne');
   });
 });

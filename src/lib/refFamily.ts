@@ -24,3 +24,58 @@ export function refFamilyKey(reference: string | null | undefined): string {
   const m = /^(.+?)-(0|2|3|5)$/.exec(norm);
   return m ? m[1] : norm;
 }
+
+// ── Consistencia sufijo ↔ columna Color ────────────────────────────────────
+// Los dos formatos de subida conviven:
+//   PROFORMA (China, no maneja sufijos): ref base (LIV-40) + Color en columna.
+//   PACKING LIST definitivo: ref CON sufijo (LIV-40-3) + Color en columna.
+// Cuando vienen ambos, tienen que coincidir — un -3 (negro) con Color
+// "Blanco" es un error de datos que hay que ver ANTES de confirmar.
+
+export type ColorSufijo = 'crudo' | 'blanco' | 'negro' | 'total';
+
+const SUFIJO_COLOR: Record<string, ColorSufijo> = {
+  '0': 'crudo',
+  '2': 'blanco',
+  '3': 'negro',
+  '5': 'total',
+};
+
+/** Color implicado por el sufijo de la referencia; null = sin sufijo (mate). */
+export function colorFromSuffix(reference: string | null | undefined): ColorSufijo | null {
+  const norm = (reference ?? '').trim().toLowerCase();
+  const m = /^.+?-(0|2|3|5)$/.exec(norm);
+  return m ? SUFIJO_COLOR[m[1]] : null;
+}
+
+/** Normaliza el texto de la columna Color a la paleta conocida; null = no reconocido. */
+export function normalizeColor(color: string | null | undefined): string | null {
+  const c = (color ?? '').trim().toLowerCase();
+  if (!c) return null;
+  if (/crud/.test(c)) return 'crudo';
+  if (/blanc|white/.test(c)) return 'blanco';
+  if (/negr|black/.test(c)) return 'negro';
+  if (/mate|matte|natural/.test(c)) return 'mate';
+  return c; // color no estándar (champagne, etc.): se conserva tal cual
+}
+
+/**
+ * ¿El sufijo de la referencia contradice la columna Color?
+ * Devuelve el texto del problema, o null si todo bien.
+ * - Ref sin sufijo (proforma o mate) → nunca es error.
+ * - Ref -5 (total) en un renglón físico → aviso: el total no viaja en cajas.
+ * - Ref -0/-2/-3 con Color distinto → error de datos.
+ */
+export function suffixColorConflict(reference: string, color: string | null | undefined): string | null {
+  const sufijo = colorFromSuffix(reference);
+  if (sufijo === null) return null; // base: el color de la columna manda (proforma)
+  if (sufijo === 'total') {
+    return `${reference.trim()}: termina en -5 (el TOTAL de colores) — un renglón físico debería venir por color o sin sufijo`;
+  }
+  const col = normalizeColor(color);
+  if (col === null) return null; // sin columna color: el sufijo manda (ok)
+  if (col !== sufijo) {
+    return `${reference.trim()}: el sufijo dice "${sufijo}" pero la columna Color dice "${(color ?? '').trim()}"`;
+  }
+  return null;
+}
