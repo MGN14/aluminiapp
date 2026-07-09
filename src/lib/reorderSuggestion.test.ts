@@ -157,10 +157,11 @@ describe('computeReorderSuggestion', () => {
     // Lead time default 85 + colchón 15 = 100 días antes del grupal.
     expect(sug.fechaLimite).toBe('2026-08-27');
     expect(sug.diasParaDecidir).toBe(50);
-    // Sin tránsito no hay huecos cubiertos ni faltantes: todos los quiebres
-    // (100d+) son alcanzables por un pedido montado hoy (llega al día 85).
-    expect(sug.alertas).toEqual([]);
+    // A y B quiebran antes del grupal → alertas (secas hasta que llegue el
+    // pedido); sin tránsito no hay huecos ni faltantes (todo alcanzable).
+    expect(sug.alertas.map((q) => q.reference)).toEqual(['A', 'B']);
     expect(sug.faltantes).toEqual([]);
+    expect(sug.huecos).toEqual([]);
     expect(sug.safetyDias).toBe(SAFETY_DIAS);
     expect(sug.llegadaSiPidoHoy).toBe('2026-10-01'); // hoy + 85
   });
@@ -351,6 +352,60 @@ describe('computeReorderSuggestion', () => {
     // B y C quedan en 0 unos días antes de que llegue su contenedor de
     // producción (agote ~día 8-12, llegada día 85) → ...
     expect(conPipeline.alertas.length).toBeGreaterThan(0);
+  });
+
+  it('3 refs MARGINALES quebrando temprano NO adelantan el contenedor (masa de consumo)', () => {
+    // Caso real (jul 2026): DIA09, BLJY009-2 y ART-090 quebraban el 8-oct
+    // (alcanzable) y la card decía "montá HOY" recién comprometidos 3
+    // contenedores. Son ~1.5% del consumo — el contenedor lo dispara el
+    // GRUESO (≥20% acumulado), no un conteo de 3.
+    const stock = [
+      // 3 marginales: 0.5/día, quiebran al día 95 (alcanzable: llegada día 85)
+      { productId: 'c1', reference: 'DIA09', stockPhysical: 47.5 },
+      { productId: 'c2', reference: 'BLJY009-2', stockPhysical: 47.5 },
+      { productId: 'c3', reference: 'ART-090', stockPhysical: 47.5 },
+      // El grueso: 5 refs de 20/día con 250 días de cobertura
+      { productId: 'g1', reference: 'G1', stockPhysical: 5000 },
+      { productId: 'g2', reference: 'G2', stockPhysical: 5000 },
+      { productId: 'g3', reference: 'G3', stockPhysical: 5000 },
+      { productId: 'g4', reference: 'G4', stockPhysical: 5000 },
+      { productId: 'g5', reference: 'G5', stockPhysical: 5000 },
+    ];
+    const salidas = [
+      { productId: 'c1', quantity: 45 }, { productId: 'c2', quantity: 45 }, { productId: 'c3', quantity: 45 },
+      { productId: 'g1', quantity: 1800 }, { productId: 'g2', quantity: 1800 }, { productId: 'g3', quantity: 1800 },
+      { productId: 'g4', quantity: 1800 }, { productId: 'g5', quantity: 1800 },
+    ];
+    const sug = computeReorderSuggestion({ todayIso: HOY, imports: [], stock, salidas, transito: [] });
+    // El grupal se ancla en el grueso (día 250), NO en las 3 marginales (día 95).
+    expect(sug.fechaQuiebreGrupal).toBe('2027-03-15'); // hoy + 250
+    expect(sug.fechaLimite).toBe('2026-12-05');        // − 100 → FUTURA, no "hoy"
+    expect(sug.diasParaDecidir).toBe(150);
+    // Las 3 marginales son ALERTA: quiebran antes del pedido grupal.
+    expect(sug.alertas.map((q) => q.reference)).toEqual(['DIA09', 'BLJY009-2', 'ART-090']);
+    expect(sug.faltantes).toEqual([]);
+  });
+
+  it('si el GRUESO quiebra temprano, sí dispara aunque sean pocas refs', () => {
+    // Contra-caso: una ref del 30% del consumo quebrando pronto (día 100,
+    // alcanzable) + relleno → el corte llega apenas se junta el 20% con al
+    // menos 3 refs. La masa manda en ambos sentidos.
+    const stock = [
+      { productId: 'big', reference: 'GRANDE', stockPhysical: 3000 },   // 30/d → 100d
+      { productId: 'm1', reference: 'M1', stockPhysical: 1050 },        // 10/d → 105d
+      { productId: 'm2', reference: 'M2', stockPhysical: 1100 },        // 10/d → 110d
+      { productId: 'm3', reference: 'M3', stockPhysical: 15000 },       // 50/d → 300d
+    ];
+    const salidas = [
+      { productId: 'big', quantity: 2700 },
+      { productId: 'm1', quantity: 900 }, { productId: 'm2', quantity: 900 },
+      { productId: 'm3', quantity: 4500 },
+    ];
+    const sug = computeReorderSuggestion({ todayIso: HOY, imports: [], stock, salidas, transito: [] });
+    // GRANDE(30%) ya pasa el 20% en la 1ª, pero el mínimo de 3 refs aguanta
+    // hasta M2 (día 110): grupal = día 110, no día 300.
+    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['GRANDE', 'M1', 'M2']);
+    expect(sug.fechaQuiebreGrupal).toBe('2026-10-26'); // hoy + 110
   });
 
   it('sin consumo registrado → sin fecha con motivo', () => {

@@ -79,10 +79,10 @@ export default function ReorderSuggestionCard() {
               )}
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {sug.refsGrupal.length} referencia{sug.refsGrupal.length > 1 ? 's' : ''} del grueso del consumo se quiebra{sug.refsGrupal.length > 1 ? 'n' : ''} hacia el{' '}
-              <strong className="text-foreground">{fmtFecha(sug.fechaQuiebreGrupal!)}</strong>{' '}
-              ({sug.refsGrupal.map((q) => q.reference).join(', ')}), contando stock físico y lo que viene en el agua.
-              Un pedido montado hoy quedaría en bodega el{' '}
+              Hacia el <strong className="text-foreground">{fmtFecha(sug.fechaQuiebreGrupal!)}</strong> se
+              quiebra el GRUESO del consumo — {sug.refsGrupal.length} referencia{sug.refsGrupal.length > 1 ? 's' : ''}{' '}
+              ({sug.refsGrupal.slice(0, 3).map((q) => q.reference).join(', ')}{sug.refsGrupal.length > 3 ? `, +${sug.refsGrupal.length - 3} más` : ''}),
+              contando stock físico y TODO el pipeline. Un pedido montado hoy quedaría en bodega el{' '}
               <strong className="text-foreground">{fmtFecha(sug.llegadaSiPidoHoy)}</strong>.
             </p>
           </>
@@ -122,20 +122,39 @@ export default function ReorderSuggestionCard() {
           </p>
         )}
 
-        {/* Huecos operativos: el contenedor en camino repone, pero hay unos
-            días en 0 mientras nacionaliza. No mueven la fecha del pedido. */}
+        {/* Alertas: quiebres alcanzables pero SIN masa para disparar contenedor —
+            quedarían secas hasta que llegue el pedido grupal. */}
         {sug.alertas.length > 0 && (
           <p className="text-xs leading-relaxed flex items-start gap-1.5">
             <TriangleAlert className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
             <span>
-              <strong>Hueco corto (lo repone lo que viene en camino):</strong>{' '}
+              <strong>Alerta (no amerita contenedor todavía):</strong>{' '}
               {sug.alertas.slice(0, 3).map((q, i) => (
+                <span key={q.reference}>
+                  {i > 0 && ' · '}
+                  <strong>{q.reference}</strong> se quiebra el {fmtFecha(q.fechaQuiebreTeorica!)}
+                </span>
+              ))}
+              {sug.alertas.length > 3 && ` · +${sug.alertas.length - 3} más`}
+              . Reposición local o sumalas al próximo pedido — solas no mueven la fecha.
+            </span>
+          </p>
+        )}
+
+        {/* Huecos operativos: el contenedor en camino repone, pero hay unos
+            días en 0 mientras nacionaliza. No mueven la fecha del pedido. */}
+        {sug.huecos.length > 0 && (
+          <p className="text-xs leading-relaxed flex items-start gap-1.5">
+            <TriangleAlert className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
+            <span>
+              <strong>Hueco corto (lo repone lo que viene en camino):</strong>{' '}
+              {sug.huecos.slice(0, 3).map((q, i) => (
                 <span key={q.reference}>
                   {i > 0 && ' · '}
                   <strong>{q.reference}</strong> queda en 0 hacia el {fmtFecha((q.fechaHueco ?? q.fechaQuiebre)!)}
                 </span>
               ))}
-              {sug.alertas.length > 3 && ` · +${sug.alertas.length - 3} más`}
+              {sug.huecos.length > 3 && ` · +${sug.huecos.length - 3} más`}
               . Reposición local o apurá la nacionalización si no querés el faltante.
             </span>
           </p>

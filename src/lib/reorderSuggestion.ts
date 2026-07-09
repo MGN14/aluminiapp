@@ -39,6 +39,14 @@ export const CONSUMO_CRITICO_PCT = 0.8;
  * local o parcial), no motivo para montar un contenedor (decisión de Nico).
  */
 export const UMBRAL_REFS_QUIEBRE = 3;
+/**
+ * …y además las refs quebrando tienen que concentrar esta fracción del
+ * consumo diario total: el GRUESO, no un conteo. 3 referencias marginales
+ * quebrando en octubre no ameritan contenedor recién comprometidos 3
+ * contenedores (caso real de Nico, jul 2026) — son alerta/candidatas al
+ * próximo pedido. El contenedor se monta cuando se viene el volumen.
+ */
+export const UMBRAL_CONSUMO_GRUPAL_PCT = 0.2;
 /** Defaults conservadores por etapa (días) mientras no haya datos medidos. */
 export const DEFAULT_ETAPAS = { produccion: 35, transito: 40, nacionalizacion: 10 } as const;
 /** Duración sana máxima de una etapa (descarta fechas basura). */
@@ -135,13 +143,17 @@ export interface ReorderSuggestion {
   fechaQuiebreGrupal: string | null;
   /** Las referencias que quiebran hasta la fecha grupal (definen el pedido). */
   refsGrupal: QuiebreProducto[];
-  /** Huecos operativos: refs que quedan en 0 unos días hasta que nacionaliza
-   *  lo que YA viene en camino. Vigilancia puntual, no disparan pedido. */
+  /** Quiebres ALCANZABLES pero anteriores al grupal: no son masa suficiente
+   *  para disparar contenedor — candidatas a reposición local o a sumarse al
+   *  próximo pedido (quedarían secas hasta que llegue el pedido grupal). */
   alertas: QuiebreProducto[];
   /** FALTANTES REALES: refs cuyo agote FINAL (con todo el pipeline sumado)
    *  cae ANTES de que llegue un pedido montado hoy — un pedido nuevo no las
    *  alcanza. Salida: reposición local o apurar; NO mueven la fecha límite. */
   faltantes: QuiebreProducto[];
+  /** Huecos operativos: refs que quedan en 0 unos días hasta que nacionaliza
+   *  lo que YA viene en camino. Vigilancia puntual, no disparan pedido. */
+  huecos: QuiebreProducto[];
   /** Si montás un pedido HOY, fecha estimada de disponibilidad en bodega. */
   llegadaSiPidoHoy: string;
   /** Detalle de las referencias críticas (para la tabla del card). */
@@ -374,11 +386,13 @@ export function computeReorderSuggestion(params: {
   ventanaDias?: number;
   safetyDias?: number;
   umbralRefs?: number;
+  umbralConsumoPct?: number;
   consumoPorProducto?: Map<string, number>;
 }): ReorderSuggestion {
   const { todayIso, imports, stock, salidas, transito } = params;
   const safetyDias = params.safetyDias ?? SAFETY_DIAS;
   const umbralRefs = params.umbralRefs ?? UMBRAL_REFS_QUIEBRE;
+  const umbralConsumoPct = params.umbralConsumoPct ?? UMBRAL_CONSUMO_GRUPAL_PCT;
 
   const leadTime = estimateLeadTime(imports);
   const quiebres = projectQuiebres({
@@ -404,6 +418,7 @@ export function computeReorderSuggestion(params: {
   const vacio = {
     fechaLimite: null, diasParaDecidir: null, fechaQuiebreGrupal: null,
     refsGrupal: [], alertas: [], faltantes: [] as QuiebreProducto[],
+    huecos: [] as QuiebreProducto[],
     criticos: [] as QuiebreProducto[],
     porReferencia: [] as QuiebreProducto[],
   };
@@ -458,23 +473,47 @@ export function computeReorderSuggestion(params: {
   if (!teoricas.length) {
     return {
       ...base, ...vacio,
-      alertas: conHueco,
+      huecos: conHueco,
       criticos,
       porReferencia: quiebres,
       motivoSinFecha: null,
     };
   }
 
-  // Grupal sobre los alcanzables. Si NADA es alcanzable (todo quiebra antes
-  // de que llegue un pedido montado hoy), la única respuesta es montar YA:
-  // el grupal se muestra sobre las teóricas y el límite se fija en hoy.
+  // ── Grupal por MASA DE CONSUMO, no por conteo ────────────────────────────
+  // El contenedor se monta cuando se viene EL GRUESO: caminar los quiebres
+  // alcanzables en orden acumulando consumo diario; el grupal es la fecha en
+  // que lo quebrado acumula ≥ umbralConsumoPct del consumo total (y al menos
+  // umbralRefs referencias). 3 refs marginales quebrando temprano NO adelantan
+  // el contenedor (caso real: "montá hoy" con 3 contenedores recién
+  // comprometidos por 3 refs que no venían en ellos) — quedan como alertas.
+  // Si NADA es alcanzable (todo quiebra antes de que llegue un pedido montado
+  // hoy), la única respuesta es montar YA: límite = hoy.
   const pool = alcanzables.length ? alcanzables : teoricas;
-  const k = Math.min(umbralRefs, pool.length);
-  const refsGrupal = pool.slice(0, k);
-  const fechaQuiebreGrupal = refsGrupal[k - 1].fechaQuiebreTeorica!;
+  const consumoTotal = criticos.reduce((s, q) => s + q.consumoDiario, 0);
+  const minRefs = Math.min(umbralRefs, pool.length);
+  let corte = pool.length - 1; // fallback: la última que quiebre
+  let acumulado = 0;
+  for (let i = 0; i < pool.length; i++) {
+    acumulado += pool[i].consumoDiario;
+    if (i + 1 >= minRefs && consumoTotal > 0 && acumulado / consumoTotal >= umbralConsumoPct) {
+      corte = i;
+      break;
+    }
+  }
+  const refsGrupal = pool.slice(0, corte + 1);
+  const fechaQuiebreGrupal = pool[corte].fechaQuiebreTeorica!;
   // Nunca en el pasado: si el cálculo cae antes de hoy, la decisión es "hoy".
   const fechaLimiteCruda = addDays(fechaQuiebreGrupal, -(leadTime.totalDias + safetyDias));
   const fechaLimite = fechaLimiteCruda >= todayIso ? fechaLimiteCruda : todayIso;
+
+  // Alertas: quiebres alcanzables ANTERIORES al grupal — no son masa para
+  // disparar contenedor, pero quedarían secas hasta que llegue el pedido:
+  // reposición local o sumarlas al próximo pedido.
+  const alertas = alcanzables.filter((q) => q.fechaQuiebreTeorica! < fechaQuiebreGrupal);
+  // Una ref con alerta no se repite en huecos (la alerta es el mensaje fuerte).
+  const enAlertas = new Set(alertas.map((q) => q.reference));
+  const huecos = conHueco.filter((q) => !enAlertas.has(q.reference));
 
   return {
     ...base,
@@ -482,8 +521,9 @@ export function computeReorderSuggestion(params: {
     diasParaDecidir: daysBetween(todayIso, fechaLimite),
     fechaQuiebreGrupal,
     refsGrupal,
-    alertas: conHueco,
+    alertas,
     faltantes,
+    huecos,
     criticos,
     porReferencia: quiebres,
     motivoSinFecha: null,
