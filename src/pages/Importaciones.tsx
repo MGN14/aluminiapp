@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, Lock as LockIcon, Radar as RadarIcon, AlertTriangle, PackageCheck, PackageSearch, Factory } from 'lucide-react';
+import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, CheckCircle2, Lock as LockIcon, Radar as RadarIcon, AlertTriangle, PackageCheck, PackageSearch, Factory } from 'lucide-react';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import { fetchTrmForDate } from '@/hooks/useImportPayments';
 import { computeImportBreakdown } from '@/lib/importCosting';
@@ -81,6 +81,30 @@ function DeltaLine({ pct, label }: { pct: number | null; label: string }) {
     <p className={cn('text-[11px] font-medium inline-flex items-center gap-1', pct > 0 ? 'text-destructive' : 'text-success')}>
       {pct > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
       {pct > 0 ? '+' : ''}{pct.toFixed(1)}% {label}
+    </p>
+  );
+}
+
+/** Señal semáforo del pedido en foco contra una referencia (promedio
+ *  histórico o mercado hoy). Semántica de COSTO: arriba = rojo (te sale más
+ *  caro), abajo = verde. Banda neutral ±2% = "en línea" con check. */
+function SignalLine({ curr, refVal, label, fmtVal }: {
+  curr: number | null; refVal: number | null; label: string; fmtVal: (n: number) => string;
+}) {
+  if (curr == null || refVal == null || refVal <= 0) return null;
+  const pct = ((curr - refVal) / refVal) * 100;
+  if (Math.abs(pct) < 2) {
+    return (
+      <p className="text-[11px] font-medium inline-flex items-center gap-1 text-muted-foreground">
+        <CheckCircle2 className="h-3 w-3 text-success" /> en línea con {label} ({fmtVal(refVal)})
+      </p>
+    );
+  }
+  const caro = pct > 0;
+  return (
+    <p className={cn('text-[11px] font-semibold inline-flex items-center gap-1', caro ? 'text-destructive' : 'text-success')}>
+      {caro ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {caro ? '+' : ''}{pct.toFixed(1)}% vs {label} ({fmtVal(refVal)})
     </p>
   );
 }
@@ -475,9 +499,11 @@ export default function Importaciones() {
                   {kpis.usdLast != null ? `$${kpis.usdLast.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
                 {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <SignalLine curr={kpis.usdLast} refVal={kpis.usdProm} label="promedio"
+                  fmtVal={(n) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
                 <DeltaLine pct={kpis.usdDeltaPct} label="vs último entregado" />
                 <DeltaLine pct={kpis.usdYoYPct} label={`vs ${currentYear - 1}`} />
-                {kpis.usdProm != null && (
+                {kpis.usdLast == null && kpis.usdProm != null && (
                   <p className="text-[11px] text-muted-foreground">promedio ${kpis.usdProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
                 )}
               </CardContent>
@@ -489,10 +515,11 @@ export default function Importaciones() {
                   {kpis.totLast != null ? fmtCOPShort(kpis.totLast) : '—'}
                 </p>
                 {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <SignalLine curr={kpis.totLast} refVal={kpis.totProm} label="promedio" fmtVal={fmtCOPShort} />
                 <DeltaLine pct={kpis.totDeltaPct} label="vs último entregado" />
-                {kpis.totProm != null
+                {kpis.totLast == null && (kpis.totProm != null
                   ? <p className="text-[11px] text-muted-foreground">promedio {fmtCOPShort(kpis.totProm)}</p>
-                  : <p className="text-[11px] text-muted-foreground">CIF + arancel + IVA + otros</p>}
+                  : <p className="text-[11px] text-muted-foreground">CIF + arancel + IVA + otros</p>)}
               </CardContent>
             </Card>
             <Card>
@@ -502,9 +529,10 @@ export default function Importaciones() {
                   {kpis.nacLast != null ? fmtCOPShort(kpis.nacLast) : '—'}
                 </p>
                 {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <SignalLine curr={kpis.nacLast} refVal={kpis.nacProm} label="promedio" fmtVal={fmtCOPShort} />
                 <DeltaLine pct={kpis.nacDeltaPct} label="vs último entregado" />
                 <DeltaLine pct={kpis.nacYoYPct} label={`vs ${currentYear - 1}`} />
-                {kpis.nacProm != null && (
+                {kpis.nacLast == null && kpis.nacProm != null && (
                   <p className="text-[11px] text-muted-foreground">promedio {fmtCOPShort(kpis.nacProm)}</p>
                 )}
               </CardContent>
@@ -516,12 +544,13 @@ export default function Importaciones() {
                   {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
                 {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <SignalLine curr={kpis.trmLast} refVal={trmHoy != null ? Number(trmHoy) : null} label="TRM de hoy"
+                  fmtVal={(n) => `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`} />
                 <DeltaLine pct={kpis.trmDeltaPct} label="vs último entregado" />
                 <p className="text-[11px] text-muted-foreground">
-                  {trmHoy != null && `hoy $${Number(trmHoy).toLocaleString('es-CO', { maximumFractionDigits: 0 })} (mercado)`}
-                  {trmHoy != null && kpis.trmProm != null && ' · '}
-                  {kpis.trmProm != null && `promedio $${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`}
-                  {trmHoy == null && kpis.trmProm == null && 'ponderada de los abonos'}
+                  {kpis.trmProm != null
+                    ? `promedio $${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })} · ponderada de abonos`
+                    : 'ponderada de los abonos'}
                 </p>
               </CardContent>
             </Card>
@@ -532,10 +561,14 @@ export default function Importaciones() {
                   {kpis.fleteUltimo != null ? `$${kpis.fleteUltimo.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
                 {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <SignalLine curr={kpis.fleteUltimo} refVal={kpis.fleteProm} label="promedio"
+                  fmtVal={(n) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
                 <DeltaLine pct={kpis.fleteDeltaPct} label="vs último entregado" />
-                <p className="text-[11px] text-muted-foreground">
-                  {kpis.fleteProm != null ? `promedio $${kpis.fleteProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'cargalo en costos del pedido'}
-                </p>
+                {kpis.fleteUltimo == null && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {kpis.fleteProm != null ? `promedio $${kpis.fleteProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'cargalo en costos del pedido'}
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>
