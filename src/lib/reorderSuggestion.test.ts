@@ -199,15 +199,18 @@ describe('computeReorderSuggestion', () => {
     expect(sug.fechaLimite).toBe('2026-08-17');        // − 100
   });
 
-  it('una referencia marginal no entra al criterio (80% del consumo manda)', () => {
+  it('TODA referencia con consumo cuenta para el umbral (el filtro del 80% escondía quiebres)', () => {
+    // Bug real de Nico: varias refs en 0d de cobertura pero, por ser
+    // consumidoras chicas, el filtro del 80% las excluía y el grupal se iba
+    // a 2037. Ahora la protección contra marginales es SOLO el umbral de 3.
     const sug = computeReorderSuggestion({
       todayIso: HOY,
       imports: [],
       stock: [
-        { productId: 'p1', reference: 'G1', stockPhysical: 3000 }, // 30/día → 100d
-        { productId: 'p2', reference: 'G2', stockPhysical: 3300 }, // 30/día → 110d
-        { productId: 'p3', reference: 'G3', stockPhysical: 3600 }, // 30/día → 120d
-        { productId: 'p4', reference: 'MARGINAL', stockPhysical: 1 }, // quiebra ya, consumo ínfimo
+        { productId: 'p1', reference: 'G1', stockPhysical: 3000 },  // 30/día → 100d
+        { productId: 'p2', reference: 'G2', stockPhysical: 3300 },  // 30/día → 110d
+        { productId: 'p3', reference: 'G3', stockPhysical: 3600 },  // 30/día → 120d
+        { productId: 'p4', reference: 'CHICA', stockPhysical: 1 },  // ~0.01/día → ~90d
       ],
       salidas: [
         { productId: 'p1', quantity: 2700 },
@@ -217,9 +220,9 @@ describe('computeReorderSuggestion', () => {
       ],
       transito: [],
     });
-    // MARGINAL queda fuera de las críticas: ni en refsGrupal ni definiendo fecha.
-    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['G1', 'G2', 'G3']);
-    expect(sug.alertas.map((q) => q.reference)).not.toContain('MARGINAL');
+    // El grupal es la 3ª fecha más temprana entre TODAS: CHICA(90) G1(100) G2(110).
+    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['CHICA', 'G1', 'G2']);
+    expect(sug.fechaQuiebreGrupal).toBe('2026-10-26'); // hoy + 110
   });
 
   it('lo que viene en tránsito empuja el quiebre grupal', () => {

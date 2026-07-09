@@ -43,7 +43,14 @@ export interface VarianteCobertura extends QuiebreProducto {
   stockEstimado: boolean;
 }
 
-export function buildCoverageVariants(params: {
+export interface VariantPrimitives {
+  stockRows: { productId: string; reference: string; stockPhysical: number; matchKey: string; estimado: boolean }[];
+  salidas: { productId: string; quantity: number }[];
+  consumoPorVariante: Map<string, number>;
+  transito: TransitoItem[];
+}
+
+export interface BuildVariantsParams {
   todayIso: string;
   ventanaDias: number;
   ventas: VentaRow[];
@@ -51,7 +58,12 @@ export function buildCoverageVariants(params: {
   transito: TransitoItem[];
   /** Corrección por censura (días con stock) de la familia: censurado/simple. */
   factorCensuraPorFamilia?: Map<string, number>;
-}): VarianteCobertura[] {
+}
+
+/** Insumos por variante — los MISMOS alimentan la tabla de cobertura y la
+ *  fecha global del banner (computeReorderSuggestion): un solo modelo, cero
+ *  contradicciones en pantalla. */
+export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrimitives {
   const { todayIso, ventanaDias, ventas, inventario, transito } = params;
   const desde = new Date(todayIso + 'T00:00:00Z');
   desde.setUTCDate(desde.getUTCDate() - ventanaDias);
@@ -142,19 +154,21 @@ export function buildCoverageVariants(params: {
     stockRows.push({ productId: key, reference: label, stockPhysical: stock, matchKey: key, estimado });
   }
 
-  // ── Proyección de quiebre por variante (mismo motor) ──
-  const quiebres = projectQuiebres({
-    todayIso,
-    stock: stockRows,
+  return {
+    stockRows,
     salidas: [...salidasPorVariante.entries()].map(([key, acc]) => ({ productId: key, quantity: acc.units })),
+    consumoPorVariante,
     transito: transito.map((t) => ({ ...t, matchKey: t.matchKey ?? variantKey(t.reference) })),
-    ventanaDias,
-    consumoPorProducto: consumoPorVariante,
-  });
+  };
+}
 
-  const estimadoPorKey = new Map(stockRows.map((r) => [r.productId, r.estimado]));
-  const keyPorLabel = new Map(stockRows.map((r) => [r.reference, r.productId]));
-
+/** Decora los quiebres del motor con color/familia/stockEstimado. */
+export function decorateVariants(
+  quiebres: QuiebreProducto[],
+  prims: VariantPrimitives,
+): VarianteCobertura[] {
+  const estimadoPorKey = new Map(prims.stockRows.map((r) => [r.productId, r.estimado]));
+  const keyPorLabel = new Map(prims.stockRows.map((r) => [r.reference, r.productId]));
   return quiebres.map((q) => {
     const key = keyPorLabel.get(q.reference) ?? variantKey(q.reference);
     return {
@@ -165,4 +179,17 @@ export function buildCoverageVariants(params: {
       stockEstimado: estimadoPorKey.get(key) ?? false,
     };
   });
+}
+
+export function buildCoverageVariants(params: BuildVariantsParams): VarianteCobertura[] {
+  const prims = buildVariantPrimitives(params);
+  const quiebres = projectQuiebres({
+    todayIso: params.todayIso,
+    stock: prims.stockRows,
+    salidas: prims.salidas,
+    transito: prims.transito,
+    ventanaDias: params.ventanaDias,
+    consumoPorProducto: prims.consumoPorVariante,
+  });
+  return decorateVariants(quiebres, prims);
 }

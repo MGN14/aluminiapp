@@ -26,7 +26,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Download, Loader2, PackageSearch, Search, TriangleAlert } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, Loader2, PackageSearch, Search, TriangleAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** Tope de carga del contenedor (kg) — del costeo de Nico. */
@@ -45,10 +45,15 @@ function coberturaColor(dias: number | null): string {
   return 'text-foreground';
 }
 
+type SortKey = 'demanda' | 'stock' | 'transito' | 'cobertura' | 'quiebre' | 'sugerido' | 'kg';
+
 export default function CoverageAnalysis() {
   const { isPending, suggestion: sug, kgPorUnidad, kgPorUnidadVariante, porVariante, cicloPedidoDias, pedidosSinItems, demandPorFamilia } = useReorderSuggestion();
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
+  // Orden por columna numérica: click → desc → asc → default (cobertura asc).
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const horizonteDias = sug ? sug.leadTime.totalDias + sug.safetyDias + cicloPedidoDias : 0;
 
@@ -83,6 +88,35 @@ export default function CoverageAnalysis() {
       };
     });
   }, [rows, sug, horizonteDias, kgPorUnidad, kgPorUnidadVariante, demandPorFamilia]);
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return conSugerido;
+    const val = (r: (typeof conSugerido)[number]): number | null => {
+      switch (sortKey) {
+        case 'demanda': return r.sinConsumo ? null : r.consumoDiario;
+        case 'stock': return r.stock;
+        case 'transito': return r.enTransito;
+        case 'cobertura': return r.sinConsumo ? null : (r.diasCobertura ?? 401);
+        case 'quiebre': return r.fechaQuiebre ? new Date(r.fechaQuiebre).getTime() : null;
+        case 'sugerido': return r.sugerido;
+        case 'kg': return r.kgEstimado;
+      }
+    };
+    return [...conSugerido].sort((a, b) => {
+      const va = val(a); const vb = val(b);
+      // Sin dato → siempre al final, suba o baje.
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+  }, [conSugerido, sortKey, sortDir]);
+
+  const toggleSort = (k: SortKey) => {
+    if (sortKey !== k) { setSortKey(k); setSortDir('desc'); return; }
+    if (sortDir === 'desc') { setSortDir('asc'); return; }
+    setSortKey(null);
+  };
 
   const totales = useMemo(() => {
     const unds = conSugerido.reduce((s, r) => s + r.sugerido, 0);
@@ -224,17 +258,45 @@ export default function CoverageAnalysis() {
             <TableRow className="bg-muted/60">
               <TableHead className="text-[11px]">Referencia</TableHead>
               <TableHead className="text-[11px]">Color</TableHead>
-              <TableHead className="text-[11px] text-right" title="Unidades despachadas en remisiones (por referencia con sufijo) ÷ ventana, corregida por censura de días con stock de la familia.">Demanda/día</TableHead>
-              <TableHead className="text-[11px] text-right" title="~ = el inventario solo tiene la -5: stock repartido entre colores por su mezcla de demanda">Stock físico</TableHead>
-              <TableHead className="text-[11px] text-right" title="Packing list (con sufijo) + proforma (sufijo puesto por la app desde la columna Color)">En tránsito</TableHead>
-              <TableHead className="text-[11px] text-right" title="Días hasta el quiebre proyectado, contando las reposiciones en camino">Cobertura</TableHead>
-              <TableHead className="text-[11px] text-right">Quiebre</TableHead>
-              <TableHead className="text-[11px] text-right" title={`demanda × ${horizonteDias}d × índice estacional − (stock + tránsito)`}>Sugerido próx. pedido</TableHead>
-              <TableHead className="text-[11px] text-right" title="Sugerido × kg/unidad (del packing/proforma)">≈ kg</TableHead>
+              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Unidades despachadas en remisiones (por referencia con sufijo) ÷ ventana, corregida por censura de días con stock de la familia. Click para ordenar." onClick={() => toggleSort('demanda')}>
+                <span className="inline-flex items-center gap-1 justify-end w-full">Demanda/día
+                  {sortKey === 'demanda' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
+                </span>
+              </TableHead>
+              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="~ = el inventario solo tiene la -5: stock repartido entre colores por su mezcla de demanda. Click para ordenar." onClick={() => toggleSort('stock')}>
+                <span className="inline-flex items-center gap-1 justify-end w-full">Stock físico
+                  {sortKey === 'stock' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
+                </span>
+              </TableHead>
+              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Packing list (con sufijo) + proforma (sufijo puesto por la app desde la columna Color). Click para ordenar." onClick={() => toggleSort('transito')}>
+                <span className="inline-flex items-center gap-1 justify-end w-full">En tránsito
+                  {sortKey === 'transito' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
+                </span>
+              </TableHead>
+              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Días hasta el quiebre proyectado, contando las reposiciones en camino. Click para ordenar." onClick={() => toggleSort('cobertura')}>
+                <span className="inline-flex items-center gap-1 justify-end w-full">Cobertura
+                  {sortKey === 'cobertura' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
+                </span>
+              </TableHead>
+              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Fecha del quiebre proyectado. Click para ordenar." onClick={() => toggleSort('quiebre')}>
+                <span className="inline-flex items-center gap-1 justify-end w-full">Quiebre
+                  {sortKey === 'quiebre' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
+                </span>
+              </TableHead>
+              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title={`demanda × ${horizonteDias}d × factor − (stock + tránsito). Click para ordenar.`} onClick={() => toggleSort('sugerido')}>
+                <span className="inline-flex items-center gap-1 justify-end w-full">Sugerido próx. pedido
+                  {sortKey === 'sugerido' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
+                </span>
+              </TableHead>
+              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Sugerido × kg/unidad (del packing/proforma). Click para ordenar." onClick={() => toggleSort('kg')}>
+                <span className="inline-flex items-center gap-1 justify-end w-full">≈ kg
+                  {sortKey === 'kg' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
+                </span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {conSugerido.map((r) => (
+            {sorted.map((r) => (
               <TableRow key={r.key} className={cn(!r.sinConsumo && r.diasCobertura !== null && r.diasCobertura <= 45 && 'bg-destructive/[0.04]')}>
                 <TableCell className="text-xs font-mono">{r.reference}</TableCell>
                 <TableCell className={cn('text-xs', r.color === 'sin discriminar' && 'text-muted-foreground italic')}>{r.color}</TableCell>

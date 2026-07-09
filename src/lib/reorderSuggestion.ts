@@ -30,7 +30,8 @@
 export const CONSUMO_VENTANA_DIAS = 90;
 /** Colchón de seguridad sobre la fecha límite. */
 export const SAFETY_DIAS = 15;
-/** Cobertura de consumo que define las referencias "críticas" (80%). */
+/** @deprecated Ya no filtra el umbral: todas las refs con consumo cuentan
+ *  (el filtro del 80% escondía referencias en quiebre — bug de la fecha 2037). */
 export const CONSUMO_CRITICO_PCT = 0.8;
 /**
  * El pedido se dispara cuando esta cantidad de referencias críticas quiebra —
@@ -207,13 +208,23 @@ export function estimateLeadTime(imports: ImportFechas[]): LeadTimeEstimate {
   };
 }
 
-/** Fecha estimada de disponibilidad EN BODEGA de un pedido abierto. */
+/** Fecha estimada de disponibilidad EN BODEGA de un pedido abierto — por
+ *  FASE: cada contenedor repone según dónde va (aduana ≈ solo nacionalizar;
+ *  producción ≈ producción restante + tránsito + nacionalización). */
 export function estimateDisponibilidad(
   r: ImportFechas,
   leadTime: LeadTimeEstimate,
   todayIso: string,
 ): string {
   const nac = leadTime.nacionalizacion.dias;
+  const trans = leadTime.transito.dias;
+
+  // En ADUANA: ya está en puerto aunque no hayan cargado fecha_arribo_real —
+  // solo falta nacionalizar (el contenedor "de 15 días" de Nico).
+  if (r.estado === 'aduana') {
+    const base = r.fecha_arribo_real && r.fecha_arribo_real >= todayIso ? r.fecha_arribo_real : todayIso;
+    return addDays(base, nac);
+  }
   // Ya arribó a puerto → solo falta nacionalizar.
   if (r.fecha_arribo_real) {
     const disp = addDays(r.fecha_arribo_real, nac);
@@ -226,13 +237,16 @@ export function estimateDisponibilidad(
   }
   // Embarcado sin ETA → tránsito restante estimado + nacionalización.
   if (r.fecha_embarque) {
-    const eta = addDays(r.fecha_embarque, leadTime.transito.dias);
+    const eta = addDays(r.fecha_embarque, trans);
     return addDays(eta >= todayIso ? eta : todayIso, nac);
   }
-  // En producción → lead time restante desde el anticipo (o desde hoy).
+  // En producción → lead time restante desde el anticipo. Si viene atrasado
+  // (anticipo + lead ya pasó), lo MÍNIMO que falta es tránsito + nacionalización
+  // — antes caía a hoy+nac, como si un pedido aún en fábrica llegara en 10 días.
   const desde = r.fecha_anticipo ?? todayIso;
   const disp = addDays(desde, leadTime.totalDias);
-  return disp >= todayIso ? disp : addDays(todayIso, nac);
+  const piso = addDays(todayIso, trans + nac);
+  return disp >= piso ? disp : piso;
 }
 
 // ── 2. Proyección de quiebre por referencia ────────────────────────────────
@@ -386,16 +400,13 @@ export function computeReorderSuggestion(params: {
     return { ...base, ...vacio, porReferencia: quiebres, motivoSinFecha: 'sin_consumo' };
   }
 
-  // Referencias críticas: las que concentran el 80% del consumo diario.
-  // Una referencia marginal (1 unidad/mes) no debe disparar el pedido.
-  const consumoTotal = conConsumo.reduce((s, q) => s + q.consumoDiario, 0);
-  const criticos: QuiebreProducto[] = [];
-  let acumulado = 0;
-  for (const q of conConsumo) {
-    criticos.push(q);
-    acumulado += q.consumoDiario;
-    if (acumulado >= consumoTotal * CONSUMO_CRITICO_PCT) break;
-  }
+  // TODAS las refs con consumo cuentan para el umbral. Antes solo las que
+  // concentraban el 80% del consumo — eso hacía que varias referencias en
+  // 0 días de cobertura no movieran la fecha y el grupal se fuera a años
+  // (bug reportado por Nico: "quiebre el 9 de abril y me dice que monte
+  // pedido en 2037"). La protección contra marginales es el UMBRAL de 3
+  // referencias, no el filtro de consumo.
+  const criticos: QuiebreProducto[] = conConsumo;
 
   // El pedido se dispara con el quiebre GRUPAL: la fecha en que quiebra la
   // referencia número `umbralRefs` (ordenadas por fecha de quiebre). Una o

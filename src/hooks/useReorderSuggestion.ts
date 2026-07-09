@@ -24,7 +24,7 @@ import {
 } from '@/lib/reorderSuggestion';
 import { refFamilyKey, variantKey, applyColorSuffix } from '@/lib/refFamily';
 import { computeFamilyDemand, type FamilyDemand, type DemandMovement } from '@/lib/demandModel';
-import { buildCoverageVariants, type VarianteCobertura, type VentaRow } from '@/lib/coverageVariants';
+import { buildVariantPrimitives, decorateVariants, type VarianteCobertura, type VentaRow } from '@/lib/coverageVariants';
 
 interface ItemRow { import_id: string; reference: string; cantidad: number; peso_kg?: number | null; color?: string | null; source?: 'proforma' | 'packing' | null }
 
@@ -179,17 +179,6 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
       today,
     )]),
   );
-  const transito: TransitoItem[] = items
-    .filter((it) => dispPorImport.has(it.import_id))
-    .map((it) => ({
-      reference: it.reference,
-      cantidad: Number(it.cantidad ?? 0),
-      fechaDisponible: dispPorImport.get(it.import_id)!,
-      // Familia: la base del packing list (LIV-40 + colores) cruza con la
-      // -5 del inventario de Siigo. Ver refFamilyKey.
-      matchKey: refFamilyKey(it.reference),
-    }));
-
   const idsConItems = new Set(items.map((it) => it.import_id));
   const pedidosSinItems: PedidoSinItems[] = abiertos
     .filter((r) => !idsConItems.has(r.id))
@@ -234,8 +223,6 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     movsPorFamilia.set(fam, arr);
   }
   const demandPorFamilia = new Map<string, FamilyDemand>();
-  const consumoPorProducto = new Map<string, number>();
-  const salidasVentana: { productId: string; quantity: number }[] = [];
   for (const f of familias.values()) {
     const demanda = computeFamilyDemand({
       todayIso: today,
@@ -244,25 +231,12 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
       movimientos: movsPorFamilia.get(f.key) ?? [],
     });
     demandPorFamilia.set(f.key, demanda);
-    if (demanda.consumoDiario > 0) {
-      consumoPorProducto.set(f.key, demanda.consumoDiario);
-      salidasVentana.push({ productId: f.key, quantity: demanda.salidasVentana });
-    }
   }
 
-  const suggestion = computeReorderSuggestion({
-    todayIso: today,
-    imports: fechas,
-    stock: [...familias.values()].map((f) => ({
-      productId: f.key,
-      reference: f.label,
-      stockPhysical: f.stock,
-      matchKey: f.key,
-    })),
-    salidas: salidasVentana,
-    transito,
-    consumoPorProducto,
-  });
+  // NOTA: la fecha global YA NO se calcula a nivel familia — se calcula con
+  // las MISMAS variantes de la tabla de Cobertura (ver más abajo). Antes eran
+  // dos modelos distintos y se contradecían en pantalla (tabla con quiebres
+  // ya encima y banner diciendo 2037).
 
   // kg por unidad por familia — del packing/proforma de los pedidos abiertos.
   const kgAcc = new Map<string, { kg: number; cant: number }>();
@@ -320,7 +294,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   }
 
   const ventas: VentaRow[] = ventasQuery.data ?? [];
-  const porVariante = buildCoverageVariants({
+  const prims = buildVariantPrimitives({
     todayIso: today,
     ventanaDias: CONSUMO_VENTANA_DIAS,
     ventas,
@@ -328,6 +302,18 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     transito: transitoVariante,
     factorCensuraPorFamilia,
   });
+
+  // UNA sola corrida del motor, sobre las variantes: fecha global (banner y
+  // radar) y tabla de cobertura salen del mismo cálculo.
+  const suggestion = computeReorderSuggestion({
+    todayIso: today,
+    imports: fechas,
+    stock: prims.stockRows,
+    salidas: prims.salidas,
+    transito: prims.transito,
+    consumoPorProducto: prims.consumoPorVariante,
+  });
+  const porVariante = decorateVariants(suggestion.porReferencia, prims);
 
   // kg/unidad por variante (del packing/proforma), con fallback a familia.
   const kgVarAcc = new Map<string, { kg: number; cant: number }>();
