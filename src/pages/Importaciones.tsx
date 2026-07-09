@@ -122,6 +122,15 @@ export default function Importaciones() {
     [liqRows],
   );
 
+  // Contenedores ACTUALES en cada etapa (para los chips del filtro).
+  const conteoPorEstado = useMemo(() => {
+    const m = new Map<ImportEstado, number>();
+    for (const r of data?.all ?? []) {
+      m.set(r.estado, (m.get(r.estado) ?? 0) + 1);
+    }
+    return m;
+  }, [data]);
+
   // Promedio de días por etapa a través de todas las importaciones con historial
   const stageAverages = useMemo(() => {
     const rows = (data?.all ?? []).filter(r => (r.import_estado_history?.length ?? 0) > 0);
@@ -607,7 +616,10 @@ export default function Importaciones() {
           </Card>
         )}
 
-        {/* Filtros + búsqueda */}
+        {/* Búsqueda + filtros por etapa, con el pipeline integrado: cada chip
+            dice CUÁNTOS contenedores hay en esa etapa ahora y cuánto demora
+            en promedio (antes eran dos barras separadas y el "(N)" era el
+            número de muestras del promedio, no los contenedores). */}
         <Card>
           <CardContent className="py-3 px-3 flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[180px] max-w-xs">
@@ -619,43 +631,45 @@ export default function Importaciones() {
                 className="pl-8 h-8 text-sm"
               />
             </div>
-            <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5">
-              {(['abiertos', 'todos', ...IMPORT_ESTADOS_ORDER] as Filter[]).map(f => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setFilter(f)}
-                  className={cn(
-                    'px-2.5 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap',
-                    filter === f
-                      ? 'bg-background shadow-sm text-foreground'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {f === 'abiertos' ? 'Abiertos' : f === 'todos' ? 'Todos' : IMPORT_ESTADO_LABEL[f as ImportEstado]}
-                </button>
-              ))}
+            <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5 flex-wrap">
+              {(['abiertos', 'todos', ...IMPORT_ESTADOS_ORDER] as Filter[]).map(f => {
+                const esEstado = f !== 'abiertos' && f !== 'todos';
+                const count = f === 'abiertos'
+                  ? (data?.abiertos.length ?? 0)
+                  : f === 'todos'
+                    ? (data?.all.length ?? 0)
+                    : conteoPorEstado.get(f as ImportEstado) ?? 0;
+                const prom = esEstado ? stageAverages?.[f as ImportEstado]?.promedio : undefined;
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFilter(f)}
+                    title={esEstado && prom != null
+                      ? `${count} contenedor${count === 1 ? '' : 'es'} en esta etapa · demora promedio ${prom} días`
+                      : undefined}
+                    className={cn(
+                      'px-2.5 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap inline-flex items-center gap-1.5',
+                      filter === f
+                        ? 'bg-background shadow-sm text-foreground'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {f === 'abiertos' ? 'Abiertos' : f === 'todos' ? 'Todos' : IMPORT_ESTADO_LABEL[f as ImportEstado]}
+                    <span className={cn('font-mono font-semibold', count > 0 ? 'text-foreground' : 'text-muted-foreground/50')}>
+                      {count}
+                    </span>
+                    {prom != null && (
+                      <span className="text-[10px] text-muted-foreground font-normal inline-flex items-center gap-0.5">
+                        <Clock className="h-2.5 w-2.5" />~{prom}d
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
-
-        {/* Promedios de duración por etapa (histórico) */}
-        {stageAverages && (
-          <Card>
-            <CardContent className="py-3 px-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-              <span className="text-xs font-semibold text-muted-foreground inline-flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5" /> Demora promedio por etapa:
-              </span>
-              {IMPORT_ESTADOS_ORDER.filter(e => stageAverages[e]).map(e => (
-                <span key={e} className="text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">{IMPORT_ESTADO_LABEL[e]}</span>{' '}
-                  <span className="font-mono">{stageAverages[e]!.promedio}d</span>
-                  <span className="text-[10px]"> ({stageAverages[e]!.muestras})</span>
-                </span>
-              ))}
-            </CardContent>
-          </Card>
-        )}
 
         {/* Tabla */}
         <Card>
