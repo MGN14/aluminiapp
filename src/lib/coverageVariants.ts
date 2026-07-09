@@ -88,18 +88,6 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
     consumoPorVariante.set(key, (acc.units / ventanaDias) * Math.max(1, censura));
   }
 
-  // ── Universo de variantes: demanda ∪ inventario ∪ tránsito ──
-  const labels = new Map<string, string>();
-  for (const [key, acc] of salidasPorVariante) labels.set(key, acc.label);
-  for (const r of inventario) {
-    const key = variantKey(r.reference);
-    if (key && !labels.has(key)) labels.set(key, r.reference.trim());
-  }
-  for (const t of transito) {
-    const key = t.matchKey ?? variantKey(t.reference);
-    if (key && !labels.has(key)) labels.set(key, t.reference.trim());
-  }
-
   // ── Stock por variante: exacto si existe; si no, reparto desde la -5 ──
   const stockExacto = new Map<string, number>();
   for (const r of inventario) {
@@ -108,19 +96,62 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
     stockExacto.set(key, (stockExacto.get(key) ?? 0) + Math.max(0, Number(r.stockPhysical ?? 0)));
   }
 
+  // La "-5" (total) de cada familia — el casillero donde Siigo lleva TODO el
+  // stock sin discriminar color.
+  const totalKeyPorFamilia = new Map<string, string>();
+  for (const key of stockExacto.keys()) {
+    if (colorFromSuffix(key) === 'total') totalKeyPorFamilia.set(refFamilyKey(key), key);
+  }
+
+  // Demanda total por familia de las variantes de color (para el reparto y
+  // para decidir el re-anclaje del tránsito).
+  const demandaColorPorFamilia = new Map<string, number>();
+  for (const [key, consumo] of consumoPorVariante) {
+    if (colorFromSuffix(key) === 'total') continue; // la -5 no participa del reparto
+    const familia = refFamilyKey(key);
+    demandaColorPorFamilia.set(familia, (demandaColorPorFamilia.get(familia) ?? 0) + consumo);
+  }
+
+  // ── Re-anclaje del tránsito al nivel donde VIVE el stock/demanda ──────────
+  // El inventario (Siigo) y la demanda están en la "-5" (total, sin color); el
+  // packing/proforma llega POR color (LIV-40-3). En la vista por variante
+  // liv-40-3 ≠ liv-40-5, así que esas unidades quedaban huérfanas en una fila
+  // sin consumo y NO descontaban el quiebre de la -5 → el motor proyectaba el
+  // agote "como si no viniera nada" y la fecha de pedido caía en el pasado
+  // (bug reportado: "no lee lo que ya viene en camino").
+  // Regla: si la familia NO vende por color (toda su demanda está en la -5),
+  // la llegada por color se imputa a la -5 — donde física y contablemente cae
+  // (Siigo no discrimina color). Si SÍ hay demanda por color, se respeta la
+  // imputación por color (el reparto de stock ya la contempla).
+  const transitoAnclado: TransitoItem[] = transito.map((t) => {
+    const colorKey = t.matchKey ?? variantKey(t.reference);
+    const familia = refFamilyKey(colorKey);
+    const totalKey = totalKeyPorFamilia.get(familia);
+    const anclaEnTotal =
+      colorFromSuffix(colorKey) !== 'total' &&
+      (demandaColorPorFamilia.get(familia) ?? 0) === 0 &&
+      !!totalKey;
+    return { ...t, matchKey: anclaEnTotal ? totalKey! : colorKey };
+  });
+
+  // ── Universo de variantes: demanda ∪ inventario ∪ tránsito(anclado) ──
+  const labels = new Map<string, string>();
+  for (const [key, acc] of salidasPorVariante) labels.set(key, acc.label);
+  for (const r of inventario) {
+    const key = variantKey(r.reference);
+    if (key && !labels.has(key)) labels.set(key, r.reference.trim());
+  }
+  for (const t of transitoAnclado) {
+    const key = t.matchKey ?? variantKey(t.reference);
+    if (key && !labels.has(key)) labels.set(key, t.reference.trim());
+  }
+
   // Stock de la -5 por familia (el "pote" a repartir cuando no hay por color).
   const poteFamilia = new Map<string, number>();
   for (const [key, stock] of stockExacto) {
     if (colorFromSuffix(key) === 'total') {
       poteFamilia.set(refFamilyKey(key), (poteFamilia.get(refFamilyKey(key)) ?? 0) + stock);
     }
-  }
-  // Demanda total por familia de las variantes de color (para el reparto).
-  const demandaColorPorFamilia = new Map<string, number>();
-  for (const [key, consumo] of consumoPorVariante) {
-    if (colorFromSuffix(key) === 'total') continue; // la -5 no participa del reparto
-    const familia = refFamilyKey(key);
-    demandaColorPorFamilia.set(familia, (demandaColorPorFamilia.get(familia) ?? 0) + consumo);
   }
 
   const stockRows: { productId: string; reference: string; stockPhysical: number; matchKey: string; estimado: boolean }[] = [];
@@ -158,7 +189,7 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
     stockRows,
     salidas: [...salidasPorVariante.entries()].map(([key, acc]) => ({ productId: key, quantity: acc.units })),
     consumoPorVariante,
-    transito: transito.map((t) => ({ ...t, matchKey: t.matchKey ?? variantKey(t.reference) })),
+    transito: transitoAnclado,
   };
 }
 
