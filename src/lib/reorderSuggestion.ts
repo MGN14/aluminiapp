@@ -116,6 +116,10 @@ export interface QuiebreProducto {
   /** Fecha de agote SIN tope de horizonte — siempre existe si hay consumo.
    *  Con ella la fecha de pedido es concreta aunque no haya urgencia. */
   fechaQuiebreTeorica?: string | null;
+  /** Primer día en que el stock toca 0 ANTES de que nacionalice una llegada
+   *  que ya viene en camino: hueco operativo corto (alerta), NO disparador de
+   *  pedido — ese contenedor ya está en el agua y repone. null = sin hueco. */
+  fechaHueco?: string | null;
   /** true = sin salidas registradas en la ventana: no hay tasa de consumo.
    *  Antes estas referencias se OCULTABAN del análisis (por eso "cobertura
    *  muestra 15 de 126"); ahora aparecen marcadas, con su stock y tránsito. */
@@ -307,27 +311,34 @@ export function projectQuiebres(params: {
     }
     let disponible = Math.max(0, Number(p.stockPhysical ?? 0));
     let cursor = todayIso;
-    let fechaQuiebre: string | null = null;
+    // Primer hueco: stock en 0 ANTES de que entre una reposición en camino.
+    let fechaHueco: string | null = null;
 
-    // +1 iteración final sin llegadas pendientes. Congelado ANTES del loop:
-    // los shift() de adentro encogen llegadas.length.
-    const maxIter = llegadas.length + 1;
-    for (let guard = 0; guard < maxIter; guard++) {
+    // Se procesan TODAS las llegadas en orden. Cada una repone AUNQUE caiga
+    // después del agote — lo que está en el agua cuenta siempre. Antes, si una
+    // llegada caía un día tarde, el motor "se rendía" (fechaQuiebre = agote,
+    // break) e ignoraba el contenedor que ya venía en camino: de ahí la fecha
+    // de pedido alarmista en el pasado ("no lee lo que ya viene en camino").
+    for (const proxima of llegadas) {
       const agotaEn = disponible / consumoDiario; // días desde cursor
       const fechaAgote = addDays(cursor, Math.floor(agotaEn));
-      const proxima = llegadas[0];
-      if (proxima && proxima.fecha <= fechaAgote) {
-        // La llegada cae antes del agote: consumir hasta esa fecha y reponer.
+      if (proxima.fecha <= fechaAgote) {
+        // Llega antes de agotarse: consumir hasta esa fecha y reponer.
         const diasHasta = Math.max(0, daysBetween(cursor, proxima.fecha));
-        disponible = Math.max(0, disponible - diasHasta * consumoDiario) + proxima.qty;
-        cursor = proxima.fecha;
-        llegadas.shift();
-        continue;
+        disponible = disponible - diasHasta * consumoDiario + proxima.qty;
+      } else {
+        // Llega DESPUÉS del agote: hay un hueco (stock en 0 hasta que
+        // nacionaliza). Es alerta operativa, no pedido — igual repone.
+        if (!fechaHueco) fechaHueco = fechaAgote;
+        disponible = proxima.qty;
       }
-      fechaQuiebre = fechaAgote;
-      break;
+      cursor = proxima.fecha;
     }
 
+    // Agote FINAL: cuando se consume lo último que queda tras la última
+    // llegada. Con todo el tránsito ya sumado, esta es la fecha real para el
+    // próximo pedido. Nunca es anterior a hoy (disponible ≥ 0 en cada paso).
+    let fechaQuiebre: string | null = addDays(cursor, Math.floor(disponible / consumoDiario));
     const fechaQuiebreTeorica = fechaQuiebre; // sin tope: la fecha real de agote
     if (fechaQuiebre && daysBetween(todayIso, fechaQuiebre) > MAX_HORIZONTE_DIAS) {
       fechaQuiebre = null; // fuera de horizonte: no es urgente
@@ -341,6 +352,7 @@ export function projectQuiebres(params: {
       fechaQuiebre,
       diasCobertura: fechaQuiebre ? daysBetween(todayIso, fechaQuiebre) : null,
       fechaQuiebreTeorica,
+      fechaHueco,
     });
   }
 
@@ -417,9 +429,13 @@ export function computeReorderSuggestion(params: {
   // fecha simplemente queda lejos y en verde (decisión de Nico: una card de
   // planeación sin fecha no planifica nada). Si hay menos referencias
   // críticas que el umbral, manda la última que quiebre.
-  const conQuiebre = criticos
-    .filter((q) => q.fechaQuiebre != null)
-    .sort((a, b) => a.fechaQuiebre!.localeCompare(b.fechaQuiebre!));
+  // Alertas puntuales = referencias con un HUECO (quedan en 0 unos días hasta
+  // que nacionaliza lo que ya viene en camino). No disparan pedido — ese
+  // contenedor ya está en el agua — pero hay que verlas para reponer local.
+  const alertaKey = (q: QuiebreProducto) => q.fechaHueco ?? q.fechaQuiebre ?? '';
+  const conHueco = criticos
+    .filter((q) => q.fechaHueco != null)
+    .sort((a, b) => alertaKey(a).localeCompare(alertaKey(b)));
   const teoricas = criticos
     .filter((q) => q.fechaQuiebreTeorica != null)
     .sort((a, b) => a.fechaQuiebreTeorica!.localeCompare(b.fechaQuiebreTeorica!));
@@ -427,7 +443,7 @@ export function computeReorderSuggestion(params: {
   if (!teoricas.length) {
     return {
       ...base, ...vacio,
-      alertas: conQuiebre,
+      alertas: conHueco,
       criticos,
       porReferencia: quiebres,
       motivoSinFecha: null,
@@ -445,8 +461,9 @@ export function computeReorderSuggestion(params: {
     diasParaDecidir: daysBetween(todayIso, fechaLimite),
     fechaQuiebreGrupal,
     refsGrupal,
-    // Quiebres a la vista anteriores a la fecha grupal: vigilancia puntual.
-    alertas: conQuiebre.filter((q) => q.fechaQuiebre! < fechaQuiebreGrupal),
+    // Huecos operativos (stock en 0 unos días mientras llega el tránsito):
+    // vigilancia puntual, no mueven la fecha del pedido.
+    alertas: conHueco,
     criticos,
     porReferencia: quiebres,
     motivoSinFecha: null,

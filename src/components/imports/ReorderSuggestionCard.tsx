@@ -94,20 +94,21 @@ export default function ReorderSuggestionCard() {
           </p>
         )}
 
-        {/* Quiebres puntuales: no mueven la fecha del pedido, pero hay que verlos */}
+        {/* Huecos operativos: el contenedor en camino repone, pero hay unos
+            días en 0 mientras nacionaliza. No mueven la fecha del pedido. */}
         {sug.alertas.length > 0 && (
           <p className="text-xs leading-relaxed flex items-start gap-1.5">
             <TriangleAlert className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
             <span>
-              <strong>Alerta puntual (no dispara pedido):</strong>{' '}
+              <strong>Hueco corto (lo repone lo que viene en camino):</strong>{' '}
               {sug.alertas.slice(0, 3).map((q, i) => (
                 <span key={q.reference}>
                   {i > 0 && ' · '}
-                  <strong>{q.reference}</strong> se quiebra el {fmtFecha(q.fechaQuiebre!)}
+                  <strong>{q.reference}</strong> queda en 0 hacia el {fmtFecha((q.fechaHueco ?? q.fechaQuiebre)!)}
                 </span>
               ))}
               {sug.alertas.length > 3 && ` · +${sug.alertas.length - 3} más`}
-              . Considerá reposición puntual de esas referencias.
+              . Reposición local o apurá la nacionalización si no querés el faltante.
             </span>
           </p>
         )}
