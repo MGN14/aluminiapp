@@ -159,12 +159,35 @@ export default function Importaciones() {
     const tonEsteAnio = tonsDe(currentYear);
     const tonAnioPasado = tonsDe(currentYear - 1);
 
-    // SMM (USD/ton): último vs pedido anterior + promedio del año vs año pasado
+    // ── El FOCO es el pedido PRÓXIMO A ENTREGAR, no el último cargado ──
+    // (decisión de Nico: "la más importante es la que sigue por pagar/
+    // entregar"). Foco = el abierto más avanzado del pipeline; apenas pasa a
+    // 'entregado', el siguiente toma el foco solo. "Anterior" = el último
+    // entregado (la comparación es contra lo que YA llegó a bodega).
+    const ESTADO_AVANCE: Record<string, number> = { cotizacion: 0, anticipo: 1, produccion: 2, transito: 3, aduana: 4 };
+    const entregados = ordered.filter(r => r.estado === 'entregado');
+    const abiertosPipeline = [...ordered]
+      .filter(r => r.estado !== 'entregado')
+      .sort((a, b) => (ESTADO_AVANCE[b.estado] ?? 0) - (ESTADO_AVANCE[a.estado] ?? 0) || fechaRef(a).localeCompare(fechaRef(b)));
+    const fechaEntrega = (r: ImportRow) => r.fecha_arribo_real ?? fechaRef(r);
+    const entregadosOrd = [...entregados].sort((a, b) => fechaEntrega(a).localeCompare(fechaEntrega(b)));
+    // Sin abiertos, el foco cae al último entregado (y anterior al penúltimo).
+    const foco = abiertosPipeline[0] ?? entregadosOrd[entregadosOrd.length - 1] ?? null;
+    const anterior = abiertosPipeline[0]
+      ? entregadosOrd[entregadosOrd.length - 1] ?? null
+      : entregadosOrd[entregadosOrd.length - 2] ?? null;
+    const ESTADO_LABEL: Record<string, string> = {
+      cotizacion: 'cotización', anticipo: 'anticipo', produccion: 'en producción',
+      transito: 'en tránsito', aduana: 'en aduanas', entregado: 'entregado',
+    };
+    const focoLabel = foco ? `${foco.ref_pedido || foco.proveedor_nombre} · ${ESTADO_LABEL[foco.estado] ?? foco.estado}` : null;
+
+    // SMM (USD/ton): pedido en foco vs último entregado + promedios
     const conPrecio = ordered.filter(r => Number(r.precio_smm_cerrado_usd_ton ?? 0) > 0);
-    const last = conPrecio[conPrecio.length - 1];
-    const prev = conPrecio[conPrecio.length - 2];
-    const usdLast = last ? Number(last.precio_smm_cerrado_usd_ton) : null;
-    const usdDeltaPct = pct(usdLast, prev ? Number(prev.precio_smm_cerrado_usd_ton) : null);
+    const smmPedido = (r: ImportRow | null) =>
+      r && Number(r.precio_smm_cerrado_usd_ton ?? 0) > 0 ? Number(r.precio_smm_cerrado_usd_ton) : null;
+    const usdLast = smmPedido(foco);
+    const usdDeltaPct = pct(usdLast, smmPedido(anterior));
     const smmDe = (yr: number) => avg(conPrecio.filter(r => yearOf(r) === yr).map(r => Number(r.precio_smm_cerrado_usd_ton)));
     const usdYoYPct = pct(smmDe(currentYear), smmDe(currentYear - 1));
     const usdProm = avg(conPrecio.map(r => Number(r.precio_smm_cerrado_usd_ton)));
@@ -185,15 +208,17 @@ export default function Importaciones() {
         }).totalImportacionCop,
       }))
       .filter((x): x is { r: ImportRow; total: number } => x.total != null && x.total > 0);
-    const totLast = conTotal[conTotal.length - 1]?.total ?? null;
-    const totDeltaPct = pct(totLast, conTotal[conTotal.length - 2]?.total ?? null);
+    const totalPorId = new Map(conTotal.map(x => [x.r.id, x.total]));
+    const totLast = foco ? totalPorId.get(foco.id) ?? null : null;
+    const totDeltaPct = pct(totLast, anterior ? totalPorId.get(anterior.id) ?? null : null);
     const totProm = avg(conTotal.map(x => x.total));
 
     const conNac = conTotal
       .filter(x => Number(x.r.cantidad_ton ?? 0) > 0)
       .map(x => ({ r: x.r, porTon: x.total / Number(x.r.cantidad_ton) }));
-    const nacLast = conNac[conNac.length - 1]?.porTon ?? null;
-    const nacDeltaPct = pct(nacLast, conNac[conNac.length - 2]?.porTon ?? null);
+    const nacPorId = new Map(conNac.map(x => [x.r.id, x.porTon]));
+    const nacLast = foco ? nacPorId.get(foco.id) ?? null : null;
+    const nacDeltaPct = pct(nacLast, anterior ? nacPorId.get(anterior.id) ?? null : null);
     const nacDe = (yr: number) => avg(conNac.filter(x => yearOf(x.r) === yr).map(x => x.porTon));
     const nacYoYPct = pct(nacDe(currentYear), nacDe(currentYear - 1));
     const nacProm = avg(conNac.map(x => x.porTon));
@@ -216,6 +241,7 @@ export default function Importaciones() {
 
     return {
       pedidosEsteAnio, pedidosAnioPasado, tonEsteAnio, tonAnioPasado,
+      focoLabel,
       usdLast, usdDeltaPct, usdYoYPct, usdProm,
       totLast, totDeltaPct, totProm,
       nacLast, nacDeltaPct, nacYoYPct, nacProm,
@@ -433,11 +459,12 @@ export default function Importaciones() {
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">SMM último (USD/t)</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="SMM cerrado del pedido próximo a entregar — el costo del material que está por llegar a bodega. Cuando se entregue, el foco pasa solo al siguiente del pipeline.">SMM próx. a entregar (USD/t)</p>
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.usdLast != null ? `$${kpis.usdLast.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                <DeltaLine pct={kpis.usdDeltaPct} label="vs pedido anterior" />
+                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <DeltaLine pct={kpis.usdDeltaPct} label="vs último entregado" />
                 <DeltaLine pct={kpis.usdYoYPct} label={`vs ${currentYear - 1}`} />
                 {kpis.usdProm != null && (
                   <p className="text-[11px] text-muted-foreground">promedio ${kpis.usdProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
@@ -446,11 +473,12 @@ export default function Importaciones() {
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="CIF + arancel + IVA + otros costos del último contenedor, en pesos. Usa el estimado (≈) mientras no esté cargado el costo real.">Total Importación (COP)</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="CIF + arancel + IVA + otros costos del pedido PRÓXIMO A ENTREGAR, en pesos — la plata comprometida en lo que viene. Usa el estimado (≈) mientras no esté cargado el costo real.">Total Importación (COP)</p>
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.totLast != null ? fmtCOPShort(kpis.totLast) : '—'}
                 </p>
-                <DeltaLine pct={kpis.totDeltaPct} label="vs pedido anterior" />
+                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <DeltaLine pct={kpis.totDeltaPct} label="vs último entregado" />
                 {kpis.totProm != null
                   ? <p className="text-[11px] text-muted-foreground">promedio {fmtCOPShort(kpis.totProm)}</p>
                   : <p className="text-[11px] text-muted-foreground">CIF + arancel + IVA + otros</p>}
@@ -458,11 +486,12 @@ export default function Importaciones() {
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Total Importación ÷ toneladas del pedido — el costo real de la materia prima puesta en bodega.">COP/ton nacionalizado</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Total Importación ÷ toneladas del pedido PRÓXIMO A ENTREGAR — el costo real de la materia prima que está por llegar a bodega.">COP/ton nacionalizado</p>
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.nacLast != null ? fmtCOPShort(kpis.nacLast) : '—'}
                 </p>
-                <DeltaLine pct={kpis.nacDeltaPct} label="vs pedido anterior" />
+                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <DeltaLine pct={kpis.nacDeltaPct} label="vs último entregado" />
                 <DeltaLine pct={kpis.nacYoYPct} label={`vs ${currentYear - 1}`} />
                 {kpis.nacProm != null && (
                   <p className="text-[11px] text-muted-foreground">promedio {fmtCOPShort(kpis.nacProm)}</p>
