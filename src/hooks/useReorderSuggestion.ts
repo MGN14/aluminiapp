@@ -152,10 +152,27 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     gcTime: 60 * 60_000,
   });
 
+  // Inventario por VARIANTE (LIV-40-3…): fuente real de stock, desprendida de
+  // la -5. Si está vacío (maestra sin subir) se cae al -5 de inventory_products
+  // para no romper nada antes de sembrar.
+  const variantsQuery = useQuery({
+    queryKey: ['imports', 'reorder-variantes'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as never as { from: (t: string) => any })
+        .from('inventory_variants')
+        .select('variant_reference, stock')
+        .eq('active', true);
+      if (error) throw error;
+      return (data ?? []) as { variant_reference: string; stock: number }[];
+    },
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+
   // OJO: esperar TAMBIÉN los items — computar sin ellos mostraba "0 llegadas
   // en tránsito" y una fecha alarmista mientras la query seguía en vuelo.
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
-  if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || itemsPending) {
+  if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || itemsPending) {
     return { isPending: true, suggestion: null, pedidosSinItems: [], kgPorUnidad: new Map(), cicloPedidoDias: 45, demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
   }
 
@@ -294,11 +311,19 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   }
 
   const ventas: VentaRow[] = ventasQuery.data ?? [];
+
+  // Stock para la cobertura: por VARIANTE real si ya hay maestra cargada; si no,
+  // el -5 de inventory_products (comportamiento anterior, con reparto por mezcla).
+  const variantes = variantsQuery.data ?? [];
+  const inventarioCobertura = variantes.length
+    ? variantes.map((v) => ({ reference: v.variant_reference, stockPhysical: Number(v.stock ?? 0) }))
+    : inv.products.map((p) => ({ reference: p.reference, stockPhysical: Number(p.stock_physical ?? 0) }));
+
   const prims = buildVariantPrimitives({
     todayIso: today,
     ventanaDias: CONSUMO_VENTANA_DIAS,
     ventas,
-    inventario: inv.products.map((p) => ({ reference: p.reference, stockPhysical: Number(p.stock_physical ?? 0) })),
+    inventario: inventarioCobertura,
     transito: transitoVariante,
     factorCensuraPorFamilia,
   });

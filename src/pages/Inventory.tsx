@@ -17,13 +17,14 @@ import AdjustStockModal from '@/components/inventory/AdjustStockModal';
 import BulkUploadModal from '@/components/inventory/BulkUploadModal';
 import PhysicalCountModal from '@/components/inventory/PhysicalCountModal';
 import MaestroProductos from '@/components/inventory/MaestroProductos';
+import VariantInventoryPanel from '@/components/inventory/VariantInventoryPanel';
 import EntradaInventarioModal from '@/components/inventory/EntradaInventarioModal';
 import ManageSystemsModal from '@/components/inventory/ManageSystemsModal';
 import InventoryFreshnessBanner from '@/components/inventory/InventoryFreshnessBanner';
 import AppLayout from '@/components/layout/AppLayout';
 import { usePersistedDialogOpen, usePersistedFormState } from '@/hooks/usePersistedFormState';
 
-type Tab = 'inventario' | 'maestro' | 'conteo';
+type Tab = 'inventario' | 'variantes' | 'maestro' | 'conteo';
 
 export default function Inventory() {
   const { isGerencial } = useModuleContext();
@@ -178,6 +179,13 @@ export default function Inventory() {
           >
             <Package className="h-4 w-4" />
             Inventario
+          </button>
+          <button
+            onClick={() => setTab('variantes')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${tab === 'variantes' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Layers className="h-4 w-4" />
+            Por variante
           </button>
           <button
             onClick={() => setTab('maestro')}
@@ -487,6 +495,9 @@ export default function Inventory() {
             </div>
           </div>
         )}
+
+        {/* Inventario por variante (color) */}
+        {tab === 'variantes' && <VariantInventoryPanel />}
 
         {/* Maestro tab */}
         {tab === 'maestro' && (
