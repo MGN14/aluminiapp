@@ -223,21 +223,32 @@ export default function Importaciones() {
     const nacYoYPct = pct(nacDe(currentYear), nacDe(currentYear - 1));
     const nacProm = avg(conNac.map(x => x.porTon));
 
-    // TRM pagada (ponderada de los abonos): última vs pedido anterior
+    // TRM pagada (ponderada de los abonos) — del pedido en FOCO vs último
+    // entregado (mismo criterio que SMM/Total/COP-ton: el que viene manda).
+    const trmPedido = (r: ImportRow | null) => {
+      if (!r) return null;
+      const t = trmByImport.get(r.id) ?? null;
+      return t != null && t > 0 ? t : null;
+    };
+    const trmLast = trmPedido(foco);
+    const trmDeltaPct = pct(trmLast, trmPedido(anterior));
     const conTrm = ordered
       .map(r => trmByImport.get(r.id) ?? null)
       .filter((t): t is number => t != null && t > 0);
-    const trmLast = conTrm[conTrm.length - 1] ?? null;
-    const trmDeltaPct = pct(trmLast, conTrm[conTrm.length - 2] ?? null);
     const trmProm = avg(conTrm);
 
-    // Flete USD por pedido (solo pedidos que ya tienen flete cargado)
+    // Flete USD — del pedido en FOCO (se conoce al embarcar) vs último entregado.
+    const fletePedido = (r: ImportRow | null) => {
+      if (!r) return null;
+      const v = sumImportCosts(r.import_costs, 'flete').usd;
+      return v > 0 ? v : null;
+    };
+    const fleteUltimo = fletePedido(foco);
+    const fleteDeltaPct = pct(fleteUltimo, fletePedido(anterior));
     const fletes = ordered
       .map(r => sumImportCosts(r.import_costs, 'flete').usd)
       .filter(v => v > 0);
     const fleteProm = avg(fletes);
-    const fleteUltimo = fletes.length ? fletes[fletes.length - 1] : null;
-    const fleteDeltaPct = pct(fleteUltimo, fletes.length > 1 ? fletes[fletes.length - 2] : null);
 
     return {
       pedidosEsteAnio, pedidosAnioPasado, tonEsteAnio, tonAnioPasado,
@@ -500,23 +511,28 @@ export default function Importaciones() {
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">TRM pagada</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="TRM ponderada de los abonos del pedido próximo a entregar. La TRM de hoy (mercado) va abajo para comparar si conviene abonar ya.">TRM pagada</p>
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                <DeltaLine pct={kpis.trmDeltaPct} label="vs pedido anterior" />
-                {kpis.trmProm != null
-                  ? <p className="text-[11px] text-muted-foreground">promedio ${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })} · ponderada de abonos</p>
-                  : <p className="text-[11px] text-muted-foreground">ponderada de los abonos</p>}
+                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <DeltaLine pct={kpis.trmDeltaPct} label="vs último entregado" />
+                <p className="text-[11px] text-muted-foreground">
+                  {trmHoy != null && `hoy $${Number(trmHoy).toLocaleString('es-CO', { maximumFractionDigits: 0 })} (mercado)`}
+                  {trmHoy != null && kpis.trmProm != null && ' · '}
+                  {kpis.trmProm != null && `promedio $${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`}
+                  {trmHoy == null && kpis.trmProm == null && 'ponderada de los abonos'}
+                </p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Flete USD</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Flete del pedido próximo a entregar (se conoce al embarcar). '—' = el pedido en foco todavía no tiene flete cargado.">Flete USD</p>
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.fleteUltimo != null ? `$${kpis.fleteUltimo.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                <DeltaLine pct={kpis.fleteDeltaPct} label="vs pedido anterior" />
+                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <DeltaLine pct={kpis.fleteDeltaPct} label="vs último entregado" />
                 <p className="text-[11px] text-muted-foreground">
                   {kpis.fleteProm != null ? `promedio $${kpis.fleteProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'cargalo en costos del pedido'}
                 </p>
