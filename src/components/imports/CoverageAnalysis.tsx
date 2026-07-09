@@ -1,12 +1,14 @@
 /**
- * Análisis de COBERTURA por referencia — el detalle completo detrás del
- * banner "¿cuándo montar el próximo pedido?". Mismo motor, misma familia -5:
+ * Análisis de COBERTURA por VARIANTE DE COLOR — pedido de Nico: "yo no monto
+ * pedido con -5; LIV-40-5 no me dice nada porque no sé si es mate, negro o
+ * blanco". Cada fila es una variante (LIV-40-2 blanco ≠ LIV-40-3 negro):
  *
- *   · Demanda real/día  ← salidas (remisiones) CENSURADAS por días con stock:
- *     si una ref vendió 500 en 21 días y estuvo seca el resto, su demanda es
- *     500/21, no 500/90. El sugerido crece solo cuando hay quiebres (Nico).
- *   · Stock físico      ← conteo QR propio (familia -5)
- *   · En tránsito       ← packing list (sufijos) / proforma (sin sufijo)
+ *   · Demanda real/día  ← remision_items (la ref TAL COMO se despachó, con
+ *     sufijo), corregida por la censura familiar de días con stock.
+ *   · Stock físico      ← inventario; si solo existe la -5, se reparte entre
+ *     los colores por su mezcla de demanda (marcado ~, estimado).
+ *   · En tránsito       ← packing list (sufijos) + proforma (la app le pone
+ *     el sufijo desde la columna Color)
  *   · Cobertura         ← fecha de quiebre proyectada (con reposiciones)
  *   · Sugerido próx. pedido = demanda × horizonte × índice estacional
  *                             − (stock + tránsito)
@@ -19,7 +21,6 @@
 import { useMemo, useState } from 'react';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
 import { suggestOrderQty } from '@/lib/reorderSuggestion';
-import { refFamilyKey } from '@/lib/refFamily';
 import { ESTACIONALIDAD_MESES_MADURA } from '@/lib/demandModel';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -45,34 +46,34 @@ function coberturaColor(dias: number | null): string {
 }
 
 export default function CoverageAnalysis() {
-  const { isPending, suggestion: sug, kgPorUnidad, cicloPedidoDias, pedidosSinItems, demandPorFamilia } = useReorderSuggestion();
+  const { isPending, suggestion: sug, kgPorUnidad, kgPorUnidadVariante, porVariante, cicloPedidoDias, pedidosSinItems, demandPorFamilia } = useReorderSuggestion();
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
 
   const horizonteDias = sug ? sug.leadTime.totalDias + sug.safetyDias + cicloPedidoDias : 0;
 
   const rows = useMemo(() => {
-    if (!sug) return [];
     const q = search.trim().toLowerCase();
     const base = q
-      ? sug.porReferencia.filter((r) => r.reference.toLowerCase().includes(q))
-      : sug.porReferencia;
-    // Menor cobertura primero (null = no quiebra → al final).
+      ? porVariante.filter((r) => r.reference.toLowerCase().includes(q) || r.color.includes(q))
+      : porVariante;
+    // Menor cobertura primero; sin consumo al final.
     return [...base].sort((a, b) =>
-      (a.diasCobertura ?? Infinity) - (b.diasCobertura ?? Infinity) || b.consumoDiario - a.consumoDiario,
+      Number(!!a.sinConsumo) - Number(!!b.sinConsumo)
+      || (a.diasCobertura ?? Infinity) - (b.diasCobertura ?? Infinity)
+      || b.consumoDiario - a.consumoDiario,
     );
-  }, [sug, search]);
+  }, [porVariante, search]);
 
   const conSugerido = useMemo(() => {
     if (!sug) return [];
     return rows.map((r) => {
-      const fam = refFamilyKey(r.reference);
-      const demanda = demandPorFamilia.get(fam) ?? null;
-      // Factor = tendencia 30d × estacionalidad (ponderada por madurez).
-      // Activo desde el primer dato — el disclaimer vive en el header.
+      const demanda = demandPorFamilia.get(r.familia) ?? null;
+      // Factor = tendencia 30d × estacionalidad (familiar, ponderada por
+      // madurez). Activo desde el primer dato — el disclaimer vive arriba.
       const indice = demanda?.factorDemanda ?? 1;
       const sugerido = suggestOrderQty({ ...r, consumoDiario: r.consumoDiario * indice }, horizonteDias);
-      const kgU = kgPorUnidad.get(fam) ?? null;
+      const kgU = kgPorUnidadVariante.get(r.key) ?? kgPorUnidad.get(r.familia) ?? null;
       return {
         ...r,
         demanda,
@@ -81,7 +82,7 @@ export default function CoverageAnalysis() {
         kgEstimado: kgU !== null ? sugerido * kgU : null,
       };
     });
-  }, [rows, sug, horizonteDias, kgPorUnidad, demandPorFamilia]);
+  }, [rows, sug, horizonteDias, kgPorUnidad, kgPorUnidadVariante, demandPorFamilia]);
 
   const totales = useMemo(() => {
     const unds = conSugerido.reduce((s, r) => s + r.sugerido, 0);
@@ -112,12 +113,13 @@ export default function CoverageAnalysis() {
       const XLSX = await import('xlsx');
       const hoy = new Date().toISOString().slice(0, 10);
       const data = conSugerido.map((r) => ({
-        'Referencia (-5)': r.reference,
+        'Referencia': r.reference,
+        'Color': r.color,
         'Demanda/día': Number(r.consumoDiario.toFixed(2)),
-        'Días con stock (90d)': r.demanda?.diasConStock ?? null,
-        'Stock físico': r.stock,
+        'Stock físico': Number(r.stock.toFixed(1)),
+        'Stock estimado (reparto -5)': r.stockEstimado ? 'sí' : '',
         'En tránsito': r.enTransito,
-        'Cobertura (días)': r.diasCobertura ?? '>400',
+        'Cobertura (días)': r.sinConsumo ? 'sin consumo' : (r.diasCobertura ?? '>400'),
         'Fecha quiebre': r.fechaQuiebre ?? '',
         'Tendencia 30d': Number((r.demanda?.indiceTendencia ?? 1).toFixed(2)),
         'Índice estacional': Number((r.demanda?.indiceEstacional ?? 1).toFixed(2)),
@@ -163,10 +165,10 @@ export default function CoverageAnalysis() {
         <CardContent className="py-3 px-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
           <div className="flex items-center gap-2">
             <PackageSearch className="h-4 w-4 text-primary" />
-            <span className="font-semibold text-sm">Análisis de cobertura por referencia</span>
+            <span className="font-semibold text-sm">Análisis de cobertura por color (variante)</span>
           </div>
           <span className="text-muted-foreground">
-            Demanda: salidas reales {sug.datos.ventanaDias}d <strong className="text-foreground">censuradas por días con stock</strong> ·
+            Demanda: remisiones {sug.datos.ventanaDias}d por referencia despachada, <strong className="text-foreground">censura por días con stock</strong> ·
             Tránsito: {sug.datos.llegadasEnTransito} llegadas
           </span>
           <span className="text-muted-foreground">
@@ -220,10 +222,11 @@ export default function CoverageAnalysis() {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/60">
-              <TableHead className="text-[11px]">Referencia (-5)</TableHead>
-              <TableHead className="text-[11px] text-right" title="Salidas ÷ días CON stock (censurado). Si estuvo agotada, la demanda real es más alta que salidas ÷ 90.">Demanda/día</TableHead>
-              <TableHead className="text-[11px] text-right">Stock físico</TableHead>
-              <TableHead className="text-[11px] text-right" title="Packing list / proforma de pedidos abiertos, agrupado por familia">En tránsito</TableHead>
+              <TableHead className="text-[11px]">Referencia</TableHead>
+              <TableHead className="text-[11px]">Color</TableHead>
+              <TableHead className="text-[11px] text-right" title="Unidades despachadas en remisiones (por referencia con sufijo) ÷ ventana, corregida por censura de días con stock de la familia.">Demanda/día</TableHead>
+              <TableHead className="text-[11px] text-right" title="~ = el inventario solo tiene la -5: stock repartido entre colores por su mezcla de demanda">Stock físico</TableHead>
+              <TableHead className="text-[11px] text-right" title="Packing list (con sufijo) + proforma (sufijo puesto por la app desde la columna Color)">En tránsito</TableHead>
               <TableHead className="text-[11px] text-right" title="Días hasta el quiebre proyectado, contando las reposiciones en camino">Cobertura</TableHead>
               <TableHead className="text-[11px] text-right">Quiebre</TableHead>
               <TableHead className="text-[11px] text-right" title={`demanda × ${horizonteDias}d × índice estacional − (stock + tránsito)`}>Sugerido próx. pedido</TableHead>
@@ -232,18 +235,22 @@ export default function CoverageAnalysis() {
           </TableHeader>
           <TableBody>
             {conSugerido.map((r) => (
-              <TableRow key={r.reference} className={cn(r.diasCobertura !== null && r.diasCobertura <= 45 && 'bg-destructive/[0.04]')}>
+              <TableRow key={r.key} className={cn(!r.sinConsumo && r.diasCobertura !== null && r.diasCobertura <= 45 && 'bg-destructive/[0.04]')}>
                 <TableCell className="text-xs font-mono">{r.reference}</TableCell>
+                <TableCell className={cn('text-xs', r.color === 'sin discriminar' && 'text-muted-foreground italic')}>{r.color}</TableCell>
                 <TableCell
                   className="text-xs font-mono text-right"
-                  title={r.demanda
-                    ? `Vendió ${fmtNum(r.demanda.salidasVentana)} en ${r.demanda.diasConStock} días con stock (ventana ${r.demanda.ventanaDias}d)${r.demanda.huboQuiebre ? ' — tuvo quiebre: la tasa ingenua subestimaba' : ''}`
-                    : undefined}
+                  title={r.demanda?.huboQuiebre ? 'La familia estuvo agotada dentro de la ventana — demanda corregida por censura' : undefined}
                 >
                   {r.sinConsumo ? <span className="text-muted-foreground">—</span> : r.consumoDiario.toFixed(1)}
-                  {r.demanda?.huboQuiebre && <span className="text-warning" title="Estuvo agotada dentro de la ventana — demanda corregida por censura">†</span>}
+                  {!r.sinConsumo && r.demanda?.huboQuiebre && <span className="text-warning">†</span>}
                 </TableCell>
-                <TableCell className="text-xs font-mono text-right">{fmtNum(r.stock)}</TableCell>
+                <TableCell
+                  className={cn('text-xs font-mono text-right', r.stockEstimado && 'text-muted-foreground')}
+                  title={r.stockEstimado ? 'El inventario solo tiene la -5: stock repartido entre los colores por su mezcla de demanda. El día que el conteo discrimine color, desaparece el ~.' : undefined}
+                >
+                  {r.stockEstimado ? `~${fmtNum(r.stock)}` : fmtNum(r.stock)}
+                </TableCell>
                 <TableCell className={cn('text-xs font-mono text-right', r.enTransito > 0 ? 'text-primary font-medium' : 'text-muted-foreground')}>
                   {r.enTransito > 0 ? `+${fmtNum(r.enTransito)}` : '—'}
                 </TableCell>
@@ -271,7 +278,7 @@ export default function CoverageAnalysis() {
               </TableRow>
             ))}
             <TableRow className="bg-muted/30 font-semibold">
-              <TableCell className="text-xs" colSpan={6}>
+              <TableCell className="text-xs" colSpan={7}>
                 Pedido sugerido total ({conSugerido.filter((r) => r.sugerido > 0).length} referencias)
               </TableCell>
               <TableCell className="text-xs font-mono text-right">{fmtNum(totales.unds)}</TableCell>
@@ -295,10 +302,11 @@ export default function CoverageAnalysis() {
       )}
 
       <p className="text-[11px] text-muted-foreground leading-relaxed">
-        La demanda se mide solo sobre días con stock (†: tuvo quiebre y la tasa fue corregida hacia arriba). El sugerido
-        se ajusta por DOS señales: tendencia de corto plazo (últimos 30 días — escasez, mercado, regulación, puerto) y
-        estacionalidad anual, activa desde el primer dato pero ponderada por madurez — con poca historia pesa poco y se
-        lee con pinzas; a los 12 meses aplica al 100%. Referencias sin ventas registradas no aparecen. El sugerido es
+        Cada fila es una VARIANTE de color — la unidad con la que se monta pedido. La demanda sale de las remisiones
+        (la referencia tal como se despachó): si un despacho salió en -5 sin discriminar, esa demanda aparece en la fila
+        "sin discriminar" — la tabla muestra la verdad de los datos. Stock con ~ = repartido desde la -5 por mezcla de
+        demanda (el inventario aún no discrimina color). † = la familia tuvo quiebre y la tasa fue corregida. El sugerido
+        se ajusta por tendencia 30d y estacionalidad (ponderada por madurez — con poca historia se lee con pinzas). Es
         punto de partida, no orden de compra.
       </p>
     </div>

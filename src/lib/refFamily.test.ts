@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest';
-import { refFamilyKey, suffixColorConflict, normalizeColor } from './refFamily';
+import { refFamilyKey, suffixColorConflict, normalizeColor, applyColorSuffix, colorLabel } from './refFamily';
+
+describe('applyColorSuffix — la app le pone el sufijo a la proforma', () => {
+  it('base + color de la columna → variante con sufijo', () => {
+    expect(applyColorSuffix('LIV-40', 'Blanco')).toBe('LIV-40-2');
+    expect(applyColorSuffix('LIV-40', 'Negro')).toBe('LIV-40-3');
+    expect(applyColorSuffix('LIV-40', 'Crudo')).toBe('LIV-40-0');
+    expect(applyColorSuffix('LIV-40', 'Mate')).toBe('LIV-40');   // mate = sin sufijo
+    expect(applyColorSuffix('T077A', null)).toBe('T077A');
+  });
+  it('si ya trae sufijo (packing list), se respeta aunque venga columna Color', () => {
+    expect(applyColorSuffix('LIV-40-3', 'Negro')).toBe('LIV-40-3');
+    expect(applyColorSuffix('LIV-40-2', 'Blanco')).toBe('LIV-40-2');
+  });
+  it('color no estándar → base tal cual (no inventa sufijos)', () => {
+    expect(applyColorSuffix('LIV-40', 'Champagne')).toBe('LIV-40');
+  });
+});
+
+describe('colorLabel', () => {
+  it('lee el color del sufijo', () => {
+    expect(colorLabel('LIV-40-2')).toBe('blanco');
+    expect(colorLabel('LIV-40-3')).toBe('negro');
+    expect(colorLabel('LIV-40-0')).toBe('crudo');
+    expect(colorLabel('LIV-40')).toBe('mate');
+    expect(colorLabel('LIV-40-5')).toBe('sin discriminar');
+  });
+});
 
 // Referencias REALES de la maestra de inventario y de los packing lists.
 describe('refFamilyKey', () => {

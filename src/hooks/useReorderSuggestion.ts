@@ -22,10 +22,11 @@ import {
   type TransitoItem,
   type ReorderSuggestion,
 } from '@/lib/reorderSuggestion';
-import { refFamilyKey } from '@/lib/refFamily';
+import { refFamilyKey, variantKey, applyColorSuffix } from '@/lib/refFamily';
 import { computeFamilyDemand, type FamilyDemand, type DemandMovement } from '@/lib/demandModel';
+import { buildCoverageVariants, type VarianteCobertura, type VentaRow } from '@/lib/coverageVariants';
 
-interface ItemRow { import_id: string; reference: string; cantidad: number; peso_kg?: number | null; source?: 'proforma' | 'packing' | null }
+interface ItemRow { import_id: string; reference: string; cantidad: number; peso_kg?: number | null; color?: string | null; source?: 'proforma' | 'packing' | null }
 
 export interface PedidoSinItems {
   id: string;
@@ -46,6 +47,12 @@ export interface UseReorderSuggestionResult {
   /** Modelo de demanda por familia: consumo censurado, días con stock,
    *  serie mensual y estado de la estacionalidad. */
   demandPorFamilia: Map<string, FamilyDemand>;
+  /** Cobertura por VARIANTE DE COLOR (LIV-40-2 ≠ LIV-40-3) — la vista con la
+   *  que Nico monta pedido. Demanda desde remisiones; proforma con sufijo
+   *  sintetizado; stock -5 repartido por mezcla cuando no hay por color. */
+  porVariante: VarianteCobertura[];
+  /** kg por unidad por VARIANTE (fallback: familia). */
+  kgPorUnidadVariante: Map<string, number>;
 }
 
 function isoToday(): string {
@@ -109,7 +116,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     queryFn: async () => {
       const { data, error } = await (supabase as never as { from: (t: string) => any })
         .from('import_items')
-        .select('import_id, reference, cantidad, peso_kg, source')
+        .select('import_id, reference, cantidad, peso_kg, color, source')
         .in('import_id', abiertosIds);
       if (error) throw error;
       const rows = (data ?? []) as ItemRow[];
@@ -123,11 +130,33 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     staleTime: 10 * 60_000,
   });
 
+  // Ventas por remisión: la referencia TAL COMO SE DESPACHÓ (con sufijo de
+  // color si el equipo lo usa) — la demanda por variante sale de acá, no de
+  // inventory_movements (que viven al nivel del producto -5 de Siigo).
+  const ventasQuery = useQuery({
+    queryKey: ['imports', 'reorder-ventas-remision'],
+    queryFn: async () => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - CONSUMO_VENTANA_DIAS);
+      const cutoffIso = cutoff.toISOString().slice(0, 10);
+      const { data, error } = await (supabase as never as { from: (t: string) => any })
+        .from('remision_items')
+        .select('reference, units, remisiones!inner(date, remision_type)')
+        .eq('remisiones.remision_type', 'venta')
+        .gte('remisiones.date', cutoffIso);
+      if (error) throw error;
+      return ((data ?? []) as { reference: string; units: number; remisiones: { date: string } }[])
+        .map((r) => ({ reference: r.reference, units: Number(r.units ?? 0), date: r.remisiones?.date ?? '' }));
+    },
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+
   // OJO: esperar TAMBIÉN los items — computar sin ellos mostraba "0 llegadas
   // en tránsito" y una fecha alarmista mientras la query seguía en vuelo.
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
-  if (!importsData || inventoryQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], kgPorUnidad: new Map(), cicloPedidoDias: 45, demandPorFamilia: new Map() };
+  if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || itemsPending) {
+    return { isPending: true, suggestion: null, pedidosSinItems: [], kgPorUnidad: new Map(), cicloPedidoDias: 45, demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
   }
 
   const today = isoToday();
@@ -267,5 +296,53 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     ? Math.min(120, Math.max(20, Math.round(ultimos.reduce((a, b) => a + b, 0) / ultimos.length)))
     : 45;
 
-  return { isPending: false, suggestion, pedidosSinItems, kgPorUnidad, cicloPedidoDias, demandPorFamilia };
+  // ── Cobertura por VARIANTE DE COLOR ──
+  // Tránsito re-mapeado a variante: al proforma (sin sufijo) la app le pone
+  // el sufijo desde su columna Color; el packing ya viene con sufijo.
+  const transitoVariante: TransitoItem[] = items
+    .filter((it) => dispPorImport.has(it.import_id))
+    .map((it) => {
+      const refConSufijo = applyColorSuffix(it.reference, it.color ?? null);
+      return {
+        reference: refConSufijo,
+        cantidad: Number(it.cantidad ?? 0),
+        fechaDisponible: dispPorImport.get(it.import_id)!,
+        matchKey: variantKey(refConSufijo),
+      };
+    });
+
+  // Corrección por censura familiar (días con stock): censurado / simple.
+  const factorCensuraPorFamilia = new Map<string, number>();
+  for (const [fam, d] of demandPorFamilia) {
+    if (d.consumoDiarioSimple > 0 && d.consumoDiario > 0) {
+      factorCensuraPorFamilia.set(fam, d.consumoDiario / d.consumoDiarioSimple);
+    }
+  }
+
+  const ventas: VentaRow[] = ventasQuery.data ?? [];
+  const porVariante = buildCoverageVariants({
+    todayIso: today,
+    ventanaDias: CONSUMO_VENTANA_DIAS,
+    ventas,
+    inventario: inv.products.map((p) => ({ reference: p.reference, stockPhysical: Number(p.stock_physical ?? 0) })),
+    transito: transitoVariante,
+    factorCensuraPorFamilia,
+  });
+
+  // kg/unidad por variante (del packing/proforma), con fallback a familia.
+  const kgVarAcc = new Map<string, { kg: number; cant: number }>();
+  for (const it of items) {
+    const kg = Number(it.peso_kg ?? 0);
+    const cant = Number(it.cantidad ?? 0);
+    if (kg <= 0 || cant <= 0) continue;
+    const key = variantKey(applyColorSuffix(it.reference, it.color ?? null));
+    const acc = kgVarAcc.get(key) ?? { kg: 0, cant: 0 };
+    acc.kg += kg; acc.cant += cant;
+    kgVarAcc.set(key, acc);
+  }
+  const kgPorUnidadVariante = new Map<string, number>(
+    [...kgVarAcc.entries()].map(([k, v]) => [k, v.kg / v.cant]),
+  );
+
+  return { isPending: false, suggestion, pedidosSinItems, kgPorUnidad, cicloPedidoDias, demandPorFamilia, porVariante, kgPorUnidadVariante };
 }

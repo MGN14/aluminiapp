@@ -60,6 +60,37 @@ export function normalizeColor(color: string | null | undefined): string | null 
 }
 
 /**
+ * Sufijo de color a partir de la columna Color de la proforma (la china no
+ * maneja sufijos, la app se lo pone): LIV-40 + "Blanco" → LIV-40-2.
+ * Mate = sin sufijo (convención de Nico). Colores no estándar → base tal cual.
+ * Si la ref YA trae sufijo de color, se respeta (caso packing list).
+ */
+export function applyColorSuffix(reference: string, color: string | null | undefined): string {
+  const ref = (reference ?? '').trim();
+  if (!ref) return ref;
+  if (colorFromSuffix(ref) !== null) return ref; // ya viene con sufijo
+  const c = normalizeColor(color);
+  if (c === 'crudo') return `${ref}-0`;
+  if (c === 'blanco') return `${ref}-2`;
+  if (c === 'negro') return `${ref}-3`;
+  return ref; // mate / sin color / no estándar
+}
+
+/** Llave de VARIANTE (color): la referencia completa normalizada, sin agrupar.
+ *  LIV-40-2 ≠ LIV-40-3 ≠ LIV-40 (mate) ≠ LIV-40-5 (total sin discriminar). */
+export function variantKey(reference: string | null | undefined): string {
+  return (reference ?? '').trim().toLowerCase();
+}
+
+/** Etiqueta legible del color según el sufijo (para la tabla de cobertura). */
+export function colorLabel(reference: string): string {
+  const c = colorFromSuffix(reference);
+  if (c === 'total') return 'sin discriminar';
+  if (c === null) return 'mate';
+  return c;
+}
+
+/**
  * ¿El sufijo de la referencia contradice la columna Color?
  * Devuelve el texto del problema, o null si todo bien.
  * - Ref sin sufijo (proforma o mate) → nunca es error.
