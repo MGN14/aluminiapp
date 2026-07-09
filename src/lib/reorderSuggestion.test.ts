@@ -152,9 +152,9 @@ describe('computeReorderSuggestion', () => {
     expect(sug.llegadaSiPidoHoy).toBe('2026-10-01'); // hoy + 85
   });
 
-  it('menos de 3 referencias quebrando = alerta puntual, SIN fecha de pedido', () => {
-    const a = ref('p1', 'LIV-40-5', 60);
-    const b = ref('p2', 'B', 500);
+  it('sin quiebre a la vista: la fecha SIEMPRE existe (teórica, lejana y sin urgencia)', () => {
+    const a = ref('p1', 'LIV-40-5', 60);  // quiebra pronto → alerta puntual
+    const b = ref('p2', 'B', 500);        // más allá del horizonte de 400d
     const c = ref('p3', 'C', 500);
     const sug = computeReorderSuggestion({
       todayIso: HOY,
@@ -163,9 +163,29 @@ describe('computeReorderSuggestion', () => {
       salidas: [a.salida, b.salida, c.salida],
       transito: [],
     });
-    expect(sug.fechaLimite).toBeNull();
-    expect(sug.motivoSinFecha).toBeNull(); // no es falta de datos: no hay urgencia
+    // Antes: sin fecha ("no me sirve ese card sin una fecha concreta" — Nico).
+    // Ahora: grupal teórico al día 500 → límite = 500 − 100 = día 400.
+    expect(sug.fechaQuiebreGrupal).toBe('2027-11-20');
+    expect(sug.fechaLimite).toBe('2027-08-12');
+    expect(sug.diasParaDecidir).toBe(400);
+    expect(sug.motivoSinFecha).toBeNull();
+    // El quiebre temprano sigue siendo alerta puntual, no el disparador.
     expect(sug.alertas.map((q) => q.reference)).toEqual(['LIV-40-5']);
+  });
+
+  it('con menos referencias críticas que el umbral, manda la última que quiebre', () => {
+    const a = ref('p1', 'A', 100);
+    const b = ref('p2', 'B', 140); // solo 2 críticos → grupal = la 2ª
+    const sug = computeReorderSuggestion({
+      todayIso: HOY,
+      imports: [],
+      stock: [a.stock, b.stock],
+      salidas: [a.salida, b.salida],
+      transito: [],
+    });
+    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['A', 'B']);
+    expect(sug.fechaQuiebreGrupal).toBe('2026-11-25'); // hoy + 140
+    expect(sug.fechaLimite).toBe('2026-08-17');        // − 100
   });
 
   it('una referencia marginal no entra al criterio (80% del consumo manda)', () => {

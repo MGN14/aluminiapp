@@ -71,7 +71,7 @@ export default function ReorderSuggestionCard() {
               )}
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {sug.umbralRefs} referencias del grueso del consumo se quiebran hacia el{' '}
+              {sug.refsGrupal.length} referencia{sug.refsGrupal.length > 1 ? 's' : ''} del grueso del consumo se quiebra{sug.refsGrupal.length > 1 ? 'n' : ''} hacia el{' '}
               <strong className="text-foreground">{fmtFecha(sug.fechaQuiebreGrupal!)}</strong>{' '}
               ({sug.refsGrupal.map((q) => q.reference).join(', ')}), contando stock físico y lo que viene en el agua.
               Un pedido montado hoy quedaría en bodega el{' '}
@@ -89,10 +89,8 @@ export default function ReorderSuggestionCard() {
           </p>
         ) : (
           <p className="text-xs text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">Sin quiebre grupal a la vista:</strong> con el stock físico y lo
-            que viene en tránsito, menos de {sug.umbralRefs} referencias del grueso del consumo se quiebran en el
-            horizonte. No hay urgencia de contenedor. Un pedido montado hoy quedaría en bodega el{' '}
-            <strong className="text-foreground">{fmtFecha(sug.llegadaSiPidoHoy)}</strong>.
+            Sin referencias críticas con consumo para proyectar fecha todavía. Un pedido montado hoy quedaría en
+            bodega el <strong className="text-foreground">{fmtFecha(sug.llegadaSiPidoHoy)}</strong>.
           </p>
         )}
 

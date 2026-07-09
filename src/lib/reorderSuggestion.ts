@@ -109,9 +109,12 @@ export interface QuiebreProducto {
   stock: number;
   /** Unidades conocidas en camino (packing/proforma de pedidos abiertos). */
   enTransito: number;
-  /** ISO; null = no quiebra dentro del horizonte. */
+  /** ISO; null = no quiebra dentro del horizonte (ver teórica). */
   fechaQuiebre: string | null;
   diasCobertura: number | null;
+  /** Fecha de agote SIN tope de horizonte — siempre existe si hay consumo.
+   *  Con ella la fecha de pedido es concreta aunque no haya urgencia. */
+  fechaQuiebreTeorica?: string | null;
 }
 
 export interface ReorderSuggestion {
@@ -292,6 +295,7 @@ export function projectQuiebres(params: {
       break;
     }
 
+    const fechaQuiebreTeorica = fechaQuiebre; // sin tope: la fecha real de agote
     if (fechaQuiebre && daysBetween(todayIso, fechaQuiebre) > MAX_HORIZONTE_DIAS) {
       fechaQuiebre = null; // fuera de horizonte: no es urgente
     }
@@ -303,6 +307,7 @@ export function projectQuiebres(params: {
       enTransito,
       fechaQuiebre,
       diasCobertura: fechaQuiebre ? daysBetween(todayIso, fechaQuiebre) : null,
+      fechaQuiebreTeorica,
     });
   }
 
@@ -370,11 +375,20 @@ export function computeReorderSuggestion(params: {
   // El pedido se dispara con el quiebre GRUPAL: la fecha en que quiebra la
   // referencia número `umbralRefs` (ordenadas por fecha de quiebre). Una o
   // dos referencias quebrando antes son ALERTAS puntuales, no pedido.
+  //
+  // La fecha grupal usa las fechas TEÓRICAS (sin tope de horizonte): la card
+  // SIEMPRE da una fecha concreta para montar pedido — si el stock sobra, la
+  // fecha simplemente queda lejos y en verde (decisión de Nico: una card de
+  // planeación sin fecha no planifica nada). Si hay menos referencias
+  // críticas que el umbral, manda la última que quiebre.
   const conQuiebre = criticos
     .filter((q) => q.fechaQuiebre != null)
     .sort((a, b) => a.fechaQuiebre!.localeCompare(b.fechaQuiebre!));
+  const teoricas = criticos
+    .filter((q) => q.fechaQuiebreTeorica != null)
+    .sort((a, b) => a.fechaQuiebreTeorica!.localeCompare(b.fechaQuiebreTeorica!));
 
-  if (conQuiebre.length < umbralRefs) {
+  if (!teoricas.length) {
     return {
       ...base, ...vacio,
       alertas: conQuiebre,
@@ -384,8 +398,9 @@ export function computeReorderSuggestion(params: {
     };
   }
 
-  const refsGrupal = conQuiebre.slice(0, umbralRefs);
-  const fechaQuiebreGrupal = refsGrupal[umbralRefs - 1].fechaQuiebre!;
+  const k = Math.min(umbralRefs, teoricas.length);
+  const refsGrupal = teoricas.slice(0, k);
+  const fechaQuiebreGrupal = refsGrupal[k - 1].fechaQuiebreTeorica!;
   const fechaLimite = addDays(fechaQuiebreGrupal, -(leadTime.totalDias + safetyDias));
 
   return {
@@ -394,7 +409,7 @@ export function computeReorderSuggestion(params: {
     diasParaDecidir: daysBetween(todayIso, fechaLimite),
     fechaQuiebreGrupal,
     refsGrupal,
-    // Quiebres anteriores a la fecha grupal que conviene vigilar puntualmente.
+    // Quiebres a la vista anteriores a la fecha grupal: vigilancia puntual.
     alertas: conQuiebre.filter((q) => q.fechaQuiebre! < fechaQuiebreGrupal),
     criticos,
     porReferencia: quiebres,

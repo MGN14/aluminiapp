@@ -594,7 +594,7 @@ export default function Importaciones() {
                     </p>
                   ) : reorder.suggestion ? (
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Sin quiebre grupal a la vista — no hay urgencia de contenedor. Detalle en la card de arriba.
+                      Sin consumo registrado para proyectar fecha — detalle en la card de arriba.
                     </p>
                   ) : (
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
