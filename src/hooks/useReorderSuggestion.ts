@@ -33,11 +33,21 @@ export interface PedidoSinItems {
   label: string;
 }
 
+/** Desglose de los pedidos abiertos QUE cuentan como cobertura (con items). */
+export interface PipelineResumen {
+  produccion: number;
+  aduana: number;
+  transito: number;
+  total: number;
+}
+
 export interface UseReorderSuggestionResult {
   isPending: boolean;
   suggestion: ReorderSuggestion | null;
   /** Pedidos abiertos SIN packing list/proforma: no cuentan como cobertura. */
   pedidosSinItems: PedidoSinItems[];
+  /** Contenedores contados en la proyección, por etapa (transparencia card). */
+  pipeline: PipelineResumen;
   /** kg por unidad por familia (del packing/proforma de pedidos abiertos) —
    *  para estimar el peso del pedido sugerido. */
   kgPorUnidad: Map<string, number>;
@@ -172,8 +182,9 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // OJO: esperar TAMBIÉN los items — computar sin ellos mostraba "0 llegadas
   // en tránsito" y una fecha alarmista mientras la query seguía en vuelo.
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
+  const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
   if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], kgPorUnidad: new Map(), cicloPedidoDias: 45, demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
   }
 
   const today = isoToday();
@@ -200,6 +211,17 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   const pedidosSinItems: PedidoSinItems[] = abiertos
     .filter((r) => !idsConItems.has(r.id))
     .map((r) => ({ id: r.id, label: r.ref_pedido || r.proveedor_nombre }));
+
+  // Contenedores que la proyección SÍ está contando (abiertos con items),
+  // por etapa — para que la card muestre "qué está mirando el modelo".
+  const pipeline: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
+  for (const r of abiertos) {
+    if (!idsConItems.has(r.id)) continue;
+    pipeline.total += 1;
+    if (r.estado === 'aduana') pipeline.aduana += 1;
+    else if (r.estado === 'transito') pipeline.transito += 1;
+    else pipeline.produccion += 1; // cotización/anticipo/producción
+  }
 
   const inv = inventoryQuery.data!;
 
@@ -355,5 +377,5 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     [...kgVarAcc.entries()].map(([k, v]) => [k, v.kg / v.cant]),
   );
 
-  return { isPending: false, suggestion, pedidosSinItems, kgPorUnidad, cicloPedidoDias, demandPorFamilia, porVariante, kgPorUnidadVariante };
+  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, demandPorFamilia, porVariante, kgPorUnidadVariante };
 }

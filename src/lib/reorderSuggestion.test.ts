@@ -157,8 +157,10 @@ describe('computeReorderSuggestion', () => {
     // Lead time default 85 + colchón 15 = 100 días antes del grupal.
     expect(sug.fechaLimite).toBe('2026-08-27');
     expect(sug.diasParaDecidir).toBe(50);
-    // A y B quiebran antes del grupal → alertas puntuales, no disparadores.
-    expect(sug.alertas.map((q) => q.reference)).toEqual(['A', 'B']);
+    // Sin tránsito no hay huecos cubiertos ni faltantes: todos los quiebres
+    // (100d+) son alcanzables por un pedido montado hoy (llega al día 85).
+    expect(sug.alertas).toEqual([]);
+    expect(sug.faltantes).toEqual([]);
     expect(sug.safetyDias).toBe(SAFETY_DIAS);
     expect(sug.llegadaSiPidoHoy).toBe('2026-10-01'); // hoy + 85
   });
@@ -180,8 +182,9 @@ describe('computeReorderSuggestion', () => {
     expect(sug.fechaLimite).toBe('2027-08-12');
     expect(sug.diasParaDecidir).toBe(400);
     expect(sug.motivoSinFecha).toBeNull();
-    // El quiebre temprano sigue siendo alerta puntual, no el disparador.
-    expect(sug.alertas.map((q) => q.reference)).toEqual(['LIV-40-5']);
+    // El quiebre temprano (día 60 < llegada al 85) es FALTANTE REAL: ni un
+    // pedido montado hoy lo alcanza — no dispara el pedido, se reporta aparte.
+    expect(sug.faltantes.map((q) => q.reference)).toEqual(['LIV-40-5']);
   });
 
   it('con menos referencias críticas que el umbral, manda la última que quiebre', () => {
@@ -273,6 +276,81 @@ describe('computeReorderSuggestion', () => {
     expect(suggestOrderQty({ ...q, stock: 5000 }, 145)).toBe(0);
     // Redondeo hacia arriba
     expect(suggestOrderQty({ ...q, consumoDiario: 3.1, stock: 0, enTransito: 0 }, 100)).toBe(310);
+  });
+
+  // ── El ancla: solo quiebres alcanzables por un pedido nuevo (brief Cowork) ──
+
+  it('la fecha límite NUNCA sale en el pasado (escenario "5 de mayo")', () => {
+    // Réplica del bug real: refs que (aun con todo el pipeline sumado) se
+    // agotan ANTES de que llegue un pedido montado hoy (día 85). Anclar ahí
+    // daba "montá el 5 de mayo" estando en julio. Ahora: límite = HOY y esas
+    // refs se reportan como faltante real.
+    const a = ref('p1', 'MN1103', 20);   // agote día 20 — inalcanzable
+    const b = ref('p2', 'ALN343', 25);   // agote día 25 — inalcanzable
+    const c = ref('p3', 'DIA09', 27);    // agote día 27 — inalcanzable
+    const sug = computeReorderSuggestion({
+      todayIso: HOY, imports: [],
+      stock: [a.stock, b.stock, c.stock],
+      salidas: [a.salida, b.salida, c.salida],
+      transito: [],
+    });
+    expect(sug.fechaLimite).toBe(HOY); // nunca en el pasado
+    expect(sug.diasParaDecidir).toBe(0);
+    expect(sug.faltantes.map((q) => q.reference)).toEqual(['MN1103', 'ALN343', 'DIA09']);
+  });
+
+  it('con quiebres inalcanzables Y alcanzables, la fecha se ancla en los alcanzables', () => {
+    const a = ref('p1', 'CORTA', 30);    // inalcanzable (< día 85) → faltante
+    const b = ref('p2', 'B', 150);       // alcanzables →
+    const c = ref('p3', 'C', 160);       //   el grupal (3ª = min(3, pool)) sale
+    const d = ref('p4', 'D', 170);       //   de estas tres
+    const sug = computeReorderSuggestion({
+      todayIso: HOY, imports: [],
+      stock: [a.stock, b.stock, c.stock, d.stock],
+      salidas: [a.salida, b.salida, c.salida, d.salida],
+      transito: [],
+    });
+    // Grupal = 3ª alcanzable (D, día 170) → límite = 170 − 100 = día 70 (futuro).
+    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['B', 'C', 'D']);
+    expect(sug.fechaQuiebreGrupal).toBe('2026-12-25');
+    expect(sug.fechaLimite).toBe('2026-09-16');
+    expect(sug.faltantes.map((q) => q.reference)).toEqual(['CORTA']);
+    // La faltante NO arrastra la fecha al pasado.
+    expect(sug.fechaLimite >= HOY).toBe(true);
+  });
+
+  it('el pipeline (producción+aduana+tránsito) empuja los quiebres y la fecha sale futura', () => {
+    // 1 contenedor "en aduana" (llega día 10) + 2 "en producción" (día 85):
+    // cubren los quiebres cercanos → el agote final queda lejos y la fecha
+    // de montar pedido es futura, no "05-may".
+    const a = ref('p1', 'A', 5);
+    const b = ref('p2', 'B', 8);
+    const c = ref('p3', 'C', 12);
+    const sinPipeline = computeReorderSuggestion({
+      todayIso: HOY, imports: [],
+      stock: [a.stock, b.stock, c.stock],
+      salidas: [a.salida, b.salida, c.salida],
+      transito: [],
+    });
+    const conPipeline = computeReorderSuggestion({
+      todayIso: HOY, imports: [],
+      stock: [a.stock, b.stock, c.stock],
+      salidas: [a.salida, b.salida, c.salida],
+      transito: [
+        { reference: 'A', cantidad: 600, fechaDisponible: '2026-07-18' }, // aduana: hoy+nac
+        { reference: 'B', cantidad: 600, fechaDisponible: '2026-10-01' }, // producción
+        { reference: 'C', cantidad: 600, fechaDisponible: '2026-10-01' }, // producción
+      ],
+    });
+    // Sin pipeline: todo inalcanzable → montá HOY.
+    expect(sinPipeline.fechaLimite).toBe(HOY);
+    expect(sinPipeline.faltantes).toHaveLength(3);
+    // Con pipeline: los agotes finales se van a ~200d → fecha futura real.
+    expect(conPipeline.fechaLimite! > HOY).toBe(true);
+    expect(conPipeline.faltantes).toHaveLength(0);
+    // B y C quedan en 0 unos días antes de que llegue su contenedor de
+    // producción (agote ~día 8-12, llegada día 85) → ...
+    expect(conPipeline.alertas.length).toBeGreaterThan(0);
   });
 
   it('sin consumo registrado → sin fecha con motivo', () => {

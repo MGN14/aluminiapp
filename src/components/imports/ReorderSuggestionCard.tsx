@@ -19,7 +19,7 @@ function fmtFecha(iso: string): string {
 }
 
 export default function ReorderSuggestionCard() {
-  const { isPending, suggestion: sug, pedidosSinItems } = useReorderSuggestion();
+  const { isPending, suggestion: sug, pedidosSinItems, pipeline } = useReorderSuggestion();
 
   if (isPending || !sug) {
     return (
@@ -50,7 +50,15 @@ export default function ReorderSuggestionCard() {
             <p className="text-sm font-semibold">¿Cuándo montar el próximo pedido?</p>
           </div>
           <p className="text-[10px] text-muted-foreground">
-            Se recalcula solo: consumo {sug.datos.ventanaDias}d · {sug.datos.referenciasConConsumo} refs con movimiento · {sug.datos.llegadasEnTransito} llegadas en tránsito · lead time {sug.leadTime.totalDias}d + {sug.safetyDias}d colchón
+            Contando: stock físico + {pipeline.total} contenedor{pipeline.total === 1 ? '' : 'es'}
+            {pipeline.total > 0 && (
+              <> ({[
+                pipeline.produccion > 0 ? `${pipeline.produccion} en producción` : null,
+                pipeline.aduana > 0 ? `${pipeline.aduana} en aduanas` : null,
+                pipeline.transito > 0 ? `${pipeline.transito} en tránsito` : null,
+              ].filter(Boolean).join(', ')})</>
+            )}
+            {' '}· consumo {sug.datos.ventanaDias}d · {sug.datos.referenciasConConsumo} refs con movimiento · lead time {sug.leadTime.totalDias}d + {sug.safetyDias}d colchón
           </p>
         </div>
 
@@ -66,7 +74,7 @@ export default function ReorderSuggestionCard() {
               </strong>
               {dias != null && (
                 <span className="text-muted-foreground">
-                  {' '}— {dias <= 0 ? '¡ya estás en la fecha!' : `tenés ${dias} día${dias === 1 ? '' : 's'} para decidir`}
+                  {' '}— {dias <= 0 ? 'montálo HOY: esperar solo alarga los faltantes' : `tenés ${dias} día${dias === 1 ? '' : 's'} para decidir`}
                 </span>
               )}
             </p>
@@ -91,6 +99,26 @@ export default function ReorderSuggestionCard() {
           <p className="text-xs text-muted-foreground leading-relaxed">
             Sin referencias críticas con consumo para proyectar fecha todavía. Un pedido montado hoy quedaría en
             bodega el <strong className="text-foreground">{fmtFecha(sug.llegadaSiPidoHoy)}</strong>.
+          </p>
+        )}
+
+        {/* Faltantes REALES: su agote final (con todo el pipeline sumado) cae
+            antes de que llegue un pedido montado hoy — un pedido nuevo NO las
+            alcanza. Reposición local / adelantar; no mueven la fecha. */}
+        {sug.faltantes.length > 0 && (
+          <p className="text-xs leading-relaxed flex items-start gap-1.5">
+            <TriangleAlert className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+            <span>
+              <strong className="text-destructive">Faltante real (ni un pedido hoy lo alcanza):</strong>{' '}
+              {sug.faltantes.slice(0, 3).map((q, i) => (
+                <span key={q.reference}>
+                  {i > 0 && ' · '}
+                  <strong>{q.reference}</strong> se agota el {fmtFecha(q.fechaQuiebreTeorica!)}
+                </span>
+              ))}
+              {sug.faltantes.length > 3 && ` · +${sug.faltantes.length - 3} más`}
+              . Nada del pipeline lo cubre a tiempo: reposición local o sumalo YA al próximo pedido.
+            </span>
           </p>
         )}
 

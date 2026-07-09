@@ -135,9 +135,13 @@ export interface ReorderSuggestion {
   fechaQuiebreGrupal: string | null;
   /** Las referencias que quiebran hasta la fecha grupal (definen el pedido). */
   refsGrupal: QuiebreProducto[];
-  /** Quiebres puntuales que NO disparan pedido (menos que el umbral, o
-   *  anteriores a la fecha grupal): alertas para reposición local/parcial. */
+  /** Huecos operativos: refs que quedan en 0 unos días hasta que nacionaliza
+   *  lo que YA viene en camino. Vigilancia puntual, no disparan pedido. */
   alertas: QuiebreProducto[];
+  /** FALTANTES REALES: refs cuyo agote FINAL (con todo el pipeline sumado)
+   *  cae ANTES de que llegue un pedido montado hoy — un pedido nuevo no las
+   *  alcanza. Salida: reposición local o apurar; NO mueven la fecha límite. */
+  faltantes: QuiebreProducto[];
   /** Si montás un pedido HOY, fecha estimada de disponibilidad en bodega. */
   llegadaSiPidoHoy: string;
   /** Detalle de las referencias críticas (para la tabla del card). */
@@ -399,7 +403,8 @@ export function computeReorderSuggestion(params: {
   };
   const vacio = {
     fechaLimite: null, diasParaDecidir: null, fechaQuiebreGrupal: null,
-    refsGrupal: [], alertas: [], criticos: [] as QuiebreProducto[],
+    refsGrupal: [], alertas: [], faltantes: [] as QuiebreProducto[],
+    criticos: [] as QuiebreProducto[],
     porReferencia: [] as QuiebreProducto[],
   };
 
@@ -429,16 +434,26 @@ export function computeReorderSuggestion(params: {
   // fecha simplemente queda lejos y en verde (decisión de Nico: una card de
   // planeación sin fecha no planifica nada). Si hay menos referencias
   // críticas que el umbral, manda la última que quiebre.
-  // Alertas puntuales = referencias con un HUECO (quedan en 0 unos días hasta
-  // que nacionaliza lo que ya viene en camino). No disparan pedido — ese
-  // contenedor ya está en el agua — pero hay que verlas para reponer local.
-  const alertaKey = (q: QuiebreProducto) => q.fechaHueco ?? q.fechaQuiebre ?? '';
-  const conHueco = criticos
-    .filter((q) => q.fechaHueco != null)
-    .sort((a, b) => alertaKey(a).localeCompare(alertaKey(b)));
+  // ── El ancla: solo quiebres ALCANZABLES por un pedido nuevo ──────────────
+  // Un pedido montado HOY llega a bodega en llegadaSiPidoHoy (hoy + lead).
+  // Un quiebre ANTERIOR a esa fecha es físicamente imposible de cubrir con un
+  // pedido nuevo: es un FALTANTE REAL (reposición local / apurar), no un
+  // disparador. Anclar la fecha a esos quiebres daba fechas en el pasado
+  // ("montá pedido el 5 de mayo" estando en julio) — inútil para planear.
+  const llegadaSiPidoHoy = base.llegadaSiPidoHoy;
   const teoricas = criticos
     .filter((q) => q.fechaQuiebreTeorica != null)
     .sort((a, b) => a.fechaQuiebreTeorica!.localeCompare(b.fechaQuiebreTeorica!));
+  const alcanzables = teoricas.filter((q) => q.fechaQuiebreTeorica! >= llegadaSiPidoHoy);
+  const faltantes = teoricas.filter((q) => q.fechaQuiebreTeorica! < llegadaSiPidoHoy);
+
+  // Huecos operativos (quedan en 0 unos días hasta que nacionaliza lo que YA
+  // viene): vigilancia, no pedido. Los faltantes reales van en su propia
+  // lista con mensaje más fuerte — acá no se repiten.
+  const enFaltantes = new Set(faltantes.map((q) => q.reference));
+  const conHueco = criticos
+    .filter((q) => q.fechaHueco != null && !enFaltantes.has(q.reference))
+    .sort((a, b) => (a.fechaHueco ?? '').localeCompare(b.fechaHueco ?? ''));
 
   if (!teoricas.length) {
     return {
@@ -450,10 +465,16 @@ export function computeReorderSuggestion(params: {
     };
   }
 
-  const k = Math.min(umbralRefs, teoricas.length);
-  const refsGrupal = teoricas.slice(0, k);
+  // Grupal sobre los alcanzables. Si NADA es alcanzable (todo quiebra antes
+  // de que llegue un pedido montado hoy), la única respuesta es montar YA:
+  // el grupal se muestra sobre las teóricas y el límite se fija en hoy.
+  const pool = alcanzables.length ? alcanzables : teoricas;
+  const k = Math.min(umbralRefs, pool.length);
+  const refsGrupal = pool.slice(0, k);
   const fechaQuiebreGrupal = refsGrupal[k - 1].fechaQuiebreTeorica!;
-  const fechaLimite = addDays(fechaQuiebreGrupal, -(leadTime.totalDias + safetyDias));
+  // Nunca en el pasado: si el cálculo cae antes de hoy, la decisión es "hoy".
+  const fechaLimiteCruda = addDays(fechaQuiebreGrupal, -(leadTime.totalDias + safetyDias));
+  const fechaLimite = fechaLimiteCruda >= todayIso ? fechaLimiteCruda : todayIso;
 
   return {
     ...base,
@@ -461,9 +482,8 @@ export function computeReorderSuggestion(params: {
     diasParaDecidir: daysBetween(todayIso, fechaLimite),
     fechaQuiebreGrupal,
     refsGrupal,
-    // Huecos operativos (stock en 0 unos días mientras llega el tránsito):
-    // vigilancia puntual, no mueven la fecha del pedido.
     alertas: conHueco,
+    faltantes,
     criticos,
     porReferencia: quiebres,
     motivoSinFecha: null,

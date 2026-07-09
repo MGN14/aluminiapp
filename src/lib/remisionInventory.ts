@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { applyVariantRemision, reverseVariantRemision } from '@/lib/variantInventory';
 
 export type RemisionType = 'venta' | 'compra';
 
@@ -168,6 +169,21 @@ export async function applyRemisionInventory({
     await adjustStockPhysical(productId, delta, product.stock_physical ?? 0);
   }
 
+  // Inventario por VARIANTE (control interno, sin -5): la referencia del item
+  // ya trae el sufijo de color tal como se despachó. Best-effort — no-op si
+  // la maestra no está sembrada; un fallo acá NO tumba el despacho (el -5 ya
+  // quedó aplicado; el ledger de variantes se re-cuadra con la maestra).
+  try {
+    await applyVariantRemision({
+      remisionId,
+      remisionType,
+      movementDate,
+      items: items.map((i) => ({ reference: i.reference, units: i.units })),
+    });
+  } catch (e) {
+    console.warn('[variantes] remisión no aplicada al inventario por variante:', e);
+  }
+
   return { applied: matched.length, unmatched };
 }
 
@@ -205,4 +221,11 @@ export async function reverseRemisionInventory(remisionId: string): Promise<void
 
   const ids = rows.map((r) => r.id);
   await supabase.from('inventory_movements').delete().in('id', ids);
+
+  // Revertir también el ledger por variante (best-effort, mismo criterio).
+  try {
+    await reverseVariantRemision(remisionId);
+  } catch (e) {
+    console.warn('[variantes] no se pudo revertir la remisión en el inventario por variante:', e);
+  }
 }

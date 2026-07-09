@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { applyVariantImportEntrada, reverseVariantImportEntrada } from '@/lib/variantInventory';
 
 export type ImportEstado =
   | 'cotizacion'
@@ -271,6 +272,19 @@ export function useImports() {
       if (estado !== 'cancelado') {
         await recordEstadoHistory(row.id, estado, cambioFecha);
         await deleteEstadoHistoryBeyond(row.id, estado);
+      }
+      // Inventario por VARIANTE: al ENTREGAR, el packing suma stock por color
+      // con su costo (idempotente — reintentar no duplica el contenedor). Si
+      // el estado se corrige DESDE entregado, la entrada se revierte.
+      // Best-effort: no-op sin maestra sembrada; un fallo no bloquea el cambio.
+      try {
+        if (estado === 'entregado') {
+          await applyVariantImportEntrada(row.id);
+        } else if (row.estado === 'entregado') {
+          await reverseVariantImportEntrada(row.id);
+        }
+      } catch (e) {
+        console.warn('[variantes] entrada por packing no aplicada:', e);
       }
     },
     onSuccess: () => {
