@@ -324,12 +324,20 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
       };
     });
 
-  // Corrección por censura familiar (días con stock): censurado / simple.
-  const factorCensuraPorFamilia = new Map<string, number>();
+  // Factor de demanda por familia — TODO lo que sabemos de la demanda entra
+  // también a la FECHA de quiebre, no solo al sugerido de Cobertura:
+  //   censura (vendió en ⅓ de los días → la tasa real es 3×, piso 1)
+  //   × tendencia 30d × estacionalidad ponderada (factorDemanda, 0.5–2.2).
+  // Antes la fecha usaba consumo plano de 90d: diciembre alto NO adelantaba
+  // el pedido de fin de año (feedback de Nico: "fijo debo montar antes del
+  // 20 de octubre"). Ahora el índice estacional corre la fecha solo.
+  const factorDemandaPorFamilia = new Map<string, number>();
   for (const [fam, d] of demandPorFamilia) {
-    if (d.consumoDiarioSimple > 0 && d.consumoDiario > 0) {
-      factorCensuraPorFamilia.set(fam, d.consumoDiario / d.consumoDiarioSimple);
-    }
+    const censura = d.consumoDiarioSimple > 0 && d.consumoDiario > 0
+      ? Math.max(1, d.consumoDiario / d.consumoDiarioSimple)
+      : 1;
+    const factor = censura * (d.factorDemanda || 1);
+    if (factor !== 1) factorDemandaPorFamilia.set(fam, factor);
   }
 
   const ventas: VentaRow[] = ventasQuery.data ?? [];
@@ -347,7 +355,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     ventas,
     inventario: inventarioCobertura,
     transito: transitoVariante,
-    factorCensuraPorFamilia,
+    factorDemandaPorFamilia,
   });
 
   // UNA sola corrida del motor, sobre las variantes: fecha global (banner y

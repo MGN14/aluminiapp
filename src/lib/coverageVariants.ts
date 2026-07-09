@@ -56,8 +56,10 @@ export interface BuildVariantsParams {
   ventas: VentaRow[];
   inventario: StockVarianteRow[];
   transito: TransitoItem[];
-  /** Corrección por censura (días con stock) de la familia: censurado/simple. */
-  factorCensuraPorFamilia?: Map<string, number>;
+  /** Factor de demanda de la familia, YA combinado aguas arriba:
+   *  censura (días con stock, piso 1) × tendencia 30d × estacionalidad.
+   *  Ajusta el consumo que proyecta la FECHA de quiebre (puede ser <1). */
+  factorDemandaPorFamilia?: Map<string, number>;
 }
 
 /** Insumos por variante — los MISMOS alimentan la tabla de cobertura y la
@@ -84,8 +86,8 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
   const consumoPorVariante = new Map<string, number>();
   for (const [key, acc] of salidasPorVariante) {
     const familia = refFamilyKey(key);
-    const censura = params.factorCensuraPorFamilia?.get(familia) ?? 1;
-    consumoPorVariante.set(key, (acc.units / ventanaDias) * Math.max(1, censura));
+    const factor = params.factorDemandaPorFamilia?.get(familia) ?? 1;
+    consumoPorVariante.set(key, (acc.units / ventanaDias) * factor);
   }
 
   // ── Stock por variante: exacto si existe; si no, reparto desde la -5 ──

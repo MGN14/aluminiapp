@@ -78,15 +78,29 @@ describe('buildCoverageVariants — cobertura por color, no por -5', () => {
     expect(total.diasCobertura).toBe(200);
   });
 
-  it('la censura familiar (días con stock) infla la demanda de las variantes', () => {
+  it('el factor de demanda familiar (censura × tendencia × estacionalidad) ajusta las variantes', () => {
     const out = buildCoverageVariants({
       todayIso: HOY,
       ventanaDias: 90,
       ventas: [{ reference: 'LIV-40-3', units: 90, date: '2026-06-01' }],
       inventario: [{ reference: 'LIV-40-3', stockPhysical: 100 }],
       transito: [],
-      factorCensuraPorFamilia: new Map([['liv-40', 3]]), // vendió en ⅓ de los días
+      factorDemandaPorFamilia: new Map([['liv-40', 3]]), // ej: vendió en ⅓ de los días
     });
     expect(out.find((v) => v.key === 'liv-40-3')!.consumoDiario).toBeCloseTo(3, 5);
+  });
+
+  it('un factor <1 (demanda frenando) también pasa — sin piso artificial acá', () => {
+    const out = buildCoverageVariants({
+      todayIso: HOY,
+      ventanaDias: 90,
+      ventas: [{ reference: 'LIV-40-3', units: 90, date: '2026-06-01' }],
+      inventario: [{ reference: 'LIV-40-3', stockPhysical: 100 }],
+      transito: [],
+      factorDemandaPorFamilia: new Map([['liv-40', 0.8]]), // tendencia a la baja
+    });
+    // El piso de la censura (≥1) se aplica aguas arriba en el hook; el factor
+    // combinado puede quedar <1 si la tendencia/estacionalidad frenan.
+    expect(out.find((v) => v.key === 'liv-40-3')!.consumoDiario).toBeCloseTo(0.8, 5);
   });
 });

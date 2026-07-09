@@ -74,10 +74,12 @@ export default function CoverageAnalysis() {
     if (!sug) return [];
     return rows.map((r) => {
       const demanda = demandPorFamilia.get(r.familia) ?? null;
-      // Factor = tendencia 30d × estacionalidad (familiar, ponderada por
-      // madurez). Activo desde el primer dato — el disclaimer vive arriba.
+      // El factor (censura × tendencia 30d × estacionalidad) YA viene
+      // multiplicado en consumoDiario desde el motor — la misma demanda
+      // proyecta la fecha de quiebre Y el sugerido, sin doble conteo.
+      // `indice` queda solo para el chip de transparencia ×N.NN.
       const indice = demanda?.factorDemanda ?? 1;
-      const sugerido = suggestOrderQty({ ...r, consumoDiario: r.consumoDiario * indice }, horizonteDias);
+      const sugerido = suggestOrderQty(r, horizonteDias);
       const kgU = kgPorUnidadVariante.get(r.key) ?? kgPorUnidad.get(r.familia) ?? null;
       return {
         ...r,
@@ -331,7 +333,7 @@ export default function CoverageAnalysis() {
                 <TableCell className={cn('text-xs font-mono text-right font-semibold', r.sugerido > 0 ? 'text-foreground' : 'text-muted-foreground')}>
                   {r.sugerido > 0 ? fmtNum(r.sugerido) : '—'}
                   {r.indice !== 1 && r.sugerido > 0 && (
-                    <span className="text-[9px] text-muted-foreground" title={`Factor aplicado ${r.indice.toFixed(2)} = tendencia 30d ${(r.demanda?.indiceTendencia ?? 1).toFixed(2)} × estacionalidad ${(r.demanda?.indiceEstacional ?? 1).toFixed(2)} (ponderada por madurez)`}> ×{r.indice.toFixed(2)}</span>
+                    <span className="text-[9px] text-muted-foreground" title={`Factor ×${r.indice.toFixed(2)} = tendencia 30d ${(r.demanda?.indiceTendencia ?? 1).toFixed(2)} × estacionalidad ${(r.demanda?.indiceEstacional ?? 1).toFixed(2)} (ponderada por madurez) — ya incluido en la demanda/día, ajusta fecha de quiebre Y sugerido`}> ×{r.indice.toFixed(2)}</span>
                   )}
                 </TableCell>
                 <TableCell className="text-xs font-mono text-right text-muted-foreground">
