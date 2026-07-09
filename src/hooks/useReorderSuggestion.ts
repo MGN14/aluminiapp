@@ -22,7 +22,7 @@ import {
   type TransitoItem,
   type ReorderSuggestion,
 } from '@/lib/reorderSuggestion';
-import { refFamilyKey, variantKey, applyColorSuffix } from '@/lib/refFamily';
+import { refFamilyKey, variantKey, applyColorSuffix, colorFromSuffix } from '@/lib/refFamily';
 import { computeFamilyDemand, type FamilyDemand, type DemandMovement } from '@/lib/demandModel';
 import { buildVariantPrimitives, decorateVariants, type VarianteCobertura, type VentaRow } from '@/lib/coverageVariants';
 
@@ -368,7 +368,12 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     transito: prims.transito,
     consumoPorProducto: prims.consumoPorVariante,
   });
-  const porVariante = decorateVariants(suggestion.porReferencia, prims);
+  // Las filas "-5" (total Siigo) sin consumo salen de la vista: no discriminan
+  // color y su stock ya se repartió entre las variantes — solo ensucian la
+  // tabla ("sin discriminar / sin consumo" × 100+, feedback de Nico). Si una
+  // -5 tuviera consumo real (remisión despachada como -5), se queda: es dato.
+  const porVariante = decorateVariants(suggestion.porReferencia, prims)
+    .filter((v) => !(v.sinConsumo && colorFromSuffix(v.key) === 'total'));
 
   // kg/unidad por variante (del packing/proforma), con fallback a familia.
   const kgVarAcc = new Map<string, { kg: number; cant: number }>();

@@ -21,6 +21,7 @@
 import { useMemo, useState } from 'react';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
 import { suggestOrderQty } from '@/lib/reorderSuggestion';
+import CoverageAlertsReport from '@/components/imports/CoverageAlertsReport';
 import { ESTACIONALIDAD_MESES_MADURA } from '@/lib/demandModel';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -232,6 +233,10 @@ export default function CoverageAnalysis() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Reporte completo de alertas (el banner de Pedidos solo muestra el
+          conteo y linkea acá — decisión de Nico) */}
+      <CoverageAlertsReport sug={sug} />
 
       {pedidosSinItems.length > 0 && (
         <p className="text-xs text-amber-700 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 flex items-start gap-1.5">

@@ -416,7 +416,7 @@ export default function Importaciones() {
         ) : (
         <>
         {/* Sugerencia de próximo pedido: quiebre de stock − lead time − colchón */}
-        <ReorderSuggestionCard />
+        <ReorderSuggestionCard onVerReporte={() => setView('cobertura')} />
 
         {/* KPIs de materia prima: cada uno con variación vs pedido anterior y vs año pasado */}
         {kpis && (
