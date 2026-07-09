@@ -24,6 +24,12 @@ export interface RefCostPoint {
   landed_por_kg_cop: number | null;
   /** variación % del landed unitario vs el desembarco anterior de esta ref */
   delta_unit_pct: number | null;
+  /** FOB en USD/kg del renglón (null sin peso). */
+  fob_usd_kg: number | null;
+  /** Prima sobre SMM en USD/ton: FOB USD/ton − SMM cerrado del pedido.
+   *  El aluminio se compra a SMM + prima — si el FOB sube cuando el SMM baja,
+   *  la prima delata el margen del proveedor. null sin peso o sin SMM. */
+  prima_smm_usd_ton: number | null;
 }
 
 export interface RefCostSeries {
@@ -34,6 +40,12 @@ export interface RefCostSeries {
   first: RefCostPoint;           // primer desembarco registrado
   /** variación % del landed unitario entre el primero y el último */
   delta_total_pct: number | null;
+  /** Costo PROMEDIO ponderado por cantidad (Σ landed total ÷ Σ unidades):
+   *  el costo real histórico de compra de la referencia. */
+  avg_landed_unit_cop: number;
+  /** Última compra vs promedio ponderado: >0 = compraste más caro que tu
+   *  histórico. Señal más útil que primero-vs-último. */
+  delta_vs_avg_pct: number | null;
 }
 
 function importDate(imp: {
@@ -115,6 +127,7 @@ export function useReferenceCostHistory() {
         }
 
         for (const acc of byRefInImport.values()) {
+          const fobUsdKg = acc.pesoSeen && acc.peso > 0 && acc.fob > 0 ? acc.fob / acc.peso : null;
           points.push({
             reference: acc.ref,
             descripcion: acc.desc,
@@ -129,6 +142,10 @@ export function useReferenceCostHistory() {
             landed_unit_cop: acc.cant > 0 ? Math.round(acc.landedTotal / acc.cant) : 0,
             landed_por_kg_cop: acc.pesoSeen && acc.peso > 0 ? Math.round(acc.landedTotal / acc.peso) : null,
             delta_unit_pct: null,
+            fob_usd_kg: fobUsdKg !== null ? Math.round(fobUsdKg * 100) / 100 : null,
+            prima_smm_usd_ton: fobUsdKg !== null && imp.precio_smm_cerrado_usd_ton
+              ? Math.round(fobUsdKg * 1000 - imp.precio_smm_cerrado_usd_ton)
+              : null,
             _created: imp.created_at,
           });
         }
@@ -158,6 +175,10 @@ export function useReferenceCostHistory() {
         const deltaTotal = first.landed_unit_cop > 0
           ? Math.round(((last.landed_unit_cop - first.landed_unit_cop) / first.landed_unit_cop) * 1000) / 10
           : null;
+        // Promedio PONDERADO por cantidad: el costo real histórico de compra.
+        const totalCant = group.reduce((s, p) => s + p.cantidad, 0);
+        const totalLanded = group.reduce((s, p) => s + p.landed_unit_cop * p.cantidad, 0);
+        const avg = totalCant > 0 ? Math.round(totalLanded / totalCant) : 0;
         series.push({
           reference: group[0].reference,
           descripcion: group.find((p) => p.descripcion)?.descripcion ?? null,
@@ -165,6 +186,10 @@ export function useReferenceCostHistory() {
           first,
           last,
           delta_total_pct: deltaTotal,
+          avg_landed_unit_cop: avg,
+          delta_vs_avg_pct: avg > 0
+            ? Math.round(((last.landed_unit_cop - avg) / avg) * 1000) / 10
+            : null,
         });
       }
 

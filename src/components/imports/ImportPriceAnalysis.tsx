@@ -39,15 +39,27 @@ function SeriesRow({ s }: { s: RefCostSeries }) {
         </TableCell>
         <TableCell className="text-center text-xs">{s.points.length}</TableCell>
         <TableCell className="text-right text-xs font-mono">{fmtCop(s.first.landed_unit_cop)}</TableCell>
+        <TableCell
+          className="text-right text-xs font-mono text-muted-foreground"
+          title="Promedio ponderado por cantidad: tu costo real histórico de compra"
+        >
+          {fmtCop(s.avg_landed_unit_cop)}
+        </TableCell>
         <TableCell className="text-right text-xs font-mono font-semibold">{fmtCop(s.last.landed_unit_cop)}</TableCell>
         <TableCell className="text-right"><DeltaBadge pct={s.delta_total_pct} /></TableCell>
+        <TableCell
+          className="text-right"
+          title="Última compra vs tu promedio ponderado: rojo = compraste más caro que tu histórico"
+        >
+          <DeltaBadge pct={s.delta_vs_avg_pct} />
+        </TableCell>
         <TableCell className="text-right text-xs text-muted-foreground">
           {s.last.fecha ? format(parseLocalDate(s.last.fecha), 'MMM yyyy', { locale: es }) : '—'}
         </TableCell>
       </TableRow>
       {open && multi && (
         <TableRow>
-          <TableCell colSpan={6} className="bg-muted/20 p-0">
+          <TableCell colSpan={8} className="bg-muted/20 p-0">
             <div className="px-6 py-2">
               <Table>
                 <TableHeader>
@@ -55,6 +67,8 @@ function SeriesRow({ s }: { s: RefCostSeries }) {
                     <TableHead className="text-[10px] h-7">Fecha</TableHead>
                     <TableHead className="text-[10px] h-7">Proveedor</TableHead>
                     <TableHead className="text-[10px] h-7 text-right">SMM USD/t</TableHead>
+                    <TableHead className="text-[10px] h-7 text-right">FOB USD/kg</TableHead>
+                    <TableHead className="text-[10px] h-7 text-right" title="FOB USD/ton − SMM cerrado: lo que cobra el proveedor por encima del metal. Si sube cuando el SMM baja, te está corriendo el margen.">Prima USD/t</TableHead>
                     <TableHead className="text-[10px] h-7 text-right">TRM</TableHead>
                     <TableHead className="text-[10px] h-7 text-right">Landed unit.</TableHead>
                     <TableHead className="text-[10px] h-7 text-right">Δ</TableHead>
@@ -66,6 +80,8 @@ function SeriesRow({ s }: { s: RefCostSeries }) {
                       <TableCell className="text-[11px] py-1">{p.fecha ? format(parseLocalDate(p.fecha), 'dd MMM yyyy', { locale: es }) : '—'}</TableCell>
                       <TableCell className="text-[11px] py-1 truncate max-w-[140px]">{p.proveedor}</TableCell>
                       <TableCell className="text-[11px] py-1 text-right font-mono">{p.smm_usd_ton ? `$${p.smm_usd_ton.toLocaleString('en-US')}` : '—'}</TableCell>
+                      <TableCell className="text-[11px] py-1 text-right font-mono">{p.fob_usd_kg !== null ? `$${p.fob_usd_kg.toFixed(2)}` : '—'}</TableCell>
+                      <TableCell className="text-[11px] py-1 text-right font-mono">{p.prima_smm_usd_ton !== null ? `$${p.prima_smm_usd_ton.toLocaleString('en-US')}` : '—'}</TableCell>
                       <TableCell className="text-[11px] py-1 text-right font-mono">{p.trm > 0 ? `$${p.trm.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}</TableCell>
                       <TableCell className="text-[11px] py-1 text-right font-mono font-medium">{fmtCop(p.landed_unit_cop)}</TableCell>
                       <TableCell className="text-[11px] py-1 text-right"><DeltaBadge pct={p.delta_unit_pct} /></TableCell>
@@ -87,9 +103,17 @@ export default function ImportPriceAnalysis() {
   const kpis = useMemo(() => {
     const list = series ?? [];
     const withHistory = list.filter((s) => s.points.length > 1 && s.delta_total_pct !== null);
-    const avgDelta = withHistory.length > 0
-      ? withHistory.reduce((acc, s) => acc + (s.delta_total_pct ?? 0), 0) / withHistory.length
-      : null;
+    // "¿Estoy comprando caro?": última compra vs promedio ponderado histórico,
+    // agregado ponderando por el valor de la última compra de cada ref.
+    const conAvg = withHistory.filter((s) => s.delta_vs_avg_pct !== null);
+    let pesoTotal = 0;
+    let deltaPonderado = 0;
+    for (const s of conAvg) {
+      const peso = s.last.landed_unit_cop * s.last.cantidad;
+      pesoTotal += peso;
+      deltaPonderado += (s.delta_vs_avg_pct ?? 0) * peso;
+    }
+    const avgDelta = pesoTotal > 0 ? Math.round((deltaPonderado / pesoTotal) * 10) / 10 : null;
     const sorted = [...withHistory].sort((a, b) => (b.delta_total_pct ?? 0) - (a.delta_total_pct ?? 0));
     return {
       refsTotal: list.length,
@@ -133,9 +157,9 @@ export default function ImportPriceAnalysis() {
         </Card>
         <Card className="border-0 shadow-sm">
           <CardContent className="p-4">
-            <p className="text-[11px] text-muted-foreground">Variación promedio</p>
+            <p className="text-[11px] text-muted-foreground">Últimas compras vs histórico</p>
             <div className="mt-1"><span className="text-xl font-bold"><DeltaBadge pct={kpis.avgDelta} /></span></div>
-            <p className="text-[10px] text-muted-foreground mt-0.5">costo unitario landed</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">vs promedio ponderado · pesado por valor</p>
           </CardContent>
         </Card>
         <Card className="border-0 shadow-sm">
@@ -170,8 +194,10 @@ export default function ImportPriceAnalysis() {
                   <TableHead className="font-semibold text-xs">Referencia</TableHead>
                   <TableHead className="font-semibold text-xs text-center">Desembarcos</TableHead>
                   <TableHead className="font-semibold text-xs text-right">Primero</TableHead>
+                  <TableHead className="font-semibold text-xs text-right" title="Promedio ponderado por cantidad: tu costo real histórico">Promedio</TableHead>
                   <TableHead className="font-semibold text-xs text-right">Último</TableHead>
                   <TableHead className="font-semibold text-xs text-right">Δ total</TableHead>
+                  <TableHead className="font-semibold text-xs text-right" title="Última compra vs promedio ponderado">Δ vs prom.</TableHead>
                   <TableHead className="font-semibold text-xs text-right">Última compra</TableHead>
                 </TableRow>
               </TableHeader>
