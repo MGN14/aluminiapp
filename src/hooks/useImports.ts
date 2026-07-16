@@ -77,6 +77,8 @@ export interface ImportRow {
   import_estado_history?: ImportEstadoHistoryRow[];
   /** Costos adicionales (embebido) — flete, arancel, IVA importación, agencia */
   import_costs?: ImportCostRow[];
+  /** Docs del checklist (embebido, solo tipo) — para saber si ya está la declaración BanRep */
+  import_documents?: { tipo: string }[];
 }
 
 export interface ImportsSummary {
@@ -104,7 +106,7 @@ export function useImports() {
 
       const { data, error } = await supabase
         .from('imports' as never)
-        .select('*, import_estado_history(estado, fecha), import_costs(tipo, monto, moneda)')
+        .select('*, import_estado_history(estado, fecha), import_costs(tipo, monto, moneda), import_documents(tipo)')
         .order('fecha_estimada_llegada', { ascending: true, nullsFirst: false });
       if (error) throw error;
 

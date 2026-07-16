@@ -74,6 +74,12 @@ const fmtUSD = (n: number | null | undefined) => {
   return `$${Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 };
 
+/** Saldos en USD redondeados al dólar — los centavos solo meten ruido. */
+const fmtUSD0 = (n: number | null | undefined) => {
+  if (n === null || n === undefined) return '—';
+  return `$${Math.round(Number(n)).toLocaleString('en-US')}`;
+};
+
 /** Variación % con color: subir costos = rojo, bajar = verde. */
 function DeltaLine({ pct, label }: { pct: number | null; label: string }) {
   if (pct == null) return null;
@@ -432,7 +438,7 @@ export default function Importaciones() {
               <p className="text-sm text-muted-foreground">
                 {isLoading
                   ? 'Cargando...'
-                  : `${data?.total_abiertos ?? 0} pedidos abiertos · ${fmtUSD(data?.total_saldo_pendiente_usd ?? 0)} saldo USD`}
+                  : `${data?.total_abiertos ?? 0} pedidos abiertos · ${fmtUSD0(data?.total_saldo_pendiente_usd ?? 0)} saldo USD`}
               </p>
             </div>
           </div>
@@ -604,7 +610,7 @@ export default function Importaciones() {
                     </p>
                     <div className="text-[11px] space-y-0.5">
                       {radar.saldoProximo != null && radar.saldoProximo > 0 ? (
-                        <p><span className="text-muted-foreground">Saldo por girar:</span> <span className="font-mono font-semibold text-destructive">{fmtUSD(radar.saldoProximo)}</span></p>
+                        <p><span className="text-muted-foreground">Saldo por girar:</span> <span className="font-mono font-semibold text-destructive">{fmtUSD0(radar.saldoProximo)}</span></p>
                       ) : (
                         <p className="text-success font-medium">Mercancía 100% pagada ✓</p>
                       )}
@@ -771,20 +777,22 @@ export default function Importaciones() {
                     <TableHead className="font-semibold text-right">Agencia</TableHead>
                     <TableHead className="font-semibold text-right">Total USD</TableHead>
                     <TableHead className="font-semibold text-right">Saldo</TableHead>
+                    <TableHead className="font-semibold" title="Fecha en que arrancó el pedido (primera etapa registrada)">Inicio</TableHead>
                     <TableHead className="font-semibold">ETA</TableHead>
+                    <TableHead className="font-semibold" title="Fecha de entrega. Queda EN FIRME solo cuando subís la declaración frente al Banco de la República (certificado BanRep) en el checklist del pedido.">Cierre</TableHead>
                     <TableHead className="font-semibold text-right">Días</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={13} className="text-center py-12 text-muted-foreground">
                         Cargando importaciones...
                       </TableCell>
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center py-12">
+                      <TableCell colSpan={13} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
                           <p className="text-muted-foreground">
@@ -824,6 +832,14 @@ export default function Importaciones() {
                       const ivaEst = bd.ivaCop != null && bd.ivaCop > 0 ? bd.ivaCop : null;
                       const hayArancelReal = arancel.usd > 0 || arancel.cop > 0;
                       const hayIvaReal = iva.usd > 0 || iva.cop > 0;
+                      // Inicio = primera etapa registrada en el historial (fallback: fecha de cotización).
+                      const fechaInicio = (row.import_estado_history ?? [])
+                        .map(h => h.fecha).filter(Boolean).sort()[0] ?? row.fecha_cotizacion ?? null;
+                      // Cierre = fecha de entrega; en firme solo con la declaración BanRep subida.
+                      const fechaEntrega = row.import_estado_history?.find(h => h.estado === 'entregado')?.fecha
+                        ?? row.fecha_arribo_real ?? null;
+                      const tieneBanrep = row.cerrada
+                        || (row.import_documents ?? []).some(d => d.tipo === 'certificado_banrep');
                       return (
                         <TableRow
                           key={row.id}
@@ -908,11 +924,37 @@ export default function Importaciones() {
                           >
                             {fmtUSD(Number(row.monto_total_usd ?? 0) + flete.usd)}
                           </TableCell>
-                          <TableCell className="text-right text-sm font-mono font-bold text-destructive">{fmtUSD(row.saldo_pendiente_usd)}</TableCell>
+                          <TableCell className="text-right text-sm font-mono font-bold text-destructive">{fmtUSD0(row.saldo_pendiente_usd)}</TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {fechaInicio
+                              ? format(parseLocalDate(fechaInicio), 'dd MMM yy', { locale: es })
+                              : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
                           <TableCell className="text-sm">
                             {row.fecha_estimada_llegada
                               ? format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM yyyy', { locale: es })
                               : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          {/* Cierre: entregado ≠ cerrado — sin declaración BanRep queda "pendiente" */}
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {fechaEntrega ? (
+                              tieneBanrep ? (
+                                <span className="inline-flex items-center gap-1" title="Cierre en firme — declaración frente al Banco de la República subida">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
+                                  {format(parseLocalDate(fechaEntrega), 'dd MMM yy', { locale: es })}
+                                </span>
+                              ) : (
+                                <div title="Pendiente de cierre frente al Banco de la República — subí la declaración (certificado BanRep) en el checklist del pedido">
+                                  <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
+                                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                    {format(parseLocalDate(fechaEntrega), 'dd MMM yy', { locale: es })}
+                                  </span>
+                                  <div className="text-[10px] text-amber-600">pendiente cierre BanRep</div>
+                                </div>
+                              )
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-right text-sm font-mono">
                             {(() => {
