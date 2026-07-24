@@ -66,6 +66,7 @@ const ESTADO_BADGE: Record<ImportEstado, { bg: string; color: string; border: st
   transito:    { bg: 'bg-cyan-100',   color: 'text-cyan-700',   border: 'border-cyan-300' },
   aduana:      { bg: 'bg-purple-100', color: 'text-purple-700', border: 'border-purple-300' },
   entregado:   { bg: 'bg-green-100',  color: 'text-green-700',  border: 'border-green-300' },
+  cerrado:     { bg: 'bg-emerald-100', color: 'text-emerald-800', border: 'border-emerald-400' },
   cancelado:   { bg: 'bg-red-100',    color: 'text-red-700',    border: 'border-red-300' },
 };
 
@@ -195,9 +196,10 @@ export default function Importaciones() {
     // 'entregado', el siguiente toma el foco solo. "Anterior" = el último
     // entregado (la comparación es contra lo que YA llegó a bodega).
     const ESTADO_AVANCE: Record<string, number> = { cotizacion: 0, anticipo: 1, produccion: 2, transito: 3, aduana: 4 };
-    const entregados = ordered.filter(r => r.estado === 'entregado');
+    const yaLlego = (r: ImportRow) => r.estado === 'entregado' || r.estado === 'cerrado';
+    const entregados = ordered.filter(yaLlego);
     const abiertosPipeline = [...ordered]
-      .filter(r => r.estado !== 'entregado')
+      .filter(r => !yaLlego(r))
       .sort((a, b) => (ESTADO_AVANCE[b.estado] ?? 0) - (ESTADO_AVANCE[a.estado] ?? 0) || fechaRef(a).localeCompare(fechaRef(b)));
     const fechaEntrega = (r: ImportRow) => r.fecha_arribo_real ?? fechaRef(r);
     const entregadosOrd = [...entregados].sort((a, b) => fechaEntrega(a).localeCompare(fechaEntrega(b)));
@@ -208,7 +210,7 @@ export default function Importaciones() {
       : entregadosOrd[entregadosOrd.length - 2] ?? null;
     const ESTADO_LABEL: Record<string, string> = {
       cotizacion: 'cotización', anticipo: 'anticipo', produccion: 'en producción',
-      transito: 'en tránsito', aduana: 'en aduanas', entregado: 'entregado',
+      transito: 'en tránsito', aduana: 'en aduanas', entregado: 'entregado', cerrado: 'cerrado',
     };
     const focoLabel = foco ? `${foco.ref_pedido || foco.proveedor_nombre} · ${ESTADO_LABEL[foco.estado] ?? foco.estado}` : null;
 
@@ -318,7 +320,7 @@ export default function Importaciones() {
     // Lead time cotización→entrega: entregados reales; si no hay (negocio
     // arrancando), proxy con la ETA de los pedidos abiertos que la tienen.
     const ltEntregados = all
-      .filter(r => r.estado === 'entregado' && (r.import_estado_history?.length ?? 0) > 0)
+      .filter(r => (r.estado === 'entregado' || r.estado === 'cerrado') && (r.import_estado_history?.length ?? 0) > 0)
       .map(r => computeTotalDays(r.import_estado_history!, r.estado))
       .filter((t): t is { dias: number; enCurso: boolean } => !!t && !t.enCurso && t.dias > 0)
       .map(t => t.dias);
@@ -400,7 +402,9 @@ export default function Importaciones() {
     const q = search.trim().toLowerCase();
     return rows.filter(r => {
       if (filter === 'abiertos') {
-        if (r.estado === 'entregado' || r.estado === 'cancelado') return false;
+        // El ciclo cierra en 'cerrado', no en 'entregado' (decisión de Nico):
+        // un entregado sin cerrar frente al BanRep sigue siendo trabajo abierto.
+        if (r.estado === 'cerrado' || r.estado === 'cancelado') return false;
       } else if (filter !== 'todos') {
         if (r.estado !== filter) return false;
       }
@@ -716,10 +720,11 @@ export default function Importaciones() {
               />
             </div>
             <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5 flex-wrap">
-              {(['abiertos', 'todos', ...IMPORT_ESTADOS_ORDER] as Filter[]).map(f => {
+              {(['abiertos', 'todos', ...IMPORT_ESTADOS_ORDER, 'cerrado'] as Filter[]).map(f => {
                 const esEstado = f !== 'abiertos' && f !== 'todos';
                 const count = f === 'abiertos'
-                  ? (data?.abiertos.length ?? 0)
+                  // Mismo criterio que la tabla: abierto = todo lo NO cerrado/cancelado
+                  ? (data?.all.filter(r => r.estado !== 'cerrado' && r.estado !== 'cancelado').length ?? 0)
                   : f === 'todos'
                     ? (data?.all.length ?? 0)
                     : conteoPorEstado.get(f as ImportEstado) ?? 0;
@@ -874,7 +879,7 @@ export default function Importaciones() {
                                 title="Importación cerrada — solo el admin puede reabrirla (desde el modal)"
                               >
                                 <LockIcon className="h-3 w-3" />
-                                {IMPORT_ESTADO_LABEL[row.estado]} · Cerrada
+                                {row.estado === 'cerrado' ? 'Cerrada' : `${IMPORT_ESTADO_LABEL[row.estado]} · Cerrada`}
                               </span>
                             ) : (
                               <Select

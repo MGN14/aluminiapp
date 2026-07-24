@@ -41,7 +41,7 @@ export default function ExchangeDiffPanel({
   const pagado = pagadoAbonos > 0 ? pagadoAbonos : Math.max(0, anticipoPagadoUsd);
   const saldoUsd = Math.max(0, (Number(montoTotalUsd) || 0) - pagado);
   // En pedidos cerrados la deuda ya no fluctúa → no se revalúa el saldo.
-  const cerrado = estado === 'entregado' || estado === 'cancelado';
+  const cerrado = estado === 'entregado' || estado === 'cerrado' || estado === 'cancelado';
 
   const diff = computeExchangeDiff({
     trmCausacion,

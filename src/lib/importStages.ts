@@ -54,7 +54,7 @@ export function computeStageDurations(
   );
   if (!enFlujo.length) return [];
 
-  const cerrada = estadoActual === 'entregado' || estadoActual === 'cancelado';
+  const cerrada = estadoActual === 'entregado' || estadoActual === 'cerrado' || estadoActual === 'cancelado';
   const out: StageDuration[] = [];
   for (let i = 0; i < enFlujo.length; i++) {
     const estado = enFlujo[i];
@@ -86,7 +86,7 @@ export function computeTotalDays(
   const inicio = fechas[0];
   // La fecha de 'entregado' solo cierra el total si el pedido REALMENTE está
   // entregado (o cancelado) — regla de flujo, ver computeStageDurations.
-  const entregado = (estadoActual === 'entregado' || estadoActual === 'cancelado')
+  const entregado = (estadoActual === 'entregado' || estadoActual === 'cerrado' || estadoActual === 'cancelado')
     ? history.find(h => h.estado === 'entregado')?.fecha
     : undefined;
   if (entregado) return { dias: Math.max(0, daysBetween(inicio, entregado)), enCurso: false };

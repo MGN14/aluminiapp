@@ -2,7 +2,11 @@ import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useImportDocuments, IMPORT_DOC_LABEL, type ImportDocTipo, type ImportDocumentRow } from '@/hooks/useImportDocuments';
-import { CheckCircle2, Circle, Upload, Trash2, ExternalLink, Lock, LockOpen, Loader2 } from 'lucide-react';
+import { useImportItems, type NewImportItem } from '@/hooks/useImportItems';
+import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
+import { parseDelimited, parseLooseNumber } from '@/lib/delimitedParser';
+import { guessMapping, isSummaryReference, hasAnyData, makeCellNumberParser, type FieldKey } from '@/lib/packingListParse';
+import { CheckCircle2, Circle, Upload, Trash2, ExternalLink, Lock, LockOpen, Loader2, FileSpreadsheet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -23,15 +27,81 @@ interface ChecklistItem {
   requerido: number;
 }
 
+/** Resultado de leer el excel de costeo: filas listas para import_items. */
+interface CosteoParse {
+  rows: NewImportItem[];
+  conCosto: number;
+  sheetName: string | null;
+}
+
+/**
+ * Lee el excel/CSV de costeo con las MISMAS heurísticas del importador de
+ * packing list (guessMapping calibrado al formato de Nico) y devuelve las
+ * filas mapeadas. null = no se pudo leer una tabla con Referencia.
+ */
+async function parseCosteoFile(file: File): Promise<CosteoParse | null> {
+  const candidates: { name: string | null; rows: string[][]; strict: boolean }[] = [];
+  if (isExcelFile(file)) {
+    const sheets = await readXlsxFile(file);
+    for (const s of sheets) candidates.push({ name: s.name, rows: s.rows, strict: true });
+  } else {
+    const text = await file.text();
+    candidates.push({ name: null, rows: parseDelimited(text).rows, strict: false });
+  }
+
+  let best: CosteoParse | null = null;
+  for (const c of candidates) {
+    if (!c.rows.length) continue;
+    const colCount = Math.max(...c.rows.map(r => r.length));
+    const mapping: FieldKey[] = guessMapping(c.rows[0] ?? [], colCount);
+    if (!mapping.includes('reference')) continue;
+    const num = makeCellNumberParser(c.strict, parseLooseNumber);
+    const idxOf = (f: FieldKey) => mapping.indexOf(f);
+    const ref = idxOf('reference'), desc = idxOf('descripcion'), cant = idxOf('cantidad');
+    const uni = idxOf('unidad'), peso = idxOf('peso_kg'), fob = idxOf('fob_total_usd');
+    const col = idxOf('color'), bul = idxOf('bultos'), cue = idxOf('costo_unitario_excel');
+    const rows = c.rows.slice(1)
+      .map((r, i): NewImportItem => ({
+        reference: (ref > -1 ? r[ref] : '')?.trim() ?? '',
+        descripcion: desc > -1 ? (r[desc]?.trim() || null) : null,
+        cantidad: cant > -1 ? num(r[cant]) : 0,
+        unidad: uni > -1 ? (r[uni]?.trim() || 'kg') : 'kg',
+        peso_kg: peso > -1 && r[peso]?.trim() ? num(r[peso]) : null,
+        fob_total_usd: fob > -1 ? num(r[fob]) : 0,
+        orden: i,
+        notas: null,
+        color: col > -1 ? (r[col]?.trim() || null) : null,
+        bultos: bul > -1 && r[bul]?.trim() ? num(r[bul]) : null,
+        costo_unitario_excel: cue > -1 && r[cue]?.trim() ? num(r[cue]) : null,
+      }))
+      .filter(it => it.reference.length > 0 && !isSummaryReference(it.reference) && hasAnyData(it));
+    if (!rows.length) continue;
+    const conCosto = rows.filter(r => Number(r.costo_unitario_excel ?? 0) > 0).length;
+    // Mejor hoja = más filas válidas; a igualdad, la que trae costo unitario.
+    if (!best || rows.length > best.rows.length || (rows.length === best.rows.length && conCosto > best.conCosto)) {
+      best = { rows, conCosto, sheetName: c.name };
+    }
+  }
+  return best;
+}
+
 /**
  * Cierre de la importación con checklist documental (se habilita al pasar a
  * 'entregado'). El backend re-valida todo en cerrar_importacion(); esta UI
  * muestra el progreso y sube los archivos al bucket privado.
+ *
+ * El EXCEL DE COSTEO es además FUENTE DE VERDAD: al subirlo se parsea con las
+ * heurísticas del packing list y se ofrece aplicarlo a import_items
+ * (referencias + unidades + costo unitario) — de ahí salen la entrada a
+ * inventario por variante, la cobertura y el landed cost.
  */
 export default function ImportCierreSection({ importId, cerrada, cerradaAt, estado, esAdmin, paymentsCount }: Props) {
   const { docs, upload, remove, view, cerrar, reabrir } = useImportDocuments(importId);
+  const { items: itemsActuales, hayPacking, importItemSet } = useImportItems(importId);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadingTipo, setUploadingTipo] = useState<ImportDocTipo | null>(null);
+  const [costeoParsed, setCosteoParsed] = useState<CosteoParse | null>(null);
+  const [costeoWarn, setCosteoWarn] = useState<string | null>(null);
 
   const byTipo = (tipo: ImportDocTipo) => docs.filter(d => d.tipo === tipo);
 
@@ -74,8 +144,36 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
 
   const handleFile = async (file: File | undefined) => {
     if (!file || !uploadingTipo) return;
-    await upload.mutateAsync({ tipo: uploadingTipo, file });
+    const tipo = uploadingTipo;
+    await upload.mutateAsync({ tipo, file });
     setUploadingTipo(null);
+    // El excel de costeo también se LEE: referencias, unidades y costo
+    // unitario listos para aplicar al costeo del contenedor.
+    if (tipo === 'costeo_excel') {
+      setCosteoParsed(null);
+      setCosteoWarn(null);
+      try {
+        const parsed = await parseCosteoFile(file);
+        if (parsed) setCosteoParsed(parsed);
+        else setCosteoWarn('No encontré una tabla con columna de Referencia en ese archivo — el documento quedó subido; si querés cargar el costeo, usá "Importar CSV/Excel" en la pestaña Costeo (ahí podés mapear columnas a mano).');
+      } catch (e) {
+        setCosteoWarn(`El documento quedó subido, pero no pude leerlo como tabla: ${e instanceof Error ? e.message : 'archivo inválido'}`);
+      }
+    }
+  };
+
+  const aplicarCosteo = () => {
+    if (!costeoParsed) return;
+    const n = costeoParsed.rows.length;
+    const existentes = itemsActuales.filter(i => (i.source ?? 'packing') === 'packing').length;
+    const msg = hayPacking && existentes > 0
+      ? `Vas a REEMPLAZAR las ${existentes} filas del packing/costeo actual por las ${n} referencias del excel (con su costo unitario). ¿Continuar?`
+      : `Vas a cargar ${n} referencias del excel como costeo del contenedor. ¿Continuar?`;
+    if (!window.confirm(msg)) return;
+    importItemSet.mutate(
+      { rows: costeoParsed.rows, source: 'packing', replace: hayPacking && existentes > 0 },
+      { onSuccess: () => setCosteoParsed(null) },
+    );
   };
 
   const handleCerrar = async () => {
@@ -202,6 +300,36 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
                     <DocChip key={d.id} doc={d} onView={view} onRemove={(doc) => remove.mutate(doc)} />
                   ))}
                 </div>
+              )}
+
+              {/* El excel de costeo como FUENTE DE VERDAD del contenedor */}
+              {item.tipo === 'costeo_excel' && costeoParsed && (
+                <div className="mt-2 ml-6 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 space-y-1.5">
+                  <p className="text-[11px] leading-relaxed">
+                    <FileSpreadsheet className="h-3.5 w-3.5 inline mr-1 text-primary" />
+                    Leí <strong>{costeoParsed.rows.length} referencias</strong>
+                    {costeoParsed.sheetName ? <> (hoja "{costeoParsed.sheetName}")</> : null} —{' '}
+                    {costeoParsed.conCosto} con costo unitario,{' '}
+                    {costeoParsed.rows.reduce((s, r) => s + Number(r.cantidad ?? 0), 0).toLocaleString('es-CO')} unidades en total.
+                    Aplicalo y de ahí salen inventario, cobertura y landed cost.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button" size="sm" className="h-7 text-xs gap-1"
+                      onClick={aplicarCosteo}
+                      disabled={importItemSet.isPending}
+                    >
+                      {importItemSet.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                      {hayPacking ? 'Aplicar (reemplaza el costeo actual)' : 'Aplicar como costeo del contenedor'}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setCosteoParsed(null)}>
+                      Solo guardar el archivo
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {item.tipo === 'costeo_excel' && costeoWarn && (
+                <p className="mt-1.5 ml-6 text-[11px] text-amber-600 leading-relaxed">{costeoWarn}</p>
               )}
             </div>
           );

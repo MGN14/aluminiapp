@@ -21,6 +21,7 @@ import ImportCostingSection from './ImportCostingSection';
 import ImportCostsTable from './ImportCostsTable';
 import { useImportItems } from '@/hooks/useImportItems';
 import ImportCierreSection from './ImportCierreSection';
+import AduanaRealCosts from './AduanaRealCosts';
 import CosteoCsvTools from './CosteoCsvTools';
 import ExchangeDiffPanel from './ExchangeDiffPanel';
 
@@ -152,7 +153,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       for (const h of editing.import_estado_history ?? []) fechas[h.estado] = h.fecha;
       if (!fechas.cotizacion && editing.fecha_cotizacion) fechas.cotizacion = editing.fecha_cotizacion;
       if (!fechas.transito && editing.fecha_embarque) fechas.transito = editing.fecha_embarque;
-      if (!fechas.entregado && editing.fecha_arribo_real && editing.estado === 'entregado') {
+      if (!fechas.entregado && editing.fecha_arribo_real && (editing.estado === 'entregado' || editing.estado === 'cerrado')) {
         fechas.entregado = editing.fecha_arribo_real;
       }
       setEstadoFechas(fechas);
@@ -239,7 +240,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
       // regla de flujo: nada de fechas para etapas que aún no llegaron)
       fecha_cotizacion: estadoFechas.cotizacion || null,
       fecha_embarque: (etapaFutura('transito') ? null : estadoFechas.transito) || null,
-      fecha_arribo_real: estado === 'entregado' ? (estadoFechas.entregado || null) : null,
+      fecha_arribo_real: (estado === 'entregado' || estado === 'cerrado') ? (estadoFechas.entregado || null) : null,
       fecha_estimada_llegada: fechaEta || null,
       ref_pedido: refPedido.trim() || null,
       notas: notas.trim() || null,
@@ -313,7 +314,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const totalUsdContenedor = totalNum + flete.usd + seguro.usd;
 
   // ETA: días restantes (o atraso) para pedidos abiertos
-  const etaDias = fechaEta && estado !== 'entregado' && estado !== 'cancelado'
+  const etaDias = fechaEta && estado !== 'entregado' && estado !== 'cerrado' && estado !== 'cancelado'
     ? daysFromToday(fechaEta)
     : null;
 
@@ -321,7 +322,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
   const leadTimeProm = useMemo(() => {
     const rows = importsData?.all ?? [];
     const dias = rows
-      .filter(r => r.estado === 'entregado' && (r.import_estado_history?.length ?? 0) > 0)
+      .filter(r => (r.estado === 'entregado' || r.estado === 'cerrado') && (r.import_estado_history?.length ?? 0) > 0)
       .map(r => computeTotalDays(r.import_estado_history!, r.estado))
       .filter((t): t is { dias: number; enCurso: boolean } => !!t && !t.enCurso && t.dias > 0)
       .map(t => t.dias);
@@ -496,6 +497,10 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                     {isEdit && editing!.estado === 'anticipo' && (
                       <SelectItem value="anticipo" disabled>Anticipo pagado (viejo)</SelectItem>
                     )}
+                    {/* Cerrado no se elige a mano: se llega vía el checklist de cierre */}
+                    {estado === 'cerrado' && (
+                      <SelectItem value="cerrado" disabled>Cerrado (vía checklist)</SelectItem>
+                    )}
                     <SelectItem value="cancelado">Cancelado</SelectItem>
                   </SelectContent>
                 </Select>
@@ -530,6 +535,13 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
               <div className="rounded-xl border border-border bg-card px-3 py-2.5">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Pagado</p>
                 <p className="text-xl font-bold font-mono leading-tight text-foreground">{fmtUSD0(pagadoVivo)}</p>
+                {/* TRM promedio REALMENTE pagada (ponderada de los abonos) — el
+                    dato que Nico no veía en ningún lado */}
+                <p className="text-[10px] text-muted-foreground">
+                  {trmPonderada != null
+                    ? <>TRM prom. pagada <span className="font-mono font-semibold text-foreground">${Number(trmPonderada).toLocaleString('es-CO', { maximumFractionDigits: 0 })}</span></>
+                    : 'TRM pagada: registrá abonos'}
+                </p>
                 <div className="h-1.5 rounded-full bg-muted mt-1.5 overflow-hidden">
                   <div className="h-full rounded-full bg-success" style={{ width: `${pagadoPct}%` }} />
                 </div>
@@ -593,6 +605,12 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                   esAdmin={!!esAdmin}
                   paymentsCount={payments.length}
                 />
+
+                {/* Liquidación de aduana REAL — se habilita desde 'en aduana':
+                    lo pagado manda sobre el estimado por TRM (pedido de Nico) */}
+                {(estado === 'aduana' || estado === 'entregado' || estado === 'cerrado') && (
+                  <AduanaRealCosts importId={editing.id} disabled={bloqueada} />
+                )}
 
                 {/* ── TIEMPOS DEL CONTENEDOR: legibles, con análisis vs histórico ── */}
                 <div className="rounded-xl border border-border bg-card px-4 py-3 space-y-3">
@@ -701,7 +719,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
 
                 {/* Sin proforma/packing = pedido invisible para la cobertura.
                     Es incoherente tener una importación sin proforma (Nico). */}
-                {editing && itemsDelPedido.length === 0 && estado !== 'entregado' && estado !== 'cancelado' && (
+                {editing && itemsDelPedido.length === 0 && estado !== 'entregado' && estado !== 'cerrado' && estado !== 'cancelado' && (
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
                     ⚠️ <strong>Este pedido no tiene proforma ni packing list.</strong> Sin él, su carga NO cuenta
                     como cobertura (el análisis de reorden lo ignora) y no hay costeo por referencia. Subí el
@@ -843,7 +861,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 })()}
 
                 {/* ¿Cuándo montar el próximo pedido? Lead time real de tus entregas */}
-                {leadTimeProm != null && estado !== 'entregado' && (
+                {leadTimeProm != null && estado !== 'entregado' && estado !== 'cerrado' && (
                   <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-xs leading-relaxed">
                     <span className="font-semibold text-primary">Próximo pedido:</span>{' '}
                     tus contenedores entregados demoraron en promedio <strong>{leadTimeProm} días</strong> de

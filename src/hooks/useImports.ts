@@ -11,11 +11,14 @@ export type ImportEstado =
   | 'transito'
   | 'aduana'
   | 'entregado'
+  | 'cerrado'
   | 'cancelado';
 
 // 'anticipo' salió del flujo (decisión de Nico: "no es un estado como tal" —
 // el anticipo es un pago, no una etapa del contenedor). Sigue en el type y en
 // los labels solo para renderizar filas legacy que quedaron con ese valor.
+// 'cerrado' tampoco va en el ORDER: es la etapa FINAL administrativa y solo
+// se llega vía el checklist de cierre (cerrar_importacion), no por el select.
 export const IMPORT_ESTADOS_ORDER: ImportEstado[] = [
   'cotizacion', 'produccion', 'transito', 'aduana', 'entregado',
 ];
@@ -27,8 +30,12 @@ export const IMPORT_ESTADO_LABEL: Record<ImportEstado, string> = {
   transito: 'En tránsito',
   aduana: 'En aduana',
   entregado: 'Entregado',
+  cerrado: 'Cerrado',
   cancelado: 'Cancelado',
 };
+
+/** ¿Ya llegó a bodega? (entregado o cerrado — para KPIs y lead times). */
+export const importYaEntregada = (e: ImportEstado) => e === 'entregado' || e === 'cerrado';
 
 export interface ImportEstadoHistoryRow {
   estado: ImportEstado;
@@ -112,7 +119,11 @@ export function useImports() {
 
       const rows = ((data as unknown) as ImportRow[]) ?? [];
 
-      const abiertos = rows.filter(r => r.estado !== 'entregado' && r.estado !== 'cancelado');
+      // abiertos = pipeline logístico (aún no llegó). El ciclo de NEGOCIO
+      // cierra en 'cerrado': los entregados sin cerrar siguen visibles en la
+      // lista (filtro 'abiertos' de la página) y su saldo sigue contando.
+      const abiertos = rows.filter(r => r.estado !== 'entregado' && r.estado !== 'cerrado' && r.estado !== 'cancelado');
+      const conSaldoVivo = rows.filter(r => r.estado !== 'cerrado' && r.estado !== 'cancelado');
       const todayIso = new Date().toISOString().split('T')[0];
       const horizon = new Date();
       horizon.setDate(horizon.getDate() + 30);
@@ -126,7 +137,9 @@ export function useImports() {
       return {
         all: rows,
         abiertos,
-        total_saldo_pendiente_usd: abiertos.reduce((s, r) => s + Number(r.saldo_pendiente_usd ?? 0), 0),
+        // Saldo pendiente sobre TODO lo no cerrado: un contenedor entregado
+        // pero sin cerrar con saldo por girar sigue siendo plata por pagar.
+        total_saldo_pendiente_usd: conSaldoVivo.reduce((s, r) => s + Number(r.saldo_pendiente_usd ?? 0), 0),
         total_abiertos: abiertos.length,
         proximos_30d,
       };
@@ -279,19 +292,34 @@ export function useImports() {
       // con su costo (idempotente — reintentar no duplica el contenedor). Si
       // el estado se corrige DESDE entregado, la entrada se revierte.
       // Best-effort: no-op sin maestra sembrada; un fallo no bloquea el cambio.
+      let variantes: { applied: number; unmatched: string[] } | null = null;
       try {
         if (estado === 'entregado') {
-          await applyVariantImportEntrada(row.id);
+          variantes = await applyVariantImportEntrada(row.id);
         } else if (row.estado === 'entregado') {
           await reverseVariantImportEntrada(row.id);
         }
       } catch (e) {
         console.warn('[variantes] entrada por packing no aplicada:', e);
       }
+      return { variantes };
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       invalidate();
-      toast({ title: 'Estado actualizado' });
+      // Que se VEA qué entró al inventario por variante — antes era silencioso
+      // y las referencias sin variante en la maestra se perdían sin aviso.
+      const v = res?.variantes;
+      if (v && (v.applied > 0 || v.unmatched.length > 0)) {
+        toast({
+          title: `Estado actualizado · ${v.applied} variante${v.applied === 1 ? '' : 's'} sumada${v.applied === 1 ? '' : 's'} al inventario`,
+          description: v.unmatched.length
+            ? `Sin variante en la maestra (NO entraron): ${v.unmatched.slice(0, 6).join(', ')}${v.unmatched.length > 6 ? '…' : ''} — crealas en Inventario y volvé a marcar entregado.`
+            : undefined,
+          ...(v.unmatched.length ? { duration: 12000 } : {}),
+        });
+      } else {
+        toast({ title: 'Estado actualizado' });
+      }
     },
     onError: (err: Error) => {
       toast({ title: 'Error al cambiar estado', description: err.message, variant: 'destructive' });
