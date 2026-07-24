@@ -19,8 +19,21 @@ function fmtFecha(iso: string): string {
   return new Date(iso + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + Math.round(days));
+  return d.toISOString().slice(0, 10);
+}
+
+function daysFromToday(iso: string): number {
+  const hoy = new Date();
+  const a = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const b = new Date(iso + 'T00:00:00Z').getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
 export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?: () => void }) {
-  const { isPending, suggestion: sug, pedidosSinItems, pipeline } = useReorderSuggestion();
+  const { isPending, suggestion: sug, pedidosSinItems, pipeline, diasCotizacion } = useReorderSuggestion();
 
   if (isPending || !sug) {
     return (
@@ -65,7 +78,23 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
         </div>
 
         {sug.fechaLimite ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-x-6 gap-y-2">
+            {/* Cotizar arranca ANTES de montar: fecha límite − días promedio
+                de cotización (medidos de tus pedidos; 14d sin historia). */}
+            {(() => {
+              const fechaCotizar = addDaysIso(sug.fechaLimite, -diasCotizacion);
+              const diasCotizar = daysFromToday(fechaCotizar);
+              const tono = diasCotizar <= 0 ? 'text-destructive' : diasCotizar <= 7 ? 'text-warning' : 'text-foreground';
+              return (
+                <div title={`Cotizar te toma ~${diasCotizacion} días (promedio de tus pedidos) — arrancá con esa anticipación para poder montar a tiempo`}>
+                  <p className="text-[11px] text-muted-foreground">Empezar a cotizar</p>
+                  <p className={cn('text-lg font-bold', tono)}>
+                    {diasCotizar <= 0 ? 'cotizá YA' : fmtFecha(fechaCotizar)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">~{diasCotizacion}d de cotización</p>
+                </div>
+              );
+            })()}
             <div>
               <p className="text-[11px] text-muted-foreground">Fecha límite para montar</p>
               <p className={cn(

@@ -54,6 +54,10 @@ export interface UseReorderSuggestionResult {
   /** Días promedio entre pedidos (fecha_anticipo/cotización), acotado 20-120;
    *  45 por defecto mientras no haya historia. */
   cicloPedidoDias: number;
+  /** Días promedio de COTIZACIÓN (cotización → producción). No es etapa del
+   *  lead time, pero dice cuánto ANTES de la fecha límite hay que empezar a
+   *  cotizar. Acotado 5-45; 14 por defecto sin historia. */
+  diasCotizacion: number;
   /** Modelo de demanda por familia: consumo censurado, días con stock,
    *  serie mensual y estado de la estacionalidad. */
   demandPorFamilia: Map<string, FamilyDemand>;
@@ -207,7 +211,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
   const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
   if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
   }
 
   const today = isoToday();
@@ -325,6 +329,22 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     ? Math.min(120, Math.max(20, Math.round(ultimos.reduce((a, b) => a + b, 0) / ultimos.length)))
     : 45;
 
+  // Días de cotización promedio: cotización → producción según el historial.
+  // La cotización salió del lead time (es decisión, no abastecimiento), pero
+  // define cuánto ANTES de la fecha límite hay que empezar a cotizar.
+  const diasCot: number[] = [];
+  for (const r of importsData.all ?? []) {
+    const cot = fechaDeEstado(r, 'cotizacion') ?? r.fecha_cotizacion;
+    const prod = fechaDeEstado(r, 'produccion') ?? r.fecha_anticipo;
+    if (cot && prod && prod > cot) {
+      const d = Math.round((new Date(prod + 'T00:00:00Z').getTime() - new Date(cot + 'T00:00:00Z').getTime()) / 86_400_000);
+      if (d > 0 && d <= 120) diasCot.push(d);
+    }
+  }
+  const diasCotizacion = diasCot.length
+    ? Math.min(45, Math.max(5, Math.round(diasCot.reduce((a, b) => a + b, 0) / diasCot.length)))
+    : 14;
+
   // ── Cobertura por VARIANTE DE COLOR ──
   // Tránsito re-mapeado a variante: al proforma (sin sufijo) la app le pone
   // el sufijo desde su columna Color; el packing ya viene con sufijo.
@@ -406,5 +426,5 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     [...kgVarAcc.entries()].map(([k, v]) => [k, v.kg / v.cant]),
   );
 
-  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, demandPorFamilia, porVariante, kgPorUnidadVariante };
+  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, demandPorFamilia, porVariante, kgPorUnidadVariante };
 }

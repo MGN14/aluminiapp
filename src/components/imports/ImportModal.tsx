@@ -43,6 +43,10 @@ const daysFromToday = (dateStr: string) => {
 const fmtUSD0 = (n: number) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 const fmtFecha = (iso: string) =>
   new Date(iso + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+const isoAddDays = (iso: string, d: number) => {
+  const [y, m, dd] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, dd + Math.round(d))).toISOString().slice(0, 10);
+};
 
 const OTRO_PROVEEDOR = '__otro__';
 
@@ -342,6 +346,10 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
     return Object.keys(avgs).length ? avgs : null;
   }, [importsData]);
 
+  // Nacionalización promedio (etapa aduana: puerto → entregado) — para
+  // pronosticar la llegada a BODEGA desde la ETA a puerto que se carga.
+  const nacPromDias = stageProm?.aduana?.promedio ?? 10;
+
   const stages = isEdit && editing?.import_estado_history?.length
     ? computeStageDurations(editing.import_estado_history, editing.estado)
     : [];
@@ -569,15 +577,18 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 etaDias != null && etaDias < 0 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/20' : 'border-border bg-card',
               )}>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 flex items-center gap-1">
-                  <CalendarClock className="h-3 w-3" /> ETA llegada
+                  <CalendarClock className="h-3 w-3" /> ETA puerto
                 </p>
                 <p className="text-xl font-bold leading-tight text-foreground">
                   {fechaEta ? fmtFecha(fechaEta) : '—'}
                 </p>
                 <p className={cn('text-[10px]', etaDias != null && etaDias < 0 ? 'text-amber-700 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>
                   {etaDias == null
-                    ? (estado === 'entregado' ? 'entregado' : 'sin ETA — ponela en Resumen')
-                    : etaDias >= 0 ? `en ${etaDias} día${etaDias !== 1 ? 's' : ''}` : `atrasada ${-etaDias}d`}
+                    ? (estado === 'entregado' || estado === 'cerrado' ? 'entregado' : 'sin ETA — ponela en Resumen')
+                    : <>
+                        {etaDias >= 0 ? `en ${etaDias} día${etaDias !== 1 ? 's' : ''}` : `atrasada ${-etaDias}d`}
+                        {fechaEta && <> · bodega ≈ <strong>{fmtFecha(isoAddDays(fechaEta, nacPromDias))}</strong></>}
+                      </>}
                 </p>
               </div>
             </div>
@@ -706,8 +717,8 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
 
                   {/* ETA — estimada, vive acá en el Resumen (la real de aduana va en Datos) */}
                   <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2.5">
-                    <Label className="text-xs font-medium flex items-center gap-1">
-                      <CalendarClock className="h-3.5 w-3.5 text-primary" /> ETA llegada (estimada)
+                    <Label className="text-xs font-medium flex items-center gap-1" title="La fecha que te da la naviera/agencia: llegada del contenedor a PUERTO. La app le suma tu promedio de nacionalización para pronosticar bodega.">
+                      <CalendarClock className="h-3.5 w-3.5 text-primary" /> ETA a puerto (estimada)
                     </Label>
                     <Input
                       type="date"
@@ -719,6 +730,12 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                     {etaDias != null && (
                       <span className={cn('text-xs font-medium', etaDias < 0 ? 'text-amber-600' : 'text-muted-foreground')}>
                         {etaDias >= 0 ? `en ${etaDias} día${etaDias !== 1 ? 's' : ''}` : `atrasada ${-etaDias}d`}
+                      </span>
+                    )}
+                    {fechaEta && estado !== 'entregado' && estado !== 'cerrado' && (
+                      <span className="text-xs text-muted-foreground">
+                        · en bodega ≈ <strong className="text-foreground">{fmtFecha(isoAddDays(fechaEta, nacPromDias))}</strong>
+                        <span title={`ETA puerto + ~${nacPromDias}d de nacionalización (tu promedio)`}> (+{nacPromDias}d)</span>
                       </span>
                     )}
                   </div>
@@ -928,7 +945,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-sm">ETA llegada (estimada)</Label>
+                  <Label className="text-sm" title="La fecha de la naviera: llegada a PUERTO. La app pronostica bodega sumando tu promedio de nacionalización.">ETA a puerto (estimada)</Label>
                   <Input type="date" value={fechaEta} onChange={e => setFechaEta(e.target.value)} />
                 </div>
               </div>

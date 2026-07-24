@@ -316,6 +316,9 @@ export default function Importaciones() {
   // el radar calculaba su propia fecha con cadencia de pedidos y se
   // contradecía con la card en pantalla).
   const reorder = useReorderSuggestion();
+  // ETA que carga Nico = llegada a PUERTO. Bodega = puerto + nacionalización
+  // promedio (medida por el motor de reorden; 10d por defecto).
+  const nacProm = reorder.suggestion?.leadTime.nacionalizacion.dias ?? 10;
   // Pedidos abiertos sin proforma/packing → badge en la lista (es incoherente
   // una importación sin proforma: queda invisible para la cobertura).
   const sinProformaIds = useMemo(
@@ -830,7 +833,7 @@ export default function Importaciones() {
                     <TableHead className="font-semibold text-right">Total USD</TableHead>
                     <TableHead className="font-semibold text-right">Saldo</TableHead>
                     <TableHead className="font-semibold" title="Fecha en que arrancó el pedido (primera etapa registrada)">Inicio</TableHead>
-                    <TableHead className="font-semibold">ETA</TableHead>
+                    <TableHead className="font-semibold" title="La ETA que cargás es la llegada a PUERTO; la app le suma tu promedio de nacionalización para pronosticar la llegada a bodega.">ETA bodega</TableHead>
                     <TableHead className="font-semibold" title="Fecha de entrega. Queda EN FIRME solo cuando subís la declaración frente al Banco de la República (certificado BanRep) en el checklist del pedido.">Cierre</TableHead>
                     <TableHead className="font-semibold text-right">Días</TableHead>
                   </TableRow>
@@ -985,10 +988,20 @@ export default function Importaciones() {
                               ? format(parseLocalDate(fechaInicio), 'dd MMM yy', { locale: es })
                               : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell className="text-sm">
-                            {row.fecha_estimada_llegada
-                              ? format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM yyyy', { locale: es })
-                              : <span className="text-muted-foreground">—</span>}
+                          {/* ETA cargada = PUERTO; pronóstico bodega = + nacionalización prom. */}
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {row.fecha_estimada_llegada ? (
+                              (row.estado === 'entregado' || row.estado === 'cerrado') ? (
+                                <span className="text-muted-foreground">{format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM yy', { locale: es })}</span>
+                              ) : (
+                                <div title={`Puerto ${format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM', { locale: es })} + ~${nacProm}d de nacionalización`}>
+                                  <span className="font-medium">
+                                    ≈{format(parseLocalDate(isoAddDays(row.fecha_estimada_llegada, nacProm)), 'dd MMM yyyy', { locale: es })}
+                                  </span>
+                                  <div className="text-[10px] text-muted-foreground">puerto {format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM', { locale: es })}</div>
+                                </div>
+                              )
+                            ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                           {/* Cierre: entregado ≠ cerrado — sin declaración BanRep queda "pendiente" */}
                           <TableCell className="text-sm whitespace-nowrap">
