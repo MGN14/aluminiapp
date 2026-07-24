@@ -5,9 +5,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useInventoryData } from '@/hooks/useInventoryData';
 import { parseScan } from '@/lib/qrLabel';
+import { refFamilyKey } from '@/lib/refFamily';
+import { computeContainerSellThrough, type ContainerInput, type VentaInput } from '@/lib/containerSellThrough';
 import { Input } from '@/components/ui/input';
 import AppLayout from '@/components/layout/AppLayout';
-import { Truck, ClipboardCheck, RefreshCw, AlertTriangle, Users, Clock, Search, PackageSearch, Package, Loader2 } from 'lucide-react';
+import { Truck, ClipboardCheck, RefreshCw, AlertTriangle, Users, Clock, Search, PackageSearch, Package, Loader2, Ship } from 'lucide-react';
 
 function fmtMin(mins: number | null): string {
   if (mins == null) return '—';
@@ -88,6 +90,67 @@ export default function ReportesBodega() {
     return withT.length ? Math.round(withT.reduce((s, c) => s + (c.minutes || 0), 0) / withT.length) : null;
   })();
 
+  // ── Velocidad de venta por contenedor ──
+  // ¿En cuántos días se vende cada referencia del contenedor (y el contenedor
+  // completo)? Entrada = fecha de 'entregado'; ventas = remisiones de venta
+  // desde esa fecha, atribuidas FIFO al contenedor más viejo por familia.
+  const { data: sellThrough = [] } = useQuery({
+    queryKey: ['rep-sell-through', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data: imps, error } = await (supabase as any)
+        .from('imports')
+        .select('id, proveedor_nombre, ref_pedido, estado, fecha_arribo_real, import_estado_history(estado, fecha), import_items(reference, cantidad, source)')
+        .in('estado', ['entregado', 'cerrado'])
+        .order('fecha_arribo_real', { ascending: false })
+        .limit(6);
+      if (error) throw error;
+      const rows = (imps ?? []) as Array<{
+        id: string; proveedor_nombre: string; ref_pedido: string | null;
+        fecha_arribo_real: string | null;
+        import_estado_history?: { estado: string; fecha: string }[];
+        import_items?: { reference: string; cantidad: number; source: string | null }[];
+      }>;
+      const containers: ContainerInput[] = rows
+        .map(r => {
+          const entrega = r.import_estado_history?.find(h => h.estado === 'entregado')?.fecha ?? r.fecha_arribo_real;
+          const all = r.import_items ?? [];
+          const hayPacking = all.some(it => (it.source ?? 'packing') === 'packing');
+          const items = hayPacking ? all.filter(it => (it.source ?? 'packing') === 'packing') : all;
+          const fams = new Map<string, { label: string; qty: number }>();
+          for (const it of items) {
+            const key = refFamilyKey(it.reference);
+            if (!key) continue;
+            const f = fams.get(key) ?? { label: it.reference, qty: 0 };
+            f.qty += Math.abs(Number(it.cantidad ?? 0));
+            fams.set(key, f);
+          }
+          return entrega && fams.size ? {
+            id: r.id,
+            label: r.ref_pedido || r.proveedor_nombre,
+            entrega,
+            familias: [...fams.entries()].map(([famKey, f]) => ({ famKey, label: f.label, qty: f.qty })),
+          } : null;
+        })
+        .filter((c): c is ContainerInput => c !== null);
+      if (!containers.length) return [];
+
+      const desde = containers.reduce((min, c) => (c.entrega < min ? c.entrega : min), containers[0].entrega);
+      const { data: rem, error: remErr } = await (supabase as any)
+        .from('remision_items')
+        .select('reference, units, remisiones!inner(date, remision_type, status)')
+        .eq('remisiones.remision_type', 'venta')
+        .neq('remisiones.status', 'cancelado')
+        .gte('remisiones.date', desde);
+      if (remErr) throw remErr;
+      const ventas: VentaInput[] = ((rem ?? []) as Array<{ reference: string; units: number; remisiones: { date: string } }>)
+        .map(v => ({ famKey: refFamilyKey(v.reference), date: v.remisiones?.date ?? '', qty: Math.abs(Number(v.units ?? 0)) }))
+        .filter(v => !!v.famKey);
+
+      return computeContainerSellThrough(containers, ventas, new Date().toISOString().slice(0, 10));
+    },
+  });
+
   // ── Rotación + durabilidad (del inventario) ──
   const stockOf = (p: typeof products[number]) => (isGerencial ? p.teorico : p.stock_system);
   const topRotacion = useMemo(() => [...products].filter(p => p.rotation > 0).sort((a, b) => b.rotation - a.rotation).slice(0, 6), [products]);
@@ -153,8 +216,65 @@ export default function ReportesBodega() {
           )}
         </Card>
 
+        {/* Velocidad de venta por contenedor */}
+        <Card icon={<Ship className="h-4 w-4 text-sky-600" />} title="Velocidad de venta por contenedor"
+          right={(() => {
+            const agotados = sellThrough.filter(c => c.agotado && c.diasPonderados != null);
+            const prom = agotados.length
+              ? Math.round(agotados.reduce((s, c) => s + (c.diasPonderados ?? 0), 0) / agotados.length)
+              : null;
+            return prom != null ? <Avg label="prom. contenedores vendidos" value={`${prom}d`} /> : null;
+          })()}>
+          {sellThrough.length === 0 ? (
+            <Empty>Sin contenedores entregados con packing list todavía. Al entregar un contenedor, acá se mide en cuántos días se vende cada referencia.</Empty>
+          ) : (
+            <div className="space-y-4 px-2 pb-2">
+              {sellThrough.slice(0, 3).map(c => (
+                <div key={c.id}>
+                  <div className="flex items-center justify-between flex-wrap gap-2 px-1 pb-1.5">
+                    <div className="text-sm font-semibold">
+                      {c.label}
+                      <span className="text-xs font-normal text-muted-foreground"> · entregado {fmtDate(c.entrega)} · hace {c.diasDesdeEntrega}d</span>
+                    </div>
+                    <div className="text-xs">
+                      <span className={`font-bold ${c.pctVendido >= 70 ? 'text-emerald-600' : c.pctVendido >= 30 ? 'text-amber-600' : 'text-muted-foreground'}`}>{c.pctVendido}% vendido</span>
+                      {c.diasPonderados != null && (
+                        <span className="text-muted-foreground"> · {c.agotado ? 'se vendió en' : 'ritmo p/ vender'} ~{c.diasPonderados}d</span>
+                      )}
+                    </div>
+                  </div>
+                  <Table head={['Referencia', 'Unds', 'Vendidas', '%', 'Días p/ agotar']}>
+                    {c.familias.slice(0, 8).map(f => (
+                      <tr key={f.famKey}>
+                        <Td className="font-semibold truncate max-w-[180px]">{f.label}</Td>
+                        <Td className="text-right tabular-nums">{Math.round(f.qty)}</Td>
+                        <Td className="text-right tabular-nums">{Math.round(f.vendidas)}</Td>
+                        <Td className={`text-right tabular-nums font-semibold ${f.pctVendido >= 100 ? 'text-emerald-600' : ''}`}>{f.pctVendido}%</Td>
+                        <Td className="text-right font-mono font-semibold">
+                          {f.diasAgote != null
+                            ? <span className="text-emerald-600">{f.diasAgote}d ✓</span>
+                            : f.diasProyectados != null
+                              ? <span className="text-muted-foreground">~{f.diasProyectados}d</span>
+                              : <span className="text-amber-600">sin ventas</span>}
+                        </Td>
+                      </tr>
+                    ))}
+                  </Table>
+                  {c.familias.length > 8 && (
+                    <p className="text-[11px] text-muted-foreground px-3 pt-1">… y {c.familias.length - 8} referencias más (ordenadas por unidades).</p>
+                  )}
+                </div>
+              ))}
+              <p className="text-[11px] text-muted-foreground px-1">
+                Ventas = remisiones de venta desde la entrega, atribuidas al contenedor más viejo que tenga esa familia (FIFO).
+                "~Nd" = proyección al ritmo actual; "✓" = agotada de verdad. Este mismo consumo alimenta el modelo de demanda de Cobertura.
+              </p>
+            </div>
+          )}
+        </Card>
+
         {/* Rotación */}
-        <Card icon={<RefreshCw className="h-4 w-4 text-emerald-600" />} title="Rotación de inventario"
+        <Card icon={<RefreshCw className="h-4 w-4 text-emerald-600" />} title={`Rotación de inventario — ${isGerencial ? 'remisiones (real)' : 'facturación (Siigo/DIAN)'}`}
           right={<Avg label="días inv. prom." value={metrics.avgDaysOfInventory ? `${metrics.avgDaysOfInventory}d` : '—'} />}>
           {topRotacion.length === 0 ? (
             <Empty>Sin ventas en los últimos 30 días para calcular rotación.</Empty>
@@ -174,7 +294,7 @@ export default function ReportesBodega() {
         </Card>
 
         {/* Durabilidad / alertas (stock parado) */}
-        <Card icon={<AlertTriangle className="h-4 w-4 text-amber-500" />} title="Durabilidad — stock parado (sin movimiento 30d)"
+        <Card icon={<AlertTriangle className="h-4 w-4 text-amber-500" />} title={`Durabilidad — stock parado (sin movimiento 30d, ${isGerencial ? 'remisiones' : 'facturación'})`}
           right={<Avg label="plata parada" value={fmtCurrency(stuckValue)} />}>
           {slowMovers.length === 0 ? (
             <Empty>Nada parado: todo lo que tenés stock tuvo movimiento en los últimos 30 días. 👏</Empty>
