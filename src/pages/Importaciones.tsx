@@ -855,19 +855,18 @@ export default function Importaciones() {
                     <TableHead className="font-semibold text-right">Saldo</TableHead>
                     <TableHead className="font-semibold" title="Fecha en que arrancó el pedido (primera etapa registrada)">Inicio</TableHead>
                     <TableHead className="font-semibold" title="La ETA que cargás es la llegada a PUERTO; la app le suma tu promedio de nacionalización para pronosticar la llegada a bodega.">ETA bodega</TableHead>
-                    <TableHead className="font-semibold" title="Fecha de entrega. Queda EN FIRME solo cuando subís la declaración frente al Banco de la República (certificado BanRep) en el checklist del pedido.">Cierre</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={13} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={12} className="text-center py-12 text-muted-foreground">
                         Cargando importaciones...
                       </TableCell>
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={13} className="text-center py-12">
+                      <TableCell colSpan={12} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
                           <p className="text-muted-foreground">
@@ -1044,24 +1043,6 @@ export default function Importaciones() {
                                 </div>
                               )
                             ) : <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          {/* Cierre compacto: la alerta detallada vive bajo el Estado */}
-                          <TableCell className="text-sm whitespace-nowrap">
-                            {fechaEntrega ? (
-                              <span
-                                className={cn('inline-flex items-center gap-1', !tieneBanrep && 'text-amber-600 font-medium')}
-                                title={tieneBanrep
-                                  ? 'Cierre en firme — declaración frente al Banco de la República subida'
-                                  : 'Pendiente de cierre frente al Banco de la República — subí la declaración (certificado BanRep) en el checklist del pedido'}
-                              >
-                                {tieneBanrep
-                                  ? <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
-                                  : <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
-                                {format(parseLocalDate(fechaEntrega), 'dd MMM yy', { locale: es })}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
                           </TableCell>
                         </TableRow>
                       );
