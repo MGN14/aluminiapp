@@ -20,17 +20,17 @@ const conFantasma = [
 ];
 
 describe('regla de flujo: etapas posteriores al estado actual no cuentan', () => {
-  it('la etapa en curso suma hasta hoy aunque haya un entregado fantasma', () => {
+  it('la etapa en curso suma hasta hoy aunque haya un entregado fantasma (cotización fuera del flujo)', () => {
     const stages = computeStageDurations(conFantasma, 'transito');
-    expect(stages.map(s => s.estado)).toEqual(['cotizacion', 'produccion', 'transito']);
+    expect(stages.map(s => s.estado)).toEqual(['produccion', 'transito']);
     const transito = stages[stages.length - 1];
     expect(transito.enCurso).toBe(true);
     expect(transito.dias).toBe(30); // 6 jun → 6 jul
   });
 
-  it('el total corre hasta hoy si el pedido no está entregado', () => {
+  it('el total corre desde que se MONTÓ el pedido (producción), no desde cotización', () => {
     const total = computeTotalDays(conFantasma, 'transito');
-    expect(total).toEqual({ dias: 64, enCurso: true }); // 3 may → 6 jul
+    expect(total).toEqual({ dias: 57, enCurso: true }); // 10 may (producción) → 6 jul
   });
 
   it('entregado sí cierra el total cuando el estado ES entregado', () => {
@@ -39,8 +39,14 @@ describe('regla de flujo: etapas posteriores al estado actual no cuentan', () =>
       { estado: 'transito', fecha: '2026-06-06' },
       { estado: 'entregado', fecha: '2026-07-01' },
     ];
-    expect(computeTotalDays(history, 'entregado')).toEqual({ dias: 59, enCurso: false });
+    // Sin fecha de producción: arranca en la primera etapa del flujo (tránsito).
+    expect(computeTotalDays(history, 'entregado')).toEqual({ dias: 25, enCurso: false });
     const stages = computeStageDurations(history, 'entregado');
     expect(stages[stages.length - 1]).toMatchObject({ estado: 'entregado', enCurso: false });
+  });
+
+  it('legacy: si SOLO hay fecha de cotización, se usa como inicio (mejor que nada)', () => {
+    const history = [{ estado: 'cotizacion', fecha: '2026-06-06' }];
+    expect(computeTotalDays(history, 'cotizacion')).toEqual({ dias: 30, enCurso: true });
   });
 });

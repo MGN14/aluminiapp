@@ -165,13 +165,15 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
     } else {
       setProveedorSel('');
       setProveedorLibre('');
-      setEstado('cotizacion');
+      // El pedido nace EN PRODUCCIÓN: la cotización dejó de ser etapa (es
+      // tiempo de decisión — el reloj arranca cuando montás el pedido).
+      setEstado('produccion');
       setEstadoFecha(todayIso());
       setCantidadTon('');
       setPrecioSmm('');
       setMontoTotal('');
       setAnticipo('');
-      setEstadoFechas({ cotizacion: todayIso() });
+      setEstadoFechas({ produccion: todayIso() });
       setFechaEta('');
       setRefPedido('');
       setNotas('');
@@ -484,7 +486,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 </DialogTitle>
                 {!isEdit && (
                   <DialogDescription className="text-xs mt-1">
-                    Pedido a proveedor del exterior. Cotización → producción → tránsito → aduana → entregado.
+                    Pedido a proveedor del exterior. Producción → tránsito → aduana → entregado → cerrado.
                   </DialogDescription>
                 )}
               </div>
@@ -498,6 +500,9 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                     ))}
                     {isEdit && editing!.estado === 'anticipo' && (
                       <SelectItem value="anticipo" disabled>Anticipo pagado (viejo)</SelectItem>
+                    )}
+                    {isEdit && editing!.estado === 'cotizacion' && (
+                      <SelectItem value="cotizacion" disabled>Cotización (viejo)</SelectItem>
                     )}
                     {/* Cerrado no se elige a mano: se llega vía el checklist de cierre */}
                     {estado === 'cerrado' && (
@@ -866,8 +871,8 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 {leadTimeProm != null && estado !== 'entregado' && estado !== 'cerrado' && (
                   <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-xs leading-relaxed">
                     <span className="font-semibold text-primary">Próximo pedido:</span>{' '}
-                    tus contenedores entregados demoraron en promedio <strong>{leadTimeProm} días</strong> de
-                    cotización a entrega. Un pedido montado hoy llegaría alrededor del{' '}
+                    tus contenedores entregados demoraron en promedio <strong>{leadTimeProm} días</strong> desde
+                    que montaste el pedido hasta la entrega. Un pedido montado hoy llegaría alrededor del{' '}
                     <strong>
                       {new Date(Date.now() + leadTimeProm * DAY_MS).toLocaleDateString('es-CO', { day: '2-digit', month: 'long' })}
                     </strong>. La <strong>fecha límite</strong> calculada con tu stock físico, consumo real y

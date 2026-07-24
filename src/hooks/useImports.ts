@@ -15,13 +15,14 @@ export type ImportEstado =
   | 'cerrado'
   | 'cancelado';
 
-// 'anticipo' salió del flujo (decisión de Nico: "no es un estado como tal" —
-// el anticipo es un pago, no una etapa del contenedor). Sigue en el type y en
-// los labels solo para renderizar filas legacy que quedaron con ese valor.
+// 'anticipo' y 'cotizacion' salieron del flujo (decisiones de Nico: el
+// anticipo es un pago y la cotización es tiempo de DECISIÓN, no etapas del
+// contenedor — "la cuenta empieza desde que monto pedido", 2026-07-24).
+// Siguen en el type y labels solo para renderizar filas legacy.
 // 'cerrado' tampoco va en el ORDER: es la etapa FINAL administrativa y solo
 // se llega vía el checklist de cierre (cerrar_importacion), no por el select.
 export const IMPORT_ESTADOS_ORDER: ImportEstado[] = [
-  'cotizacion', 'produccion', 'transito', 'aduana', 'entregado',
+  'produccion', 'transito', 'aduana', 'entregado',
 ];
 
 export const IMPORT_ESTADO_LABEL: Record<ImportEstado, string> = {

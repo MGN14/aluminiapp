@@ -177,7 +177,11 @@ export default function Importaciones() {
   const kpis = useMemo(() => {
     const rows = (data?.all ?? []).filter(r => r.estado !== 'cancelado');
     if (!rows.length) return null;
-    const fechaRef = (r: ImportRow) => r.fecha_cotizacion ?? r.created_at.slice(0, 10);
+    // Fecha de referencia del pedido = cuando se MONTÓ (entró a producción);
+    // cotización/creación solo como fallback legacy.
+    const fechaRef = (r: ImportRow) =>
+      (r.import_estado_history ?? []).find(h => h.estado === 'produccion')?.fecha
+      ?? r.fecha_anticipo ?? r.fecha_cotizacion ?? r.created_at.slice(0, 10);
     const ordered = [...rows].sort((a, b) => fechaRef(a).localeCompare(fechaRef(b)));
     const yearOf = (r: ImportRow) => Number(fechaRef(r).slice(0, 4));
     const pct = (curr: number | null, prev: number | null) =>
@@ -263,13 +267,21 @@ export default function Importaciones() {
       const t = trmByImport.get(r.id) ?? null;
       return t != null && t > 0 ? t : null;
     };
-    const trmSerie = ordered.map(r => trmPedido(r)).filter((t): t is number => t != null);
+    const trmSerieRows = ordered
+      .map(r => ({ r, t: trmPedido(r) }))
+      .filter((x): x is { r: ImportRow; t: number } => x.t != null);
     const focoTrm = trmPedido(foco);
-    const trmLast = focoTrm ?? (trmSerie.length ? trmSerie[trmSerie.length - 1] : null);
+    // EN CURSO: la ponderada del pedido en foco se va recalculando con cada
+    // abono nuevo (imports_liquidation) — el KPI la muestra viva apenas exista.
+    const trmEnCurso = focoTrm != null;
+    const trmLast = focoTrm ?? (trmSerieRows.length ? trmSerieRows[trmSerieRows.length - 1].t : null);
+    const trmDeLabel = trmEnCurso
+      ? (foco ? (foco.ref_pedido || foco.proveedor_nombre) : null)
+      : (trmSerieRows.length ? (trmSerieRows[trmSerieRows.length - 1].r.ref_pedido || trmSerieRows[trmSerieRows.length - 1].r.proveedor_nombre) : null);
     // Delta contra el dato anterior al que se está mostrando.
-    const trmPrev = focoTrm != null
-      ? trmPedido(anterior)
-      : (trmSerie.length >= 2 ? trmSerie[trmSerie.length - 2] : null);
+    const trmPrev = trmEnCurso
+      ? trmPedido(anterior) ?? (trmSerieRows.length >= 2 ? trmSerieRows[trmSerieRows.length - 2].t : null)
+      : (trmSerieRows.length >= 2 ? trmSerieRows[trmSerieRows.length - 2].t : null);
     const trmDeltaPct = pct(trmLast, trmPrev);
     const conTrm = ordered
       .map(r => trmByImport.get(r.id) ?? null)
@@ -295,7 +307,7 @@ export default function Importaciones() {
       usdLast, usdDeltaPct, usdYoYPct, usdProm,
       totLast, totDeltaPct, totProm,
       nacLast, nacDeltaPct, nacYoYPct, nacProm,
-      trmLast, trmDeltaPct, trmProm,
+      trmLast, trmDeltaPct, trmProm, trmEnCurso, trmDeLabel,
       fleteProm, fleteUltimo, fleteDeltaPct,
     };
   }, [data, currentYear, trmByImport, trmHoy]);
@@ -321,10 +333,13 @@ export default function Importaciones() {
     if (!abiertos.length) return null;
     const all = (data?.all ?? []).filter(r => r.estado !== 'cancelado');
     const hoy = todayIso();
-    const fechaRef = (r: ImportRow) => r.fecha_cotizacion ?? r.created_at.slice(0, 10);
+    // Montaje del pedido = entrada a producción (cotización ya no cuenta).
+    const fechaRef = (r: ImportRow) =>
+      (r.import_estado_history ?? []).find(h => h.estado === 'produccion')?.fecha
+      ?? r.fecha_anticipo ?? r.fecha_cotizacion ?? r.created_at.slice(0, 10);
     const avg = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null);
 
-    // Lead time cotización→entrega: entregados reales; si no hay (negocio
+    // Lead time montaje→entrega: entregados reales; si no hay (negocio
     // arrancando), proxy con la ETA de los pedidos abiertos que la tienen.
     const ltEntregados = all
       .filter(r => (r.estado === 'entregado' || r.estado === 'cerrado') && (r.import_estado_history?.length ?? 0) > 0)
@@ -560,7 +575,15 @@ export default function Importaciones() {
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                {/* De QUÉ pedido es el dato: en curso (se recalcula con cada
+                    abono del nuevo contenedor) o el último con abonos */}
+                {kpis.trmDeLabel && (
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    📦 {kpis.trmDeLabel}{kpis.trmEnCurso
+                      ? <span className="text-primary font-medium"> · en curso (se actualiza con cada abono)</span>
+                      : ' · último con abonos'}
+                  </p>
+                )}
                 <SignalLine curr={kpis.trmLast} refVal={trmHoy != null ? Number(trmHoy) : null} label="TRM de hoy"
                   fmtVal={(n) => `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`} />
                 <DeltaLine pct={kpis.trmDeltaPct} label="vs último entregado" />
@@ -919,6 +942,9 @@ export default function Importaciones() {
                                   ))}
                                   {row.estado === 'anticipo' && (
                                     <SelectItem value="anticipo" disabled>Anticipo pagado (viejo)</SelectItem>
+                                  )}
+                                  {row.estado === 'cotizacion' && (
+                                    <SelectItem value="cotizacion" disabled>Cotización (viejo)</SelectItem>
                                   )}
                                   <SelectItem value="cancelado">Cancelado</SelectItem>
                                 </SelectContent>

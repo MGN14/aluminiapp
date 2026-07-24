@@ -72,18 +72,23 @@ export function computeStageDurations(
   return out;
 }
 
-/** Días totales de la importación: primer estado registrado → entregado (o hoy si sigue abierta). */
+/** Días totales de la importación: desde que se MONTÓ el pedido (producción)
+ *  → entregado (o hoy si sigue abierta). La cotización NO cuenta — es tiempo
+ *  de decisión, no de abastecimiento (decisión de Nico, 2026-07-24). Fallback
+ *  a la fecha de cotización solo si es la única registrada (legacy). */
 export function computeTotalDays(
   history: EstadoHistoryEntry[],
   estadoActual: string,
 ): { dias: number; enCurso: boolean } | null {
   if (!history.length) return null;
-  const fechas = history
-    .filter(h => h.estado !== 'cancelado')
+  const sinCancelado = history.filter(h => h.estado !== 'cancelado');
+  const fechasFlujo = sinCancelado
+    .filter(h => h.estado !== 'cotizacion')
     .map(h => h.fecha)
     .sort();
-  if (!fechas.length) return null;
-  const inicio = fechas[0];
+  const fechasTodas = sinCancelado.map(h => h.fecha).sort();
+  const inicio = fechasFlujo[0] ?? fechasTodas[0];
+  if (!inicio) return null;
   // La fecha de 'entregado' solo cierra el total si el pedido REALMENTE está
   // entregado (o cancelado) — regla de flujo, ver computeStageDurations.
   const entregado = (estadoActual === 'entregado' || estadoActual === 'cerrado' || estadoActual === 'cancelado')
