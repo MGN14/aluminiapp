@@ -20,6 +20,7 @@ import {
   type ProductLite,
 } from '@/lib/remisionInventory';
 import { usePersistedFormState } from '@/hooks/usePersistedFormState';
+import { suggestReferences } from '@/lib/refSuggest';
 
 interface Props {
   open: boolean;
@@ -98,6 +99,22 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
   // Inventory resolution (computed when entering preview)
   const [productMap, setProductMap] = useState<Map<string, ProductLite>>(new Map());
   const [unmatchedRefs, setUnmatchedRefs] = useState<RemisionItemInput[]>([]);
+  // Catálogo completo de referencias — base para sugerir la correcta cuando
+  // una viene mal digitada ("B", medida escrita distinto…).
+  const { data: knownRefs = [] } = useQuery({
+    queryKey: ['inventory-refs-todas', user?.id],
+    enabled: open && !!user?.id,
+    staleTime: 10 * 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('inventory_products')
+        .select('reference')
+        .eq('active', true);
+      return ((data ?? []) as { reference: string | null }[])
+        .map((p) => (p.reference ?? '').trim())
+        .filter(Boolean);
+    },
+  });
   const [resolving, setResolving] = useState(false);
 
   // Confirmation modal for auto-creating products on 'compra'
@@ -402,6 +419,17 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
     }
   };
 
+  /** Corrige una referencia mal digitada en TODOS los ítems de la remisión y
+   *  la re-cruza contra el maestro (así sale sola de "sin cruzar"). */
+  const corregirReferencia = (desde: string, hacia: string) => {
+    const prod = productMap.get(hacia.trim().toLowerCase());
+    setItems((prev) => prev.map((it) => it.reference === desde
+      ? { ...it, reference: hacia, product_name: prod?.name || it.product_name }
+      : it));
+    setUnmatchedRefs((prev) => prev.filter((u) => u.reference !== desde));
+    toast({ title: `${desde} → ${hacia}`, description: 'Referencia corregida en esta remisión.' });
+  };
+
   const handleSave = async () => {
     if (!user?.id) return;
     if (!beneficiary.trim() && !responsibleId) {
@@ -417,6 +445,18 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
     if (remisionType === 'compra' && unmatchedRefs.length > 0) {
       setConfirmCreateOpen(true);
       return;
+    }
+    // VENTA con referencias que no cruzan: confirmación explícita. Antes se
+    // guardaban en silencio y esas refs (típicamente typos) contaminaban la
+    // cobertura como faltantes reales.
+    if (remisionType === 'venta' && unmatchedRefs.length > 0) {
+      const lista = unmatchedRefs.slice(0, 8).map((u) => `· ${u.reference} (${u.units} und)`).join('\n');
+      const ok = window.confirm(
+        `${unmatchedRefs.length} referencia(s) NO existen en tu inventario:\n\n${lista}${unmatchedRefs.length > 8 ? '\n· …' : ''}\n\n`
+        + 'No van a descontar stock y quedan marcadas como "sin cruzar" en Cobertura.\n\n'
+        + '¿Guardar igual? (Cancelá para corregirlas — la app te sugiere la referencia correcta)',
+      );
+      if (!ok) return;
     }
     await doSave();
   };
@@ -656,13 +696,47 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                   {!isCompra && unmatchedRefs.length > 0 && (
                     <div className="flex items-start gap-2 text-sm bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                       <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-yellow-600" />
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <p className="font-medium text-yellow-900">
-                          {unmatchedRefs.length} referencias no están en tu maestro
+                          {unmatchedRefs.length} referencia{unmatchedRefs.length > 1 ? 's' : ''} no está{unmatchedRefs.length > 1 ? 'n' : ''} en tu maestro — revisá si es un error de digitación
                         </p>
                         <p className="text-xs text-yellow-700 mt-0.5">
-                          Estos ítems se guardarán en la remisión pero <strong>no afectarán el stock físico</strong>. Creá los productos en Inventario si querés que se descuenten.
+                          No descuentan stock y ensucian el análisis de cobertura. Corregilas acá o creá el producto en Inventario si son reales.
                         </p>
+                        {/* Sugerencia de la referencia correcta: un clic la aplica */}
+                        <div className="mt-2 space-y-1">
+                          {unmatchedRefs.slice(0, 8).map((u) => {
+                            const sug = suggestReferences(u.reference, knownRefs);
+                            return (
+                              <div key={u.reference} className="flex items-center gap-2 flex-wrap text-xs">
+                                <span className="font-mono font-semibold text-yellow-900">{u.reference}</span>
+                                <span className="text-yellow-700">({u.units} und)</span>
+                                {sug.length > 0 ? (
+                                  <>
+                                    <span className="text-yellow-700">¿quisiste decir</span>
+                                    {sug.map((s) => (
+                                      <button
+                                        key={s.reference}
+                                        type="button"
+                                        onClick={() => corregirReferencia(u.reference, s.reference)}
+                                        className="font-mono font-semibold underline decoration-dotted hover:text-primary"
+                                        title={`Cambiar ${u.reference} → ${s.reference} en esta remisión`}
+                                      >
+                                        {s.reference}
+                                      </button>
+                                    ))}
+                                    <span className="text-yellow-700">?</span>
+                                  </>
+                                ) : (
+                                  <span className="text-yellow-700">— sin parecido en el maestro</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {unmatchedRefs.length > 8 && (
+                            <p className="text-[11px] text-yellow-700">… y {unmatchedRefs.length - 8} más</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
