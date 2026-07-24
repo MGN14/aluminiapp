@@ -358,14 +358,19 @@ export default function Importaciones() {
       .filter(d => d > 0);
     const leadTime = reorder.suggestion?.leadTime.totalDias ?? avg(ltEntregados) ?? avg(ltProxy);
 
-    // Llegada A BODEGA (real o estimada) de cada pedido abierto. La ETA
-    // cargada es PUERTO → bodega = ETA + nacionalización promedio.
+    // Llegada A BODEGA de cada pedido abierto — MISMA fuente que la cobertura
+    // (estimateDisponibilidad): respeta el piso físico (nunca antes de hoy +
+    // tránsito + nacionalización) y trata la ETA como puerto. La fórmula
+    // local "inicio + lead time" daba fechas que envejecían mal: un pedido
+    // demorado en fábrica seguía prometiendo la misma fecha aunque ya fuera
+    // imposible. Fallback local solo mientras el motor carga.
     const conLlegada = abiertos
       .map(r => ({
         r,
-        llega: r.fecha_estimada_llegada
-          ? isoAddDays(r.fecha_estimada_llegada, nacProm)
-          : (leadTime != null ? isoAddDays(fechaRef(r), Math.round(leadTime)) : null),
+        llega: reorder.disponibilidadPorImport.get(r.id)
+          ?? (r.fecha_estimada_llegada
+            ? isoAddDays(r.fecha_estimada_llegada, nacProm)
+            : (leadTime != null ? isoAddDays(fechaRef(r), Math.round(leadTime)) : null)),
         etaEstimada: !r.fecha_estimada_llegada,
       }))
       .sort((a, b) => (a.llega ?? '9999').localeCompare(b.llega ?? '9999'));
@@ -427,7 +432,7 @@ export default function Importaciones() {
       cadencia: cadencia != null ? Math.round(cadencia) : null,
       montarAntesDe, diasParaMontar, llegariaHoy,
     };
-  }, [data, trmByImport, trmHoy, reorder.suggestion, reorder.cicloPedidoDias, nacProm]);
+  }, [data, trmByImport, trmHoy, reorder.suggestion, reorder.cicloPedidoDias, reorder.disponibilidadPorImport, nacProm]);
 
   const filtered = useMemo(() => {
     const rows = data?.all ?? [];

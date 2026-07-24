@@ -150,8 +150,18 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
               const pronto = diasTraer != null && diasTraer > 0 && diasTraer <= 7;
               return (
                 <p key={ret.id} className="text-[11px] leading-relaxed">
-                  🏭 <strong>{ret.label} listo en fábrica</strong>
-                  {ret.listoDesde && <span className="text-muted-foreground"> desde {fmtFecha(ret.listoDesde)}</span>}
+                  {ret.motivo === 'listo' ? (
+                    <>
+                      🏭 <strong>{ret.label} listo en fábrica</strong>
+                      {ret.listoDesde && <span className="text-muted-foreground"> desde {fmtFecha(ret.listoDesde)}</span>}
+                    </>
+                  ) : (
+                    <>
+                      ⏳ <strong>{ret.label} ya cumplió el promedio de producción</strong>
+                      <span className="text-muted-foreground"> ({ret.diasProduccion}d fabricando, promedio {sug.leadTime.produccion.dias}d)</span>
+                      {' '}— <strong className="text-warning">confirmá con la fábrica y mandalo a traer</strong>: cada día que no embarque corre la llegada un día
+                    </>
+                  )}
                   {' '}— si lo mandás a traer hoy queda en bodega ≈ <strong>{fmtFecha(llegaSiTraigo)}</strong>.
                   {traerAntesDe && (
                     <>

@@ -58,9 +58,20 @@ export interface UseReorderSuggestionResult {
    *  lead time, pero dice cuánto ANTES de la fecha límite hay que empezar a
    *  cotizar. Acotado 5-45; 14 por defecto sin historia. */
   diasCotizacion: number;
-  /** Contenedores LISTOS en fábrica (retenidos, sin mandar a traer) — para
-   *  la alerta de "cuándo mandarlo a traer" y la ventana de pago del saldo. */
-  retenidos: { id: string; label: string; saldoUsd: number; listoDesde: string | null }[];
+  /** Contenedores por MANDAR A TRAER: listos en fábrica (retenidos) o en
+   *  producción que ya cumplieron/superaron el promedio de fabricación —
+   *  cada día que no embarcan corre la llegada a bodega día por día. */
+  retenidos: {
+    id: string; label: string; saldoUsd: number; listoDesde: string | null;
+    /** 'listo' = marcado listo en fábrica · 'produccion_cumplida' = el
+     *  promedio de producción ya se cumplió pero sigue sin embarcar. */
+    motivo: 'listo' | 'produccion_cumplida';
+    /** Días que lleva en producción (solo motivo produccion_cumplida). */
+    diasProduccion?: number;
+  }[];
+  /** Llegada estimada A BODEGA por pedido abierto (misma fuente que la
+   *  cobertura: respeta el piso físico tránsito+nacionalización desde hoy). */
+  disponibilidadPorImport: Map<string, string>;
   /** Modelo de demanda por familia: consumo censurado, días con stock,
    *  serie mensual y estado de la estacionalidad. */
   demandPorFamilia: Map<string, FamilyDemand>;
@@ -215,7 +226,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
   const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
   if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], disponibilidadPorImport: new Map(), demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
   }
 
   const today = isoToday();
@@ -432,14 +443,34 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
 
   // Contenedores listos en fábrica (retenidos): la card muestra la alerta de
   // "mandalo a traer" con la ventana de tránsito = plazo para girar el saldo.
-  const retenidos = abiertos
-    .filter((r) => r.estado === 'listo_fabrica')
-    .map((r) => ({
-      id: r.id,
-      label: r.ref_pedido || r.proveedor_nombre,
-      saldoUsd: Number(r.saldo_pendiente_usd ?? 0),
-      listoDesde: fechaDeEstado(r, 'listo_fabrica'),
-    }));
+  const diffDias = (a: string, b: string) =>
+    Math.round((new Date(b + 'T00:00:00Z').getTime() - new Date(a + 'T00:00:00Z').getTime()) / 86_400_000);
+  const prodProm = leadTime.produccion.dias;
 
-  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, demandPorFamilia, porVariante, kgPorUnidadVariante };
+  const retenidos = abiertos
+    .map((r) => {
+      const base = {
+        id: r.id,
+        label: r.ref_pedido || r.proveedor_nombre,
+        saldoUsd: Number(r.saldo_pendiente_usd ?? 0),
+      };
+      if (r.estado === 'listo_fabrica') {
+        return { ...base, listoDesde: fechaDeEstado(r, 'listo_fabrica'), motivo: 'listo' as const };
+      }
+      // En producción con el promedio de fabricación YA cumplido: cada día
+      // que no embarque corre la llegada a bodega día por día. Es el momento
+      // de confirmar con la fábrica y mandarlo a traer.
+      if (r.estado === 'produccion') {
+        const inicio = fechaDeEstado(r, 'produccion') ?? r.fecha_anticipo;
+        if (!inicio) return null;
+        const dias = diffDias(inicio, today);
+        if (dias >= prodProm) {
+          return { ...base, listoDesde: null, motivo: 'produccion_cumplida' as const, diasProduccion: dias };
+        }
+      }
+      return null;
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, disponibilidadPorImport: dispPorImport, demandPorFamilia, porVariante, kgPorUnidadVariante };
 }
