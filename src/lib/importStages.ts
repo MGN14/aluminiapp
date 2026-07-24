@@ -108,6 +108,10 @@ export function computeStageAverages(
     for (const stage of computeStageDurations(imp.history, imp.estado)) {
       if (stage.enCurso) continue; // solo etapas terminadas cuentan al promedio
       if (stage.estado === 'entregado') continue;
+      // La retención en fábrica (listo_fabrica → tránsito) es una DECISIÓN
+      // del negocio, no una etapa del flujo: fuera de los promedios para no
+      // contaminar el lead time (caso 2 contenedores simultáneos).
+      if (stage.estado === 'listo_fabrica') continue;
       const a = acc.get(stage.estado) ?? { total: 0, n: 0 };
       a.total += stage.dias;
       a.n += 1;

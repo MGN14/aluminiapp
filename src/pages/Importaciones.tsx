@@ -63,6 +63,7 @@ const ESTADO_BADGE: Record<ImportEstado, { bg: string; color: string; border: st
   cotizacion:  { bg: 'bg-slate-100',  color: 'text-slate-700',  border: 'border-slate-300' },
   anticipo:    { bg: 'bg-amber-100',  color: 'text-amber-700',  border: 'border-amber-300' },
   produccion:  { bg: 'bg-blue-100',   color: 'text-blue-700',   border: 'border-blue-300' },
+  listo_fabrica: { bg: 'bg-sky-100',  color: 'text-sky-700',    border: 'border-sky-300' },
   transito:    { bg: 'bg-cyan-100',   color: 'text-cyan-700',   border: 'border-cyan-300' },
   aduana:      { bg: 'bg-purple-100', color: 'text-purple-700', border: 'border-purple-300' },
   entregado:   { bg: 'bg-green-100',  color: 'text-green-700',  border: 'border-green-300' },
@@ -199,7 +200,7 @@ export default function Importaciones() {
     // entregar"). Foco = el abierto más avanzado del pipeline; apenas pasa a
     // 'entregado', el siguiente toma el foco solo. "Anterior" = el último
     // entregado (la comparación es contra lo que YA llegó a bodega).
-    const ESTADO_AVANCE: Record<string, number> = { cotizacion: 0, anticipo: 1, produccion: 2, transito: 3, aduana: 4 };
+    const ESTADO_AVANCE: Record<string, number> = { cotizacion: 0, anticipo: 1, produccion: 2, listo_fabrica: 3, transito: 4, aduana: 5 };
     const yaLlego = (r: ImportRow) => r.estado === 'entregado' || r.estado === 'cerrado';
     const entregados = ordered.filter(yaLlego);
     const abiertosPipeline = [...ordered]
@@ -214,7 +215,8 @@ export default function Importaciones() {
       : entregadosOrd[entregadosOrd.length - 2] ?? null;
     const ESTADO_LABEL: Record<string, string> = {
       cotizacion: 'cotización', anticipo: 'anticipo', produccion: 'en producción',
-      transito: 'en tránsito', aduana: 'en aduanas', entregado: 'entregado', cerrado: 'cerrado',
+      listo_fabrica: 'listo en fábrica', transito: 'en tránsito', aduana: 'en aduanas',
+      entregado: 'entregado', cerrado: 'cerrado',
     };
     const focoLabel = foco ? `${foco.ref_pedido || foco.proveedor_nombre} · ${ESTADO_LABEL[foco.estado] ?? foco.estado}` : null;
 

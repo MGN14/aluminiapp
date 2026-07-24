@@ -58,6 +58,9 @@ export interface UseReorderSuggestionResult {
    *  lead time, pero dice cuánto ANTES de la fecha límite hay que empezar a
    *  cotizar. Acotado 5-45; 14 por defecto sin historia. */
   diasCotizacion: number;
+  /** Contenedores LISTOS en fábrica (retenidos, sin mandar a traer) — para
+   *  la alerta de "cuándo mandarlo a traer" y la ventana de pago del saldo. */
+  retenidos: { id: string; label: string; saldoUsd: number; listoDesde: string | null }[];
   /** Modelo de demanda por familia: consumo censurado, días con stock,
    *  serie mensual y estado de la estacionalidad. */
   demandPorFamilia: Map<string, FamilyDemand>;
@@ -99,6 +102,7 @@ function toImportFechas(r: ImportRow): ImportFechas {
     fecha_estimada_llegada: r.fecha_estimada_llegada,
     fecha_arribo_real: fechaDeEstado(r, 'aduana') ?? r.fecha_arribo_real,
     fecha_entregado: fechaDeEstado(r, 'entregado') ?? (yaEntregada ? r.fecha_arribo_real : null),
+    fecha_listo_fabrica: fechaDeEstado(r, 'listo_fabrica'),
   };
 }
 
@@ -211,7 +215,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
   const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
   if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
   }
 
   const today = isoToday();
@@ -426,5 +430,16 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     [...kgVarAcc.entries()].map(([k, v]) => [k, v.kg / v.cant]),
   );
 
-  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, demandPorFamilia, porVariante, kgPorUnidadVariante };
+  // Contenedores listos en fábrica (retenidos): la card muestra la alerta de
+  // "mandalo a traer" con la ventana de tránsito = plazo para girar el saldo.
+  const retenidos = abiertos
+    .filter((r) => r.estado === 'listo_fabrica')
+    .map((r) => ({
+      id: r.id,
+      label: r.ref_pedido || r.proveedor_nombre,
+      saldoUsd: Number(r.saldo_pendiente_usd ?? 0),
+      listoDesde: fechaDeEstado(r, 'listo_fabrica'),
+    }));
+
+  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, demandPorFamilia, porVariante, kgPorUnidadVariante };
 }

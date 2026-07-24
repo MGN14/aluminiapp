@@ -32,8 +32,10 @@ function daysFromToday(iso: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
+const fmtUSD0 = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+
 export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?: () => void }) {
-  const { isPending, suggestion: sug, pedidosSinItems, pipeline, diasCotizacion } = useReorderSuggestion();
+  const { isPending, suggestion: sug, pedidosSinItems, pipeline, diasCotizacion, retenidos } = useReorderSuggestion();
 
   if (isPending || !sug) {
     return (
@@ -129,6 +131,42 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
             Sin referencias críticas con consumo para proyectar fecha todavía. Un pedido montado hoy quedaría en
             bodega el <strong className="text-foreground">{fmtFecha(sug.llegadaSiPidoHoy)}</strong>.
           </p>
+        )}
+
+        {/* Contenedores LISTOS en fábrica (retenidos): cuándo mandarlos a
+            traer + la ventana de tránsito = plazo para girar el saldo */}
+        {retenidos.length > 0 && (
+          <div className="rounded-lg border border-sky-400/40 bg-sky-50/60 dark:bg-sky-950/20 px-3 py-2 space-y-1.5">
+            {retenidos.map((ret) => {
+              const trans = sug.leadTime.transito.dias;
+              const nac = sug.leadTime.nacionalizacion.dias;
+              const hoy = new Date().toISOString().slice(0, 10);
+              const llegaSiTraigo = addDaysIso(hoy, trans + nac);
+              const traerAntesDe = sug.fechaQuiebreGrupal
+                ? addDaysIso(sug.fechaQuiebreGrupal, -(trans + nac + sug.safetyDias))
+                : null;
+              const diasTraer = traerAntesDe ? daysFromToday(traerAntesDe) : null;
+              const urgente = diasTraer != null && diasTraer <= 0;
+              const pronto = diasTraer != null && diasTraer > 0 && diasTraer <= 7;
+              return (
+                <p key={ret.id} className="text-[11px] leading-relaxed">
+                  🏭 <strong>{ret.label} listo en fábrica</strong>
+                  {ret.listoDesde && <span className="text-muted-foreground"> desde {fmtFecha(ret.listoDesde)}</span>}
+                  {' '}— si lo mandás a traer hoy queda en bodega ≈ <strong>{fmtFecha(llegaSiTraigo)}</strong>.
+                  {traerAntesDe && (
+                    <>
+                      {' '}Para cubrir el quiebre del {fmtFecha(sug.fechaQuiebreGrupal!)}, mandalo a traer{' '}
+                      <strong className={urgente ? 'text-destructive' : pronto ? 'text-warning' : ''}>
+                        {urgente ? 'YA' : `antes del ${fmtFecha(traerAntesDe)}`}
+                      </strong>.
+                    </>
+                  )}
+                  {' '}El tránsito (~{trans}d) es tu ventana para girar el saldo
+                  {ret.saldoUsd > 0 && <> de <strong className="font-mono">{fmtUSD0(ret.saldoUsd)} USD</strong></>} antes de aduana.
+                </p>
+              );
+            })}
+          </div>
         )}
 
         {/* Alertas: solo el conteo — el reporte completo vive en Cobertura */}

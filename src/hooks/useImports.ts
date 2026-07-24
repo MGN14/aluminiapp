@@ -9,6 +9,7 @@ export type ImportEstado =
   | 'cotizacion'
   | 'anticipo'
   | 'produccion'
+  | 'listo_fabrica'
   | 'transito'
   | 'aduana'
   | 'entregado'
@@ -21,14 +22,18 @@ export type ImportEstado =
 // Siguen en el type y labels solo para renderizar filas legacy.
 // 'cerrado' tampoco va en el ORDER: es la etapa FINAL administrativa y solo
 // se llega vía el checklist de cierre (cerrar_importacion), no por el select.
+// 'listo_fabrica' = terminado en China pero RETENIDO (aún no se manda a
+// traer — caso 2 contenedores simultáneos por baja del SMM). La retención
+// se excluye de los promedios; el pedido solo necesita tránsito + nac.
 export const IMPORT_ESTADOS_ORDER: ImportEstado[] = [
-  'produccion', 'transito', 'aduana', 'entregado',
+  'produccion', 'listo_fabrica', 'transito', 'aduana', 'entregado',
 ];
 
 export const IMPORT_ESTADO_LABEL: Record<ImportEstado, string> = {
   cotizacion: 'Cotización',
   anticipo: 'Anticipo pagado',
   produccion: 'En producción',
+  listo_fabrica: 'Listo en fábrica',
   transito: 'En tránsito',
   aduana: 'En aduana',
   entregado: 'Entregado',

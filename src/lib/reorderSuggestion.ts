@@ -66,6 +66,8 @@ export interface ImportFechas {
   fecha_arribo_real: string | null;
   /** Fecha en que entró a 'entregado' (de import_estado_history). */
   fecha_entregado?: string | null;
+  /** Fecha en que quedó LISTO en fábrica (terminó producción, retenido). */
+  fecha_listo_fabrica?: string | null;
 }
 
 export interface StockRow {
@@ -204,8 +206,13 @@ export function estimateLeadTime(imports: ImportFechas[]): LeadTimeEstimate {
 
   for (const r of imports) {
     if (r.estado === 'cancelado') continue;
-    if (r.fecha_anticipo && r.fecha_embarque) {
-      produccion.push(daysBetween(r.fecha_anticipo, r.fecha_embarque));
+    // Producción termina cuando el contenedor queda LISTO en fábrica (si se
+    // registró); el embarque es fallback. La retención listo→embarque es una
+    // decisión del negocio y NO cuenta al lead time (caso 2 contenedores
+    // simultáneos: el retenido inflaba producción con semanas de espera).
+    const finProduccion = r.fecha_listo_fabrica ?? r.fecha_embarque;
+    if (r.fecha_anticipo && finProduccion) {
+      produccion.push(daysBetween(r.fecha_anticipo, finProduccion));
     }
     if (r.fecha_embarque && r.fecha_arribo_real) {
       transito.push(daysBetween(r.fecha_embarque, r.fecha_arribo_real));
@@ -244,6 +251,12 @@ export function estimateDisponibilidad(
   if (r.estado === 'aduana') {
     const base = r.fecha_arribo_real && r.fecha_arribo_real >= todayIso ? r.fecha_arribo_real : todayIso;
     return addDays(base, nac);
+  }
+  // LISTO EN FÁBRICA (retenido): ya está fabricado — si se ordena el despacho
+  // hoy, solo faltan tránsito + nacionalización. No se asume producción
+  // restante (eso daba llegadas absurdamente lejanas para un pedido listo).
+  if (r.estado === 'listo_fabrica') {
+    return addDays(todayIso, trans + nac);
   }
   // Ya arribó a puerto → solo falta nacionalizar.
   if (r.fecha_arribo_real) {
