@@ -255,15 +255,22 @@ export default function Importaciones() {
     const nacYoYPct = pct(nacDe(currentYear), nacDe(currentYear - 1));
     const nacProm = avg(conNac.map(x => x.porTon));
 
-    // TRM pagada (ponderada de los abonos) — del pedido en FOCO vs último
-    // entregado (mismo criterio que SMM/Total/COP-ton: el que viene manda).
+    // TRM pagada (ponderada de los abonos) — del pedido en FOCO; si el foco
+    // aún no tiene abonos (lo normal recién montado), el ÚLTIMO dato ponderado
+    // disponible (pedido de Nico: "que coja el último que tenga").
     const trmPedido = (r: ImportRow | null) => {
       if (!r) return null;
       const t = trmByImport.get(r.id) ?? null;
       return t != null && t > 0 ? t : null;
     };
-    const trmLast = trmPedido(foco);
-    const trmDeltaPct = pct(trmLast, trmPedido(anterior));
+    const trmSerie = ordered.map(r => trmPedido(r)).filter((t): t is number => t != null);
+    const focoTrm = trmPedido(foco);
+    const trmLast = focoTrm ?? (trmSerie.length ? trmSerie[trmSerie.length - 1] : null);
+    // Delta contra el dato anterior al que se está mostrando.
+    const trmPrev = focoTrm != null
+      ? trmPedido(anterior)
+      : (trmSerie.length >= 2 ? trmSerie[trmSerie.length - 2] : null);
+    const trmDeltaPct = pct(trmLast, trmPrev);
     const conTrm = ordered
       .map(r => trmByImport.get(r.id) ?? null)
       .filter((t): t is number => t != null && t > 0);
@@ -549,7 +556,7 @@ export default function Importaciones() {
             </Card>
             <Card>
               <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="TRM ponderada de los abonos del pedido próximo a entregar. La TRM de hoy (mercado) va abajo para comparar si conviene abonar ya.">TRM pagada</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="TRM ponderada de los abonos del pedido próximo a entregar — si aún no tiene abonos, la última ponderada disponible. La TRM de hoy (mercado) va abajo para comparar si conviene abonar ya.">TRM pagada</p>
                 <p className="text-2xl font-bold tabular-nums font-mono">
                   {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
@@ -588,14 +595,28 @@ export default function Importaciones() {
         {radar && (
           <Card className="border-primary/25">
             <CardContent className="py-4 px-4 space-y-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <RadarIcon className="h-4 w-4 text-primary" />
                 <span className="text-sm font-semibold">Radar de abastecimiento</span>
-                {radar.leadTime != null && (
-                  <span className="text-[10px] text-muted-foreground">
-                    lead time ~{radar.leadTime}d{radar.cadencia != null ? ` · pedís cada ~${radar.cadencia}d` : ''}
-                  </span>
-                )}
+                {/* Lead time total y cadencia BIEN visibles (pedido de Nico) */}
+                <span className="ml-auto flex items-center gap-2">
+                  {radar.leadTime != null && (
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary"
+                      title="Promedio real de tus pedidos: de producción a entregado (la cotización no cuenta — es tiempo de decisión)"
+                    >
+                      <Clock className="h-3.5 w-3.5" /> Lead time ~{radar.leadTime}d
+                    </span>
+                  )}
+                  {radar.cadencia != null && (
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-2.5 py-1 text-xs font-bold text-foreground"
+                      title="Días promedio entre un pedido y el siguiente (últimos 6 pedidos)"
+                    >
+                      <Ship className="h-3.5 w-3.5" /> Pedís cada ~{radar.cadencia}d
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="grid md:grid-cols-3 gap-3">
                 {/* 1 · Prioridad: el que llega */}
