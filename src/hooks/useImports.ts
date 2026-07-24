@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { applyVariantImportEntrada, reverseVariantImportEntrada } from '@/lib/variantInventory';
+import { applyImportKardex, reverseImportKardex, type KardexApplyResult } from '@/lib/importKardexEntry';
 
 export type ImportEstado =
   | 'cotizacion'
@@ -147,6 +148,30 @@ export function useImports() {
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['imports', user?.id] });
+  const invalidateInventario = () => {
+    queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    queryClient.invalidateQueries({ queryKey: ['inventory-costs-map'] });
+  };
+
+  /** Entrada/reversa del contenedor en AMBOS inventarios (variantes + kardex
+   *  -5). Best-effort: un fallo no bloquea el cambio de estado. */
+  const aplicarEntradaInventario = async (importId: string) => {
+    let variantes: { applied: number; unmatched: string[] } | null = null;
+    let kardex: KardexApplyResult | null = null;
+    try { variantes = await applyVariantImportEntrada(importId); }
+    catch (e) { console.warn('[variantes] entrada por packing no aplicada:', e); }
+    try { kardex = await applyImportKardex(importId); }
+    catch (e) { console.warn('[kardex] entrada de contenedor no aplicada:', e); }
+    invalidateInventario();
+    return { variantes, kardex };
+  };
+  const reversarEntradaInventario = async (importId: string) => {
+    try { await reverseVariantImportEntrada(importId); }
+    catch (e) { console.warn('[variantes] reversa no aplicada:', e); }
+    try { await reverseImportKardex(importId); }
+    catch (e) { console.warn('[kardex] reversa no aplicada:', e); }
+    invalidateInventario();
+  };
 
   type Patch = Partial<Omit<ImportRow, 'id' | 'saldo_pendiente_usd' | 'created_at' | 'updated_at' | 'import_estado_history' | 'import_costs'>>;
 
@@ -226,8 +251,8 @@ export function useImports() {
     // estado_fechas: fechas de flujo por estado (grid "Fechas del flujo" del
     // modal) — valor = upsert, string vacío = borrar la fila del historial.
     // Al final se limpian las etapas posteriores al estado (regla de flujo).
-    mutationFn: async (input: { id: string; estado_fecha?: string; estado_fechas?: Partial<Record<ImportEstado, string>> } & Patch) => {
-      const { id, estado_fecha, estado_fechas, ...patch } = input;
+    mutationFn: async (input: { id: string; estado_fecha?: string; estado_fechas?: Partial<Record<ImportEstado, string>>; estado_prev?: ImportEstado } & Patch) => {
+      const { id, estado_fecha, estado_fechas, estado_prev, ...patch } = input;
       const { error } = await supabase
         .from('imports' as never)
         .update(patch as never)
@@ -244,6 +269,15 @@ export function useImports() {
       }
       if (patch.estado) {
         await deleteEstadoHistoryBeyond(id, patch.estado as ImportEstado);
+      }
+      // Mismo enganche de inventario que el select inline: guardar desde el
+      // modal con cambio de estado también entra/reversa el contenedor.
+      if (patch.estado && estado_prev && patch.estado !== estado_prev) {
+        if (patch.estado === 'entregado') {
+          await aplicarEntradaInventario(id);
+        } else if (estado_prev === 'entregado') {
+          await reversarEntradaInventario(id);
+        }
       }
     },
     onSuccess: () => {
@@ -288,34 +322,34 @@ export function useImports() {
         await recordEstadoHistory(row.id, estado, cambioFecha);
         await deleteEstadoHistoryBeyond(row.id, estado);
       }
-      // Inventario por VARIANTE: al ENTREGAR, el packing suma stock por color
-      // con su costo (idempotente — reintentar no duplica el contenedor). Si
-      // el estado se corrige DESDE entregado, la entrada se revierte.
-      // Best-effort: no-op sin maestra sembrada; un fallo no bloquea el cambio.
-      let variantes: { applied: number; unmatched: string[] } | null = null;
-      try {
-        if (estado === 'entregado') {
-          variantes = await applyVariantImportEntrada(row.id);
-        } else if (row.estado === 'entregado') {
-          await reverseVariantImportEntrada(row.id);
-        }
-      } catch (e) {
-        console.warn('[variantes] entrada por packing no aplicada:', e);
+      // Inventario al ENTREGAR: entra a variantes (por color) Y al kardex -5
+      // (inventory_products — la fuente del COGS). Idempotente; si el estado
+      // se corrige DESDE entregado, ambas entradas se revierten. Best-effort.
+      if (estado === 'entregado') {
+        return await aplicarEntradaInventario(row.id);
+      } else if (row.estado === 'entregado') {
+        await reversarEntradaInventario(row.id);
       }
-      return { variantes };
+      return { variantes: null, kardex: null };
     },
     onSuccess: (res) => {
       invalidate();
-      // Que se VEA qué entró al inventario por variante — antes era silencioso
-      // y las referencias sin variante en la maestra se perdían sin aviso.
+      // Que se VEA qué entró al inventario — antes era silencioso y las
+      // referencias sin match se perdían sin aviso.
       const v = res?.variantes;
-      if (v && (v.applied > 0 || v.unmatched.length > 0)) {
+      const k = res?.kardex;
+      const partes: string[] = [];
+      if (k && !k.skipped && k.applied > 0) partes.push(`${k.applied} referencia${k.applied === 1 ? '' : 's'} al kardex (costo promediado)`);
+      if (v && v.applied > 0) partes.push(`${v.applied} variante${v.applied === 1 ? '' : 's'} por color`);
+      const problemas: string[] = [];
+      if (k && k.missing.length) problemas.push(`sin producto en inventario: ${k.missing.slice(0, 5).join(', ')}${k.missing.length > 5 ? '…' : ''}`);
+      if (k && k.sinCosto.length) problemas.push(`sin costo (ni excel ni landed): ${k.sinCosto.slice(0, 5).join(', ')}${k.sinCosto.length > 5 ? '…' : ''}`);
+      if (v && v.unmatched.length) problemas.push(`sin variante en la maestra: ${v.unmatched.slice(0, 5).join(', ')}${v.unmatched.length > 5 ? '…' : ''}`);
+      if (partes.length || problemas.length) {
         toast({
-          title: `Estado actualizado · ${v.applied} variante${v.applied === 1 ? '' : 's'} sumada${v.applied === 1 ? '' : 's'} al inventario`,
-          description: v.unmatched.length
-            ? `Sin variante en la maestra (NO entraron): ${v.unmatched.slice(0, 6).join(', ')}${v.unmatched.length > 6 ? '…' : ''} — crealas en Inventario y volvé a marcar entregado.`
-            : undefined,
-          ...(v.unmatched.length ? { duration: 12000 } : {}),
+          title: partes.length ? `Estado actualizado · ${partes.join(' · ')}` : 'Estado actualizado',
+          description: problemas.length ? `NO entraron — ${problemas.join(' · ')}. Corregí y re-aplicá desde Costeo.` : undefined,
+          ...(problemas.length ? { duration: 12000 } : {}),
         });
       } else {
         toast({ title: 'Estado actualizado' });

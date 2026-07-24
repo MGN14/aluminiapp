@@ -261,6 +261,8 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
           // Solo registra historial si el estado realmente cambió
           estado_fecha: estadoCambio ? estadoFecha : undefined,
           estado_fechas: fechasFlujo,
+          // Para que el guardado desde el modal también entre/reverse inventario
+          estado_prev: editing.estado,
         });
       } else {
         // estado_fechas: todas las fechas de flujo puestas al crear — el total

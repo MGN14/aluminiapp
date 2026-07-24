@@ -3,6 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useImportDocuments, IMPORT_DOC_LABEL, type ImportDocTipo, type ImportDocumentRow } from '@/hooks/useImportDocuments';
 import { useImportItems, type NewImportItem } from '@/hooks/useImportItems';
+import { useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
+import { applyImportKardex } from '@/lib/importKardexEntry';
+import { applyVariantImportEntrada, reverseVariantImportEntrada } from '@/lib/variantInventory';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { parseDelimited, parseLooseNumber } from '@/lib/delimitedParser';
 import { guessMapping, isSummaryReference, hasAnyData, makeCellNumberParser, type FieldKey } from '@/lib/packingListParse';
@@ -98,6 +102,8 @@ async function parseCosteoFile(file: File): Promise<CosteoParse | null> {
 export default function ImportCierreSection({ importId, cerrada, cerradaAt, estado, esAdmin, paymentsCount }: Props) {
   const { docs, upload, remove, view, cerrar, reabrir } = useImportDocuments(importId);
   const { items: itemsActuales, hayPacking, importItemSet } = useImportItems(importId);
+  const qc = useQueryClient();
+  const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadingTipo, setUploadingTipo] = useState<ImportDocTipo | null>(null);
   const [costeoParsed, setCosteoParsed] = useState<CosteoParse | null>(null);
@@ -172,7 +178,32 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
     if (!window.confirm(msg)) return;
     importItemSet.mutate(
       { rows: costeoParsed.rows, source: 'packing', replace: hayPacking && existentes > 0 },
-      { onSuccess: () => setCosteoParsed(null) },
+      {
+        onSuccess: async () => {
+          setCosteoParsed(null);
+          // El pedido ya está entregado (el checklist solo aparece ahí):
+          // re-costear el inventario con el excel — el último excel manda.
+          try {
+            await reverseVariantImportEntrada(importId);
+            await applyVariantImportEntrada(importId);
+            const k = await applyImportKardex(importId, { reapply: true });
+            qc.invalidateQueries({ queryKey: ['inventory'] });
+            qc.invalidateQueries({ queryKey: ['inventory-costs-map'] });
+            toast({
+              title: k.applied > 0
+                ? `Inventario re-costeado: ${k.applied} referencia${k.applied === 1 ? '' : 's'} con el costo del excel`
+                : 'Costeo cargado — sin referencias aplicables al inventario',
+              description: [
+                k.missing.length ? `Sin producto en inventario: ${k.missing.slice(0, 5).join(', ')}${k.missing.length > 5 ? '…' : ''}` : null,
+                k.sinCosto.length ? `Sin costo: ${k.sinCosto.slice(0, 5).join(', ')}${k.sinCosto.length > 5 ? '…' : ''}` : null,
+              ].filter(Boolean).join(' · ') || undefined,
+              ...(k.missing.length || k.sinCosto.length ? { duration: 12000 } : {}),
+            });
+          } catch (e) {
+            console.warn('[kardex] re-costeo tras excel no aplicado:', e);
+          }
+        },
+      },
     );
   };
 

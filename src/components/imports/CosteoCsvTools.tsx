@@ -3,9 +3,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Upload, Scale, PackageCheck, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useImportItems, type NewImportItem } from '@/hooks/useImportItems';
+import { applyImportKardex } from '@/lib/importKardexEntry';
 
 const fmtUSD = (n: number) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 const fmtCOP = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
@@ -100,41 +100,39 @@ export default function CosteoCsvTools({ importId, montoTotalUsd }: {
   const diffPct = registrado > 0 ? (diff / registrado) * 100 : null;
   const hayDiff = items.length > 0 && registrado > 0 && Math.abs(diff) > 1;
 
-  // ── 3. Aplicar landed cost al inventario ──────────────────────────────
-  // ENTRADA de kardex por referencia: suma el stock del contenedor y
-  // recalcula el costo promedio ponderado (RPC kardex_movimiento, atómico).
+  // ── 3. Aplicar el costo al inventario (respaldo del automático) ────────
+  // La entrada corre SOLA al marcar 'entregado' y al aplicar el excel del
+  // cierre — este botón queda para correcciones. Comparte la misma lib:
+  // agrupa por familia -5, excel manda / landed fallback, idempotente.
   const aplicarAlInventario = async () => {
-    if (!landed || landed.items.length === 0) return;
-    const conCosto = landed.items.filter(i => i.landed_unit_cop > 0 && i.cantidad > 0);
-    if (!window.confirm(
-      `Vas a registrar la ENTRADA de ${conCosto.length} referencia(s) al inventario: suma el stock del contenedor y recalcula el costo promedio ponderado con el landed cost real. ¿Continuar?`
-    )) return;
+    if (items.length === 0) return;
     setApplying(true);
-    let updated = 0;
-    const missing: string[] = [];
-    for (const it of conCosto) {
-      const { error } = await (supabase as any).rpc('kardex_movimiento', {
-        p_reference: it.reference.trim(),
-        p_tipo: 'entrada_importacion',
-        p_cantidad: it.cantidad,
-        p_costo_unitario: Math.round(it.landed_unit_cop * 100) / 100,
-        p_origen_tipo: 'import',
-        p_origen_id: importId,
-        p_notas: 'Entrada contenedor (landed cost)',
+    try {
+      let res = await applyImportKardex(importId);
+      if (res.skipped) {
+        if (!window.confirm(
+          'Este contenedor YA tiene entrada en el inventario. ¿Reversarla y re-aplicar con el costo actual (excel/landed)? El promedio ponderado se recalcula.'
+        )) { setApplying(false); return; }
+        res = await applyImportKardex(importId, { reapply: true });
+      }
+      setApplied({ updated: res.applied, missing: [...res.missing, ...res.sinCosto] });
+      qc.invalidateQueries({ queryKey: ['inventory'] });
+      qc.invalidateQueries({ queryKey: ['inventory-costs-map'] });
+      toast({
+        title: `Entrada registrada: ${res.applied} referencia(s) al kardex`,
+        description: res.missing.length || res.sinCosto.length
+          ? [
+              res.missing.length ? `Sin producto en inventario: ${res.missing.slice(0, 5).join(', ')}${res.missing.length > 5 ? '…' : ''}` : null,
+              res.sinCosto.length ? `Sin costo (ni excel ni landed): ${res.sinCosto.slice(0, 5).join(', ')}${res.sinCosto.length > 5 ? '…' : ''}` : null,
+            ].filter(Boolean).join(' · ')
+          : 'Stock sumado y costo promedio recalculado. Rentabilidad ya ve el costo real.',
+        ...(res.missing.length || res.sinCosto.length ? { duration: 12000 } : {}),
       });
-      if (!error) updated += 1;
-      else missing.push(it.reference);
+    } catch (e) {
+      toast({ title: 'Error al aplicar al inventario', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
+    } finally {
+      setApplying(false);
     }
-    setApplying(false);
-    setApplied({ updated, missing });
-    qc.invalidateQueries({ queryKey: ['inventory'] });
-    toast({
-      title: `Entrada registrada: ${updated} referencia(s) al kardex`,
-      description: missing.length
-        ? `${missing.length} fallaron (¿no existen en inventario?): ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '…' : ''} — crealas y volvé a aplicar.`
-        : 'Stock sumado y costo promedio recalculado. Rentabilidad ya ve el costo real.',
-      ...(missing.length ? { duration: 12000 } : {}),
-    });
   };
 
   return (
@@ -159,11 +157,11 @@ export default function CosteoCsvTools({ importId, montoTotalUsd }: {
         <Button
           size="sm" variant="outline" className="h-8 text-xs gap-1.5 border-success/40 text-success hover:bg-success/10"
           onClick={aplicarAlInventario}
-          disabled={applying || !landed || landed.items.length === 0 || landed.trmUsada <= 0}
-          title={landed && landed.trmUsada <= 0 ? 'Necesita TRM (abonos o TRM de referencia) para calcular el landed en COP' : 'Escribe el landed cost por referencia en inventory_products.cost_per_unit'}
+          disabled={applying || items.length === 0}
+          title="Respaldo del automático (corre solo al marcar entregado / aplicar el excel). Agrupa por familia -5; el costo del excel manda, landed como fallback."
         >
           <PackageCheck className="h-3.5 w-3.5" />
-          {applying ? 'Aplicando…' : 'Aplicar landed cost al inventario'}
+          {applying ? 'Aplicando…' : 'Aplicar costo al inventario'}
         </Button>
         <span className="text-[10px] text-muted-foreground">
           CSV: referencia, cantidad, peso_kg, fob_usd, descripción (opcional)
