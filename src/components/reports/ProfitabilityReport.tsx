@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { Coins, Package, Users, AlertCircle, TrendingUp, Info } from 'lucide-react';
-import { useProfitability } from '@/hooks/useProfitability';
+import { useProfitability, type ProfitSource } from '@/hooks/useProfitability';
 import type { ProfitRow } from '@/lib/profitability';
 
 const fmt = (v: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Math.round(v));
@@ -75,7 +75,8 @@ function RankTable({ rows, icon: Icon, title, labelHeader }: {
 
 export default function ProfitabilityReport() {
   const [year, setYear] = useState(now.getFullYear());
-  const { data, isLoading } = useProfitability(year);
+  const [source, setSource] = useState<ProfitSource>('facturas');
+  const { data, isLoading } = useProfitability(year, source);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
@@ -87,10 +88,20 @@ export default function ProfitabilityReport() {
             <p className="text-sm text-muted-foreground">Margen real por producto y por cliente — no solo quién factura más, sino quién deja más plata.</p>
           </div>
         </div>
-        <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-          <SelectTrigger className="w-28 h-9"><SelectValue /></SelectTrigger>
-          <SelectContent>{YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          {/* Fuente: facturado (DIAN) o lo realmente despachado por remisión */}
+          <Select value={source} onValueChange={(v) => setSource(v as ProfitSource)}>
+            <SelectTrigger className="w-44 h-9"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="facturas">Facturas (DIAN)</SelectItem>
+              <SelectItem value="remisiones">Remisiones (despachado)</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <SelectTrigger className="w-28 h-9"><SelectValue /></SelectTrigger>
+            <SelectContent>{YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading || !data ? (
@@ -99,7 +110,9 @@ export default function ProfitabilityReport() {
         <Card><CardContent className="py-12 text-center">
           <Package className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            No hay facturas de venta con detalle de líneas en {year}. La rentabilidad se calcula de las líneas de factura (referencia + cantidad) que llegan de Siigo o del PDF, cruzadas con el costo del inventario.
+            {source === 'remisiones'
+              ? `No hay remisiones de venta con items en ${year}. La rentabilidad por remisión usa la referencia, unidades y precio de cada remisión despachada, cruzados con el costo del inventario.`
+              : `No hay facturas de venta con detalle de líneas en ${year}. La rentabilidad se calcula de las líneas de factura (referencia + cantidad) que llegan de Siigo o del PDF, cruzadas con el costo del inventario.`}
           </p>
         </CardContent></Card>
       ) : (
@@ -134,14 +147,16 @@ export default function ProfitabilityReport() {
           )}
 
           <div className="grid lg:grid-cols-2 gap-4">
-            <RankTable key={`ref-${year}`} rows={data.byReference} icon={Package} title="Por referencia" labelHeader="Referencia" />
-            <RankTable key={`cli-${year}`} rows={data.byClient} icon={Users} title="Por cliente" labelHeader="Cliente" />
+            <RankTable key={`ref-${year}-${source}`} rows={data.byReference} icon={Package} title="Por referencia" labelHeader="Referencia" />
+            <RankTable key={`cli-${year}-${source}`} rows={data.byClient} icon={Users} title="Por cliente" labelHeader="Cliente" />
           </div>
 
           <div className="text-[11px] text-muted-foreground space-y-1">
             <p className="flex items-start gap-1.5">
               <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              Ingreso = base gravable (sin IVA). Costo = cantidad vendida × costo unitario del inventario. Es <strong>margen bruto</strong>, antes de gastos operativos. Asume que la unidad de venta y la de costo son la misma (ej. ambas por unidad o ambas por kg); si vendés en una unidad y costeás en otra, el margen de esa referencia no es exacto.
+              {source === 'remisiones'
+                ? <>Ingreso = precio de la remisión ÷ 1,19 (el precio de remisión incluye IVA; se quita para comparar contra el costo, que no lo incluye). Costo = unidades despachadas × costo del inventario (referencia exacta o su familia -5). Es <strong>margen bruto</strong> de lo realmente despachado, por variante de color.</>
+                : <>Ingreso = base gravable (sin IVA). Costo = cantidad vendida × costo unitario del inventario. Es <strong>margen bruto</strong>, antes de gastos operativos. Asume que la unidad de venta y la de costo son la misma (ej. ambas por unidad o ambas por kg); si vendés en una unidad y costeás en otra, el margen de esa referencia no es exacto.</>}
             </p>
             <p>Semáforo del margen %: <span className="text-success font-medium">verde ≥20%</span>, <span className="text-amber-600 font-medium">ámbar ≥8%</span>, <span className="text-destructive font-medium">rojo &lt;8%</span> — umbrales orientativos de margen bruto, ajustá tu propio criterio.</p>
           </div>

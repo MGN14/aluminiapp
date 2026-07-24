@@ -2,7 +2,13 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { getYearRange } from '@/lib/dateUtils';
+import { refFamilyKey } from '@/lib/refFamily';
 import { computeProfitability, type SaleLine, type ProfitabilityResult } from '@/lib/profitability';
+
+/** IVA estándar de las ventas de aluminio — los precios de remisión lo incluyen. */
+const IVA_REMISION = 0.19;
+
+export type ProfitSource = 'facturas' | 'remisiones';
 
 interface ItemRow {
   reference: string | null;
@@ -17,18 +23,87 @@ interface ItemRow {
   };
 }
 
+/** Costos del inventario: por referencia exacta + por familia -5 (fallback
+ *  para las remisiones, que despachan con sufijo de color LIV-40-3 mientras
+ *  el inventario Siigo cuesta la familia LIV-40-5). */
+async function fetchCostMaps() {
+  const { data } = await supabase
+    .from('inventory_products')
+    .select('reference, cost_per_unit, active')
+    .order('active', { ascending: false });
+  const costByRef = new Map<string, number>();
+  const costByFamily = new Map<string, number>();
+  for (const p of ((data ?? []) as Array<{ reference: string | null; cost_per_unit: number }>)) {
+    if (!p.reference) continue;
+    const k = p.reference.trim().toLowerCase();
+    if (!costByRef.has(k)) costByRef.set(k, Number(p.cost_per_unit) || 0);
+    const fam = refFamilyKey(p.reference);
+    if (fam && !costByFamily.has(fam)) costByFamily.set(fam, Number(p.cost_per_unit) || 0);
+  }
+  return { costByRef, costByFamily };
+}
+
 /**
- * Rentabilidad por referencia y por cliente del año: cruza las líneas de
- * factura de venta (confirmadas, no anuladas) contra el costo de inventario.
+ * Rentabilidad por referencia y por cliente del año.
+ *
+ * source = 'facturas' (default): líneas de factura de venta confirmadas
+ * (ingreso = base sin IVA) — la vista DIAN.
+ * source = 'remisiones': lo REALMENTE despachado con el precio de la remisión
+ * (que viene con IVA → se divide por 1.19) — la vista gerencial, por variante
+ * de color, cruzada contra el costo del kardex por familia.
  */
-export function useProfitability(year: number) {
+export function useProfitability(year: number, source: ProfitSource = 'facturas') {
   const { user } = useAuth();
 
   return useQuery<ProfitabilityResult>({
-    queryKey: ['profitability-v2', user?.id, year],
+    queryKey: ['profitability-v2', user?.id, year, source],
     enabled: !!user,
     queryFn: async () => {
       const { start, end } = getYearRange(year);
+
+      if (source === 'remisiones') {
+        const PAGE = 1000;
+        interface RemItem { reference: string; units: number; unit_cost: number; remisiones: { beneficiary: string | null; status: string | null } }
+        const items: RemItem[] = [];
+        for (let from = 0; ; from += PAGE) {
+          const { data, error } = await (supabase.from('remision_items') as any)
+            .select('reference, units, unit_cost, remisiones!inner(beneficiary, status, date, remision_type)')
+            .eq('remisiones.remision_type', 'venta')
+            .neq('remisiones.status', 'cancelado')
+            .gte('remisiones.date', start)
+            .lte('remisiones.date', end)
+            .range(from, from + PAGE - 1);
+          if (error) throw error;
+          const batch = (data ?? []) as RemItem[];
+          items.push(...batch);
+          if (batch.length < PAGE) break;
+        }
+
+        const { costByRef, costByFamily } = await fetchCostMaps();
+        // Resolver costo para las refs despachadas (con sufijo de color):
+        // exacta primero, familia -5 como fallback — sin esto casi ninguna
+        // remisión cruzaba con el costo del inventario.
+        for (const it of items) {
+          const k = (it.reference ?? '').trim().toLowerCase();
+          if (!k || costByRef.has(k)) continue;
+          const famCost = costByFamily.get(refFamilyKey(it.reference));
+          if (famCost !== undefined) costByRef.set(k, famCost);
+        }
+
+        const lines: SaleLine[] = items.map((it) => {
+          const name = (it.remisiones?.beneficiary ?? '').trim() || 'Sin identificar';
+          return {
+            reference: it.reference ?? '',
+            quantity: Number(it.units) || 0,
+            // Precio de remisión CON IVA → base sin IVA para comparar contra
+            // el costo del kardex (que no incluye el IVA descontable).
+            ingreso: ((Number(it.unit_cost) || 0) * (Number(it.units) || 0)) / (1 + IVA_REMISION),
+            clientKey: name.toLowerCase(),
+            clientName: name,
+          };
+        });
+        return computeProfitability(lines, costByRef);
+      }
 
       // Paginar: PostgREST limita a 1000 filas por respuesta. Sin esto, una
       // cuenta con muchas líneas truncaría silenciosamente y corromper­ía los

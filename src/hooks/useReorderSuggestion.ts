@@ -69,10 +69,33 @@ function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Fecha en que el pedido entró a 'entregado' según su historial embebido. */
-function fechaEntregado(r: ImportRow): string | null {
-  const h = (r.import_estado_history ?? []).find((x) => x.estado === 'entregado');
+/** Fecha de entrada a un estado según el historial embebido del pedido. */
+function fechaDeEstado(r: ImportRow, estado: string): string | null {
+  const h = (r.import_estado_history ?? []).find((x) => x.estado === estado);
   return h?.fecha ?? null;
+}
+
+/**
+ * Fechas para el lead time, HISTORIAL primero y columnas legacy de respaldo.
+ * Las legacy solas rompían la medición con el flujo actual: fecha_anticipo ya
+ * no se captura (anticipo dejó de ser estado → producción quedaba en default
+ * de 35d para siempre) y fecha_arribo_real se estampa AL ENTREGAR (tránsito
+ * inflado con los días de aduana y nacionalización medida en 0). Con el
+ * historial: producción = entrada a 'produccion', embarque = entrada a
+ * 'transito', arribo a puerto = entrada a 'aduana', entrega = 'entregado'.
+ * El lead time arranca en producción (cotización NO cuenta — es tiempo de
+ * decisión, no de abastecimiento) y termina en entregado.
+ */
+function toImportFechas(r: ImportRow): ImportFechas {
+  const yaEntregada = r.estado === 'entregado' || r.estado === 'cerrado';
+  return {
+    estado: r.estado,
+    fecha_anticipo: fechaDeEstado(r, 'produccion') ?? r.fecha_anticipo,
+    fecha_embarque: fechaDeEstado(r, 'transito') ?? r.fecha_embarque,
+    fecha_estimada_llegada: r.fecha_estimada_llegada,
+    fecha_arribo_real: fechaDeEstado(r, 'aduana') ?? r.fecha_arribo_real,
+    fecha_entregado: fechaDeEstado(r, 'entregado') ?? (yaEntregada ? r.fecha_arribo_real : null),
+  };
 }
 
 export function useReorderSuggestion(): UseReorderSuggestionResult {
@@ -188,21 +211,14 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   }
 
   const today = isoToday();
-  const fechas: ImportFechas[] = (importsData.all ?? []).map((r) => ({
-    estado: r.estado,
-    fecha_anticipo: r.fecha_anticipo,
-    fecha_embarque: r.fecha_embarque,
-    fecha_estimada_llegada: r.fecha_estimada_llegada,
-    fecha_arribo_real: r.fecha_arribo_real,
-    fecha_entregado: fechaEntregado(r),
-  }));
+  const fechas: ImportFechas[] = (importsData.all ?? []).map(toImportFechas);
   const leadTime = estimateLeadTime(fechas);
 
   // Packing list / proforma de pedidos abiertos → llegadas proyectadas a bodega.
   const items = itemsQuery.data ?? [];
   const dispPorImport = new Map<string, string>(
     abiertos.map((r) => [r.id, estimateDisponibilidad(
-      { ...r, fecha_entregado: null },
+      { ...toImportFechas(r), fecha_entregado: null },
       leadTime,
       today,
     )]),
@@ -296,7 +312,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // cotización) de los últimos pedidos. Acotado a [20, 120]; 45 sin historia.
   const fechasPedido = (importsData.all ?? [])
     .filter((r) => r.estado !== 'cancelado')
-    .map((r) => r.fecha_anticipo ?? r.fecha_cotizacion)
+    .map((r) => fechaDeEstado(r, 'produccion') ?? r.fecha_anticipo ?? r.fecha_cotizacion)
     .filter((f): f is string => !!f)
     .sort();
   const gaps: number[] = [];
