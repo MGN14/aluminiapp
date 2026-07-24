@@ -339,8 +339,9 @@ export default function Importaciones() {
       ?? r.fecha_anticipo ?? r.fecha_cotizacion ?? r.created_at.slice(0, 10);
     const avg = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null);
 
-    // Lead time montaje→entrega: entregados reales; si no hay (negocio
-    // arrancando), proxy con la ETA de los pedidos abiertos que la tienen.
+    // Lead time = EL MISMO del motor de reorden (etapas medidas + defaults) —
+    // tener dos cálculos hacía que la card dijera 85d y el radar 94d (bug
+    // reportado por Nico). Fallback local solo mientras el motor carga.
     const ltEntregados = all
       .filter(r => (r.estado === 'entregado' || r.estado === 'cerrado') && (r.import_estado_history?.length ?? 0) > 0)
       .map(r => computeTotalDays(r.import_estado_history!, r.estado))
@@ -350,7 +351,7 @@ export default function Importaciones() {
       .filter(r => r.fecha_estimada_llegada)
       .map(r => isoDiffDays(fechaRef(r), r.fecha_estimada_llegada!))
       .filter(d => d > 0);
-    const leadTime = avg(ltEntregados) ?? avg(ltProxy);
+    const leadTime = reorder.suggestion?.leadTime.totalDias ?? avg(ltEntregados) ?? avg(ltProxy);
 
     // Llegada (real o estimada) de cada pedido abierto
     const conLlegada = abiertos
@@ -400,7 +401,9 @@ export default function Importaciones() {
       const d = isoDiffDays(fechasPedidos[i - 1], fechasPedidos[i]);
       if (d > 0) diffs.push(d);
     }
-    const cadencia = avg(diffs.slice(-6));
+    // Cadencia unificada con el motor de reorden (cicloPedidoDias, acotada
+    // 20-120); el cálculo local queda de respaldo mientras el motor carga.
+    const cadencia = reorder.cicloPedidoDias ?? avg(diffs.slice(-6));
     const llegadas = conLlegada.map(x => x.llega).filter((f): f is string => !!f).sort();
     const ultimaLlegada = llegadas[llegadas.length - 1] ?? null;
     const montarAntesDe = ultimaLlegada && cadencia != null && leadTime != null
@@ -417,7 +420,7 @@ export default function Importaciones() {
       cadencia: cadencia != null ? Math.round(cadencia) : null,
       montarAntesDe, diasParaMontar, llegariaHoy,
     };
-  }, [data, trmByImport, trmHoy]);
+  }, [data, trmByImport, trmHoy, reorder.suggestion, reorder.cicloPedidoDias]);
 
   const filtered = useMemo(() => {
     const rows = data?.all ?? [];
