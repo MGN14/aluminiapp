@@ -717,8 +717,8 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
 
                   {/* ETA — estimada, vive acá en el Resumen (la real de aduana va en Datos) */}
                   <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2.5">
-                    <Label className="text-xs font-medium flex items-center gap-1" title="La fecha que te da la naviera/agencia: llegada del contenedor a PUERTO. La app le suma tu promedio de nacionalización para pronosticar bodega.">
-                      <CalendarClock className="h-3.5 w-3.5 text-primary" /> ETA a puerto (estimada)
+                    <Label className="text-xs font-medium flex items-center gap-1" title="La fecha que te da la naviera (Maersk, etc.): llegada del contenedor a PUERTO. Lo ESTIMADO es la bodega: la app le suma tu promedio de nacionalización.">
+                      <CalendarClock className="h-3.5 w-3.5 text-primary" /> ETA a puerto
                     </Label>
                     <Input
                       type="date"
@@ -945,7 +945,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-sm" title="La fecha de la naviera: llegada a PUERTO. La app pronostica bodega sumando tu promedio de nacionalización.">ETA a puerto (estimada)</Label>
+                  <Label className="text-sm" title="La fecha de la naviera: llegada a PUERTO. La app pronostica bodega sumando tu promedio de nacionalización.">ETA a puerto</Label>
                   <Input type="date" value={fechaEta} onChange={e => setFechaEta(e.target.value)} />
                 </div>
               </div>

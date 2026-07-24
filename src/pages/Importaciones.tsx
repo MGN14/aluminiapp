@@ -1029,19 +1029,23 @@ export default function Importaciones() {
                               ? format(parseLocalDate(fechaInicio), 'dd MMM yy', { locale: es })
                               : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          {/* ETA cargada = PUERTO; pronóstico bodega = + nacionalización prom. */}
+                          {/* ETA cargada = PUERTO (dato de la naviera); bodega = + nacionalización
+                              prom. (lo estimado). Entregado → manda la fecha REAL de entrega. */}
                           <TableCell className="text-sm whitespace-nowrap">
-                            {row.fecha_estimada_llegada ? (
-                              (row.estado === 'entregado' || row.estado === 'cerrado') ? (
-                                <span className="text-muted-foreground">{format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM yy', { locale: es })}</span>
-                              ) : (
-                                <div title={`Puerto ${format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM', { locale: es })} + ~${nacProm}d de nacionalización`}>
-                                  <span className="font-medium">
-                                    ≈{format(parseLocalDate(isoAddDays(row.fecha_estimada_llegada, nacProm)), 'dd MMM yyyy', { locale: es })}
+                            {(row.estado === 'entregado' || row.estado === 'cerrado') ? (
+                              fechaEntrega
+                                ? <span className="inline-flex items-center gap-1 text-success" title="Fecha real de entrega en bodega">
+                                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                                    {format(parseLocalDate(fechaEntrega), 'dd MMM yy', { locale: es })}
                                   </span>
-                                  <div className="text-[10px] text-muted-foreground">puerto {format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM', { locale: es })}</div>
-                                </div>
-                              )
+                                : <span className="text-muted-foreground">—</span>
+                            ) : row.fecha_estimada_llegada ? (
+                              <div title={`Puerto ${format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM', { locale: es })} (naviera) + ~${nacProm}d de nacionalización promedio`}>
+                                <span className="font-medium">
+                                  ≈{format(parseLocalDate(isoAddDays(row.fecha_estimada_llegada, nacProm)), 'dd MMM yyyy', { locale: es })}
+                                </span>
+                                <div className="text-[10px] text-muted-foreground">puerto {format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM', { locale: es })}</div>
+                              </div>
                             ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                         </TableRow>
