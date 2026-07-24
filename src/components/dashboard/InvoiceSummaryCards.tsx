@@ -111,6 +111,10 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
   const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
   const [dianPaymentsIva, setDianPaymentsIva] = useState(0);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItemRow[]>([]);
+  // IVA de importación pagado en aduana (import_costs tipo 'iva_importacion'):
+  // es descontable igual que el IVA de una factura de compra. fecha = entrada
+  // a aduana/entrega del contenedor (fallback: created_at del costo).
+  const [importIvaRows, setImportIvaRows] = useState<{ fecha: string; montoCop: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -259,6 +263,32 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         setRetefuenteManualYearTransactions([]);
       }
 
+      // IVA de importación (contenedores) → IVA descontable. Antes NO sumaba
+      // y el saldo a favor quedaba subestimado (pedido de Nico 2026-07-24).
+      try {
+        const { data: impIva } = await (supabase as any)
+          .from('import_costs')
+          .select('monto, moneda, trm, created_at, imports!inner(fecha_arribo_real, import_estado_history(estado, fecha))')
+          .eq('tipo', 'iva_importacion');
+        const rows = ((impIva ?? []) as Array<{
+          monto: number; moneda: string; trm: number | null; created_at: string;
+          imports: { fecha_arribo_real: string | null; import_estado_history?: { estado: string; fecha: string }[] };
+        }>).map(r => {
+          const hist = r.imports?.import_estado_history ?? [];
+          const fecha = hist.find(h => h.estado === 'aduana')?.fecha
+            ?? hist.find(h => h.estado === 'entregado')?.fecha
+            ?? r.imports?.fecha_arribo_real
+            ?? (r.created_at ?? '').slice(0, 10);
+          const montoCop = r.moneda === 'COP'
+            ? Number(r.monto) || 0
+            : (Number(r.trm) > 0 ? (Number(r.monto) || 0) * Number(r.trm) : 0);
+          return { fecha, montoCop };
+        }).filter(r => r.fecha && r.montoCop > 0);
+        setImportIvaRows(rows);
+      } catch {
+        setImportIvaRows([]);
+      }
+
       // Fetch invoice items for top references:
       // Query by user_id + join invoices inline to filter by type/status/date.
       // This is more reliable than filtering by invoice_id list (avoids URL length limits
@@ -312,14 +342,25 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     const ivaVentas = ivaSource.filter(i => i.type === 'venta');
     const ivaCompras = ivaSource.filter(i => i.type === 'compra');
     const ivaGenerado = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaDescontable = ivaCompras.reduce((s, i) => s + i.iva_amount, 0);
+
+    // IVA de importación por período: descontable como el de una compra DIAN.
+    const cuatriIni = cuatrimestreStart ? cuatrimestreStart.toISOString().split('T')[0] : null;
+    const cuatriFin = cuatrimestreEnd ? cuatrimestreEnd.toISOString().split('T')[0] : null;
+    const ivaImportCuatri = cuatriIni && cuatriFin
+      ? importIvaRows.filter(r => r.fecha >= cuatriIni && r.fecha <= cuatriFin).reduce((s, r) => s + r.montoCop, 0)
+      : 0;
+    const ivaImportYtd = importIvaRows
+      .filter(r => r.fecha.startsWith(String(year)))
+      .reduce((s, r) => s + r.montoCop, 0);
+
+    const ivaDescontable = ivaCompras.reduce((s, i) => s + i.iva_amount, 0) + ivaImportCuatri;
 
     // IVA YTD (acumulado del año): incluye implícitamente el saldo a favor
     // arrastrado de cuatrimestres anteriores. En Colombia, el saldo a favor de
     // un cuatrimestre se imputa al siguiente automáticamente (no se pierde).
     // Por eso ivaNeto = YTD, no del cuatrimestre aislado.
     const ivaGeneradoYtd = ventasYear.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaDescontableYtd = comprasYear.reduce((s, i) => s + i.iva_amount, 0);
+    const ivaDescontableYtd = comprasYear.reduce((s, i) => s + i.iva_amount, 0) + ivaImportYtd;
     const ivaNetoYtd = ivaGeneradoYtd - ivaDescontableYtd;
 
     // ivaNeto que ve el dashboard: saldo VIVO (YTD acumulado, con arrastre).
@@ -397,7 +438,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       ventasCount: ventas.length, comprasCount: compras.length,
       topClients,
     };
-  }, [invoices, allYearInvoices, cuatrimestreInvoices, prevMonthInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions]);
+  }, [invoices, allYearInvoices, cuatrimestreInvoices, prevMonthInvoices, retefuenteCompraRate, dianPaymentsIva, retefuenteManualPeriodTransactions, retefuenteManualYearTransactions, importIvaRows, cuatrimestreStart, cuatrimestreEnd, year]);
 
   // Top references from invoice items
   const topReferences = useMemo(() => {

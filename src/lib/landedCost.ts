@@ -136,8 +136,14 @@ export function computeLandedCost(
     return 'equal';
   };
 
+  // El IVA de importación es DESCONTABLE (se recupera contra el IVA generado):
+  // afecta la caja pero NO es costo de la mercancía — meterlo inflaba el costo
+  // unitario ~19% (y de ahí el kardex y la rentabilidad). Al costo van
+  // mercancía + flete + seguro + arancel + agencia + bancarios.
+  const costeables = costs.filter((c) => c.tipo !== 'iva_importacion');
+
   // Monto de cada costo convertido a COP + su base efectiva.
-  const costsCop = costs.map((c) => {
+  const costsCop = costeables.map((c) => {
     const monto = Number(c.monto) || 0;
     const montoCop = c.moneda === 'COP'
       ? r2(monto)

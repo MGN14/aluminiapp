@@ -356,8 +356,12 @@ export default function Remisiones() {
             <p className="text-2xl font-bold">{totalUnidades.toLocaleString('es-CO')}</p>
           </CardContent></Card>
           <Card className="border-0 shadow-sm"><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">{effectiveGerencial ? 'Valor Total' : 'Despachado'}</p>
+            {/* Los precios de remisión incluyen IVA — se declara para que no
+                se lea como base de venta (los cálculos de rentabilidad/costos
+                ya trabajan sin IVA por su lado). */}
+            <p className="text-sm text-muted-foreground">{effectiveGerencial ? 'Valor Total' : 'Despachado'} <span className="text-[10px]">(con IVA)</span></p>
             <p className="text-2xl font-bold">{formatCurrency(totalValor)}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">base sin IVA ≈ {formatCurrency(totalValor / 1.19)}</p>
           </CardContent></Card>
           {!effectiveGerencial && (
             <Card className="border-0 shadow-sm"><CardContent className="pt-6">

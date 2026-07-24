@@ -35,6 +35,17 @@ describe('computeLandedCost', () => {
     expect(r.items[1].costos_asignados_cop).toBe(100_000);
   });
 
+  it('EXCLUYE el IVA de importación del landed (descontable, no es costo)', () => {
+    const costs: LandedCostInput[] = [
+      { id: 'c1', tipo: 'flete', monto: 1000, moneda: 'USD', trm: null, base_asignacion: 'peso' },
+      { id: 'c2', tipo: 'iva_importacion', monto: 90_000_000, moneda: 'COP', trm: null, base_asignacion: 'valor' },
+    ];
+    const r = computeLandedCost(items, costs, 4000);
+    // Solo el flete (4.000.000 COP) entra al landed; el IVA (90M) queda fuera.
+    expect(r.totals.costos_total_cop).toBe(4_000_000);
+    expect(r.items[0].costos_asignados_cop).toBe(2_000_000);
+  });
+
   it('usa la TRM propia del costo si la trae (diferencia en cambio por línea)', () => {
     const costs: LandedCostInput[] = [
       { id: 'c1', tipo: 'flete', monto: 100, moneda: 'USD', trm: 5000, base_asignacion: 'peso' },
