@@ -17,8 +17,8 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import { applyColorSuffix } from '@/lib/refFamily';
-import { normalizeVariantRef } from '@/hooks/useInventoryVariants';
+import { applyColorSuffix, canonicalizeRef } from '@/lib/refFamily';
+
 
 const db = supabase as never as {
   from: (t: string) => any;
@@ -35,16 +35,22 @@ interface VariantLite {
 /** Variantes activas indexadas por referencia normalizada. Map vacío = maestra
  *  sin sembrar → todos los hooks quedan en no-op. */
 async function fetchVariantsByRefs(refs: string[]): Promise<Map<string, VariantLite>> {
-  const unique = Array.from(new Set(refs.map(normalizeVariantRef).filter(Boolean)));
-  if (!unique.length) return new Map();
+  const buscadas = new Set(refs.map((r) => canonicalizeRef(r)).filter(Boolean));
+  if (!buscadas.size) return new Map();
+  // Se traen TODAS las variantes activas y se cruzan por forma canónica: el
+  // `.in()` exacto fallaba cuando la misma pieza venía escrita distinto
+  // ("38*38-3" de China vs "38X38-3" de la maestra) y el contenedor no
+  // entraba al stock. La maestra son ~cientos de filas: traerlas es barato.
   const { data, error } = await db
     .from('inventory_variants')
     .select('id, variant_reference, stock, avg_cost')
-    .in('variant_reference', unique)
     .eq('active', true);
   if (error) throw error;
   const map = new Map<string, VariantLite>();
-  for (const v of (data ?? []) as VariantLite[]) map.set(normalizeVariantRef(v.variant_reference), v);
+  for (const v of (data ?? []) as VariantLite[]) {
+    const key = canonicalizeRef(v.variant_reference);
+    if (buscadas.has(key)) map.set(key, v);
+  }
   return map;
 }
 
@@ -111,7 +117,7 @@ export async function applyVariantRemision(params: {
   const qtyPorVariante = new Map<string, number>();
   const unmatched: string[] = [];
   for (const it of items) {
-    const v = variants.get(normalizeVariantRef(it.reference));
+    const v = variants.get(canonicalizeRef(it.reference));
     if (!v) { unmatched.push(it.reference); continue; }
     qtyPorVariante.set(v.id, (qtyPorVariante.get(v.id) ?? 0) + Math.abs(Number(it.units ?? 0)));
   }
@@ -207,7 +213,7 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
   const acc = new Map<string, { qty: number; costo: number }>(); // costo = Σ qty×unit
   const unmatched: string[] = [];
   for (let i = 0; i < items.length; i++) {
-    const v = variants.get(normalizeVariantRef(refsConSufijo[i]));
+    const v = variants.get(canonicalizeRef(refsConSufijo[i]));
     if (!v) { unmatched.push(refsConSufijo[i]); continue; }
     const qty = Math.abs(Number(items[i].cantidad ?? 0));
     if (qty <= 0) continue;

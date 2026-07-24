@@ -72,6 +72,9 @@ export interface UseReorderSuggestionResult {
   /** Llegada estimada A BODEGA por pedido abierto (misma fuente que la
    *  cobertura: respeta el piso físico tránsito+nacionalización desde hoy). */
   disponibilidadPorImport: Map<string, string>;
+  /** Referencias despachadas que no existen en inventario ni en lo que viene:
+   *  errores de digitación de la remisión. Fuera del cálculo, para corregir. */
+  referenciasSinCruzar: { key: string; label: string; units: number }[];
   /** Modelo de demanda por familia: consumo censurado, días con stock,
    *  serie mensual y estado de la estacionalidad. */
   demandPorFamilia: Map<string, FamilyDemand>;
@@ -226,7 +229,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
   const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
   if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], disponibilidadPorImport: new Map(), demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], disponibilidadPorImport: new Map(), referenciasSinCruzar: [], demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
   }
 
   const today = isoToday();
@@ -472,5 +475,5 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, disponibilidadPorImport: dispPorImport, demandPorFamilia, porVariante, kgPorUnidadVariante };
+  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, disponibilidadPorImport: dispPorImport, referenciasSinCruzar: prims.sinCruzar, demandPorFamilia, porVariante, kgPorUnidadVariante };
 }

@@ -18,9 +18,30 @@
  * mezclan con la buena (ej: T116-5NOUSAR ≠ T116-5).
  */
 
+/**
+ * Forma CANÓNICA de una referencia: misma pieza escrita distinto tiene que
+ * dar la misma llave. Caso real (jul 2026): China manda "38*38-3" y el
+ * inventario dice "38X38-3" — la cobertura los mostraba como dos filas, una
+ * "sin consumo" y otra con demanda, partiendo el análisis en dos.
+ *
+ * Reglas (conservadoras, para no fusionar referencias legítimamente distintas):
+ *   · minúsculas y sin espacios
+ *   · separador de medidas entre DÍGITOS (* × · x X) → siempre "x"
+ *     (solo entre dígitos: una "x" dentro de un código alfabético no se toca)
+ *   · guiones repetidos → uno solo
+ */
+export function canonicalizeRef(reference: string | null | undefined): string {
+  return (reference ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/(\d)\s*[*×·x]\s*(\d)/g, '$1x$2')
+    .replace(/-{2,}/g, '-');
+}
+
 /** Llave canónica de familia: base sin sufijo de color/total, normalizada. */
 export function refFamilyKey(reference: string | null | undefined): string {
-  const norm = (reference ?? '').trim().toLowerCase();
+  const norm = canonicalizeRef(reference);
   const m = /^(.+?)-(0|2|3|5)$/.exec(norm);
   return m ? m[1] : norm;
 }
@@ -79,7 +100,7 @@ export function applyColorSuffix(reference: string, color: string | null | undef
 /** Llave de VARIANTE (color): la referencia completa normalizada, sin agrupar.
  *  LIV-40-2 ≠ LIV-40-3 ≠ LIV-40 (mate) ≠ LIV-40-5 (total sin discriminar). */
 export function variantKey(reference: string | null | undefined): string {
-  return (reference ?? '').trim().toLowerCase();
+  return canonicalizeRef(reference);
 }
 
 /** Etiqueta legible del color según el sufijo (para la tabla de cobertura). */

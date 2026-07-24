@@ -48,6 +48,14 @@ export interface VariantPrimitives {
   salidas: { productId: string; quantity: number }[];
   consumoPorVariante: Map<string, number>;
   transito: TransitoItem[];
+  /**
+   * Referencias que SOLO existen en remisiones: no están en el inventario ni
+   * en el packing de lo que viene. Casi siempre son errores de digitación
+   * ("B", "38*38" mal tecleado). Como tienen demanda y stock 0, el motor las
+   * tomaba como faltantes reales e inflaba las alertas — se sacan del cálculo
+   * y se listan aparte para corregirlas en la remisión.
+   */
+  sinCruzar: { key: string; label: string; units: number }[];
 }
 
 export interface BuildVariantsParams {
@@ -136,6 +144,31 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
     return { ...t, matchKey: anclaEnTotal ? totalKey! : colorKey };
   });
 
+  // Referencias vendidas que no existen ni en inventario ni en tránsito:
+  // errores de digitación de la remisión. Fuera del cálculo, listadas aparte.
+  const conocidas = new Set<string>();
+  for (const r of inventario) {
+    const k = variantKey(r.reference);
+    if (k) conocidas.add(k);
+    // La familia también vale: una venta por color de una familia que existe
+    // en inventario (aunque sea solo la -5) NO es un error de digitación.
+    if (k) conocidas.add(`fam:${refFamilyKey(k)}`);
+  }
+  for (const t of transitoAnclado) {
+    const k = t.matchKey ?? variantKey(t.reference);
+    if (k) { conocidas.add(k); conocidas.add(`fam:${refFamilyKey(k)}`); }
+  }
+  const esConocida = (key: string) => conocidas.has(key) || conocidas.has(`fam:${refFamilyKey(key)}`);
+  const sinCruzar: { key: string; label: string; units: number }[] = [];
+  for (const [key, acc] of salidasPorVariante) {
+    if (!esConocida(key)) sinCruzar.push({ key, label: acc.label, units: acc.units });
+  }
+  sinCruzar.sort((a, b) => b.units - a.units);
+  for (const s of sinCruzar) {
+    salidasPorVariante.delete(s.key);
+    consumoPorVariante.delete(s.key);
+  }
+
   // ── Universo de variantes: demanda ∪ inventario ∪ tránsito(anclado) ──
   const labels = new Map<string, string>();
   for (const [key, acc] of salidasPorVariante) labels.set(key, acc.label);
@@ -192,6 +225,7 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
     salidas: [...salidasPorVariante.entries()].map(([key, acc]) => ({ productId: key, quantity: acc.units })),
     consumoPorVariante,
     transito: transitoAnclado,
+    sinCruzar,
   };
 }
 

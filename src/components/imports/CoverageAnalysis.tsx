@@ -49,7 +49,7 @@ function coberturaColor(dias: number | null): string {
 type SortKey = 'demanda' | 'stock' | 'transito' | 'cobertura' | 'quiebre' | 'sugerido' | 'kg';
 
 export default function CoverageAnalysis() {
-  const { isPending, suggestion: sug, kgPorUnidad, kgPorUnidadVariante, porVariante, cicloPedidoDias, pedidosSinItems, demandPorFamilia } = useReorderSuggestion();
+  const { isPending, suggestion: sug, kgPorUnidad, kgPorUnidadVariante, porVariante, cicloPedidoDias, pedidosSinItems, demandPorFamilia, referenciasSinCruzar } = useReorderSuggestion();
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
   // Orden por columna numérica: click → desc → asc → default (cobertura asc).
@@ -247,6 +247,33 @@ export default function CoverageAnalysis() {
             inflado. Subile el proforma en la pestaña Costeo del pedido — es parte del flujo, no opcional.
           </span>
         </p>
+      )}
+
+      {/* Errores de digitación en remisiones: referencias que no existen ni en
+          inventario ni en lo que viene. Fuera del cálculo, visibles para
+          corregirlas en la remisión (antes inflaban los faltantes). */}
+      {referenciasSinCruzar.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 space-y-1">
+          <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+            ⚠️ {referenciasSinCruzar.length} referencia{referenciasSinCruzar.length > 1 ? 's' : ''} despachada{referenciasSinCruzar.length > 1 ? 's' : ''} no cruza{referenciasSinCruzar.length > 1 ? 'n' : ''} con tu inventario
+            <span className="font-normal"> — casi siempre son errores de digitación en la remisión. NO cuentan para el análisis.</span>
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {referenciasSinCruzar.slice(0, 12).map((r) => (
+              <span key={r.key} className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-background px-1.5 py-0.5 text-[10px]">
+                <span className="font-mono font-semibold">{r.label}</span>
+                <span className="text-muted-foreground">{Math.round(r.units)} und</span>
+              </span>
+            ))}
+            {referenciasSinCruzar.length > 12 && (
+              <span className="text-[10px] text-muted-foreground">… y {referenciasSinCruzar.length - 12} más</span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Corregilas en la remisión (Remisiones → editar) o creá la referencia en Inventario si es real.
+            Las diferencias de escritura tipo <span className="font-mono">38*38-3</span> vs <span className="font-mono">38X38-3</span> ya se unifican solas.
+          </p>
+        </div>
       )}
 
       <div className="relative max-w-xs">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { refFamilyKey, suffixColorConflict, normalizeColor, applyColorSuffix, colorLabel } from './refFamily';
+import { refFamilyKey, suffixColorConflict, normalizeColor, applyColorSuffix, colorLabel, canonicalizeRef, variantKey } from './refFamily';
 
 describe('applyColorSuffix — la app le pone el sufijo a la proforma', () => {
   it('base + color de la columna → variante con sufijo', () => {
@@ -100,5 +100,27 @@ describe('suffixColorConflict — proforma (sin sufijo) vs packing list (con suf
   it('colores no estándar no explotan (se conservan, sin falso conflicto sin sufijo)', () => {
     expect(suffixColorConflict('LIV-40', 'Champagne')).toBeNull();
     expect(normalizeColor('Champagne')).toBe('champagne');
+  });
+});
+
+describe('canonicalizeRef — misma pieza escrita distinto', () => {
+  it('unifica el separador de medidas entre dígitos (* × x X)', () => {
+    const esperado = '38x38-3';
+    expect(canonicalizeRef('38X38-3')).toBe(esperado);
+    expect(canonicalizeRef('38*38-3')).toBe(esperado);
+    expect(canonicalizeRef('38×38-3')).toBe(esperado);
+    expect(canonicalizeRef(' 38 x 38-3 ')).toBe(esperado);
+  });
+
+  it('la familia y la variante quedan unificadas', () => {
+    expect(refFamilyKey('38*38-3')).toBe(refFamilyKey('38X38-3'));
+    expect(variantKey('38*38-3')).toBe(variantKey('38X38-3'));
+    // pero colores distintos siguen siendo variantes distintas
+    expect(variantKey('38*38-3')).not.toBe(variantKey('38X38-2'));
+  });
+
+  it('NO toca una x que no está entre dígitos (códigos alfabéticos)', () => {
+    expect(canonicalizeRef('MAXI-40')).toBe('maxi-40');
+    expect(canonicalizeRef('BLJY011')).toBe('bljy011');
   });
 });
