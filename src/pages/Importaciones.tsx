@@ -358,12 +358,14 @@ export default function Importaciones() {
       .filter(d => d > 0);
     const leadTime = reorder.suggestion?.leadTime.totalDias ?? avg(ltEntregados) ?? avg(ltProxy);
 
-    // Llegada (real o estimada) de cada pedido abierto
+    // Llegada A BODEGA (real o estimada) de cada pedido abierto. La ETA
+    // cargada es PUERTO → bodega = ETA + nacionalización promedio.
     const conLlegada = abiertos
       .map(r => ({
         r,
         llega: r.fecha_estimada_llegada
-          ?? (leadTime != null ? isoAddDays(fechaRef(r), Math.round(leadTime)) : null),
+          ? isoAddDays(r.fecha_estimada_llegada, nacProm)
+          : (leadTime != null ? isoAddDays(fechaRef(r), Math.round(leadTime)) : null),
         etaEstimada: !r.fecha_estimada_llegada,
       }))
       .sort((a, b) => (a.llega ?? '9999').localeCompare(b.llega ?? '9999'));
@@ -425,7 +427,7 @@ export default function Importaciones() {
       cadencia: cadencia != null ? Math.round(cadencia) : null,
       montarAntesDe, diasParaMontar, llegariaHoy,
     };
-  }, [data, trmByImport, trmHoy, reorder.suggestion, reorder.cicloPedidoDias]);
+  }, [data, trmByImport, trmHoy, reorder.suggestion, reorder.cicloPedidoDias, nacProm]);
 
   const filtered = useMemo(() => {
     const rows = data?.all ?? [];
@@ -665,8 +667,24 @@ export default function Importaciones() {
                       {radar.proximo.llega && <span className="font-normal text-xs text-muted-foreground"> — {fmtFechaCorta(radar.proximo.llega)}</span>}
                     </p>
                     <div className="text-[11px] space-y-0.5">
+                      {/* Desglose puerto→aduana→bodega: la aduana es la fecha
+                          LÍMITE para tener el saldo girado (pedido de Nico) */}
+                      {radar.proximo.llega && radar.proximo.r.estado !== 'aduana' && radar.proximo.r.estado !== 'entregado' && (
+                        <p>
+                          <span className="text-muted-foreground">🛃 Aduana:</span>{' '}
+                          <span className="font-semibold">≈{fmtFechaCorta(isoAddDays(radar.proximo.llega, -nacProm))}</span>
+                          <span className="text-muted-foreground"> (límite de pago)</span>
+                          {' · '}
+                          <span className="text-muted-foreground">📦 Bodega:</span>{' '}
+                          <span className="font-semibold">≈{fmtFechaCorta(radar.proximo.llega)}</span>
+                        </p>
+                      )}
                       {radar.saldoProximo != null && radar.saldoProximo > 0 ? (
-                        <p><span className="text-muted-foreground">Saldo por girar:</span> <span className="font-mono font-semibold text-destructive">{fmtUSD0(radar.saldoProximo)}</span></p>
+                        <p><span className="text-muted-foreground">Saldo por girar:</span> <span className="font-mono font-semibold text-destructive">{fmtUSD0(radar.saldoProximo)}</span>
+                          {radar.proximo.llega && radar.proximo.r.estado !== 'aduana' && radar.proximo.r.estado !== 'entregado' && (
+                            <span className="text-muted-foreground"> antes de aduana</span>
+                          )}
+                        </p>
                       ) : (
                         <p className="text-success font-medium">Mercancía 100% pagada ✓</p>
                       )}
@@ -827,6 +845,7 @@ export default function Importaciones() {
                   <TableRow className="bg-muted/80">
                     <TableHead className="font-semibold">Proveedor</TableHead>
                     <TableHead className="font-semibold">Estado</TableHead>
+                    <TableHead className="font-semibold text-right" title="Días de la operación: desde que se montó el pedido (producción) hasta la entrega (o hoy si sigue en curso)">Días</TableHead>
                     <TableHead className="font-semibold text-right">SMM cerrado</TableHead>
                     <TableHead className="font-semibold text-right">Flete</TableHead>
                     <TableHead className="font-semibold text-right" title="Con ≈ es el estimado que calcula la app (CIF × %). Cuando cargués el real en el Resumen del pedido, manda el real.">Arancel</TableHead>
@@ -837,7 +856,6 @@ export default function Importaciones() {
                     <TableHead className="font-semibold" title="Fecha en que arrancó el pedido (primera etapa registrada)">Inicio</TableHead>
                     <TableHead className="font-semibold" title="La ETA que cargás es la llegada a PUERTO; la app le suma tu promedio de nacionalización para pronosticar la llegada a bodega.">ETA bodega</TableHead>
                     <TableHead className="font-semibold" title="Fecha de entrega. Queda EN FIRME solo cuando subís la declaración frente al Banco de la República (certificado BanRep) en el checklist del pedido.">Cierre</TableHead>
-                    <TableHead className="font-semibold text-right">Días</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -958,6 +976,28 @@ export default function Importaciones() {
                                 </SelectContent>
                               </Select>
                             )}
+                            {/* Entregado pero sin declaración BanRep: la alerta
+                                vive acá, chiquita, para no engordar Cierre */}
+                            {fechaEntrega && !tieneBanrep && (
+                              <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta cierre BanRep</div>
+                            )}
+                          </TableCell>
+                          {/* Días de la operación — al lado del estado, siempre visible */}
+                          <TableCell className="text-right text-sm font-mono">
+                            {(() => {
+                              const total = row.import_estado_history?.length
+                                ? computeTotalDays(row.import_estado_history, row.estado)
+                                : null;
+                              if (!total) return <span className="text-muted-foreground">—</span>;
+                              return (
+                                <span
+                                  className={total.enCurso ? 'text-primary font-semibold' : 'text-muted-foreground'}
+                                  title={total.enCurso ? 'Días desde que se montó el pedido (en curso)' : 'Días totales hasta la entrega'}
+                                >
+                                  {total.dias}d
+                                </span>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell className="text-right text-sm font-mono">{fmtUSD(row.precio_smm_cerrado_usd_ton)}</TableCell>
                           <TableCell className="text-right"><CostCell usd={flete.usd} cop={flete.cop} /></TableCell>
@@ -1005,42 +1045,23 @@ export default function Importaciones() {
                               )
                             ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          {/* Cierre: entregado ≠ cerrado — sin declaración BanRep queda "pendiente" */}
+                          {/* Cierre compacto: la alerta detallada vive bajo el Estado */}
                           <TableCell className="text-sm whitespace-nowrap">
                             {fechaEntrega ? (
-                              tieneBanrep ? (
-                                <span className="inline-flex items-center gap-1" title="Cierre en firme — declaración frente al Banco de la República subida">
-                                  <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
-                                  {format(parseLocalDate(fechaEntrega), 'dd MMM yy', { locale: es })}
-                                </span>
-                              ) : (
-                                <div title="Pendiente de cierre frente al Banco de la República — subí la declaración (certificado BanRep) en el checklist del pedido">
-                                  <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
-                                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                    {format(parseLocalDate(fechaEntrega), 'dd MMM yy', { locale: es })}
-                                  </span>
-                                  <div className="text-[10px] text-amber-600">pendiente cierre BanRep</div>
-                                </div>
-                              )
+                              <span
+                                className={cn('inline-flex items-center gap-1', !tieneBanrep && 'text-amber-600 font-medium')}
+                                title={tieneBanrep
+                                  ? 'Cierre en firme — declaración frente al Banco de la República subida'
+                                  : 'Pendiente de cierre frente al Banco de la República — subí la declaración (certificado BanRep) en el checklist del pedido'}
+                              >
+                                {tieneBanrep
+                                  ? <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
+                                  : <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
+                                {format(parseLocalDate(fechaEntrega), 'dd MMM yy', { locale: es })}
+                              </span>
                             ) : (
                               <span className="text-muted-foreground">—</span>
                             )}
-                          </TableCell>
-                          <TableCell className="text-right text-sm font-mono">
-                            {(() => {
-                              const total = row.import_estado_history?.length
-                                ? computeTotalDays(row.import_estado_history, row.estado)
-                                : null;
-                              if (!total) return <span className="text-muted-foreground">—</span>;
-                              return (
-                                <span
-                                  className={total.enCurso ? 'text-primary' : 'text-muted-foreground'}
-                                  title={total.enCurso ? 'Días desde el inicio (en curso)' : 'Días totales hasta la entrega'}
-                                >
-                                  {total.dias}d
-                                </span>
-                              );
-                            })()}
                           </TableCell>
                         </TableRow>
                       );
