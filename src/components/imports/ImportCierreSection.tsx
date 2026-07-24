@@ -6,7 +6,7 @@ import { useImportItems, type NewImportItem } from '@/hooks/useImportItems';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { applyImportKardex } from '@/lib/importKardexEntry';
-import { applyVariantImportEntrada, reverseVariantImportEntrada } from '@/lib/variantInventory';
+import { applyVariantImportEntrada } from '@/lib/variantInventory';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { parseDelimited, parseLooseNumber } from '@/lib/delimitedParser';
 import { guessMapping, isSummaryReference, hasAnyData, makeCellNumberParser, type FieldKey } from '@/lib/packingListParse';
@@ -184,8 +184,9 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
           // El pedido ya está entregado (el checklist solo aparece ahí):
           // re-costear el inventario con el excel — el último excel manda.
           try {
-            await reverseVariantImportEntrada(importId);
-            await applyVariantImportEntrada(importId);
+            // reapply seguro: solo reversa si la nueva entrada va a matchear
+            // (si no, dejaría el stock en cero — bug 2026-07-24).
+            await applyVariantImportEntrada(importId, { reapply: true });
             const k = await applyImportKardex(importId, { reapply: true });
             qc.invalidateQueries({ queryKey: ['inventory'] });
             qc.invalidateQueries({ queryKey: ['inventory-costs-map'] });

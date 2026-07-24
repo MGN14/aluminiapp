@@ -161,7 +161,31 @@ export async function reverseVariantRemision(remisionId: string): Promise<void> 
  * con su costo (costo_unitario_excel v1 — la vara de Nico) y recalcula el
  * costo promedio ponderado. Packing manda sobre proforma. Idempotente.
  */
-export async function applyVariantImportEntrada(importId: string): Promise<VariantApplyResult> {
+export async function applyVariantImportEntrada(
+  importId: string,
+  opts?: { reapply?: boolean },
+): Promise<VariantApplyResult> {
+  // Re-aplicar (excel nuevo): la reversa SOLO se hace si la nueva entrada va
+  // a matchear algo. Antes se reversaba primero y, si las referencias del
+  // excel no existían en la maestra, la re-entrada quedaba en no-op y el
+  // stock se PERDÍA (bug detectado 2026-07-24).
+  if (opts?.reapply) {
+    const { data: peek } = await db
+      .from('import_items')
+      .select('reference, color, source')
+      .eq('import_id', importId);
+    const rows = (peek ?? []) as { reference: string; color: string | null; source: string | null }[];
+    const hayPk = rows.some((r) => (r.source ?? 'packing') === 'packing');
+    const efectivos = hayPk ? rows.filter((r) => (r.source ?? 'packing') === 'packing') : rows;
+    const refs = efectivos.map((r) => applyColorSuffix(r.reference, r.color ?? null));
+    const matches = await fetchVariantsByRefs(refs);
+    if (!matches.size) return NOOP; // nada matchearía: no tocar el stock
+    await reverseVariantImportEntrada(importId);
+  }
+  return applyVariantImportEntradaInner(importId);
+}
+
+async function applyVariantImportEntradaInner(importId: string): Promise<VariantApplyResult> {
   const { data: itemsData, error: itErr } = await db
     .from('import_items')
     .select('reference, cantidad, color, source, costo_unitario_excel')

@@ -99,6 +99,7 @@ export async function reverseImportKardex(importId: string): Promise<number> {
       p_origen_tipo: 'import',
       p_origen_id: importId,
       p_notas: 'Reversa entrada contenedor (re-costeo / estado corregido)',
+      p_afecta_fisico: true, // simétrico a la entrada: también saca el físico
     });
     if (!rpcErr) reversed += 1;
   }
@@ -184,6 +185,9 @@ export async function applyImportKardex(
       p_origen_tipo: 'import',
       p_origen_id: importId,
       p_notas: 'Entrada contenedor (excel de costeo / landed)',
+      // La mercancía llegó FÍSICAMENTE a bodega: sube stock_physical (la
+      // fuente de la cobertura) además del stock_system contable.
+      p_afecta_fisico: true,
     });
     if (!error) applied += 1;
     else missing.push(f.label);
