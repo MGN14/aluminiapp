@@ -10,6 +10,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { applyColorSuffix } from '@/lib/refFamily';
 
 // La tabla es nueva; types.ts todavía no la conoce. Mismo cast que usa el
 // resto del código para tablas recién creadas (ej. import_items).
@@ -43,11 +44,15 @@ export function normalizeVariantRef(ref: string): string {
   return (ref ?? '').trim().toUpperCase();
 }
 
+// Calibrados contra los formatos reales de Nico: la maestra "formal"
+// (Referencia/Stock inicial/Costo) Y el conteo de bodega (REF | DESCRIPCION |
+// COLOR | UND) — este último es el que sube como inventario inicial.
 const HEADER_HINTS = {
-  reference: /refer/i,
+  reference: /^\s*ref\.?\s*$|refer|c[oó]digo|sku/i,
   name: /descrip|nombre/i,
   system: /sistema|l[ií]nea|grupo/i,
-  stock: /stock|inicial|cantidad|conteo|f[ií]sic|existen/i,
+  color: /^\s*color(es)?\s*$/i,
+  stock: /stock|inicial|cantidad|conteo|f[ií]sic|existen|^\s*unds?\.?\s*$|unidades/i,
   cost: /costo|cost|valor|unitario/i,
 };
 
@@ -73,25 +78,42 @@ export function parseMaestra(rows: string[][]): { data: MaestraRow[]; error: str
   const iRef = col(HEADER_HINTS.reference);
   const iName = col(HEADER_HINTS.name);
   const iSys = col(HEADER_HINTS.system);
+  const iColor = col(HEADER_HINTS.color);
   const iStock = col(HEADER_HINTS.stock);
   const iCost = col(HEADER_HINTS.cost);
-  if (iStock < 0) return { data: [], error: 'No encontré una columna de "Stock inicial".' };
+  if (iStock < 0) return { data: [], error: 'No encontré una columna de stock/unidades (Stock, UND, Cantidad…).' };
 
-  const data: MaestraRow[] = [];
+  // Agregado por variante: el conteo puede repetir la misma referencia+color
+  // en varias filas — un upsert con llaves repetidas revienta en Postgres.
+  const acc = new Map<string, MaestraRow>();
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const r = rows[i];
-    const reference = normalizeVariantRef(r[iRef] ?? '');
-    if (!reference) continue;
+    const rawRef = (r[iRef] ?? '').trim();
+    if (!rawRef) continue;
     // Filas de totales/notas al pie: sin referencia válida las salta el continue.
-    if (/^(total|nota|tope)/i.test(reference)) continue;
-    data.push({
+    if (/^(total|nota|tope)/i.test(rawRef)) continue;
+    // Columna COLOR (conteo de bodega): la variante es ref + sufijo según la
+    // convención (Mate = base, Blanco -2, Negro -3, Crudo -0).
+    const conSufijo = iColor >= 0 ? applyColorSuffix(rawRef, r[iColor] ?? null) : rawRef;
+    const reference = normalizeVariantRef(conSufijo);
+    if (!reference) continue;
+    const fila: MaestraRow = {
       reference,
       name: iName >= 0 ? (r[iName] ?? '').trim() : '',
       system: iSys >= 0 ? (r[iSys] ?? '').trim() : '',
       stock: toNum(r[iStock] ?? '0'),
       cost: iCost >= 0 ? toNum(r[iCost] ?? '0') : 0,
-    });
+    };
+    const prev = acc.get(reference);
+    if (prev) {
+      prev.stock += fila.stock;
+      if (!prev.name && fila.name) prev.name = fila.name;
+      if (!prev.cost && fila.cost) prev.cost = fila.cost;
+    } else {
+      acc.set(reference, fila);
+    }
   }
+  const data = [...acc.values()];
   if (!data.length) return { data: [], error: 'No hay filas de datos debajo del encabezado.' };
   return { data, error: null };
 }
