@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { applyVariantRemision, reverseVariantRemision } from '@/lib/variantInventory';
+import { refFamilyKey } from '@/lib/refFamily';
 
 export type RemisionType = 'venta' | 'compra';
 
@@ -68,6 +69,22 @@ export async function fetchProductsByRefs(
         map.set(key, p as ProductLite);
       }
     });
+    // Cruce por FAMILIA (convención -5 de Siigo): la remisión despacha por
+    // color o en mate ("PC635", "PC635-3") pero el maestro solo tiene la -5
+    // ("PC635-5"). Es la MISMA pieza — el stock del producto vive en la -5 y
+    // ahí se descuenta; el detalle por color lo lleva el ledger de variantes.
+    // Sin esto, media remisión salía como "sin match" y no descontaba stock.
+    const porFamilia = new Map<string, ProductLite>();
+    (allUserProducts ?? []).forEach((p) => {
+      const fam = refFamilyKey(p.reference);
+      if (fam && !porFamilia.has(fam)) porFamilia.set(fam, p as ProductLite);
+    });
+    for (const r of missing) {
+      const key = normalizeRef(r);
+      if (map.has(key)) continue;
+      const prod = porFamilia.get(refFamilyKey(r));
+      if (prod) map.set(key, prod); // llave = ref TAL COMO se pidió
+    }
   }
   return map;
 }

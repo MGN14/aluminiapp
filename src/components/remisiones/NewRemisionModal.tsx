@@ -21,6 +21,8 @@ import {
 } from '@/lib/remisionInventory';
 import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 import { suggestReferences } from '@/lib/refSuggest';
+import { parseLooseNumber } from '@/lib/delimitedParser';
+import { refFamilyKey } from '@/lib/refFamily';
 
 interface Props {
   open: boolean;
@@ -110,9 +112,15 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
         .from('inventory_products')
         .select('reference')
         .eq('active', true);
-      return ((data ?? []) as { reference: string | null }[])
+      const refs = ((data ?? []) as { reference: string | null }[])
         .map((p) => (p.reference ?? '').trim())
         .filter(Boolean);
+      // Candidatos para sugerencias: la ref del maestro Y su base sin la -5
+      // (Siigo lleva "PC635-5"; Lina digita "PC635" mate o "PC635-3" negro).
+      // Un typo tipo "PC-635" debe sugerir la BASE, nunca la -5 — la familia
+      // ya la resuelve la app internamente al cruzar con el maestro.
+      const bases = refs.map((r) => r.replace(/-5$/i, ''));
+      return Array.from(new Set([...refs.filter((r) => !/-5$/i.test(r)), ...bases]));
     },
   });
   const [resolving, setResolving] = useState(false);
@@ -280,12 +288,14 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
     const unitsIdx = headers.indexOf(unitsCol);
     const costIdx = costCol ? headers.indexOf(costCol) : -1;
 
+    // parseLooseNumber entiende es-CO: "25.000" = veinticinco mil (el parser
+    // anterior lo leía como 25 — los totales salían divididos por mil).
     const parsed: RemisionItemInput[] = rawRows
       .map(row => ({
         reference: String(row[refIdx] || '').trim(),
         product_name: nameIdx >= 0 ? String(row[nameIdx] || '').trim() : String(row[refIdx] || '').trim(),
-        units: parseFloat(String(row[unitsIdx] || '0').replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0,
-        unit_cost: costIdx >= 0 ? parseFloat(String(row[costIdx] || '0').replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0 : 0,
+        units: parseLooseNumber(String(row[unitsIdx] || '0')),
+        unit_cost: costIdx >= 0 ? parseLooseNumber(String(row[costIdx] || '0')) : 0,
       }))
       .filter(item => item.reference && item.units > 0);
 
@@ -420,9 +430,16 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
   };
 
   /** Corrige una referencia mal digitada en TODOS los ítems de la remisión y
-   *  la re-cruza contra el maestro (así sale sola de "sin cruzar"). */
+   *  la re-cruza contra el maestro (exacto o por familia -5) — así sale sola
+   *  de "sin cruzar" y el descuento de stock apunta al producto correcto. */
   const corregirReferencia = (desde: string, hacia: string) => {
-    const prod = productMap.get(hacia.trim().toLowerCase());
+    const key = hacia.trim().toLowerCase();
+    const prod = productMap.get(key)
+      ?? [...productMap.values()].find((p) => refFamilyKey(p.reference) === refFamilyKey(hacia))
+      ?? null;
+    if (prod) {
+      setProductMap((prev) => new Map(prev).set(key, prod));
+    }
     setItems((prev) => prev.map((it) => it.reference === desde
       ? { ...it, reference: hacia, product_name: prod?.name || it.product_name }
       : it));
