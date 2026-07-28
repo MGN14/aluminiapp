@@ -129,8 +129,12 @@ export interface ApplyRemisionInput {
 }
 
 export interface ApplyRemisionResult {
+  /** Ítems aplicados a inventory_products (solo productos NO -5). */
   applied: number;
   unmatched: RemisionItemInput[];
+  /** Variantes descontadas en el ledger referencia-por-referencia (el
+   *  inventario físico real — el -5 no se toca por remisión). */
+  variantesAplicadas: number;
 }
 
 export async function applyRemisionInventory({
@@ -149,12 +153,31 @@ export async function applyRemisionInventory({
 
   for (const item of items) {
     const product = productMap.get(normalizeRef(item.reference));
-    if (product) matched.push({ item, product });
-    else unmatched.push(item);
+    if (!product) { unmatched.push(item); continue; }
+    // REGLA (Nico, 2026-07-24): el -5 es el mundo Siigo — SOLO se mueve al
+    // facturar, NUNCA por remisión (ni siquiera si el Excel trae la -5 tal
+    // cual). El match (exacto o por familia) sirve para reconocer la
+    // referencia — nombre, costo, nada de "sin match" falsos — pero el stock
+    // físico de la remisión lo lleva el inventario POR VARIANTE.
+    if (/-5$/i.test((product.reference ?? '').trim())) continue;
+    matched.push({ item, product });
   }
 
   if (matched.length === 0) {
-    return { applied: 0, unmatched };
+    // Nada que aplicar a products — el ledger de variantes igual registra.
+    let variantesAplicadas = 0;
+    try {
+      const v = await applyVariantRemision({
+        remisionId,
+        remisionType,
+        movementDate,
+        items: items.map((i) => ({ reference: i.reference, units: i.units })),
+      });
+      variantesAplicadas = v.applied;
+    } catch (e) {
+      console.warn('[variantes] remisión no aplicada al inventario por variante:', e);
+    }
+    return { applied: 0, unmatched, variantesAplicadas };
   }
 
   const movementRows = matched.map(({ item, product }) => ({
@@ -190,18 +213,20 @@ export async function applyRemisionInventory({
   // ya trae el sufijo de color tal como se despachó. Best-effort — no-op si
   // la maestra no está sembrada; un fallo acá NO tumba el despacho (el -5 ya
   // quedó aplicado; el ledger de variantes se re-cuadra con la maestra).
+  let variantesAplicadas = 0;
   try {
-    await applyVariantRemision({
+    const v = await applyVariantRemision({
       remisionId,
       remisionType,
       movementDate,
       items: items.map((i) => ({ reference: i.reference, units: i.units })),
     });
+    variantesAplicadas = v.applied;
   } catch (e) {
     console.warn('[variantes] remisión no aplicada al inventario por variante:', e);
   }
 
-  return { applied: matched.length, unmatched };
+  return { applied: matched.length, unmatched, variantesAplicadas };
 }
 
 // Reverse all movements sourced from a remisión: undo stock_physical deltas and delete the movement rows.

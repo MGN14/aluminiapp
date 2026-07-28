@@ -329,7 +329,7 @@ export default function Despacho() {
 
       toast({
         title: `Remisión ${remision.number ?? ''} generada`,
-        description: `${items.length} referencias · ${result.applied} descontadas del inventario físico.`,
+        description: `${items.length} referencias · ${result.variantesAplicadas} descontadas del inventario por variante (el -5 de Siigo no se toca — solo se mueve al facturar).`,
       });
       navigate('/remisiones');
     } catch (e: any) {
