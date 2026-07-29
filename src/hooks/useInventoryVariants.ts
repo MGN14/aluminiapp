@@ -10,7 +10,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { applyColorSuffix } from '@/lib/refFamily';
+import { applyColorSuffix, canonicalizeRef } from '@/lib/refFamily';
 
 // La tabla es nueva; types.ts todavía no la conoce. Mismo cast que usa el
 // resto del código para tablas recién creadas (ej. import_items).
@@ -141,10 +141,28 @@ export function useInventoryVariants() {
    * Re-subir vuelve a cuadrar (como "Cuadrar inventario" del -5).
    */
   const importMaestra = useMutation({
-    mutationFn: async (filas: MaestraRow[]) => {
+    mutationFn: async ({ filas, conteoCompleto = false }: { filas: MaestraRow[]; conteoCompleto?: boolean }) => {
       const nowIso = new Date().toISOString();
+
+      // Cruce CANÓNICO contra lo que ya existe: si la maestra vieja dice
+      // "38*38-3" y el conteo nuevo "38X38-3", es la MISMA variante — el
+      // upsert exacto creaba una fila nueva y la vieja quedaba viva con su
+      // stock (negativo tras meses de salidas): duplicados fantasma
+      // (reporte de Nico 2026-07-28: "hay unos en negativo").
+      const { data: existentes, error: exErr } = await db
+        .from('inventory_variants')
+        .select('id, variant_reference, active');
+      if (exErr) throw exErr;
+      const existentesRows = (existentes ?? []) as { id: string; variant_reference: string; active: boolean }[];
+      const spellingExistente = new Map<string, string>();
+      for (const v of existentesRows) {
+        const k = canonicalizeRef(v.variant_reference);
+        if (k && !spellingExistente.has(k)) spellingExistente.set(k, v.variant_reference);
+      }
+
       const payload = filas.map((f) => ({
-        variant_reference: f.reference,
+        // Respetar la escritura YA registrada de la misma variante.
+        variant_reference: spellingExistente.get(canonicalizeRef(f.reference)) ?? f.reference,
         name: f.name || null,
         system: f.system || null,
         stock: f.stock,
@@ -162,13 +180,34 @@ export function useInventoryVariants() {
         .select('id, variant_reference');
       if (error) throw error;
 
+      // Conteo COMPLETO: lo que existe en la maestra pero NO vino en el
+      // archivo se ancla en 0 — se contó todo y no apareció. Sin esto, las
+      // variantes viejas quedaban arrastrando negativos de meses de salidas.
+      let ancladasEnCero = 0;
+      if (conteoCompleto) {
+        const subidas = new Set(payload.map((p) => canonicalizeRef(p.variant_reference)));
+        const faltantes = existentesRows.filter(
+          (v) => v.active && !subidas.has(canonicalizeRef(v.variant_reference)),
+        );
+        if (faltantes.length) {
+          const { error: zErr } = await db
+            .from('inventory_variants')
+            .update({ stock: 0, stock_inicial: 0, stock_inicial_date: nowIso, last_count_date: nowIso })
+            .in('id', faltantes.map((v) => v.id));
+          if (zErr) throw zErr;
+          ancladasEnCero = faltantes.length;
+        }
+      }
+
       // Movimiento 'inicial' por variante (traza del conteo).
       const idPorRef = new Map<string, string>(
         (up ?? []).map((r: { id: string; variant_reference: string }) => [r.variant_reference, r.id]),
       );
       const movs = filas
-        .map((f) => {
-          const id = idPorRef.get(f.reference);
+        .map((f, i) => {
+          // payload está alineado por índice con filas — la ref pudo cambiar
+          // de escritura al cruzar con la existente (canónico).
+          const id = idPorRef.get(payload[i].variant_reference);
           if (!id) return null;
           return {
             variant_id: id,
@@ -185,7 +224,7 @@ export function useInventoryVariants() {
         const { error: mErr } = await db.from('inventory_variant_movements').insert(movs);
         if (mErr) throw mErr;
       }
-      return { count: payload.length };
+      return { count: payload.length, ancladasEnCero };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['inventory-variants'] });

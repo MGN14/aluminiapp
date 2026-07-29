@@ -58,8 +58,21 @@ export default function VariantInventoryPanel() {
         toast({ title: 'No pude leer la maestra', description: parsed.error, variant: 'destructive' });
         return;
       }
-      const res = await importMaestra.mutateAsync(parsed.data);
-      toast({ title: 'Maestra cargada', description: `${res.count} variantes actualizadas con su conteo inicial.` });
+      // Conteo COMPLETO: lo que no aparece en el archivo queda en 0 — evita
+      // que variantes viejas arrastren negativos de meses de salidas. Se
+      // confirma porque pone en 0 lo no contado (irreversible sin re-subir).
+      const conteoCompleto = window.confirm(
+        `Leí ${parsed.data.length} referencias del archivo.\n\n` +
+        '¿Este archivo es el conteo COMPLETO de la bodega?\n\n' +
+        '· Aceptar: lo que NO aparece en el archivo queda con stock 0 (se contó todo y no estaba).\n' +
+        '· Cancelar: solo se actualizan las referencias del archivo; el resto queda como está.',
+      );
+      const res = await importMaestra.mutateAsync({ filas: parsed.data, conteoCompleto });
+      toast({
+        title: 'Maestra cargada',
+        description: `${res.count} variantes ancladas al conteo${res.ancladasEnCero > 0 ? ` · ${res.ancladasEnCero} que no venían en el archivo quedaron en 0` : ''}.`,
+        duration: 9000,
+      });
     } catch (e) {
       toast({ title: 'Error subiendo la maestra', description: (e as Error).message, variant: 'destructive' });
     } finally {
