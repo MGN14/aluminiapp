@@ -199,6 +199,14 @@
     <!-- Hero copy estático para Googlebot wave 1 (antes de hidratación React).
          React tomará el control del DOM en /signup, /pricing, etc. -->
     <div id="root">
+      <!-- Shell de carga: visible mientras baja el JS (internet lento) —
+           React lo reemplaza al montar. Sin esto: pantalla en blanco. -->
+      <div id="boot-shell" style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#fff;font-family:system-ui,-apple-system,sans-serif">
+        <div style="font-size:20px;font-weight:700;letter-spacing:-0.5px;color:#1d1d1f">Alumin<span style="color:#16a34a">IA</span></div>
+        <div style="width:26px;height:26px;border:3px solid #e5e7eb;border-top-color:#16a34a;border-radius:50%;animation:bootspin 0.8s linear infinite"></div>
+        <div style="font-size:13px;color:#6b7280">Cargando…</div>
+        <style>@keyframes bootspin{to{transform:rotate(360deg)}}</style>
+      </div>
       <noscript>
         <header>
           <h1>AluminIA — Software financiero para PyMEs colombianas con conexión a Siigo y la DIAN</h1>

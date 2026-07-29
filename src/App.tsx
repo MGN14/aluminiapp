@@ -2,7 +2,9 @@ import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider, removeOldestQuery } from "@tanstack/react-query-persist-client";
+import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { SubscriptionProvider } from "@/hooks/useSubscription";
@@ -92,19 +94,45 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 //     volver no dispara spinners ni parpadeos. Las mutaciones que cambian
 //     algo invalidan explícitamente las queries afectadas, así que el
 //     usuario ve sus cambios al instante después de actuar.
-//   - gcTime: 30min → mantenemos el cache 30 min después de unmount. Si
-//     volvés de hablar conmigo o de otra pestaña, los datos están listos.
+//   - gcTime: 24h → el cache vive mientras la sesión esté abierta. Si
+//     volvés de hablar con otra pestaña, los datos están listos.
 //   - retry: 1 → un solo reintento ante fallo de red, en vez de 3 (default).
+//   - refetchOnReconnect: false → con internet inestable el navegador
+//     "reconecta" a cada rato; refetchear TODO en cada reconexión dejaba la
+//     app parpadeando/en blanco (reporte de Nico 2026-07-28). La frescura la
+//     gobiernan staleTime + las invalidaciones explícitas de las mutaciones.
+//   - networkMode offlineFirst → con wifi inestable navigator.onLine miente;
+//     el default 'online' PAUSA las queries (spinner eterno). offlineFirst
+//     intenta igual y con el cache persistido siempre hay algo que mostrar.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
       staleTime: 5 * 60_000,
-      gcTime: 30 * 60_000,
+      gcTime: 24 * 60 * 60_000,
       retry: 1,
+      networkMode: 'offlineFirst',
     },
   },
 });
+
+// Cache PERSISTIDO en localStorage: al recargar (deploy nuevo, cerrar el
+// navegador, internet caído) la app pinta al instante con los últimos datos
+// conocidos y refresca en background — nada de pantalla en blanco esperando
+// la red. buster = versión del build: un deploy nuevo descarta el cache viejo
+// (por si cambió la forma de los datos). removeOldestQuery: si localStorage
+// se llena, se van las queries más viejas en vez de fallar.
+const persister = createSyncStoragePersister({
+  storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+  key: 'aluminia-query-cache',
+  retry: removeOldestQuery,
+});
+const persistOptions = {
+  persister,
+  maxAge: 24 * 60 * 60_000,
+  buster: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+};
 
 const RouteFallback = () => (
   <div className="flex h-screen w-full items-center justify-center">
@@ -121,7 +149,7 @@ function CuentasPorCobrarGuard() {
 }
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
+  <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
     <AuthProvider>
       <SubscriptionProvider>
         <ModuleProvider>
@@ -368,7 +396,7 @@ const App = () => (
         </ModuleProvider>
       </SubscriptionProvider>
     </AuthProvider>
-  </QueryClientProvider>
+  </PersistQueryClientProvider>
 );
 
 export default App;
