@@ -21,7 +21,13 @@ import VincularFacturaModal from '@/components/remisiones/VincularFacturaModal';
 import VincularPagoRemisionModal from '@/components/remisiones/VincularPagoRemisionModal';
 import { reverseRemisionInventory } from '@/lib/remisionInventory';
 import { useRemisionPaymentStatus } from '@/hooks/useRemisionPaymentStatus';
+import { usePermissions } from '@/hooks/usePermissions';
 import { DollarSign, AlertTriangle as AlertTriangleIcon } from 'lucide-react';
+
+/** Llave de segmentación por beneficiario (las remisiones viejas no traen responsible_id). */
+const benefNorm = (b: string | null | undefined) => (b ?? '').trim().toLowerCase();
+type Segment = 'mayorista' | 'fabricante';
+const SEGMENT_LABEL: Record<Segment, string> = { mayorista: 'Mayorista', fabricante: 'Fabricante' };
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
@@ -130,6 +136,8 @@ export default function Remisiones() {
   );
   // Pestañas del módulo: Remisiones (lista) | Estación de despacho.
   const [modTab, setModTab] = usePersistedFormState<'remisiones' | 'despacho'>('remisiones:modtab:v1', 'remisiones');
+  // Segmento de clientes: mayoristas vs fabricantes — cada pestaña con sus KPIs.
+  const [segTab, setSegTab] = usePersistedFormState<'todos' | Segment>('remisiones:segtab:v1', 'todos');
   const search = filters.search;
   const setSearch = (v: string) => setFilters((f) => ({ ...f, search: v }));
   const statusFilter = filters.statusFilter;
@@ -166,6 +174,69 @@ export default function Remisiones() {
     },
     enabled: !!user?.id,
   });
+
+  const { isAdmin } = usePermissions();
+
+  // Clasificación mayorista/fabricante por beneficiario.
+  const { data: segmentRows = [] } = useQuery({
+    queryKey: ['beneficiary-segments', user?.id],
+    enabled: !!user?.id,
+    staleTime: 10 * 60_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('beneficiary_segments')
+        .select('beneficiary_norm, segment');
+      return (data ?? []) as { beneficiary_norm: string; segment: Segment }[];
+    },
+  });
+  const segmentByBenef = useMemo(
+    () => new Map(segmentRows.map((s) => [s.beneficiary_norm, s.segment])),
+    [segmentRows],
+  );
+  const setSegment = async (beneficiary: string, segment: Segment | null) => {
+    const norm = benefNorm(beneficiary);
+    if (!norm) return;
+    if (segment === null) {
+      await (supabase as any).from('beneficiary_segments').delete().eq('beneficiary_norm', norm);
+    } else {
+      await (supabase as any).from('beneficiary_segments')
+        .upsert({ user_id: user!.id, beneficiary_norm: norm, segment }, { onConflict: 'user_id,beneficiary_norm' });
+    }
+    queryClient.invalidateQueries({ queryKey: ['beneficiary-segments'] });
+  };
+
+  // Consecutivo GLOBAL (todos los módulos) — el KPI de la vista muestra menos
+  // filas que el último número y eso confundía ("¿qué pasó con las otras?").
+  // Solo admin: los colaboradores no deben inferir cuánto vive en Gerencial.
+  const { data: consecutivoGlobal = null } = useQuery({
+    queryKey: ['remisiones-consecutivo-global', user?.id],
+    enabled: !!user?.id && isAdmin,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('remisiones')
+        .select('number, module_origin');
+      const rows = (data ?? []) as { number: string | null; module_origin: string }[];
+      const numOf = (n: string | null) => parseInt(String(n ?? '').match(/-(\d+)$/)?.[1] ?? '0', 10);
+      const ultimo = rows.reduce((mx, r) => Math.max(mx, numOf(r.number)), 0);
+      const enGerencial = rows.filter((r) => r.module_origin === 'gerencial').length;
+      return { ultimo, total: rows.length, enGerencial };
+    },
+  });
+
+  // Filas del SEGMENTO activo — los KPIs y la tabla salen de acá.
+  const remisionesSegmento = useMemo(() => {
+    if (segTab === 'todos') return remisiones;
+    return remisiones.filter((r: any) => segmentByBenef.get(benefNorm(r.beneficiary)) === segTab);
+  }, [remisiones, segTab, segmentByBenef]);
+  const sinClasificar = useMemo(
+    () => new Set(
+      remisiones
+        .filter((r: any) => r.remision_type !== 'compra' && !segmentByBenef.get(benefNorm(r.beneficiary)) && benefNorm(r.beneficiary))
+        .map((r: any) => benefNorm(r.beneficiary)),
+    ).size,
+    [remisiones, segmentByBenef],
+  );
 
 
   const handleDelete = async (id: string, number: string) => {
@@ -224,7 +295,7 @@ export default function Remisiones() {
   // Filter + sort en JS sobre el array ya cargado
   const filteredRemisiones = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let arr = remisiones.filter((r: any) => {
+    let arr = remisionesSegmento.filter((r: any) => {
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
       if (typeFilter !== 'all' && r.remision_type !== typeFilter) return false;
       if (q) {
@@ -257,7 +328,7 @@ export default function Remisiones() {
       return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
     });
     return arr;
-  }, [remisiones, search, statusFilter, typeFilter, sortBy, sortDir, effectiveGerencial]);
+  }, [remisionesSegmento, search, statusFilter, typeFilter, sortBy, sortDir, effectiveGerencial]);
 
   type SortCol = 'date' | 'value' | 'score' | 'number';
   const toggleSort = (col: SortCol) => {
@@ -274,9 +345,9 @@ export default function Remisiones() {
     return sortDir === 'asc' ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />;
   };
 
-  const totalRemisiones = remisiones.length;
-  const totalUnidades = remisiones.reduce((s, r: any) => s + (r.remision_items?.reduce((si: number, i: any) => si + Number(i.units), 0) || 0), 0);
-  const totalValor = remisiones.reduce((s, r: any) => {
+  const totalRemisiones = remisionesSegmento.length;
+  const totalUnidades = remisionesSegmento.reduce((s, r: any) => s + (r.remision_items?.reduce((si: number, i: any) => si + Number(i.units), 0) || 0), 0);
+  const totalValor = remisionesSegmento.reduce((s, r: any) => {
     const itemsValor = r.remision_items?.reduce((si: number, i: any) => si + Number(i.total_cost || 0), 0) || 0;
     return s + (r.total_manual ? Number(r.total_manual) : itemsValor);
   }, 0);
@@ -287,7 +358,7 @@ export default function Remisiones() {
   // así que cambia al mover remisiones entre DIAN/Gerencial — no es histórico.
   const facturasVinculadas = new Map<string, number>();
   let despachadoFacturable = 0;
-  for (const r of remisiones as any[]) {
+  for (const r of remisionesSegmento as any[]) {
     if (r.remision_type === 'compra') continue;
     const itemsValor = (r.remision_items || []).reduce((si: number, i: any) => si + Number(i.total_cost || 0), 0);
     despachadoFacturable += r.total_manual ? Number(r.total_manual) : itemsValor;
@@ -303,7 +374,7 @@ export default function Remisiones() {
   // Estado de cobro y KPIs gerenciales (solo en Modo Gerencial)
   const currentYear = new Date().getFullYear();
   const { data: paymentStatus } = useRemisionPaymentStatus(
-    effectiveGerencial ? remisiones : [],
+    effectiveGerencial ? remisionesSegmento : [],
     currentYear
   );
 
@@ -346,10 +417,39 @@ export default function Remisiones() {
           </div>
         </div>
 
+        {/* Segmentos de cliente: cada pestaña con SUS KPIs (los fabricantes
+            chicos tipo Vidrios Soto no ensucian los números de mayoristas) */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5">
+            {(['todos', 'mayorista', 'fabricante'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setSegTab(t)}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${segTab === t ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {t === 'todos' ? 'Todos' : `${SEGMENT_LABEL[t]}s`}
+              </button>
+            ))}
+          </div>
+          {sinClasificar > 0 && (
+            <span className="text-[11px] text-amber-600">
+              {sinClasificar} cliente{sinClasificar > 1 ? 's' : ''} sin clasificar — tocá la etiqueta gris junto al nombre para asignarlo
+            </span>
+          )}
+        </div>
+
         <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`}>
           <Card className="border-0 shadow-sm"><CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Total Remisiones</p>
+            <p className="text-sm text-muted-foreground">Total Remisiones{segTab !== 'todos' ? ` · ${SEGMENT_LABEL[segTab]}s` : ''}</p>
             <p className="text-2xl font-bold">{totalRemisiones}</p>
+            {/* El consecutivo es GLOBAL entre módulos: sin esto, ver 19 filas y
+                REM-33 hacía pensar que se perdieron 14. Solo admin. */}
+            {isAdmin && consecutivoGlobal && consecutivoGlobal.enGerencial > 0 && segTab === 'todos' && (
+              <p className="text-[11px] text-muted-foreground mt-1">
+                consecutivo global REM-{consecutivoGlobal.ultimo} · {consecutivoGlobal.enGerencial} en Gerencial
+              </p>
+            )}
           </CardContent></Card>
           <Card className="border-0 shadow-sm"><CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Total Unidades</p>
@@ -509,7 +609,32 @@ export default function Remisiones() {
                           </Badge>
                         </TableCell>
                         <TableCell>{formatDate(r.date)}</TableCell>
-                        <TableCell>{r.beneficiary}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{r.beneficiary}</span>
+                            {/* Clasificador mayorista/fabricante: clic cicla
+                                (gris → mayorista → fabricante → gris). Aplica
+                                a TODAS las remisiones de ese beneficiario. */}
+                            {r.remision_type !== 'compra' && benefNorm(r.beneficiary) && (() => {
+                              const seg = segmentByBenef.get(benefNorm(r.beneficiary)) ?? null;
+                              const next: Segment | null = seg === null ? 'mayorista' : seg === 'mayorista' ? 'fabricante' : null;
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setSegment(r.beneficiary, next); }}
+                                  title={`Clasificación del cliente: ${seg ? SEGMENT_LABEL[seg] : 'sin clasificar'} — clic para cambiar`}
+                                  className={`text-[9px] px-1.5 py-0.5 rounded-full border font-medium ${
+                                    seg === 'mayorista' ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                    : seg === 'fabricante' ? 'border-violet-300 bg-violet-50 text-violet-700'
+                                    : 'border-border bg-muted text-muted-foreground'
+                                  }`}
+                                >
+                                  {seg ? SEGMENT_LABEL[seg] : '¿?'}
+                                </button>
+                              );
+                            })()}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-right">{items.length}</TableCell>
                         <TableCell className="text-right">{unidades.toLocaleString('es-CO')}</TableCell>
                         <TableCell className="text-right">{formatCurrency(valor)}</TableCell>
