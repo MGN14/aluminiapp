@@ -383,20 +383,22 @@ export default function Remisiones() {
   // la contamos dos veces. Sale de la MISMA query del módulo (remision_invoices),
   // así que cambia al mover remisiones entre DIAN/Gerencial — no es histórico.
   const facturasVinculadas = new Map<string, number>();
-  let despachadoFacturable = 0;
+  // (El "despachado facturable" global se retiró: el sin facturar ahora se
+  // arma remisión por remisión — ver sinFacturarRows.)
   for (const r of remisionesSegmento as any[]) {
     if (r.remision_type === 'compra') continue;
-    const itemsValor = (r.remision_items || []).reduce((si: number, i: any) => si + Number(i.total_cost || 0), 0);
-    despachadoFacturable += r.total_manual ? Number(r.total_manual) : itemsValor;
     for (const ri of (r.remision_invoices || [])) {
       if (ri?.invoices?.id) facturasVinculadas.set(ri.invoices.id, Number(ri.invoices.total_amount || 0));
     }
   }
   const totalFacturado = [...facturasVinculadas.values()].reduce((s, v) => s + v, 0);
-  const sinFacturar = Math.max(0, despachadoFacturable - totalFacturado);
 
   // Composición del sin facturar con AGING: qué remisiones lo componen,
   // cuánto pende de cada una y hace cuántos días se despachó.
+  // UMBRAL $1.000: una remisión de $4.000.010 con factura de $4.000.000 NO
+  // está "sin facturar" por $10 — es redondeo, no deuda fiscal (bug del $10
+  // de La Bodega, reporte de Nico 2026-07-29).
+  const PENDIENTE_MINIMO = 1000;
   const sinFacturarRows = useMemo(() => {
     if (effectiveGerencial) return [] as { id: string; number: string; beneficiary: string; pendiente: number; dias: number; sinNinguna: boolean }[];
     const hoy = Date.now();
@@ -411,9 +413,15 @@ export default function Remisiones() {
         const dias = Math.max(0, Math.floor((hoy - new Date(`${r.date}T00:00:00`).getTime()) / 86_400_000));
         return { id: r.id as string, number: r.number as string, beneficiary: (r.beneficiary ?? '') as string, pendiente, dias, sinNinguna: linked.length === 0 };
       })
-      .filter((x) => x.pendiente > 1)
+      .filter((x) => x.pendiente >= PENDIENTE_MINIMO)
       .sort((a, b) => b.dias - a.dias);
   }, [remisionesSegmento, effectiveGerencial]);
+
+  // UNA sola fórmula: el KPI "Sin facturar" = la suma EXACTA del panel de
+  // composición. Antes eran dos cálculos distintos (el global incluía
+  // canceladas y compensaba facturas entre remisiones) y daban números
+  // diferentes en la misma pantalla — $205M arriba, $188M abajo.
+  const sinFacturar = sinFacturarRows.reduce((s, x) => s + x.pendiente, 0);
 
   const moverRemision = remisiones.find((r: any) => r.id === moverId) as any;
 
