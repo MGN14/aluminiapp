@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { applyVariantImportEntrada, reverseVariantImportEntrada } from '@/lib/variantInventory';
+import { applyVariantImportEntrada, reverseVariantImportEntrada, type VariantApplyResult } from '@/lib/variantInventory';
 import { applyImportKardex, reverseImportKardex, type KardexApplyResult } from '@/lib/importKardexEntry';
 
 export type ImportEstado =
@@ -162,7 +162,7 @@ export function useImports() {
   /** Entrada/reversa del contenedor en AMBOS inventarios (variantes + kardex
    *  -5). Best-effort: un fallo no bloquea el cambio de estado. */
   const aplicarEntradaInventario = async (importId: string) => {
-    let variantes: { applied: number; unmatched: string[] } | null = null;
+    let variantes: VariantApplyResult | null = null;
     let kardex: KardexApplyResult | null = null;
     try { variantes = await applyVariantImportEntrada(importId); }
     catch (e) { console.warn('[variantes] entrada por packing no aplicada:', e); }
@@ -347,6 +347,7 @@ export function useImports() {
       const partes: string[] = [];
       if (k && !k.skipped && k.applied > 0) partes.push(`${k.applied} referencia${k.applied === 1 ? '' : 's'} al kardex (costo promediado)`);
       if (v && v.applied > 0) partes.push(`${v.applied} variante${v.applied === 1 ? '' : 's'} por color`);
+      if (v?.created) partes.push(`${v.created} referencia${v.created === 1 ? '' : 's'} NUEVA${v.created === 1 ? '' : 'S'} creada${v.created === 1 ? '' : 's'} desde el contenedor`);
       const problemas: string[] = [];
       if (k && k.missing.length) problemas.push(`sin producto en inventario: ${k.missing.slice(0, 5).join(', ')}${k.missing.length > 5 ? '…' : ''}`);
       if (k && k.sinCosto.length) problemas.push(`sin costo (ni excel ni landed): ${k.sinCosto.slice(0, 5).join(', ')}${k.sinCosto.length > 5 ? '…' : ''}`);

@@ -7,10 +7,13 @@
  *   SALIDA — remisiones: la referencia de remision_items ya viene con el
  *   sufijo de color tal como se despachó → descuenta la variante exacta.
  *
- * TODO es best-effort y NO-OP mientras la maestra esté vacía o la referencia
- * no exista como variante (decisión de Nico: la maestra que él sube MANDA —
- * acá no se auto-crean variantes). El inventario -5 (inventory_products)
- * sigue su flujo propio; este ledger es independiente.
+ * Puertas de entrada de referencias NUEVAS (decisión de Nico, 2026-07-29):
+ *   · IMPORTACIONES: el packing del contenedor CREA las variantes que no
+ *     existan (es lo primero que entra al sistema con referencias).
+ *   · La maestra sigue mandando para ANCLAR conteos.
+ *   · Las REMISIONES nunca crean (un typo no fabrica inventario): sin match
+ *     → no-op + aviso.
+ * El inventario -5 (inventory_products) sigue su flujo propio (Siigo).
  *
  * Idempotencia: índice único (variant_id, source_type, source_id) + chequeo
  * previo por source — reintentar no duplica el contenedor ni la remisión.
@@ -82,11 +85,14 @@ async function sourceAlreadyApplied(sourceType: string, sourceId: string): Promi
 
 export interface VariantApplyResult {
   applied: number;
-  /** Referencias sin variante en la maestra (se saltaron, no se auto-crean). */
+  /** Referencias sin variante en la maestra (remisiones: se saltan — un typo
+   *  no crea inventario. Importaciones: se CREAN, ver applyVariantImportEntrada). */
   unmatched: string[];
+  /** Variantes NUEVAS creadas desde el packing del contenedor. */
+  created?: number;
 }
 
-const NOOP: VariantApplyResult = { applied: 0, unmatched: [] };
+const NOOP: VariantApplyResult = { applied: 0, unmatched: [], created: 0 };
 
 // ── SALIDA / ENTRADA por remisión ───────────────────────────────────────────
 
@@ -176,16 +182,14 @@ export async function applyVariantImportEntrada(
   // excel no existían en la maestra, la re-entrada quedaba en no-op y el
   // stock se PERDÍA (bug detectado 2026-07-24).
   if (opts?.reapply) {
+    // Con el auto-create (2026-07-29) el reapply es seguro mientras el pedido
+    // tenga items: la re-entrada matchea o CREA — nunca deja el stock perdido.
     const { data: peek } = await db
       .from('import_items')
-      .select('reference, color, source')
-      .eq('import_id', importId);
-    const rows = (peek ?? []) as { reference: string; color: string | null; source: string | null }[];
-    const hayPk = rows.some((r) => (r.source ?? 'packing') === 'packing');
-    const efectivos = hayPk ? rows.filter((r) => (r.source ?? 'packing') === 'packing') : rows;
-    const refs = efectivos.map((r) => applyColorSuffix(r.reference, r.color ?? null));
-    const matches = await fetchVariantsByRefs(refs);
-    if (!matches.size) return NOOP; // nada matchearía: no tocar el stock
+      .select('id')
+      .eq('import_id', importId)
+      .limit(1);
+    if (!((peek ?? []) as unknown[]).length) return NOOP;
     await reverseVariantImportEntrada(importId);
   }
   return applyVariantImportEntradaInner(importId);
@@ -194,10 +198,10 @@ export async function applyVariantImportEntrada(
 async function applyVariantImportEntradaInner(importId: string): Promise<VariantApplyResult> {
   const { data: itemsData, error: itErr } = await db
     .from('import_items')
-    .select('reference, cantidad, color, source, costo_unitario_excel')
+    .select('reference, descripcion, cantidad, color, source, costo_unitario_excel')
     .eq('import_id', importId);
   if (itErr) throw itErr;
-  const all = (itemsData ?? []) as { reference: string; cantidad: number; color: string | null; source: string | null; costo_unitario_excel: number | null }[];
+  const all = (itemsData ?? []) as { reference: string; descripcion: string | null; cantidad: number; color: string | null; source: string | null; costo_unitario_excel: number | null }[];
   if (!all.length) return NOOP;
 
   // Packing definitivo manda; proforma solo si no hay packing.
@@ -205,9 +209,45 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
   const items = hayPacking ? all.filter((r) => (r.source ?? 'packing') === 'packing') : all;
 
   const refsConSufijo = items.map((it) => applyColorSuffix(it.reference, it.color ?? null));
-  const variants = await fetchVariantsByRefs(refsConSufijo);
-  if (!variants.size) return NOOP;
+  let variants = await fetchVariantsByRefs(refsConSufijo);
   if (await sourceAlreadyApplied('import', importId)) return NOOP;
+
+  // Referencias del contenedor SIN variante: se CREAN (decisión de Nico,
+  // 2026-07-29 — "el módulo de importaciones es la puerta de entrada de
+  // referencias nuevas"). Antes se saltaban en silencio y la app no conocía
+  // mercancía que estaba físicamente en bodega (las 43 refs de Lina). La
+  // maestra sigue mandando para ANCLAR conteos; ya no es la única puerta.
+  let created = 0;
+  const nuevasPorCanonical = new Map<string, { variant_reference: string; name: string | null }>();
+  for (let i = 0; i < items.length; i++) {
+    const key = canonicalizeRef(refsConSufijo[i]);
+    if (!key || variants.has(key) || nuevasPorCanonical.has(key)) continue;
+    if (Math.abs(Number(items[i].cantidad ?? 0)) <= 0) continue;
+    nuevasPorCanonical.set(key, {
+      variant_reference: refsConSufijo[i].trim().toUpperCase(),
+      name: (items[i].descripcion ?? '').trim() || null,
+    });
+  }
+  if (nuevasPorCanonical.size) {
+    const nowIso = new Date().toISOString();
+    const rows = [...nuevasPorCanonical.values()].map((n) => ({
+      variant_reference: n.variant_reference,
+      name: n.name,
+      stock: 0,           // la entrada del contenedor pone stock y costo abajo
+      avg_cost: 0,
+      stock_inicial: 0,
+      stock_inicial_date: nowIso,
+      active: true,
+    }));
+    // Upsert por si dos corridas concurrentes crean la misma (trigger pone user_id).
+    const { error: crErr } = await db
+      .from('inventory_variants')
+      .upsert(rows, { onConflict: 'user_id,variant_reference' });
+    if (crErr) throw crErr;
+    created = rows.length;
+    variants = await fetchVariantsByRefs(refsConSufijo); // re-cruce con las nuevas
+  }
+  if (!variants.size) return NOOP;
 
   // Agregar por variante (mismo color puede venir en varios renglones).
   const acc = new Map<string, { qty: number; costo: number }>(); // costo = Σ qty×unit
@@ -222,7 +262,7 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
     a.qty += qty; a.costo += qty * unit;
     acc.set(v.id, a);
   }
-  if (!acc.size) return { applied: 0, unmatched };
+  if (!acc.size) return { applied: 0, unmatched, created };
 
   const porId = new Map([...variants.values()].map((v) => [v.id, v]));
   const rows = [...acc.entries()].map(([variantId, a]) => ({
@@ -253,7 +293,7 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
       await applyVariantDelta(variantId, a.qty, Number(v.stock ?? 0));
     }
   }
-  return { applied: acc.size, unmatched };
+  return { applied: acc.size, unmatched, created };
 }
 
 /** Revierte la entrada de un pedido (estado corregido de 'entregado' a otro). */

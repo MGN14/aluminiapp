@@ -184,18 +184,18 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
           // El pedido ya está entregado (el checklist solo aparece ahí):
           // re-costear el inventario con el excel — el último excel manda.
           try {
-            // reapply seguro: solo reversa si la nueva entrada va a matchear
-            // (si no, dejaría el stock en cero — bug 2026-07-24).
-            await applyVariantImportEntrada(importId, { reapply: true });
+            // reapply: reversa + re-entrada. Las referencias del contenedor
+            // que no existan se CREAN (variantes) con su costo del excel.
+            const v = await applyVariantImportEntrada(importId, { reapply: true });
             const k = await applyImportKardex(importId, { reapply: true });
             qc.invalidateQueries({ queryKey: ['inventory'] });
             qc.invalidateQueries({ queryKey: ['inventory-costs-map'] });
             toast({
-              title: k.applied > 0
-                ? `Inventario re-costeado: ${k.applied} referencia${k.applied === 1 ? '' : 's'} con el costo del excel`
+              title: k.applied > 0 || v.applied > 0
+                ? `Inventario re-costeado: ${v.applied} variante${v.applied === 1 ? '' : 's'}${v.created ? ` (${v.created} NUEVA${v.created === 1 ? '' : 'S'} creada${v.created === 1 ? '' : 's'} desde el contenedor)` : ''} · ${k.applied} al kardex`
                 : 'Costeo cargado — sin referencias aplicables al inventario',
               description: [
-                k.missing.length ? `Sin producto en inventario: ${k.missing.slice(0, 5).join(', ')}${k.missing.length > 5 ? '…' : ''}` : null,
+                k.missing.length ? `Sin producto -5 en inventario (Siigo las creará al facturar): ${k.missing.slice(0, 5).join(', ')}${k.missing.length > 5 ? '…' : ''}` : null,
                 k.sinCosto.length ? `Sin costo: ${k.sinCosto.slice(0, 5).join(', ')}${k.sinCosto.length > 5 ? '…' : ''}` : null,
               ].filter(Boolean).join(' · ') || undefined,
               ...(k.missing.length || k.sinCosto.length ? { duration: 12000 } : {}),

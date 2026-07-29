@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Upload, FileSpreadsheet, X, AlertCircle, ArrowUpCircle, ArrowDownCircle, PackagePlus, AlertTriangle, UserPlus } from 'lucide-react';
+import { Upload, FileSpreadsheet, X, AlertCircle, ArrowUpCircle, ArrowDownCircle, PackagePlus, Package, AlertTriangle, UserPlus } from 'lucide-react';
 import {
   fetchProductsByRefs,
   createMissingProducts,
@@ -22,7 +22,7 @@ import {
 import { usePersistedFormState } from '@/hooks/usePersistedFormState';
 import { suggestReferences } from '@/lib/refSuggest';
 import { parseLooseNumber } from '@/lib/delimitedParser';
-import { refFamilyKey } from '@/lib/refFamily';
+import { refFamilyKey, canonicalizeRef, applyColorSuffix } from '@/lib/refFamily';
 
 interface Props {
   open: boolean;
@@ -123,6 +123,37 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
       return Array.from(new Set([...refs.filter((r) => !/-5$/i.test(r)), ...bases]));
     },
   });
+
+  // PLAN B de la fuente de verdad (Nico, 2026-07-29): lo que vino en un
+  // CONTENEDOR existe aunque el maestro/maestra aún no lo tenga — la
+  // importación es lo primero que entra al sistema con referencias. Estas
+  // refs no son "sin match": son mercancía real con su pedido de origen.
+  const { data: refsDeContenedor = new Map<string, string>() } = useQuery({
+    queryKey: ['import-items-refs-remision', user?.id],
+    enabled: open && !!user?.id,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('import_items')
+        .select('reference, color, imports!inner(ref_pedido, proveedor_nombre, estado)')
+        .neq('imports.estado', 'cancelado');
+      const map = new Map<string, string>();
+      for (const it of (data ?? []) as { reference: string; color: string | null; imports: { ref_pedido: string | null; proveedor_nombre: string } }[]) {
+        const label = it.imports?.ref_pedido || it.imports?.proveedor_nombre || 'contenedor';
+        const conSufijo = applyColorSuffix(it.reference, it.color ?? null);
+        const k = canonicalizeRef(conSufijo);
+        if (k && !map.has(k)) map.set(k, label);
+        const fam = refFamilyKey(conSufijo);
+        if (fam && !map.has(`fam:${fam}`)) map.set(`fam:${fam}`, label);
+      }
+      return map;
+    },
+  });
+  /** Pedido de origen si la referencia viene en algún contenedor; null si no. */
+  const contenedorDe = (ref: string): string | null =>
+    refsDeContenedor.get(canonicalizeRef(ref))
+    ?? refsDeContenedor.get(`fam:${refFamilyKey(ref)}`)
+    ?? null;
   const [resolving, setResolving] = useState(false);
 
   // Confirmation modal for auto-creating products on 'compra'
@@ -466,10 +497,11 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
     // VENTA con referencias que no cruzan: confirmación explícita. Antes se
     // guardaban en silencio y esas refs (típicamente typos) contaminaban la
     // cobertura como faltantes reales.
-    if (remisionType === 'venta' && unmatchedRefs.length > 0) {
-      const lista = unmatchedRefs.slice(0, 8).map((u) => `· ${u.reference} (${u.units} und)`).join('\n');
+    const trueUnmatched = unmatchedRefs.filter((u) => !contenedorDe(u.reference));
+    if (remisionType === 'venta' && trueUnmatched.length > 0) {
+      const lista = trueUnmatched.slice(0, 8).map((u) => `· ${u.reference} (${u.units} und)`).join('\n');
       const ok = window.confirm(
-        `${unmatchedRefs.length} referencia(s) NO existen en tu inventario:\n\n${lista}${unmatchedRefs.length > 8 ? '\n· …' : ''}\n\n`
+        `${trueUnmatched.length} referencia(s) NO existen ni en tu inventario ni en contenedores:\n\n${lista}${trueUnmatched.length > 8 ? '\n· …' : ''}\n\n`
         + 'No van a descontar stock y quedan marcadas como "sin cruzar" en Cobertura.\n\n'
         + '¿Guardar igual? (Cancelá para corregirlas — la app te sugiere la referencia correcta)',
       );
@@ -710,19 +742,42 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                       </div>
                     </div>
                   )}
-                  {!isCompra && unmatchedRefs.length > 0 && (
+                  {/* Refs que no están en el maestro pero SÍ vienen en un
+                      contenedor: mercancía real, no error — se informa en azul */}
+                  {!isCompra && unmatchedRefs.filter(u => contenedorDe(u.reference)).length > 0 && (
+                    <div className="flex items-start gap-2 text-sm bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <Package className="h-4 w-4 shrink-0 mt-0.5 text-blue-600" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-blue-900">
+                          {unmatchedRefs.filter(u => contenedorDe(u.reference)).length} referencia(s) vienen en un contenedor — OK para despachar
+                        </p>
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {unmatchedRefs.filter(u => contenedorDe(u.reference)).slice(0, 15).map(u => (
+                            <span key={u.reference} className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-background px-1.5 py-0.5 text-[10px]">
+                              <span className="font-mono font-semibold">{u.reference}</span>
+                              <span className="text-blue-700">📦 {contenedorDe(u.reference)}</span>
+                            </span>
+                          ))}
+                        </div>
+                        <p className="text-xs text-blue-700 mt-1.5">
+                          Aplicá el excel de costeo de ese pedido en Importaciones para que existan con stock y costo.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {!isCompra && unmatchedRefs.filter(u => !contenedorDe(u.reference)).length > 0 && (
                     <div className="flex items-start gap-2 text-sm bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                       <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-yellow-600" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-yellow-900">
-                          {unmatchedRefs.length} referencia{unmatchedRefs.length > 1 ? 's' : ''} no está{unmatchedRefs.length > 1 ? 'n' : ''} en tu maestro — revisá si es un error de digitación
+                          {unmatchedRefs.filter(u => !contenedorDe(u.reference)).length} referencia(s) no están NI en tu maestro NI en contenedores — revisá si es un error de digitación
                         </p>
                         <p className="text-xs text-yellow-700 mt-0.5">
                           No descuentan stock y ensucian el análisis de cobertura. Corregilas acá o creá el producto en Inventario si son reales.
                         </p>
                         {/* Sugerencia de la referencia correcta: un clic la aplica */}
                         <div className="mt-2 space-y-1">
-                          {unmatchedRefs.slice(0, 8).map((u) => {
+                          {unmatchedRefs.filter((u) => !contenedorDe(u.reference)).slice(0, 8).map((u) => {
                             const sug = suggestReferences(u.reference, knownRefs);
                             return (
                               <div key={u.reference} className="flex items-center gap-2 flex-wrap text-xs">
@@ -750,8 +805,8 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                               </div>
                             );
                           })}
-                          {unmatchedRefs.length > 8 && (
-                            <p className="text-[11px] text-yellow-700">… y {unmatchedRefs.length - 8} más</p>
+                          {unmatchedRefs.filter((u) => !contenedorDe(u.reference)).length > 8 && (
+                            <p className="text-[11px] text-yellow-700">… y {unmatchedRefs.filter((u) => !contenedorDe(u.reference)).length - 8} más</p>
                           )}
                         </div>
                       </div>
