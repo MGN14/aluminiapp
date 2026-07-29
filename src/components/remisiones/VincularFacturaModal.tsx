@@ -33,19 +33,24 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Datos de la remision para saber su responsible_id (pre-filtrar facturas)
+  // Datos de la remision: cliente (pre-filtro) + valor y fecha (sugerencias)
   const { data: remision } = useQuery({
     queryKey: ['remision-for-link', remisionId],
     queryFn: async () => {
       const { data } = await (supabase
         .from('remisiones') as any)
-        .select('responsible_id, beneficiary')
+        .select('responsible_id, beneficiary, date, total_manual, remision_items(total_cost)')
         .eq('id', remisionId)
         .maybeSingle();
-      return data as { responsible_id: string | null; beneficiary: string | null } | null;
+      return data as { responsible_id: string | null; beneficiary: string | null; date: string | null; total_manual: number | null; remision_items?: { total_cost: number }[] } | null;
     },
     enabled: !!remisionId && open,
   });
+  const remTotal = remision
+    ? (remision.total_manual
+        ? Number(remision.total_manual)
+        : (remision.remision_items ?? []).reduce((s, i) => s + Number(i.total_cost || 0), 0))
+    : 0;
 
   // Facturas disponibles
   const { data: invoices = [] } = useQuery({
@@ -94,15 +99,38 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
     });
   })();
 
-  const filteredInvoices = clientFilteredInvoices.filter((inv: any) => {
-    const q = search.toLowerCase();
-    if (!q) return true;
-    return (
-      inv.invoice_number?.toLowerCase().includes(q) ||
-      inv.counterparty_name?.toLowerCase().includes(q) ||
-      inv.display_name?.toLowerCase().includes(q)
-    );
-  });
+  // SUGERIDAS: del mismo cliente, valor ≈ al de la remisión (±15%) y fecha
+  // igual o posterior al despacho — casi siempre ESA es la factura. Van
+  // primero con su estrella; el resto queda por fecha como siempre.
+  const esSugerida = (inv: any): boolean => {
+    if (remTotal <= 0 || linked.includes(inv.id)) return false;
+    const total = Number(inv.total_amount || 0);
+    if (total <= 0) return false;
+    const desvio = Math.abs(total - remTotal) / remTotal;
+    const fechaOk = !remision?.date || !inv.issue_date || inv.issue_date >= remision.date;
+    return desvio <= 0.15 && fechaOk;
+  };
+
+  const filteredInvoices = clientFilteredInvoices
+    .filter((inv: any) => {
+      const q = search.toLowerCase();
+      if (!q) return true;
+      return (
+        inv.invoice_number?.toLowerCase().includes(q) ||
+        inv.counterparty_name?.toLowerCase().includes(q) ||
+        inv.display_name?.toLowerCase().includes(q)
+      );
+    })
+    .sort((a: any, b: any) => {
+      const sa = esSugerida(a);
+      const sb = esSugerida(b);
+      if (sa !== sb) return sa ? -1 : 1;
+      if (sa && sb) {
+        // Ambas sugeridas: la de valor más cercano primero.
+        return Math.abs(Number(a.total_amount || 0) - remTotal) - Math.abs(Number(b.total_amount || 0) - remTotal);
+      }
+      return String(b.issue_date ?? '').localeCompare(String(a.issue_date ?? ''));
+    });
 
   const handleToggle = async (invoiceId: string) => {
     if (!user?.id) return;
@@ -216,6 +244,11 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {esSugerida(inv) && (
+                      <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-700 bg-amber-50" title={`Valor ≈ al de la remisión (${formatCurrency(remTotal)}) y fecha posterior al despacho`}>
+                        ⭐ sugerida
+                      </Badge>
+                    )}
                     <span className="text-sm font-medium">{formatCurrency(inv.total_amount || 0)}</span>
                     {isLinked && <CheckCircle className="h-4 w-4 text-green-500" />}
                   </div>

@@ -224,6 +224,32 @@ export default function Remisiones() {
     },
   });
 
+  // ── Aging del "sin facturar": composición remisión por remisión ──
+  // Responde "¿de qué se compone ese número?" y permite mover EN LOTE a
+  // Gerencial las que no se van a facturar (pedido de Nico 2026-07-29).
+  const [agingOpen, setAgingOpen] = useState(false);
+  const [agingSel, setAgingSel] = useState<Set<string>>(new Set());
+  const toggleAgingSel = (id: string) => setAgingSel((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const moverSeleccionadasGerencial = async () => {
+    if (!agingSel.size) return;
+    if (!confirm(`¿Mover ${agingSel.size} remisión(es) al Módulo Gerencial? Dejan de contar en el "sin facturar" fiscal.`)) return;
+    const { error } = await (supabase.from('remisiones') as any)
+      .update({ module_origin: 'gerencial' })
+      .in('id', [...agingSel]);
+    if (error) {
+      toast({ title: 'No se pudieron mover', variant: 'destructive' });
+    } else {
+      toast({ title: `${agingSel.size} remisión(es) movidas a Gerencial` });
+      setAgingSel(new Set());
+      queryClient.invalidateQueries({ queryKey: ['remisiones'] });
+      queryClient.invalidateQueries({ queryKey: ['remisiones-consecutivo-global'] });
+    }
+  };
+
   // Filas del SEGMENTO activo — los KPIs y la tabla salen de acá.
   const remisionesSegmento = useMemo(() => {
     if (segTab === 'todos') return remisiones;
@@ -369,6 +395,26 @@ export default function Remisiones() {
   const totalFacturado = [...facturasVinculadas.values()].reduce((s, v) => s + v, 0);
   const sinFacturar = Math.max(0, despachadoFacturable - totalFacturado);
 
+  // Composición del sin facturar con AGING: qué remisiones lo componen,
+  // cuánto pende de cada una y hace cuántos días se despachó.
+  const sinFacturarRows = useMemo(() => {
+    if (effectiveGerencial) return [] as { id: string; number: string; beneficiary: string; pendiente: number; dias: number; sinNinguna: boolean }[];
+    const hoy = Date.now();
+    return (remisionesSegmento as any[])
+      .filter((r) => r.remision_type !== 'compra' && r.status !== 'cancelado')
+      .map((r) => {
+        const items = r.remision_items || [];
+        const total = r.total_manual ? Number(r.total_manual) : items.reduce((s: number, i: any) => s + Number(i.total_cost || 0), 0);
+        const linked = (r.remision_invoices || []).map((ri: any) => ri.invoices).filter(Boolean);
+        const facturado = linked.reduce((s: number, inv: any) => s + Number(inv.total_amount || 0), 0);
+        const pendiente = Math.max(0, total - facturado);
+        const dias = Math.max(0, Math.floor((hoy - new Date(`${r.date}T00:00:00`).getTime()) / 86_400_000));
+        return { id: r.id as string, number: r.number as string, beneficiary: (r.beneficiary ?? '') as string, pendiente, dias, sinNinguna: linked.length === 0 };
+      })
+      .filter((x) => x.pendiente > 1)
+      .sort((a, b) => b.dias - a.dias);
+  }, [remisionesSegmento, effectiveGerencial]);
+
   const moverRemision = remisiones.find((r: any) => r.id === moverId) as any;
 
   // Estado de cobro y KPIs gerenciales (solo en Modo Gerencial)
@@ -469,7 +515,12 @@ export default function Remisiones() {
               <p className="text-2xl font-bold">{formatCurrency(totalFacturado)}</p>
               <p className="text-[11px] mt-1">
                 {sinFacturar > 1 ? (
-                  <span className="text-amber-600 dark:text-amber-400">Sin facturar: {formatCurrency(sinFacturar)}</span>
+                  <>
+                    <span className="text-amber-600 dark:text-amber-400">Sin facturar: {formatCurrency(sinFacturar)}</span>
+                    <button type="button" onClick={() => setAgingOpen((v) => !v)} className="ml-2 text-primary hover:underline">
+                      {agingOpen ? 'ocultar detalle' : 'ver detalle'}
+                    </button>
+                  </>
                 ) : (
                   <span className="text-emerald-600 dark:text-emerald-400">Todo facturado ✓</span>
                 )}
@@ -493,6 +544,44 @@ export default function Remisiones() {
             </Card>
           )}
         </div>
+
+        {/* ── Aging del "sin facturar": composición + mover en lote ── */}
+        {!effectiveGerencial && agingOpen && sinFacturarRows.length > 0 && (
+          <Card className="border-amber-200 bg-amber-50/30 dark:bg-amber-950/10">
+            <CardContent className="py-4 space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                  ¿De qué se compone el "sin facturar"? — {sinFacturarRows.length} remisión{sinFacturarRows.length > 1 ? 'es' : ''}
+                </p>
+                {agingSel.size > 0 && (
+                  <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 border-amber-400" onClick={moverSeleccionadasGerencial}>
+                    <ArrowRightLeft className="h-3.5 w-3.5" />
+                    Mover {agingSel.size} a Gerencial · {formatCurrency(sinFacturarRows.filter(x => agingSel.has(x.id)).reduce((s, x) => s + x.pendiente, 0))}
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-1">
+                {sinFacturarRows.map((x) => (
+                  <label key={x.id} className="flex items-center gap-3 text-sm rounded-lg border border-amber-200/70 bg-background px-3 py-1.5 cursor-pointer hover:bg-muted/40">
+                    <input type="checkbox" checked={agingSel.has(x.id)} onChange={() => toggleAgingSel(x.id)} />
+                    <span className="font-semibold w-20">{x.number}</span>
+                    <span className="flex-1 truncate">{x.beneficiary || '—'}</span>
+                    <span className={`text-xs font-semibold tabular-nums ${x.dias > 30 ? 'text-destructive' : x.dias > 15 ? 'text-amber-600' : 'text-muted-foreground'}`}
+                      title="Días desde el despacho sin factura que la cubra — a más días, más riesgo fiscal">
+                      {x.dias}d
+                    </span>
+                    <span className="font-mono text-xs tabular-nums w-28 text-right">{formatCurrency(x.pendiente)}</span>
+                    {!x.sinNinguna && <span className="text-[10px] text-muted-foreground">parcial</span>}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                Seleccioná las que NO se van a facturar y movelas a Gerencial — salen de este número y tus
+                empleados dejan de verlas acá. &gt;30 días sin facturar = riesgo fiscal alto.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {effectiveGerencial && paymentStatus && paymentStatus.agingSinCobrar60d.count > 0 && (
           <Card className="border-amber-200 bg-amber-50/40 dark:bg-amber-950/10">
