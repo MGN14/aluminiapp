@@ -117,6 +117,16 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
               <p className="text-lg font-bold text-foreground">{fmtFecha(sug.llegadaSiPidoHoy)}</p>
             </div>
           </div>
+        ) : sug.motivoSinFecha === 'sin_urgencia' ? (
+          <div className="rounded-lg border border-success/30 bg-success/5 px-3 py-2.5">
+            <p className="text-sm font-semibold text-success">✓ Cobertura sobrada — no hay pedido que montar</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Con el stock actual + lo que viene, el quiebre grupal queda a más de {400} días
+              {sug.fechaQuiebreGrupal ? ` (≈ ${fmtFecha(sug.fechaQuiebreGrupal)})` : ''}. Normal recién
+              entrado un contenedor. La fecha límite aparecerá sola cuando el consumo acerque el quiebre —
+              las referencias puntuales que igual se agotan van en faltantes/alertas abajo.
+            </p>
+          </div>
         ) : sug.motivoSinFecha === 'sin_consumo' ? (
           <p className="text-xs text-muted-foreground">
             Sin salidas de inventario en los últimos {sug.datos.ventanaDias} días — no hay consumo para proyectar.

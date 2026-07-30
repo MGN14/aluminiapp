@@ -171,8 +171,10 @@ export interface ReorderSuggestion {
     ventanaDias: number;
     llegadasEnTransito: number;
   };
-  /** null = ok; si no, por qué no se puede sugerir fecha. */
-  motivoSinFecha: 'sin_consumo' | 'sin_stock_data' | null;
+  /** null = ok; si no, por qué no se puede sugerir fecha.
+   *  'sin_urgencia' = el quiebre grupal cae más allá del horizonte (la
+   *  cobertura sobra — típico recién entrado un contenedor). */
+  motivoSinFecha: 'sin_consumo' | 'sin_stock_data' | 'sin_urgencia' | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -516,6 +518,26 @@ export function computeReorderSuggestion(params: {
   }
   const refsGrupal = pool.slice(0, corte + 1);
   const fechaQuiebreGrupal = pool[corte].fechaQuiebreTeorica!;
+
+  // SIN URGENCIA: si el quiebre grupal cae más allá del horizonte, una fecha
+  // puntual es ruido ("montá pedido el 20 de febrero de 2046" — reporte de
+  // Nico recién entrado el contenedor). La card lo dice en verde, sin fechas
+  // ficticias; cuando el consumo acerque el quiebre, la fecha aparece sola.
+  if (daysBetween(todayIso, fechaQuiebreGrupal) > MAX_HORIZONTE_DIAS) {
+    const alertasLejos = alcanzables.filter((q) => q.fechaQuiebreTeorica! < fechaQuiebreGrupal && (q.diasCobertura ?? Infinity) <= MAX_HORIZONTE_DIAS);
+    const enAlertasL = new Set(alertasLejos.map((q) => q.reference));
+    return {
+      ...base, ...vacio,
+      fechaQuiebreGrupal,
+      alertas: alertasLejos,
+      faltantes,
+      huecos: conHueco.filter((q) => !enAlertasL.has(q.reference)),
+      criticos,
+      porReferencia: quiebres,
+      motivoSinFecha: 'sin_urgencia',
+    };
+  }
+
   // Nunca en el pasado: si el cálculo cae antes de hoy, la decisión es "hoy".
   const fechaLimiteCruda = addDays(fechaQuiebreGrupal, -(leadTime.totalDias + safetyDias));
   const fechaLimite = fechaLimiteCruda >= todayIso ? fechaLimiteCruda : todayIso;

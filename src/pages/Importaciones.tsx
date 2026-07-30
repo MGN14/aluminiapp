@@ -764,6 +764,10 @@ export default function Importaciones() {
                         </>
                       )}
                     </p>
+                  ) : reorder.suggestion?.motivoSinFecha === 'sin_urgencia' ? (
+                    <p className="text-[11px] text-success leading-relaxed font-medium">
+                      ✓ Cobertura sobrada (&gt;400d) — sin pedido a la vista. Normal recién entrado un contenedor.
+                    </p>
                   ) : reorder.suggestion ? (
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                       Sin consumo registrado para proyectar fecha — detalle en la card de arriba.

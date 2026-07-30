@@ -177,12 +177,13 @@ describe('computeReorderSuggestion', () => {
       salidas: [a.salida, b.salida, c.salida],
       transito: [],
     });
-    // Antes: sin fecha ("no me sirve ese card sin una fecha concreta" — Nico).
-    // Ahora: grupal teórico al día 500 → límite = 500 − 100 = día 400.
+    // Regla 2026-07-29 (Nico, tras el "montá pedido el 20 de febrero de
+    // 2046"): quiebre grupal MÁS ALLÁ del horizonte de 400d = SIN URGENCIA —
+    // nada de fechas ficticias a décadas; la card lo dice en verde y la fecha
+    // aparece sola cuando el consumo acerque el quiebre.
     expect(sug.fechaQuiebreGrupal).toBe('2027-11-20');
-    expect(sug.fechaLimite).toBe('2027-08-12');
-    expect(sug.diasParaDecidir).toBe(400);
-    expect(sug.motivoSinFecha).toBeNull();
+    expect(sug.fechaLimite).toBeNull();
+    expect(sug.motivoSinFecha).toBe('sin_urgencia');
     // El quiebre temprano (día 60 < llegada al 85) es FALTANTE REAL: ni un
     // pedido montado hoy lo alcanza — no dispara el pedido, se reporta aparte.
     expect(sug.faltantes.map((q) => q.reference)).toEqual(['LIV-40-5']);
