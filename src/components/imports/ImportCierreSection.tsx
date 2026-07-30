@@ -153,31 +153,37 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
     const tipo = uploadingTipo;
     await upload.mutateAsync({ tipo, file });
     setUploadingTipo(null);
-    // El excel de costeo también se LEE: referencias, unidades y costo
-    // unitario listos para aplicar al costeo del contenedor.
+    // El excel de costeo también se LEE y se APLICA AUTOMÁTICAMENTE
+    // (pedido de Nico 2026-07-29: "que la próxima vez sea automático el
+    // costeo apenas se suba"). El último excel manda; todo es idempotente.
     if (tipo === 'costeo_excel') {
       setCosteoParsed(null);
       setCosteoWarn(null);
       try {
         const parsed = await parseCosteoFile(file);
-        if (parsed) setCosteoParsed(parsed);
-        else setCosteoWarn('No encontré una tabla con columna de Referencia en ese archivo — el documento quedó subido; si querés cargar el costeo, usá "Importar CSV/Excel" en la pestaña Costeo (ahí podés mapear columnas a mano).');
+        if (parsed) {
+          toast({
+            title: `Leí ${parsed.rows.length} referencias — aplicando el costeo automáticamente…`,
+            description: 'Crea referencias nuevas, entra stock y recalcula costos. Puede tardar 1-2 min; no cierres la pestaña.',
+            duration: 15000,
+          });
+          aplicarCosteoRows(parsed.rows);
+        } else {
+          setCosteoWarn('No encontré una tabla con columna de Referencia en ese archivo — el documento quedó subido; si querés cargar el costeo, usá "Importar CSV/Excel" en la pestaña Costeo (ahí podés mapear columnas a mano).');
+        }
       } catch (e) {
         setCosteoWarn(`El documento quedó subido, pero no pude leerlo como tabla: ${e instanceof Error ? e.message : 'archivo inválido'}`);
       }
     }
   };
 
-  const aplicarCosteo = () => {
-    if (!costeoParsed) return;
-    const n = costeoParsed.rows.length;
+  /** Carga las filas del excel como packing/costeo y re-costea AMBOS
+   *  inventarios (variantes + kardex). Lo usan el camino AUTOMÁTICO (al
+   *  subir el excel del checklist) y el botón manual de respaldo. */
+  const aplicarCosteoRows = (filas: NewImportItem[]) => {
     const existentes = itemsActuales.filter(i => (i.source ?? 'packing') === 'packing').length;
-    const msg = hayPacking && existentes > 0
-      ? `Vas a REEMPLAZAR las ${existentes} filas del packing/costeo actual por las ${n} referencias del excel (con su costo unitario). ¿Continuar?`
-      : `Vas a cargar ${n} referencias del excel como costeo del contenedor. ¿Continuar?`;
-    if (!window.confirm(msg)) return;
     importItemSet.mutate(
-      { rows: costeoParsed.rows, source: 'packing', replace: hayPacking && existentes > 0 },
+      { rows: filas, source: 'packing', replace: hayPacking && existentes > 0 },
       {
         onSuccess: async () => {
           setCosteoParsed(null);
@@ -213,6 +219,18 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
         },
       },
     );
+  };
+
+  /** Botón manual (respaldo): confirma si va a reemplazar y aplica. */
+  const aplicarCosteo = () => {
+    if (!costeoParsed) return;
+    const n = costeoParsed.rows.length;
+    const existentes = itemsActuales.filter(i => (i.source ?? 'packing') === 'packing').length;
+    const msg = hayPacking && existentes > 0
+      ? `Vas a REEMPLAZAR las ${existentes} filas del packing/costeo actual por las ${n} referencias del excel (con su costo unitario). ¿Continuar?`
+      : `Vas a cargar ${n} referencias del excel como costeo del contenedor. ¿Continuar?`;
+    if (!window.confirm(msg)) return;
+    aplicarCosteoRows(costeoParsed.rows);
   };
 
   const handleCerrar = async () => {

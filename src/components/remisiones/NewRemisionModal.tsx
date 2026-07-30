@@ -149,11 +149,37 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
       return map;
     },
   });
-  /** Pedido de origen si la referencia viene en algún contenedor; null si no. */
+  /** Pedido de origen si la referencia viene en algún contenedor; null si no.
+   *  OJO: import_items tiene RLS solo-dueño — para colaboradores este mapa
+   *  viene vacío; su red de seguridad son las VARIANTES (abajo). */
   const contenedorDe = (ref: string): string | null =>
     refsDeContenedor.get(canonicalizeRef(ref))
     ?? refsDeContenedor.get(`fam:${refFamilyKey(ref)}`)
     ?? null;
+
+  // Inventario por VARIANTE (referencia por referencia): desde 2026-07-29 el
+  // contenedor CREA estas filas al aplicar el costeo — son la fuente que
+  // TODOS ven (RLS de colaboradores OK). Una ref que existe como variante es
+  // match pleno: la salida de la remisión descuenta exactamente ahí.
+  const { data: variantRefs = new Map<string, string>() } = useQuery({
+    queryKey: ['inventory-variants-refs', user?.id],
+    enabled: open && !!user?.id,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('inventory_variants')
+        .select('variant_reference, name')
+        .eq('active', true);
+      const m = new Map<string, string>();
+      for (const v of (data ?? []) as { variant_reference: string; name: string | null }[]) {
+        const k = canonicalizeRef(v.variant_reference);
+        if (k && !m.has(k)) m.set(k, v.name || v.variant_reference);
+      }
+      return m;
+    },
+  });
+  /** Nombre de la variante si la referencia existe en el inventario por variante. */
+  const varianteDe = (ref: string): string | null => variantRefs.get(canonicalizeRef(ref)) ?? null;
   const [resolving, setResolving] = useState(false);
 
   // Confirmation modal for auto-creating products on 'compra'
@@ -497,7 +523,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
     // VENTA con referencias que no cruzan: confirmación explícita. Antes se
     // guardaban en silencio y esas refs (típicamente typos) contaminaban la
     // cobertura como faltantes reales.
-    const trueUnmatched = unmatchedRefs.filter((u) => !contenedorDe(u.reference));
+    const trueUnmatched = unmatchedRefs.filter((u) => !contenedorDe(u.reference) && !varianteDe(u.reference));
     if (remisionType === 'venta' && trueUnmatched.length > 0) {
       const lista = trueUnmatched.slice(0, 8).map((u) => `· ${u.reference} (${u.units} und)`).join('\n');
       const ok = window.confirm(
@@ -744,15 +770,15 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                   )}
                   {/* Refs que no están en el maestro pero SÍ vienen en un
                       contenedor: mercancía real, no error — se informa en azul */}
-                  {!isCompra && unmatchedRefs.filter(u => contenedorDe(u.reference)).length > 0 && (
+                  {!isCompra && unmatchedRefs.filter(u => !varianteDe(u.reference) && contenedorDe(u.reference)).length > 0 && (
                     <div className="flex items-start gap-2 text-sm bg-blue-50 border border-blue-200 rounded-lg p-3">
                       <Package className="h-4 w-4 shrink-0 mt-0.5 text-blue-600" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-blue-900">
-                          {unmatchedRefs.filter(u => contenedorDe(u.reference)).length} referencia(s) vienen en un contenedor — OK para despachar
+                          {unmatchedRefs.filter(u => !varianteDe(u.reference) && contenedorDe(u.reference)).length} referencia(s) vienen en un contenedor — OK para despachar
                         </p>
                         <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          {unmatchedRefs.filter(u => contenedorDe(u.reference)).slice(0, 15).map(u => (
+                          {unmatchedRefs.filter(u => !varianteDe(u.reference) && contenedorDe(u.reference)).slice(0, 15).map(u => (
                             <span key={u.reference} className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-background px-1.5 py-0.5 text-[10px]">
                               <span className="font-mono font-semibold">{u.reference}</span>
                               <span className="text-blue-700">📦 {contenedorDe(u.reference)}</span>
@@ -765,19 +791,19 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                       </div>
                     </div>
                   )}
-                  {!isCompra && unmatchedRefs.filter(u => !contenedorDe(u.reference)).length > 0 && (
+                  {!isCompra && unmatchedRefs.filter(u => !contenedorDe(u.reference) && !varianteDe(u.reference)).length > 0 && (
                     <div className="flex items-start gap-2 text-sm bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                       <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-yellow-600" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-yellow-900">
-                          {unmatchedRefs.filter(u => !contenedorDe(u.reference)).length} referencia(s) no están NI en tu maestro NI en contenedores — revisá si es un error de digitación
+                          {unmatchedRefs.filter(u => !contenedorDe(u.reference) && !varianteDe(u.reference)).length} referencia(s) no están NI en tu maestro NI en contenedores — revisá si es un error de digitación
                         </p>
                         <p className="text-xs text-yellow-700 mt-0.5">
                           No descuentan stock y ensucian el análisis de cobertura. Corregilas acá o creá el producto en Inventario si son reales.
                         </p>
                         {/* Sugerencia de la referencia correcta: un clic la aplica */}
                         <div className="mt-2 space-y-1">
-                          {unmatchedRefs.filter((u) => !contenedorDe(u.reference)).slice(0, 8).map((u) => {
+                          {unmatchedRefs.filter((u) => !contenedorDe(u.reference) && !varianteDe(u.reference)).slice(0, 8).map((u) => {
                             const sug = suggestReferences(u.reference, knownRefs);
                             return (
                               <div key={u.reference} className="flex items-center gap-2 flex-wrap text-xs">
@@ -805,8 +831,8 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                               </div>
                             );
                           })}
-                          {unmatchedRefs.filter((u) => !contenedorDe(u.reference)).length > 8 && (
-                            <p className="text-[11px] text-yellow-700">… y {unmatchedRefs.filter((u) => !contenedorDe(u.reference)).length - 8} más</p>
+                          {unmatchedRefs.filter((u) => !contenedorDe(u.reference) && !varianteDe(u.reference)).length > 8 && (
+                            <p className="text-[11px] text-yellow-700">… y {unmatchedRefs.filter((u) => !contenedorDe(u.reference) && !varianteDe(u.reference)).length - 8} más</p>
                           )}
                         </div>
                       </div>
@@ -834,7 +860,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                   </TableHeader>
                   <TableBody>
                     {items.map((item, i) => {
-                      const matched = productMap.has(item.reference.trim().toLowerCase());
+                      const matched = productMap.has(item.reference.trim().toLowerCase()) || !!varianteDe(item.reference);
                       return (
                         <TableRow key={i}>
                           <TableCell className="font-mono text-xs">{item.reference}</TableCell>
