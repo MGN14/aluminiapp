@@ -184,6 +184,13 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
           // El pedido ya está entregado (el checklist solo aparece ahí):
           // re-costear el inventario con el excel — el último excel manda.
           try {
+            // Muchas referencias = muchas llamadas secuenciales; con internet
+            // lento parece congelado. Avisar ANTES para que nadie cierre.
+            toast({
+              title: 'Re-costeando el inventario…',
+              description: 'Con muchos ítems puede tardar 1-2 minutos. No cierres la pestaña — al final sale el resumen.',
+              duration: 20000,
+            });
             // reapply: reversa + re-entrada. Las referencias del contenedor
             // que no existan se CREAN (variantes) con su costo del excel.
             const v = await applyVariantImportEntrada(importId, { reapply: true });
