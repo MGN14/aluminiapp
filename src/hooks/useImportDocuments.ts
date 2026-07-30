@@ -142,6 +142,10 @@ export function useImportDocuments(importId: string | null | undefined) {
   return {
     docs: docsQuery.data ?? [],
     isLoading: docsQuery.isLoading,
+    // Idem abonos: si la consulta falla, la UI NO debe mostrar el checklist
+    // vacío (se lee como "se borraron los documentos").
+    isError: docsQuery.isError,
+    refetch: docsQuery.refetch,
     upload,
     remove,
     view,

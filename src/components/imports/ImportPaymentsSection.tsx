@@ -28,7 +28,7 @@ const fmtTrm = (n: number) =>
 const todayIso = () => new Date().toISOString().split('T')[0];
 
 export default function ImportPaymentsSection({ importId }: Props) {
-  const { payments, isLoading, liquidation, availableTransactions, create, remove } = useImportPayments(importId);
+  const { payments, isLoading, isError, refetch, liquidation, availableTransactions, create, remove } = useImportPayments(importId);
 
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayIso());
@@ -159,6 +159,17 @@ export default function ImportPaymentsSection({ importId }: Props) {
         <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin mr-2" />
           Cargando abonos…
+        </div>
+      ) : isError ? (
+        /* NUNCA mostrar lista vacía cuando la consulta falló: se lee como
+           "se borraron los abonos" (reporte de Nico 2026-07-29). */
+        <div className="text-xs py-2.5 px-3 rounded border border-destructive/40 bg-destructive/5 flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-destructive font-medium">
+            ⚠️ No pude cargar los abonos (problema de conexión). Tus datos están guardados — esto es solo la lectura.
+          </span>
+          <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => refetch()}>
+            Reintentar
+          </Button>
         </div>
       ) : payments.length === 0 ? (
         <p className="text-xs text-muted-foreground py-2 px-3 rounded bg-card/50 border border-dashed border-border">

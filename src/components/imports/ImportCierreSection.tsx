@@ -100,7 +100,7 @@ async function parseCosteoFile(file: File): Promise<CosteoParse | null> {
  * inventario por variante, la cobertura y el landed cost.
  */
 export default function ImportCierreSection({ importId, cerrada, cerradaAt, estado, esAdmin, paymentsCount }: Props) {
-  const { docs, upload, remove, view, cerrar, reabrir } = useImportDocuments(importId);
+  const { docs, isError: docsError, refetch: refetchDocs, upload, remove, view, cerrar, reabrir } = useImportDocuments(importId);
   const { items: itemsActuales, hayPacking, importItemSet } = useImportItems(importId);
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -315,6 +315,19 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
       </div>
       {!esAdmin && (
         <p className="text-[11px] text-amber-600">Solo el administrador puede cerrar la importación — podés subir los documentos.</p>
+      )}
+
+      {/* Si la consulta de documentos falló, el checklist NO debe leerse como
+          "no hay documentos subidos" (reporte de Nico 2026-07-29). */}
+      {docsError && (
+        <div className="text-xs py-2.5 px-3 rounded border border-destructive/40 bg-destructive/5 flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-destructive font-medium">
+            ⚠️ No pude cargar los documentos (conexión). Los que ya subiste están guardados — no los vuelvas a subir.
+          </span>
+          <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => refetchDocs()}>
+            Reintentar
+          </Button>
+        </div>
       )}
 
       <div className="space-y-2">

@@ -217,6 +217,11 @@ export function useImportPayments(importId: string | null | undefined) {
   return {
     payments: paymentsQuery.data ?? [],
     isLoading: paymentsQuery.isLoading,
+    // Con internet malo la consulta puede fallar: la UI DEBE distinguir
+    // "no hay abonos" de "no pude cargar los abonos" — una lista vacía se
+    // lee como "se borraron" (reporte de Nico 2026-07-29).
+    isError: paymentsQuery.isError,
+    refetch: paymentsQuery.refetch,
     liquidation: liquidationQuery.data ?? null,
     availableTransactions: availableTransactionsQuery.data ?? [],
     create,
