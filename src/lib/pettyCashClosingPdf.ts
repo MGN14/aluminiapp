@@ -197,7 +197,7 @@ export function generatePettyCashClosingPdf(
     const concept = doc.splitTextToSize(m.concept || '—', 54)[0];
     const beneficiario = doc.splitTextToSize(m.responsible_name || '—', 44)[0];
     const cat = doc.splitTextToSize(m.category_name || '—', 38)[0];
-    doc.text(fmtDateShort(m.date), margin + 2, y + 3);
+    doc.text(fmtDateCompact(m.date), margin + 2, y + 3);
     doc.text(String(concept), margin + 22, y + 3);
     doc.text(String(beneficiario), margin + 78, y + 3);
     doc.text(String(cat), margin + 124, y + 3);
