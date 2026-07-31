@@ -133,10 +133,13 @@ export default function VincularPagoRemisionModal({
     queryKey: ['remision-payments-all', user?.id],
     enabled: !!user?.id && open,
     queryFn: async () => {
+      // Sin .eq('user_id', user!.id): la RLS ya filtra por current_data_owner().
+      // Para un colaborador ese id es el suyo, no el del dueño, y la
+      // intersección daba cero filas → el guard de doble-vinculación no
+      // protegía y un pago ya tomado le aparecía como disponible.
       const { data } = await supabase
         .from('remision_payments' as never)
-        .select('payment_kind, payment_id, amount_assigned, remision_id')
-        .eq('user_id', user!.id);
+        .select('payment_kind, payment_id, amount_assigned, remision_id');
       return ((data ?? []) as unknown as Array<{ payment_kind: string; payment_id: string; amount_assigned: number; remision_id: string }>);
     },
   });
