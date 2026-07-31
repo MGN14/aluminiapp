@@ -21,6 +21,7 @@ import {
   type ProductLite,
 } from '@/lib/remisionInventory';
 import { usePersistedFormState } from '@/hooks/usePersistedFormState';
+import UnirReferenciaPopover from '@/components/remisiones/UnirReferenciaPopover';
 import { suggestReferences } from '@/lib/refSuggest';
 import { parseLooseNumber } from '@/lib/delimitedParser';
 import { refFamilyKey, canonicalizeRef, applyColorSuffix } from '@/lib/refFamily';
@@ -846,8 +847,16 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                                     <span className="text-yellow-700">?</span>
                                   </>
                                 ) : (
-                                  <span className="text-yellow-700">— sin parecido en el maestro</span>
+                                  <span className="text-yellow-700">— sin parecido automático</span>
                                 )}
+                                {/* Siempre disponible, haya sugerencia o no:
+                                    sin esto una ref sin parecido no tenía forma
+                                    de unirse desde la app. */}
+                                <UnirReferenciaPopover
+                                  desde={u.reference}
+                                  knownRefs={knownRefs}
+                                  onElegir={(hacia) => corregirReferencia(u.reference, hacia)}
+                                />
                               </div>
                             );
                           })}

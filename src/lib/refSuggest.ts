@@ -49,6 +49,48 @@ export function levenshtein(a: string, b: string): number {
  *   · un candidato que CONTIENE lo tecleado como prefijo entra igual (typos
  *     por referencia incompleta: "DIA09" → "DIA09-2").
  */
+/**
+ * Parte una referencia en prefijo de letras + el número que la identifica.
+ * "mn91-3" → { letras: 'mn', numero: '91' } · "mgn91-5" → { 'mgn', '91' }.
+ * El sufijo de color (-0/-2/-3/-5) no entra: es la misma pieza en otro color.
+ */
+function partirRef(canon: string): { letras: string; numero: string } | null {
+  const sinColor = canon.replace(/-(0|2|3|5)$/, '');
+  const m = /^([a-z]+)-?(\d[\d\w]*)$/.exec(sinColor);
+  if (!m) return null;
+  return { letras: m[1], numero: m[2] };
+}
+
+/**
+ * Misma pieza escrita con otro prefijo de letras.
+ *
+ * Caso real (jul 2026): Lina despachó "MN91-3" y el maestro tiene "MGN91-5"
+ * (Riel Closet). Bodega escribe MN, Siigo escribe MGN — la misma convención
+ * que ya está documentada en la migración de product_aliases (MN1103 → MGN1103-5).
+ * Para Levenshtein son 2 ediciones sobre 5 caracteres, o sea afuera del umbral,
+ * y la referencia salía como "sin parecido en el maestro" aunque existiera.
+ *
+ * La regla es deliberadamente estrecha: el NÚMERO tiene que ser idéntico y las
+ * letras diferir en una sola edición. Así "MN91" encuentra "MGN91" pero NO
+ * "MN-92" (Riel Dukasia), que es un producto distinto.
+ */
+function mismaPiezaOtroPrefijo(q: string, c: string): boolean {
+  const a = partirRef(q);
+  const b = partirRef(c);
+  if (!a || !b) return false;
+  if (a.numero !== b.numero) return false;
+  if (a.letras === b.letras) return false;
+  return levenshtein(a.letras, b.letras) <= 1;
+}
+
+/** Idénticas salvo el sufijo de color: "MGN91" vs "MGN91-5" es la MISMA ref. */
+function mismaFamilia(q: string, c: string): boolean {
+  const a = partirRef(q);
+  const b = partirRef(c);
+  if (!a || !b) return false;
+  return a.numero === b.numero && a.letras === b.letras;
+}
+
 export function suggestReferences(
   input: string,
   knownRefs: string[],
@@ -65,6 +107,17 @@ export function suggestReferences(
     if (c === q) return [{ reference: ref, distancia: 0 }];
     const d = levenshtein(q, c);
     const esPrefijo = c.startsWith(q) || q.startsWith(c);
+    // Orden de confianza: misma familia (solo cambia el color) > mismo número
+    // con otra convención de prefijo > parecido de letras suelto. Sin esto,
+    // "MGN91" prefería "MN91-5" antes que "MGN91-5", que es la misma pieza.
+    if (mismaFamilia(q, c)) {
+      out.push({ reference: ref, distancia: 0.2 });
+      continue;
+    }
+    if (mismaPiezaOtroPrefijo(q, c)) {
+      out.push({ reference: ref, distancia: 0.5 });
+      continue;
+    }
     if (d <= umbral || esPrefijo) {
       out.push({ reference: ref, distancia: esPrefijo ? Math.min(d, umbral) : d });
     }
