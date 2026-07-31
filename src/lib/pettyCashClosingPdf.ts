@@ -105,7 +105,10 @@ export function generatePettyCashClosingPdf(
   doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.text('PERÍODO CERRADO', margin + 4, y + 5);
+  // Un cierre reabierto todavía puede cambiar: el PDF tiene que decirlo, si no
+  // circula un documento firmable con cifras que después se mueven.
+  const esBorrador = closing.status === 'en_edicion';
+  doc.text(esBorrador ? 'BORRADOR — PERÍODO EN EDICIÓN' : 'PERÍODO CERRADO', margin + 4, y + 5);
   doc.setTextColor(INK[0], INK[1], INK[2]);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -118,7 +121,9 @@ export function generatePettyCashClosingPdf(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.text(
-    `Cerrado el ${fmtDateShort(closing.closed_at.slice(0, 10))}`,
+    esBorrador
+      ? 'Sin cerrar: las cifras pueden cambiar'
+      : `Cerrado el ${fmtDateShort(closing.closed_at.slice(0, 10))}`,
     pageW - margin - 4,
     y + 11,
     { align: 'right' },

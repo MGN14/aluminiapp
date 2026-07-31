@@ -17,13 +17,19 @@ import { useModuleContext } from '@/hooks/useModuleContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useDataOwner } from '@/hooks/useDataOwner';
 import { usePettyCashMovements, type PettyCashRow } from '@/hooks/usePettyCashMovements';
-import { usePettyCashClosings, useReopenPettyCashClosing, type PettyCashClosing } from '@/hooks/usePettyCashClosings';
+import {
+  usePettyCashClosings,
+  useReopenPettyCashClosing,
+  useDiscardPettyCashClosing,
+  type PettyCashClosing,
+} from '@/hooks/usePettyCashClosings';
 import { usePromotePettyCashMovement } from '@/hooks/usePromotePettyCashMovement';
 import RegistrarGastoModal from '@/components/caja-menor/RegistrarGastoModal';
 import RegistrarIngresoModal from '@/components/caja-menor/RegistrarIngresoModal';
 import GenerarCuentaDeCobroModal from '@/components/caja-menor/GenerarCuentaDeCobroModal';
 import GenerarComprobanteIngresoModal from '@/components/caja-menor/GenerarComprobanteIngresoModal';
 import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
+import GuardarCierreEditadoModal from '@/components/caja-menor/GuardarCierreEditadoModal';
 import EditarMovimientoModal from '@/components/caja-menor/EditarMovimientoModal';
 import { generatePettyCashClosingPdf } from '@/lib/pettyCashClosingPdf';
 import { useAuth } from '@/hooks/useAuth';
@@ -48,22 +54,34 @@ export default function CajaMenor() {
   const { data, isLoading, error } = usePettyCashMovements();
   const { data: closings = [] } = usePettyCashClosings();
   const reopenMutation = useReopenPettyCashClosing();
+  const discardMutation = useDiscardPettyCashClosing();
   const promoteMutation = usePromotePettyCashMovement();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [pdfMovement, setPdfMovement] = useState<PettyCashRow | null>(null);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   const [editMovimientoRow, setEditMovimientoRow] = useState<PettyCashRow | null>(null);
+  const [recloseTarget, setRecloseTarget] = useState<PettyCashClosing | null>(null);
+  // Cuando hay un cierre reabierto, el listón general mezcla sus movimientos
+  // con todo lo demás. Este filtro los aísla para poder trabajarlos.
+  const [soloEnEdicion, setSoloEnEdicion] = useState(false);
+
+  const cierreEnEdicion = closings.find((c) => c.status === 'en_edicion') ?? null;
+  /** Un movimiento es editable si está suelto o si su cierre está en edición. */
+  const esEditable = (r: PettyCashRow) =>
+    !r.closing_id || (cierreEnEdicion !== null && r.closing_id === cierreEnEdicion.id);
+  const enEdicion = (r: PettyCashRow) =>
+    cierreEnEdicion !== null && r.closing_id === cierreEnEdicion.id;
 
   if (isGerencial) {
     return <Navigate to="/dashboard" replace />;
   }
 
   const handleDelete = async (row: PettyCashRow) => {
-    if (row.closing_id) {
+    if (!esEditable(row)) {
       toast({
         title: 'No se puede eliminar',
-        description: 'Este movimiento está incluido en un cierre de caja. Para modificarlo, deberías reabrir el cierre primero (no implementado todavía).',
+        description: 'Este movimiento está incluido en un cierre de caja. Reabrí ese cierre desde "Cierres anteriores" para poder editarlo.',
         variant: 'destructive',
       });
       return;
@@ -83,7 +101,9 @@ export default function CajaMenor() {
     if (row.closing_id) {
       toast({
         title: 'No se puede pasar',
-        description: 'Este movimiento está incluido en un cierre. Reabrí el cierre primero.',
+        description: enEdicion(row)
+          ? 'Este movimiento pertenece al cierre en edición. Guardá el cierre y después pasalo a Gerencial.'
+          : 'Este movimiento está incluido en un cierre. Reabrí el cierre primero.',
         variant: 'destructive',
       });
       return;
@@ -112,22 +132,59 @@ export default function CajaMenor() {
   };
 
   const hasOpenMovements = (data?.rows ?? []).some((r) => !r.closing_id);
+  const visibleRows = (data?.rows ?? []).filter((r) =>
+    soloEnEdicion && cierreEnEdicion ? r.closing_id === cierreEnEdicion.id : true,
+  );
 
   const handleReopen = async (closing: PettyCashClosing) => {
     if (!isAdmin) return;
+    if (cierreEnEdicion) {
+      toast({
+        title: 'Ya hay un cierre en edición',
+        description: 'Guardá o descartá ese primero — si no, los períodos se mezclan.',
+        variant: 'destructive',
+      });
+      return;
+    }
     const confirm = window.confirm(
-      `¿Reabrir el cierre del ${closing.period_start} al ${closing.period_end}?\n\nEsto va a liberar ${closing.movements_count} movimientos para edición. Después vas a tener que cerrar el período de nuevo.`
+      `¿Reabrir el cierre del ${closing.period_start} al ${closing.period_end}?\n\nSus ${closing.movements_count} movimientos vuelven a ser editables PERO siguen agrupados en este cierre — no se mezclan con el resto. Cuando termines, "Guardar y cerrar".`
     );
     if (!confirm) return;
     try {
       await reopenMutation.mutateAsync(closing.id);
+      setSoloEnEdicion(true);
       toast({
-        title: 'Cierre reabierto',
-        description: `${closing.movements_count} movimientos volvieron a estar editables.`,
+        title: 'Cierre en edición',
+        description: `${closing.movements_count} movimientos editables. Siguen agrupados en este cierre.`,
       });
     } catch (err: any) {
       toast({
         title: 'Error al reabrir',
+        description: err?.message ?? 'Error desconocido',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  /** Descartar el cierre: suelta los movimientos al listón general y borra el
+   *  registro. Es el comportamiento viejo de "Reabrir" — se conserva para el
+   *  caso "este cierre estaba mal armado, lo rehago". */
+  const handleDiscard = async (closing: PettyCashClosing) => {
+    if (!isAdmin) return;
+    const confirm = window.confirm(
+      `¿Descartar el cierre del ${closing.period_start} al ${closing.period_end}?\n\nSus ${closing.movements_count} movimientos se sueltan al listado general y el cierre se borra. Esto NO se puede deshacer.\n\nSi solo querés corregir algo, usá "Guardar y cerrar" en vez de esto.`
+    );
+    if (!confirm) return;
+    try {
+      await discardMutation.mutateAsync(closing.id);
+      setSoloEnEdicion(false);
+      toast({
+        title: 'Cierre descartado',
+        description: `${closing.movements_count} movimientos volvieron al listado general.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error al descartar',
         description: err?.message ?? 'Error desconocido',
         variant: 'destructive',
       });
@@ -252,8 +309,56 @@ export default function CajaMenor() {
 
         {/* Tabla */}
         <Card className="border-0 shadow-sm">
-          <CardHeader>
+          <CardHeader className="space-y-3">
             <CardTitle className="text-base">Movimientos registrados</CardTitle>
+            {/* Cierre reabierto: sus movimientos siguen agrupados, pero en el
+                listón general quedarían mezclados con el resto. Este banner
+                los aísla en un clic. */}
+            {cierreEnEdicion && (
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <Unlock className="h-4 w-4 shrink-0 mt-0.5 text-warning" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">
+                      Cierre en edición: {format(parseLocalDate(cierreEnEdicion.period_start), 'd MMM', { locale: es })} – {format(parseLocalDate(cierreEnEdicion.period_end), 'd MMM yyyy', { locale: es })}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Sus {cierreEnEdicion.movements_count} movimientos son editables pero siguen agrupados en este cierre. Lo que cargues con fecha dentro del período entra al cierre al guardarlo.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={soloEnEdicion ? 'default' : 'outline'}
+                    className="h-7 text-[11px]"
+                    onClick={() => setSoloEnEdicion((v) => !v)}
+                  >
+                    {soloEnEdicion ? 'Viendo solo el cierre' : 'Ver solo los del cierre'}
+                  </Button>
+                  {isAdmin && (
+                    <>
+                      <Button
+                        size="sm"
+                        className="h-7 text-[11px] gap-1"
+                        onClick={() => setRecloseTarget(cierreEnEdicion)}
+                      >
+                        <Lock className="h-3 w-3" />Guardar y cerrar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[11px] text-destructive"
+                        onClick={() => handleDiscard(cierreEnEdicion)}
+                        disabled={discardMutation.isPending}
+                      >
+                        Descartar cierre
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             {error ? (
@@ -276,7 +381,7 @@ export default function CajaMenor() {
               <>
               {/* Mobile: cards stackeadas */}
               <div className="md:hidden space-y-3">
-                {data.rows.map((r) => (
+                {visibleRows.map((r) => (
                   <div key={r.id} className="rounded-xl border border-border bg-card p-3 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="text-xs text-muted-foreground">
@@ -288,7 +393,7 @@ export default function CajaMenor() {
                     </div>
                     <div className="text-sm font-medium inline-flex items-center gap-1.5">
                       {r.responsible_name ?? '—'}
-                      {!r.closing_id && (
+                      {esEditable(r) && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -325,9 +430,15 @@ export default function CajaMenor() {
                         </Badge>
                       )}
                       {r.closing_id && (
-                        <Badge variant="outline" className="gap-1 text-[10px]">
-                          <Lock className="h-2.5 w-2.5" />Cerrado
-                        </Badge>
+                        enEdicion(r) ? (
+                          <Badge variant="outline" className="gap-1 text-[10px] border-warning/50 text-warning">
+                            <Unlock className="h-2.5 w-2.5" />En edición
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="gap-1 text-[10px]">
+                            <Lock className="h-2.5 w-2.5" />Cerrado
+                          </Badge>
+                        )
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 pt-1 border-t border-border">
@@ -339,7 +450,7 @@ export default function CajaMenor() {
                           <Zap className="h-3.5 w-3.5" />A Gerencial
                         </Button>
                       )}
-                      {!r.closing_id && (
+                      {esEditable(r) && (
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(r)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -364,10 +475,15 @@ export default function CajaMenor() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.rows.map((r) => (
-                      <TableRow key={r.id}>
+                    {visibleRows.map((r) => (
+                      // Franja ámbar a la izquierda = pertenece al cierre en
+                      // edición. Sin esto quedan indistinguibles del resto.
+                      <TableRow key={r.id} className={enEdicion(r) ? 'bg-warning/5 border-l-2 border-l-warning' : undefined}>
                         <TableCell className="whitespace-nowrap text-sm">
                           {format(parseLocalDate(r.date), 'dd MMM yyyy', { locale: es })}
+                          {enEdicion(r) && (
+                            <span className="block text-[10px] font-medium text-warning">En edición</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {r.kind === 'cuenta_de_cobro' ? (
@@ -387,7 +503,7 @@ export default function CajaMenor() {
                         <TableCell className="text-sm font-medium">
                           <span className="inline-flex items-center gap-1.5">
                             {r.responsible_name ?? '—'}
-                            {!r.closing_id && (
+                            {esEditable(r) && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -523,9 +639,14 @@ export default function CajaMenor() {
                 </TableHeader>
                 <TableBody>
                   {closings.map((c) => (
-                    <TableRow key={c.id}>
+                    <TableRow key={c.id} className={c.status === 'en_edicion' ? 'bg-warning/5' : undefined}>
                       <TableCell className="text-xs">
                         {format(parseLocalDate(c.period_start), 'd MMM', { locale: es })} – {format(parseLocalDate(c.period_end), 'd MMM yyyy', { locale: es })}
+                        {c.status === 'en_edicion' && (
+                          <Badge variant="outline" className="ml-1.5 gap-1 text-[10px] border-warning/50 text-warning">
+                            <Unlock className="h-2.5 w-2.5" />En edición
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-xs">{c.movements_count}</TableCell>
                       <TableCell className="text-right tabular-nums text-xs">{formatCurrency(c.computed_balance)}</TableCell>
@@ -552,17 +673,43 @@ export default function CajaMenor() {
                             <span className="text-[11px]">PDF</span>
                           </Button>
                           {isAdmin && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 gap-1 text-warning hover:text-warning px-2"
-                              onClick={() => handleReopen(c)}
-                              disabled={reopenMutation.isPending}
-                              title="Reabrir cierre (admin only)"
-                            >
-                              <Unlock className="h-3.5 w-3.5" />
-                              <span className="text-[11px]">Reabrir</span>
-                            </Button>
+                            c.status === 'en_edicion' ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1 text-primary hover:text-primary px-2"
+                                  onClick={() => setRecloseTarget(c)}
+                                  title="Recalcular y volver a cerrar este período"
+                                >
+                                  <Lock className="h-3.5 w-3.5" />
+                                  <span className="text-[11px]">Guardar y cerrar</span>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1 text-destructive hover:text-destructive px-2"
+                                  onClick={() => handleDiscard(c)}
+                                  disabled={discardMutation.isPending}
+                                  title="Borrar el cierre y soltar sus movimientos al listado general"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <span className="text-[11px]">Descartar</span>
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 text-warning hover:text-warning px-2"
+                                onClick={() => handleReopen(c)}
+                                disabled={reopenMutation.isPending}
+                                title="Reabrir para editar. Los movimientos siguen agrupados en este cierre."
+                              >
+                                <Unlock className="h-3.5 w-3.5" />
+                                <span className="text-[11px]">Reabrir</span>
+                              </Button>
+                            )
                           )}
                         </div>
                       </TableCell>
@@ -595,6 +742,12 @@ export default function CajaMenor() {
           open={closeModalOpen}
           onClose={() => setCloseModalOpen(false)}
           rows={data?.rows ?? []}
+        />
+
+        <GuardarCierreEditadoModal
+          closing={recloseTarget}
+          rows={data?.rows ?? []}
+          onClose={() => { setRecloseTarget(null); setSoloEnEdicion(false); }}
         />
 
         <EditarMovimientoModal
