@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -130,11 +130,17 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
   // CONTENEDOR existe aunque el maestro/maestra aún no lo tenga — la
   // importación es lo primero que entra al sistema con referencias. Estas
   // refs no son "sin match": son mercancía real con su pedido de origen.
-  const { data: refsDeContenedor = new Map<string, string>() } = useQuery({
+  //
+  // OJO: la queryFn devuelve PARES [k, v], no un Map. El cache de React Query
+  // se persiste en localStorage como JSON y `JSON.stringify(new Map())` da
+  // "{}": al rehidratar, `data` volvía un objeto plano y `.get()` explotaba
+  // con "ks.get is not a function" apenas Lina subía el Excel después de
+  // recargar. El Map se arma acá, en memoria.
+  const { data: refsContenedorPares = [] } = useQuery({
     queryKey: ['import-items-refs-remision', user?.id],
     enabled: open && !!user?.id,
     staleTime: 5 * 60_000,
-    queryFn: async () => {
+    queryFn: async (): Promise<Array<[string, string]>> => {
       const { data } = await (supabase as any)
         .from('import_items')
         .select('reference, color, imports!inner(ref_pedido, proveedor_nombre, estado)')
@@ -148,9 +154,13 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
         const fam = refFamilyKey(conSufijo);
         if (fam && !map.has(`fam:${fam}`)) map.set(`fam:${fam}`, label);
       }
-      return map;
+      return [...map.entries()];
     },
   });
+  const refsDeContenedor = useMemo(
+    () => new Map<string, string>(Array.isArray(refsContenedorPares) ? refsContenedorPares : []),
+    [refsContenedorPares],
+  );
   /** Pedido de origen si la referencia viene en algún contenedor; null si no.
    *  OJO: import_items tiene RLS solo-dueño — para colaboradores este mapa
    *  viene vacío; su red de seguridad son las VARIANTES (abajo). */
@@ -163,11 +173,12 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
   // contenedor CREA estas filas al aplicar el costeo — son la fuente que
   // TODOS ven (RLS de colaboradores OK). Una ref que existe como variante es
   // match pleno: la salida de la remisión descuenta exactamente ahí.
-  const { data: variantRefs = new Map<string, string>() } = useQuery({
+  // Mismo motivo que arriba: pares serializables, Map en memoria.
+  const { data: variantPares = [] } = useQuery({
     queryKey: ['inventory-variants-refs', user?.id],
     enabled: open && !!user?.id,
     staleTime: 5 * 60_000,
-    queryFn: async () => {
+    queryFn: async (): Promise<Array<[string, string]>> => {
       const { data } = await (supabase as any)
         .from('inventory_variants')
         .select('variant_reference, name')
@@ -177,9 +188,13 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
         const k = canonicalizeRef(v.variant_reference);
         if (k && !m.has(k)) m.set(k, v.name || v.variant_reference);
       }
-      return m;
+      return [...m.entries()];
     },
   });
+  const variantRefs = useMemo(
+    () => new Map<string, string>(Array.isArray(variantPares) ? variantPares : []),
+    [variantPares],
+  );
   /** Nombre de la variante si la referencia existe en el inventario por variante. */
   const varianteDe = (ref: string): string | null => variantRefs.get(canonicalizeRef(ref)) ?? null;
   const [resolving, setResolving] = useState(false);

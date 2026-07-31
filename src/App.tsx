@@ -128,10 +128,30 @@ const persister = createSyncStoragePersister({
   key: 'aluminia-query-cache',
   retry: removeOldestQuery,
 });
+/**
+ * No persistir datos que JSON no sabe reconstruir.
+ *
+ * Un `Map` sobrevive a `JSON.stringify` como "{}" — y al rehidratar, `data`
+ * vuelve como objeto plano. El componente hace `data.get(...)` y la pantalla
+ * entera se cae con "X.get is not a function". Pasó en producción (jul 2026):
+ * Lina subía la remisión, recargaba por el banner de versión nueva, y el
+ * modal moría antes de mostrar nada.
+ *
+ * El arreglo de fondo es que las queryFn devuelvan pares/objetos planos, pero
+ * este filtro es la red: si alguien vuelve a cachear un Map, simplemente no se
+ * persiste (se refetchea) en vez de romper la app al recargar.
+ */
+const esSerializable = (data: unknown): boolean =>
+  !(data instanceof Map || data instanceof Set || data instanceof Date);
+
 const persistOptions = {
   persister,
   maxAge: 24 * 60 * 60_000,
   buster: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+  dehydrateOptions: {
+    shouldDehydrateQuery: (query: { state: { status: string; data: unknown } }) =>
+      query.state.status === 'success' && esSerializable(query.state.data),
+  },
 };
 
 const RouteFallback = () => (

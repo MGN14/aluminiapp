@@ -20,25 +20,33 @@ const fmtUsd = (n: number | null | undefined) =>
 const fmtNum = (n: number | null | undefined, d = 0) =>
   n === null || n === undefined ? '—' : Number(n).toLocaleString('es-CO', { maximumFractionDigits: d });
 
-/** Costo unitario actual del inventario por referencia (read-only, para comparar). */
+type InvCost = { cost: number; sale: number };
+
+/** Costo unitario actual del inventario por referencia (read-only, para comparar).
+ *
+ *  Devuelve PARES, no un Map: el cache de React Query se persiste en
+ *  localStorage como JSON y un Map se serializa como "{}" — al rehidratar,
+ *  `.get()` deja de existir y la pantalla se cae entera. El Map se arma en
+ *  memoria en el componente. */
 function useInventoryCosts() {
   const { user } = useAuth();
-  return useQuery<Map<string, { cost: number; sale: number }>>({
+  return useQuery<Array<[string, InvCost]>>({
     queryKey: ['inventory-costs-map', user?.id],
     enabled: !!user,
     queryFn: async () => {
+      // RLS filtra por current_data_owner(); sin .eq('user_id') que rompe a
+      // colaboradores (devolvía cero costos y todo salía sin comparación).
       const { data, error } = await supabase
         .from('inventory_products')
-        .select('reference, cost_per_unit, sale_price')
-        .eq('user_id', user!.id);
+        .select('reference, cost_per_unit, sale_price');
       if (error) throw error;
-      const m = new Map<string, { cost: number; sale: number }>();
+      const m = new Map<string, InvCost>();
       for (const r of (data ?? []) as Array<{ reference: string; cost_per_unit: number; sale_price: number }>) {
         // Llave por FAMILIA: el packing list usa la base (LIV-40) y el
         // inventario de Siigo la -5 (LIV-40-5) — sin esto nunca cruzaban.
         if (r.reference) m.set(refFamilyKey(r.reference), { cost: Number(r.cost_per_unit) || 0, sale: Number(r.sale_price) || 0 });
       }
-      return m;
+      return [...m.entries()];
     },
   });
 }
@@ -50,7 +58,11 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
     landed, trmPonderada, trmEfectiva,
     importItemSet, addItems, updateItem, removeItem,
   } = useImportItems(importId, trmOverride === '' ? null : Number(trmOverride));
-  const { data: invCosts } = useInventoryCosts();
+  const { data: invCostPares } = useInventoryCosts();
+  const invCosts = useMemo(
+    () => new Map<string, InvCost>(Array.isArray(invCostPares) ? invCostPares : []),
+    [invCostPares],
+  );
   const [showImport, setShowImport] = useState(false);
 
   const landedById = useMemo(() => {
