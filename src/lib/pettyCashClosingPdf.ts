@@ -38,6 +38,16 @@ function fmtDateCompact(iso: string): string {
   return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
+// Recorta a una sola línea del ancho dado. El "…" avisa que el texto sigue: sin
+// él un beneficiario cortado se lee como si ese fuera su nombre completo.
+function clip(doc: jsPDF, text: string | null | undefined, widthMm: number): string {
+  const raw = (text || '').trim();
+  if (!raw) return '—';
+  const lines = doc.splitTextToSize(raw, widthMm) as string[];
+  if (lines.length <= 1) return lines[0] ?? raw;
+  return `${doc.splitTextToSize(raw, widthMm - 2)[0]}…`;
+}
+
 /**
  * Genera un PDF firmable del cierre de caja menor.
  * Incluye: encabezado, datos de la empresa, período, resumen de saldos,
@@ -165,58 +175,113 @@ export function generatePettyCashClosingPdf(
   }
 
   // ── Tabla de movimientos
+  const ingresos = movements.filter((m) => m.kind === 'ingreso_efectivo');
+  const totalIngresos = ingresos.reduce((s, m) => s + m.amount, 0);
+  const totalEgresos = movements
+    .filter((m) => m.kind !== 'ingreso_efectivo')
+    .reduce((s, m) => s + m.amount, 0);
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(INK[0], INK[1], INK[2]);
   doc.text(`Movimientos del período (${movements.length})`, margin, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text(
+    `${ingresos.length} ingreso${ingresos.length === 1 ? '' : 's'} · ` +
+      `${movements.length - ingresos.length} egreso${movements.length - ingresos.length === 1 ? '' : 's'}`,
+    pageW - margin - 2,
+    y,
+    { align: 'right' },
+  );
   y += 5;
 
-  // Header
-  doc.setFillColor(PANEL[0], PANEL[1], PANEL[2]);
-  doc.rect(margin, y, pageW - 2 * margin, 6, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
-  doc.text('Fecha', margin + 2, y + 4);
-  doc.text('Concepto', margin + 22, y + 4);
-  doc.text('Beneficiario', margin + 78, y + 4);
-  doc.text('Categoría', margin + 124, y + 4);
-  doc.text('Monto', pageW - margin - 2, y + 4, { align: 'right' });
-  y += 6;
+  // Posición de cada columna, relativa al margen. La de Monto va alineada a la
+  // derecha desde el borde. Tipo entra justo antes para que se lea junto al valor.
+  const cFecha = margin + 2;
+  const cConcepto = margin + 22;
+  const cBeneficiario = margin + 76;
+  const cCategoria = margin + 118;
+  const cTipo = margin + 148;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(INK[0], INK[1], INK[2]);
+  const drawTableHeader = () => {
+    doc.setFillColor(PANEL[0], PANEL[1], PANEL[2]);
+    doc.rect(margin, y, pageW - 2 * margin, 6, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+    doc.text('Fecha', cFecha, y + 4);
+    doc.text('Concepto', cConcepto, y + 4);
+    doc.text('Beneficiario', cBeneficiario, y + 4);
+    doc.text('Categoría', cCategoria, y + 4);
+    doc.text('Tipo', cTipo, y + 4);
+    doc.text('Monto', pageW - margin - 2, y + 4, { align: 'right' });
+    y += 6;
+  };
+  drawTableHeader();
 
   for (const m of movements) {
     if (y > 250) {
       addAluminiaFooter(doc, { addToAllPages: false });
       doc.addPage();
       y = margin;
+      drawTableHeader();
     }
-    const concept = doc.splitTextToSize(m.concept || '—', 54)[0];
-    const beneficiario = doc.splitTextToSize(m.responsible_name || '—', 44)[0];
-    const cat = doc.splitTextToSize(m.category_name || '—', 38)[0];
-    doc.text(fmtDateCompact(m.date), margin + 2, y + 3);
-    doc.text(String(concept), margin + 22, y + 3);
-    doc.text(String(beneficiario), margin + 78, y + 3);
-    doc.text(String(cat), margin + 124, y + 3);
-    doc.text(formatCurrency(m.amount), pageW - margin - 2, y + 3, { align: 'right' });
+
+    const isIngreso = m.kind === 'ingreso_efectivo';
+
+    // Fondo verde muy tenue en los ingresos: de un vistazo se ve qué entró.
+    if (isIngreso) {
+      doc.setFillColor(236, 245, 240);
+      doc.rect(margin, y - 0.5, pageW - 2 * margin, 5, 'F');
+    }
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(INK[0], INK[1], INK[2]);
+    doc.text(fmtDateCompact(m.date), cFecha, y + 3);
+    doc.text(clip(doc, m.concept, 50), cConcepto, y + 3);
+    doc.text(clip(doc, m.responsible_name, 38), cBeneficiario, y + 3);
+    doc.text(clip(doc, m.category_name, 27), cCategoria, y + 3);
+
+    // Tipo y monto comparten color y signo. El signo es lo que sobrevive a una
+    // impresión en blanco y negro, por eso va además del texto.
+    if (isIngreso) doc.setTextColor(BRAND[0], BRAND[1], BRAND[2]);
+    else doc.setTextColor(170, 60, 60);
+    doc.setFont('helvetica', 'bold');
+    doc.text(isIngreso ? 'Ingreso' : 'Egreso', cTipo, y + 3);
+    doc.text(
+      `${isIngreso ? '+' : '-'} ${formatCurrency(m.amount)}`,
+      pageW - margin - 2,
+      y + 3,
+      { align: 'right' },
+    );
+
     y += 4.5;
     doc.setDrawColor(235, 236, 238);
     doc.line(margin, y, pageW - margin, y);
     y += 0.5;
   }
 
-  // Total
+  // ── Totales: ingresos y egresos por separado, y el neto que debe coincidir
+  // con el saldo computado de arriba.
   y += 3;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(INK[0], INK[1], INK[2]);
-  const totalEgresos = movements.reduce((s, m) => s + m.amount, 0);
-  doc.text('Total egresos', margin, y);
-  doc.text(formatCurrency(totalEgresos), pageW - margin - 2, y, { align: 'right' });
-  y += 12;
+  const drawTotal = (label: string, value: string, color: [number, number, number], bold: boolean) => {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(bold ? 9 : 8.5);
+    doc.setTextColor(color[0], color[1], color[2]);
+    doc.text(label, margin, y);
+    doc.text(value, pageW - margin - 2, y, { align: 'right' });
+    y += bold ? 6 : 5;
+  };
+  drawTotal('Total ingresos', `+ ${formatCurrency(totalIngresos)}`, BRAND, false);
+  drawTotal('Total egresos', `- ${formatCurrency(totalEgresos)}`, [170, 60, 60], false);
+  doc.setDrawColor(200, 202, 205);
+  doc.line(margin, y - 3, pageW - margin, y - 3);
+  y += 1;
+  drawTotal('Saldo neto del período', formatCurrency(totalIngresos - totalEgresos), INK, true);
+  y += 6;
 
   // ── Firma
   if (y > 235) { doc.addPage(); y = margin; }
