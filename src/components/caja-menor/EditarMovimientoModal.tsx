@@ -25,6 +25,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { PettyCashRow } from '@/hooks/usePettyCashMovements';
+import SelectorCuenta from '@/components/caja-menor/SelectorCuenta';
+import { DEFAULT_ACCOUNT } from '@/lib/pettyCashAccounts';
 
 interface Props {
   open: boolean;
@@ -45,6 +47,7 @@ export default function EditarMovimientoModal({ open, onOpenChange, movement }: 
   const [categoryId, setCategoryId] = useState<string>(NONE);
   const [responsibleId, setResponsibleId] = useState<string>(NONE);
   const [notes, setNotes] = useState('');
+  const [cuenta, setCuenta] = useState<string>(DEFAULT_ACCOUNT);
   const [saving, setSaving] = useState(false);
 
   const isIngreso = movement?.kind === 'ingreso_efectivo';
@@ -58,6 +61,7 @@ export default function EditarMovimientoModal({ open, onOpenChange, movement }: 
       setCategoryId(movement.category_id ?? NONE);
       setResponsibleId(movement.responsible_id ?? NONE);
       setNotes(movement.notes ?? '');
+      setCuenta(movement.cuenta || DEFAULT_ACCOUNT);
     }
   }, [open, movement]);
 
@@ -116,6 +120,7 @@ export default function EditarMovimientoModal({ open, onOpenChange, movement }: 
           // Las categorías no aplican a ingresos.
           category_id: isIngreso ? null : (categoryId === NONE ? null : categoryId),
           responsible_id: responsibleId === NONE ? null : responsibleId,
+          cuenta,
           notes: notes.trim() || null,
         } as never)
         .eq('id', movement.id);
@@ -208,6 +213,8 @@ export default function EditarMovimientoModal({ open, onOpenChange, movement }: 
             <Label>Concepto</Label>
             <Input value={concept} onChange={(e) => setConcept(e.target.value)} placeholder="Detalle del movimiento" />
           </div>
+
+          <SelectorCuenta value={cuenta} onChange={setCuenta} />
 
           <div className="space-y-1.5">
             <Label>Notas (opcional)</Label>

@@ -9,6 +9,7 @@ import { formatCurrency } from '@/lib/formatters';
 import { safeParseFloat } from '@/lib/numberUtils';
 import { useToast } from '@/hooks/use-toast';
 import { useReclosePettyCashClosing, type PettyCashClosing } from '@/hooks/usePettyCashClosings';
+import { accountsPresentes } from '@/lib/pettyCashAccounts';
 import type { PettyCashRow } from '@/hooks/usePettyCashMovements';
 
 interface Props {
@@ -30,12 +31,18 @@ export default function GuardarCierreEditadoModal({ closing, rows, onClose }: Pr
   const { toast } = useToast();
   const recloseMutation = useReclosePettyCashClosing();
 
-  const [declaredStr, setDeclaredStr] = useState('');
+  const [declaradoStr, setDeclaradoStr] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
     if (closing) {
-      setDeclaredStr(closing.declared_balance ? String(closing.declared_balance) : '');
+      // Precargar lo que ya se había declarado por cuenta en el cierre previo:
+      // reabrir suele ser para tocar un movimiento, no para recontar todo.
+      const previos: Record<string, string> = {};
+      for (const [cuenta, s] of Object.entries(closing.saldos ?? {})) {
+        if (s.declarado) previos[cuenta] = String(s.declarado);
+      }
+      setDeclaradoStr(previos);
       setNotes(closing.notes ?? '');
     }
   }, [closing]);
@@ -64,17 +71,38 @@ export default function GuardarCierreEditadoModal({ closing, rows, onClose }: Pr
     return { totalIngresos: ing, totalEgresos: egr };
   }, [finales]);
 
+  // Computado por cuenta sobre el set FINAL (los del cierre + los absorbidos).
+  const computadoPorCuenta = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of finales) {
+      const signo = r.kind === 'ingreso_efectivo' ? 1 : -1;
+      m[r.cuenta] = (m[r.cuenta] ?? 0) + signo * r.amount;
+    }
+    return m;
+  }, [finales]);
+
+  const cuentasDelCierre = useMemo(
+    () => accountsPresentes(Object.keys(computadoPorCuenta)).filter((a) => a.id in computadoPorCuenta),
+    [computadoPorCuenta],
+  );
+
   const computedBalance = totalIngresos - totalEgresos;
-  const declaredBalance = safeParseFloat(declaredStr);
+  const declaradosPorCuenta = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const a of cuentasDelCierre) m[a.id] = safeParseFloat(declaradoStr[a.id] ?? '');
+    return m;
+  }, [cuentasDelCierre, declaradoStr]);
+  const declaredBalance = Object.values(declaradosPorCuenta).reduce((s, v) => s + v, 0);
   const difference = declaredBalance - computedBalance;
+  const faltaDeclarar = cuentasDelCierre.some((a) => !(declaradoStr[a.id] ?? '').trim());
   const isProcessing = recloseMutation.isPending;
 
   const handleConfirm = async () => {
     if (!closing) return;
-    if (!declaredStr.trim()) {
+    if (faltaDeclarar) {
       toast({
         title: 'Falta saldo declarado',
-        description: 'Ingresá el saldo físico que tenés en caja.',
+        description: 'Ingresá el saldo de cada cuenta del cierre.',
         variant: 'destructive',
       });
       return;
@@ -84,6 +112,7 @@ export default function GuardarCierreEditadoModal({ closing, rows, onClose }: Pr
         closingId: closing.id,
         declared_balance: declaredBalance,
         notes: notes.trim() || undefined,
+        declarados_por_cuenta: declaradosPorCuenta,
       });
       toast({
         title: 'Cierre guardado',
@@ -156,22 +185,42 @@ export default function GuardarCierreEditadoModal({ closing, rows, onClose }: Pr
             </div>
           </div>
 
-          <div>
-            <Label htmlFor="reclose_declared">Saldo físico declarado</Label>
-            <Input
-              id="reclose_declared"
-              type="number"
-              step="1"
-              min={0}
-              placeholder="Cuántos pesos hay físicamente en la caja"
-              value={declaredStr}
-              onChange={(e) => setDeclaredStr(e.target.value)}
-              disabled={isProcessing}
-              autoFocus
-            />
+          <div className="space-y-2">
+            <Label>Saldo declarado por cuenta</Label>
+            {cuentasDelCierre.map((a, i) => {
+              const computado = computadoPorCuenta[a.id] ?? 0;
+              const dif = (declaradosPorCuenta[a.id] ?? 0) - computado;
+              const tocado = (declaradoStr[a.id] ?? '').trim() !== '';
+              return (
+                <div key={a.id} className="rounded-md border p-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{a.label}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Debería haber <span className="tabular-nums font-medium text-foreground">{formatCurrency(computado)}</span>
+                    </span>
+                  </div>
+                  <Input
+                    type="number"
+                    step="1"
+                    placeholder={a.comoSeVerifica}
+                    value={declaradoStr[a.id] ?? ''}
+                    onChange={(e) => setDeclaradoStr((prev) => ({ ...prev, [a.id]: e.target.value }))}
+                    disabled={isProcessing}
+                    autoFocus={i === 0}
+                  />
+                  {tocado && (
+                    <p className={`text-[11px] ${Math.abs(dif) < 1 ? 'text-success' : 'text-warning'}`}>
+                      {Math.abs(dif) < 1
+                        ? 'Cuadra.'
+                        : `${dif > 0 ? 'Sobran' : 'Faltan'} ${formatCurrency(Math.abs(dif))} en ${a.label}.`}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
-          {declaredStr.trim() !== '' && (
+          {!faltaDeclarar && cuentasDelCierre.length > 0 && (
             <div
               className={`rounded-md border p-3 flex items-start gap-2 ${
                 Math.abs(difference) < 1

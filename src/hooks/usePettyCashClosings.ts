@@ -18,6 +18,36 @@ export interface PettyCashClosing {
    *  movimientos siguen agrupados en este cierre pero vuelven a ser editables
    *  hasta que se guarde de nuevo. */
   status: 'cerrado' | 'en_edicion';
+  /** Computado/declarado/diferencia POR CUENTA. Los cierres viejos (una sola
+   *  bolsa) traen todo bajo 'efectivo' por el backfill de la migración. */
+  saldos: Record<string, SaldoCuenta>;
+}
+
+/** Los cierres anteriores a la columna `saldos` no la traen: se les arma el
+ *  desglose de una sola cuenta para que la UI no tenga que ramificar. */
+function normalizarSaldos(
+  raw: unknown,
+  computedTotal: number,
+  declaredTotal: number,
+): Record<string, SaldoCuenta> {
+  if (raw && typeof raw === 'object' && Object.keys(raw as object).length > 0) {
+    const out: Record<string, SaldoCuenta> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, any>)) {
+      out[k] = {
+        computado: Number(v?.computado) || 0,
+        declarado: Number(v?.declarado) || 0,
+        diferencia: Number(v?.diferencia) || 0,
+      };
+    }
+    return out;
+  }
+  return {
+    efectivo: {
+      computado: computedTotal,
+      declarado: declaredTotal,
+      diferencia: declaredTotal - computedTotal,
+    },
+  };
 }
 
 export function usePettyCashClosings() {
@@ -40,9 +70,17 @@ export function usePettyCashClosings() {
         difference: Number(c.difference) || 0,
         // Cierres anteriores a la migración no traen status.
         status: c.status === 'en_edicion' ? 'en_edicion' : 'cerrado',
+        saldos: normalizarSaldos(c.saldos, Number(c.computed_balance) || 0, Number(c.declared_balance) || 0),
       }));
     },
   });
+}
+
+/** Desglose del cierre por cuenta ('efectivo', 'nequi', …). */
+export interface SaldoCuenta {
+  computado: number;
+  declarado: number;
+  diferencia: number;
 }
 
 interface CloseInput {
@@ -50,6 +88,8 @@ interface CloseInput {
   period_end: string;
   declared_balance: number;
   notes?: string;
+  /** Saldo físico declarado por cuenta: { efectivo: 800000, nequi: 240000 }. */
+  declarados_por_cuenta?: Record<string, number>;
 }
 
 export function useClosePettyCashPeriod() {
@@ -64,6 +104,7 @@ export function useClosePettyCashPeriod() {
         p_period_end: input.period_end,
         p_declared_balance: input.declared_balance,
         p_notes: input.notes ?? null,
+        p_declarados_por_cuenta: input.declarados_por_cuenta ?? null,
       });
       if (error) throw error;
       return data as string;
@@ -100,6 +141,7 @@ interface RecloseInput {
   closingId: string;
   declared_balance: number;
   notes?: string;
+  declarados_por_cuenta?: Record<string, number>;
 }
 
 /** Guardar y volver a cerrar un cierre que estaba en edición. Absorbe los
@@ -113,6 +155,7 @@ export function useReclosePettyCashClosing() {
         p_closing_id: input.closingId,
         p_declared_balance: input.declared_balance,
         p_notes: input.notes ?? null,
+        p_declarados_por_cuenta: input.declarados_por_cuenta ?? null,
       });
       if (error) throw error;
       return data as { movements_count: number; movements_absorbed: number; difference: number };

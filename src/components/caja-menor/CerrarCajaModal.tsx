@@ -9,6 +9,7 @@ import { formatCurrency } from '@/lib/formatters';
 import { safeParseFloat } from '@/lib/numberUtils';
 import { useToast } from '@/hooks/use-toast';
 import { useClosePettyCashPeriod } from '@/hooks/usePettyCashClosings';
+import { accountsPresentes } from '@/lib/pettyCashAccounts';
 import type { PettyCashRow } from '@/hooks/usePettyCashMovements';
 
 interface Props {
@@ -34,7 +35,8 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
 
   const [periodStart, setPeriodStart] = useState(startOfCurrentMonth());
   const [periodEnd, setPeriodEnd] = useState(endOfCurrentMonth());
-  const [declaredStr, setDeclaredStr] = useState('');
+  // Un declarado por cuenta: { efectivo: '800000', nequi: '240000' }
+  const [declaradoStr, setDeclaradoStr] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState('');
 
   // Reset form al abrir
@@ -42,7 +44,7 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
     if (open) {
       setPeriodStart(startOfCurrentMonth());
       setPeriodEnd(endOfCurrentMonth());
-      setDeclaredStr('');
+      setDeclaradoStr({});
       setNotes('');
     }
   }, [open]);
@@ -66,10 +68,34 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
     return { totalIngresos: ing, totalEgresos: egr };
   }, [periodRows]);
 
+  // Computado POR CUENTA. Cada una se verifica contra algo distinto (los
+  // billetes vs la app de Nequi), así que declarar un solo número total no
+  // sirve para detectar dónde está el faltante.
+  const computadoPorCuenta = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of periodRows) {
+      const signo = r.kind === 'ingreso_efectivo' ? 1 : -1;
+      m[r.cuenta] = (m[r.cuenta] ?? 0) + signo * r.amount;
+    }
+    return m;
+  }, [periodRows]);
+
+  // Solo se pide declarar las cuentas que tuvieron movimiento en el período.
+  const cuentasDelPeriodo = useMemo(
+    () => accountsPresentes(Object.keys(computadoPorCuenta)).filter((a) => a.id in computadoPorCuenta),
+    [computadoPorCuenta],
+  );
+
   // Saldo computado = neto del período: ingresos suman, egresos restan.
   const computedBalance = totalIngresos - totalEgresos;
-  const declaredBalance = safeParseFloat(declaredStr);
+  const declaradosPorCuenta = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const a of cuentasDelPeriodo) m[a.id] = safeParseFloat(declaradoStr[a.id] ?? '');
+    return m;
+  }, [cuentasDelPeriodo, declaradoStr]);
+  const declaredBalance = Object.values(declaradosPorCuenta).reduce((s, v) => s + v, 0);
   const difference = declaredBalance - computedBalance;
+  const faltaDeclarar = cuentasDelPeriodo.some((a) => !(declaradoStr[a.id] ?? '').trim());
 
   const handleConfirm = async () => {
     if (periodRows.length === 0) {
@@ -80,10 +106,10 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
       });
       return;
     }
-    if (!declaredStr.trim()) {
+    if (faltaDeclarar) {
       toast({
         title: 'Falta saldo declarado',
-        description: 'Ingresá el saldo físico que tenés en caja.',
+        description: 'Ingresá el saldo de cada cuenta que tuvo movimientos.',
         variant: 'destructive',
       });
       return;
@@ -94,6 +120,7 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
         period_end: periodEnd,
         declared_balance: declaredBalance,
         notes: notes.trim() || undefined,
+        declarados_por_cuenta: declaradosPorCuenta,
       });
       toast({
         title: 'Caja cerrada',
@@ -169,24 +196,46 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
             </p>
           </div>
 
-          {/* Saldo declarado */}
-          <div>
-            <Label htmlFor="declared_balance">Saldo físico declarado</Label>
-            <Input
-              id="declared_balance"
-              type="number"
-              step="1"
-              min={0}
-              placeholder="Cuántos pesos hay físicamente en la caja al cerrar"
-              value={declaredStr}
-              onChange={(e) => setDeclaredStr(e.target.value)}
-              disabled={isProcessing}
-              autoFocus
-            />
+          {/* Saldo declarado POR CUENTA. Cada cuenta se verifica contra algo
+              distinto, así que un total único escondería dónde está el hueco. */}
+          <div className="space-y-2">
+            <Label>Saldo declarado por cuenta</Label>
+            {cuentasDelPeriodo.map((a, i) => {
+              const computado = computadoPorCuenta[a.id] ?? 0;
+              const declarado = declaradosPorCuenta[a.id] ?? 0;
+              const dif = declarado - computado;
+              const tocado = (declaradoStr[a.id] ?? '').trim() !== '';
+              return (
+                <div key={a.id} className="rounded-md border p-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{a.label}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Debería haber <span className="tabular-nums font-medium text-foreground">{formatCurrency(computado)}</span>
+                    </span>
+                  </div>
+                  <Input
+                    type="number"
+                    step="1"
+                    placeholder={a.comoSeVerifica}
+                    value={declaradoStr[a.id] ?? ''}
+                    onChange={(e) => setDeclaradoStr((prev) => ({ ...prev, [a.id]: e.target.value }))}
+                    disabled={isProcessing}
+                    autoFocus={i === 0}
+                  />
+                  {tocado && (
+                    <p className={`text-[11px] ${Math.abs(dif) < 1 ? 'text-success' : 'text-warning'}`}>
+                      {Math.abs(dif) < 1
+                        ? 'Cuadra.'
+                        : `${dif > 0 ? 'Sobran' : 'Faltan'} ${formatCurrency(Math.abs(dif))} en ${a.label}.`}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Diferencia */}
-          {declaredStr.trim() !== '' && (
+          {!faltaDeclarar && cuentasDelPeriodo.length > 0 && (
             <div
               className={`rounded-md border p-3 flex items-start gap-2 ${
                 Math.abs(difference) < 1
@@ -199,7 +248,7 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
               }`} />
               <div className="text-xs">
                 <div className="font-medium">
-                  Diferencia: {formatCurrency(difference)}
+                  Diferencia total: {formatCurrency(difference)}
                 </div>
                 <div className="text-muted-foreground mt-0.5">
                   {Math.abs(difference) < 1

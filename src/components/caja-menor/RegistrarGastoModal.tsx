@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import SelectorCuenta from '@/components/caja-menor/SelectorCuenta';
+import { DEFAULT_ACCOUNT } from '@/lib/pettyCashAccounts';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -58,6 +60,7 @@ export default function RegistrarGastoModal() {
   // donde lo dejó. clearForm() se llama al guardar exitosamente.
   type FormState = {
     kind: 'gasto_efectivo' | 'cuenta_de_cobro';
+    cuenta: string;
     categoryId: string;
     responsibleId: string;
     amount: string;
@@ -67,6 +70,7 @@ export default function RegistrarGastoModal() {
   };
   const INITIAL_FORM: FormState = {
     kind: 'gasto_efectivo',
+    cuenta: DEFAULT_ACCOUNT,
     categoryId: '',
     responsibleId: '',
     amount: '',
@@ -83,6 +87,8 @@ export default function RegistrarGastoModal() {
   // Aliases compatibles con el resto del componente (mínimo refactor).
   const kind = form.kind;
   const setKind = (v: FormState['kind']) => setForm((f) => ({ ...f, kind: v }));
+  const cuenta = form.cuenta ?? DEFAULT_ACCOUNT;
+  const setCuenta = (v: string) => setForm((f) => ({ ...f, cuenta: v }));
   const categoryId = form.categoryId;
   const setCategoryId = (v: string) => setForm((f) => ({ ...f, categoryId: v }));
   const responsibleId = form.responsibleId;
@@ -179,6 +185,7 @@ export default function RegistrarGastoModal() {
         category_id: categoryId || null,
         concept: concept.trim() || null,
         kind,
+        cuenta,
         notes: notes.trim() || null,
       });
       if (error) throw error;
@@ -230,6 +237,9 @@ export default function RegistrarGastoModal() {
               </SelectContent>
             </Select>
           </div>
+
+          {/* De qué cuenta salió la plata: cada una cuadra aparte en el cierre */}
+          <SelectorCuenta value={cuenta} onChange={setCuenta} label="¿De dónde salió?" />
 
           {/* Categoría — justo después de Tipo */}
           <div className="space-y-1.5">

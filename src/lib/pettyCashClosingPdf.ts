@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import { addAluminiaFooter } from './pdfBranding';
 import { parseLocalDate } from './dateUtils';
 import { formatCurrency } from './formatters';
+import { accountLabel } from './pettyCashAccounts';
 import type { PettyCashClosing } from '@/hooks/usePettyCashClosings';
 import type { PettyCashRow } from '@/hooks/usePettyCashMovements';
 
@@ -152,12 +153,54 @@ export function generatePettyCashClosingPdf(
   drawBox(margin + (boxW + 3) * 2, 'Diferencia', formatCurrency(closing.difference), diffColor);
   y += boxH + 6;
 
+  // ── Cuadre POR CUENTA. Con más de una cuenta (efectivo + Nequi) la
+  // diferencia total no dice nada: puede dar cero con un sobrante en una y un
+  // faltante igual en la otra. Lo que se revisa es cada cuenta contra su
+  // fuente, así que el PDF firmable tiene que mostrarlas separadas.
+  const cuentasCierre = Object.entries(closing.saldos ?? {}).filter(
+    ([, s]) => s && (s.computado !== 0 || s.declarado !== 0),
+  );
+  if (cuentasCierre.length > 1) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+    doc.text('CUENTA', margin + 2, y + 3);
+    doc.text('COMPUTADO', margin + 70, y + 3, { align: 'right' });
+    doc.text('DECLARADO', margin + 110, y + 3, { align: 'right' });
+    doc.text('DIFERENCIA', margin + 150, y + 3, { align: 'right' });
+    y += 5;
+    doc.setDrawColor(225, 227, 229);
+    doc.line(margin, y, pageW - margin, y);
+    y += 3.5;
+
+    for (const [cuenta, s] of cuentasCierre) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(INK[0], INK[1], INK[2]);
+      doc.text(accountLabel(cuenta), margin + 2, y);
+      doc.text(formatCurrency(s.computado), margin + 70, y, { align: 'right' });
+      doc.text(formatCurrency(s.declarado), margin + 110, y, { align: 'right' });
+      const cuadra = Math.abs(s.diferencia) < 1;
+      if (cuadra) doc.setTextColor(BRAND[0], BRAND[1], BRAND[2]);
+      else doc.setTextColor(170, 60, 60);
+      doc.setFont('helvetica', 'bold');
+      doc.text(formatCurrency(s.diferencia), margin + 150, y, { align: 'right' });
+      y += 5;
+    }
+    y += 3;
+  }
+
   // Etiqueta de la diferencia
   doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
+  const cuentasDescuadradas = cuentasCierre.filter(([, s]) => Math.abs(s.diferencia) >= 1);
   const diffLabel =
-    Math.abs(closing.difference) < 1
+    // Con varias cuentas el total puede dar cero y aun asi haber un sobrante en
+    // una y un faltante igual en la otra. Mandan las cuentas, no el total.
+    cuentasDescuadradas.length > 0 && cuentasCierre.length > 1
+      ? `Revisar: ${cuentasDescuadradas.map(([c, s]) => `${accountLabel(c)} ${s.diferencia > 0 ? 'sobra' : 'falta'} ${formatCurrency(Math.abs(s.diferencia))}`).join(' · ')}.`
+    : Math.abs(closing.difference) < 1
       ? 'Caja cuadra perfecto.'
       : closing.difference > 0
         ? 'Sobrante: hay más plata física que la registrada (revisar ingresos no cargados).'
@@ -185,6 +228,7 @@ export function generatePettyCashClosingPdf(
   const totalEgresos = movements
     .filter((m) => m.kind !== 'ingreso_efectivo')
     .reduce((s, m) => s + m.amount, 0);
+  const variasCuentas = new Set(movements.map((m) => m.cuenta)).size > 1;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
@@ -204,11 +248,16 @@ export function generatePettyCashClosingPdf(
 
   // Posición de cada columna, relativa al margen. La de Monto va alineada a la
   // derecha desde el borde. Tipo entra justo antes para que se lea junto al valor.
+  // Con varias cuentas la Cuenta se gana su propia columna y el resto se corre.
+  // Meterla pegada a la fecha la montaba encima de Concepto.
   const cFecha = margin + 2;
-  const cConcepto = margin + 22;
-  const cBeneficiario = margin + 76;
+  const cCuenta = margin + 20;
+  const cConcepto = margin + (variasCuentas ? 34 : 22);
+  const cBeneficiario = margin + (variasCuentas ? 80 : 76);
   const cCategoria = margin + 118;
   const cTipo = margin + 148;
+  const wConcepto = variasCuentas ? 44 : 50;
+  const wBeneficiario = variasCuentas ? 36 : 38;
 
   const drawTableHeader = () => {
     doc.setFillColor(PANEL[0], PANEL[1], PANEL[2]);
@@ -217,6 +266,7 @@ export function generatePettyCashClosingPdf(
     doc.setFontSize(7.5);
     doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
     doc.text('Fecha', cFecha, y + 4);
+    if (variasCuentas) doc.text('Cuenta', cCuenta, y + 4);
     doc.text('Concepto', cConcepto, y + 4);
     doc.text('Beneficiario', cBeneficiario, y + 4);
     doc.text('Categoría', cCategoria, y + 4);
@@ -246,8 +296,9 @@ export function generatePettyCashClosingPdf(
     doc.setFontSize(7.5);
     doc.setTextColor(INK[0], INK[1], INK[2]);
     doc.text(fmtDateCompact(m.date), cFecha, y + 3);
-    doc.text(clip(doc, m.concept, 50), cConcepto, y + 3);
-    doc.text(clip(doc, m.responsible_name, 38), cBeneficiario, y + 3);
+    if (variasCuentas) doc.text(clip(doc, accountLabel(m.cuenta), 13), cCuenta, y + 3);
+    doc.text(clip(doc, m.concept, wConcepto), cConcepto, y + 3);
+    doc.text(clip(doc, m.responsible_name, wBeneficiario), cBeneficiario, y + 3);
     doc.text(clip(doc, m.category_name, 27), cCategoria, y + 3);
 
     // Tipo y monto comparten color y signo. El signo es lo que sobrevive a una

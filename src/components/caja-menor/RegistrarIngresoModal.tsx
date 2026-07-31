@@ -25,6 +25,8 @@ import {
 } from '@/components/ui/dialog';
 import { usePersistedFormState, usePersistedDialogOpen, dateToIso, isoToDate } from '@/hooks/usePersistedFormState';
 import CrearPrestadorModal from './CrearPrestadorModal';
+import SelectorCuenta from '@/components/caja-menor/SelectorCuenta';
+import { DEFAULT_ACCOUNT } from '@/lib/pettyCashAccounts';
 
 const NEW_PRESTADOR_VALUE = '__new__';
 
@@ -40,6 +42,7 @@ export default function RegistrarIngresoModal() {
   // no pierden lo tipeado). clearForm() al guardar exitoso.
   type FormState = {
     amount: string;
+    cuenta: string;
     dateIso: string | null;
     origen: string;
     responsibleId: string;
@@ -48,6 +51,7 @@ export default function RegistrarIngresoModal() {
   };
   const INITIAL_FORM: FormState = {
     amount: '',
+    cuenta: DEFAULT_ACCOUNT,
     dateIso: dateToIso(new Date()),
     origen: '',
     responsibleId: '__none__',
@@ -59,6 +63,8 @@ export default function RegistrarIngresoModal() {
     INITIAL_FORM,
   );
   const date = isoToDate(form.dateIso);
+  const cuenta = form.cuenta ?? DEFAULT_ACCOUNT;
+  const setCuenta = (v: string) => setForm((f) => ({ ...f, cuenta: v }));
   const setDate = (d: Date | undefined) => setForm((f) => ({ ...f, dateIso: dateToIso(d) }));
   const amount = form.amount;
   const setAmount = (v: string) => setForm((f) => ({ ...f, amount: v }));
@@ -137,6 +143,7 @@ export default function RegistrarIngresoModal() {
         category_id: null,
         concept: conceptFinal,
         kind: 'ingreso_efectivo',
+        cuenta,
         notes: notes.trim() || null,
       } as never);
       if (error) throw error;
@@ -174,6 +181,9 @@ export default function RegistrarIngresoModal() {
               Entrada de efectivo: devolución, ingreso misceláneo, reembolso, etc.
             </DialogDescription>
           </DialogHeader>
+
+          {/* A qué cuenta entró: cada una cuadra aparte en el cierre */}
+          <SelectorCuenta value={cuenta} onChange={setCuenta} label="¿A dónde entró?" />
 
           <div className="space-y-1.5">
             <Label>Origen del ingreso</Label>

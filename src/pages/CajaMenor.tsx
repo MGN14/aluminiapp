@@ -32,6 +32,7 @@ import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
 import GuardarCierreEditadoModal from '@/components/caja-menor/GuardarCierreEditadoModal';
 import EditarMovimientoModal from '@/components/caja-menor/EditarMovimientoModal';
 import { generatePettyCashClosingPdf } from '@/lib/pettyCashClosingPdf';
+import { accountsPresentes, accountLabel } from '@/lib/pettyCashAccounts';
 import { useAuth } from '@/hooks/useAuth';
 
 function formatCurrency(value: number) {
@@ -65,6 +66,8 @@ export default function CajaMenor() {
   // Cuando hay un cierre reabierto, el listón general mezcla sus movimientos
   // con todo lo demás. Este filtro los aísla para poder trabajarlos.
   const [soloEnEdicion, setSoloEnEdicion] = useState(false);
+  // Filtro por cuenta: 'todas' | 'efectivo' | 'nequi' | …
+  const [filtroCuenta, setFiltroCuenta] = useState<string>('todas');
 
   const cierreEnEdicion = closings.find((c) => c.status === 'en_edicion') ?? null;
   /** Un movimiento es editable si está suelto o si su cierre está en edición. */
@@ -132,9 +135,17 @@ export default function CajaMenor() {
   };
 
   const hasOpenMovements = (data?.rows ?? []).some((r) => !r.closing_id);
-  const visibleRows = (data?.rows ?? []).filter((r) =>
-    soloEnEdicion && cierreEnEdicion ? r.closing_id === cierreEnEdicion.id : true,
-  );
+
+  // Cuentas que efectivamente tienen movimientos cargados. Mientras solo haya
+  // efectivo la pantalla se ve igual que antes — Nequi aparece cuando se usa.
+  const cuentasConSaldo = accountsPresentes(Object.keys(data?.saldo_por_cuenta ?? {}))
+    .filter((a) => a.id in (data?.saldo_por_cuenta ?? {}));
+
+  const visibleRows = (data?.rows ?? []).filter((r) => {
+    if (soloEnEdicion && cierreEnEdicion && r.closing_id !== cierreEnEdicion.id) return false;
+    if (filtroCuenta !== 'todas' && r.cuenta !== filtroCuenta) return false;
+    return true;
+  });
 
   const handleReopen = async (closing: PettyCashClosing) => {
     if (!isAdmin) return;
@@ -299,9 +310,25 @@ export default function CajaMenor() {
                 <p className={`text-xl font-bold ${(data?.saldo_caja ?? 0) >= 0 ? 'text-primary' : 'text-destructive'}`}>
                   {isLoading ? '—' : formatCurrency(data?.saldo_caja ?? 0)}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  Ingresos − gastos acumulados
-                </p>
+                {/* El total es solo resumen: no se puede verificar contra nada.
+                    Lo que se revisa es cada cuenta contra su fuente (los
+                    billetes / la app de Nequi). */}
+                {cuentasConSaldo.length > 1 ? (
+                  <div className="mt-1 space-y-0.5">
+                    {cuentasConSaldo.map((a) => (
+                      <p key={a.id} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        <span>{a.label}</span>
+                        <span className="tabular-nums font-medium text-foreground">
+                          {formatCurrency(data?.saldo_por_cuenta?.[a.id] ?? 0)}
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Ingresos − gastos acumulados
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -310,7 +337,36 @@ export default function CajaMenor() {
         {/* Tabla */}
         <Card className="border-0 shadow-sm">
           <CardHeader className="space-y-3">
-            <CardTitle className="text-base">Movimientos registrados</CardTitle>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <CardTitle className="text-base">Movimientos registrados</CardTitle>
+              {/* Filtro por cuenta — solo aparece cuando hay más de una en uso */}
+              {cuentasConSaldo.length > 1 && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant={filtroCuenta === 'todas' ? 'default' : 'outline'}
+                    className="h-7 text-[11px]"
+                    onClick={() => setFiltroCuenta('todas')}
+                  >
+                    Todas
+                  </Button>
+                  {cuentasConSaldo.map((a) => (
+                    <Button
+                      key={a.id}
+                      size="sm"
+                      variant={filtroCuenta === a.id ? 'default' : 'outline'}
+                      className="h-7 text-[11px] gap-1.5"
+                      onClick={() => setFiltroCuenta(a.id)}
+                    >
+                      {a.label}
+                      <span className="tabular-nums opacity-70">
+                        {formatCurrency(data?.saldo_por_cuenta?.[a.id] ?? 0)}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
             {/* Cierre reabierto: sus movimientos siguen agrupados, pero en el
                 listón general quedarían mezclados con el resto. Este banner
                 los aísla en un clic. */}
@@ -418,6 +474,9 @@ export default function CajaMenor() {
                       ) : (
                         <Badge variant="outline" className="text-[10px]">Efectivo</Badge>
                       )}
+                      {cuentasConSaldo.length > 1 && (
+                        <Badge variant="secondary" className="text-[10px]">{accountLabel(r.cuenta)}</Badge>
+                      )}
                       {r.category_name && (
                         <Badge variant="outline" className="text-[10px] gap-1">
                           {r.category_is_tax_deductible ? <BadgeCheck className="h-3 w-3 text-success" /> : <BadgeX className="h-3 w-3 text-muted-foreground" />}
@@ -498,6 +557,11 @@ export default function CajaMenor() {
                             </Badge>
                           ) : (
                             <Badge variant="outline" className="text-[10px]">Efectivo</Badge>
+                          )}
+                          {cuentasConSaldo.length > 1 && (
+                            <Badge variant="secondary" className="text-[10px] mt-1 block w-fit">
+                              {accountLabel(r.cuenta)}
+                            </Badge>
                           )}
                         </TableCell>
                         <TableCell className="text-sm font-medium">

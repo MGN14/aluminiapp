@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { DEFAULT_ACCOUNT } from '@/lib/pettyCashAccounts';
 
 export type PettyCashKind = 'gasto_efectivo' | 'cuenta_de_cobro' | 'ingreso_efectivo';
 
@@ -15,6 +16,9 @@ export interface PettyCashRow {
   category_is_tax_deductible: boolean;
   concept: string | null;
   kind: PettyCashKind;
+  /** De qué cuenta salió/entró la plata: 'efectivo' | 'nequi' | … Cada una
+   *  cuadra por separado en el cierre (ver lib/pettyCashAccounts). */
+  cuenta: string;
   numero_cuenta_cobro: string | null;
   /** Auto-asignado por trigger BEFORE INSERT (CDC-YYYY-NNNN para cuenta_de_cobro,
    *  CP-YYYY-NNNN para gasto_efectivo). Editable manualmente desde el modal de PDF. */
@@ -38,6 +42,10 @@ export interface PettyCashSummary {
   /** Saldo neto en caja: suma histórica de ingresos − suma histórica de
    *  egresos. Lo que efectivamente debería haber en la caja física hoy. */
   saldo_caja: number;
+  /** El mismo saldo neto pero POR CUENTA ('efectivo', 'nequi', …). Es lo que
+   *  se puede verificar: el efectivo contra los billetes, Nequi contra la app.
+   *  El total solo sirve de resumen — no se verifica contra nada. */
+  saldo_por_cuenta: Record<string, number>;
 }
 
 function startOfMonth(): string {
@@ -57,6 +65,7 @@ export function usePettyCashMovements() {
         count_mes_actual: 0,
         total_ingresos_mes: 0,
         saldo_caja: 0,
+        saldo_por_cuenta: {},
       };
       if (!user?.id) return empty;
 
@@ -102,6 +111,7 @@ export function usePettyCashMovements() {
           category_is_tax_deductible: cat?.deductible ?? false,
           concept: m.concept,
           kind: (m.kind as PettyCashKind) ?? 'gasto_efectivo',
+          cuenta: (m as { cuenta?: string | null }).cuenta || DEFAULT_ACCOUNT,
           numero_cuenta_cobro: m.numero_cuenta_cobro,
           numero_consecutivo: (m as { numero_consecutivo?: string | null }).numero_consecutivo ?? null,
           notes: m.notes,
@@ -127,12 +137,22 @@ export function usePettyCashMovements() {
         .reduce((s, r) => s + r.amount, 0);
       const saldo_caja = totalIngresosHist - totalEgresosHist;
 
+      // Mismo cálculo, segmentado por cuenta. Sin esto el saldo mezcla los
+      // billetes de la caja con el saldo de Nequi y no se puede verificar
+      // contra nada.
+      const saldo_por_cuenta: Record<string, number> = {};
+      for (const r of rows) {
+        const signo = r.kind === 'ingreso_efectivo' ? 1 : -1;
+        saldo_por_cuenta[r.cuenta] = (saldo_por_cuenta[r.cuenta] ?? 0) + signo * r.amount;
+      }
+
       return {
         rows,
         total_mes_actual,
         count_mes_actual: mesActual.length,
         total_ingresos_mes,
         saldo_caja,
+        saldo_por_cuenta,
       };
     },
   });
