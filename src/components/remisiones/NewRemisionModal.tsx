@@ -512,11 +512,29 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
    *  catálogo de alias que usa el conteo físico. */
   const corregirReferencia = async (desde: string, hacia: string) => {
     const key = hacia.trim().toLowerCase();
-    const prod = productMap.get(key)
+    let prod = productMap.get(key)
       ?? [...productMap.values()].find((p) => refFamilyKey(p.reference) === refFamilyKey(hacia))
       ?? null;
+    // Si el destino no estaba en el mapa (nadie más en el Excel apuntaba a ese
+    // producto), hay que traerlo: applyRemisionInventory resuelve por
+    // productMap, así que sin esto la unión se veía aplicada en pantalla pero
+    // el ítem seguía sin enganchar y NO descontaba stock. Caso MN91-3 → MGN91.
+    if (!prod && user?.id) {
+      try {
+        const m = await fetchProductsByRefs(user.id, [hacia]);
+        prod = m.get(key) ?? [...m.values()][0] ?? null;
+      } catch {
+        prod = null;
+      }
+    }
     if (prod) {
-      setProductMap((prev) => new Map(prev).set(key, prod));
+      setProductMap((prev) => new Map(prev).set(key, prod!));
+    } else {
+      toast({
+        title: `${desde} → ${hacia}`,
+        description: 'No se encontró ese producto en el maestro: la referencia queda corregida pero no va a descontar stock.',
+        variant: 'destructive',
+      });
     }
     setItems((prev) => prev.map((it) => it.reference === desde
       ? { ...it, reference: hacia, product_name: prod?.name || it.product_name }
