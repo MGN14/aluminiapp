@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, TrendingUp, Wallet, Trash2, AlertCircle, FileDown, Lock, Unlock, Zap, Pencil } from 'lucide-react';
+import { Banknote, Info, Receipt, BadgeCheck, BadgeX, TrendingDown, TrendingUp, Wallet, Trash2, AlertCircle, FileDown, Lock, Unlock, Zap, Pencil, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -32,7 +32,7 @@ import CerrarCajaModal from '@/components/caja-menor/CerrarCajaModal';
 import GuardarCierreEditadoModal from '@/components/caja-menor/GuardarCierreEditadoModal';
 import EditarMovimientoModal from '@/components/caja-menor/EditarMovimientoModal';
 import { generatePettyCashClosingPdf } from '@/lib/pettyCashClosingPdf';
-import { accountsPresentes, accountLabel } from '@/lib/pettyCashAccounts';
+import { accountsPresentes, accountLabel, DEFAULT_ACCOUNT } from '@/lib/pettyCashAccounts';
 import { useAuth } from '@/hooks/useAuth';
 
 function formatCurrency(value: number) {
@@ -140,6 +140,21 @@ export default function CajaMenor() {
   // efectivo la pantalla se ve igual que antes — Nequi aparece cuando se usa.
   const cuentasConSaldo = accountsPresentes(Object.keys(data?.saldo_por_cuenta ?? {}))
     .filter((a) => a.id in (data?.saldo_por_cuenta ?? {}));
+
+  // Nequi es una caja menor APARTE, no una cuenta más del mismo bolsillo:
+  // la plata no se cuenta con la mano, los ingresos los cargan Yolanda/Lina y
+  // los gastos solo el dueño (que es quien tiene la app). Por eso los saldos
+  // NO se suman en pantalla.
+  const saldoEfectivo = data?.saldo_por_cuenta?.[DEFAULT_ACCOUNT] ?? 0;
+  const saldoNequi = data?.saldo_por_cuenta?.['nequi'] ?? 0;
+  const hayNequi = 'nequi' in (data?.saldo_por_cuenta ?? {});
+  const movsNequi = (data?.rows ?? []).filter((r) => r.cuenta === 'nequi');
+  const ingresosNequi = movsNequi
+    .filter((r) => r.kind === 'ingreso_efectivo')
+    .reduce((s, r) => s + r.amount, 0);
+  const egresosNequi = movsNequi
+    .filter((r) => r.kind !== 'ingreso_efectivo')
+    .reduce((s, r) => s + r.amount, 0);
 
   const visibleRows = (data?.rows ?? []).filter((r) => {
     if (soloEnEdicion && cierreEnEdicion && r.closing_id !== cierreEnEdicion.id) return false;
@@ -305,34 +320,65 @@ export default function CajaMenor() {
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                 <Wallet className="h-5 w-5 text-primary" />
               </div>
+              {/* Efectivo y Nequi son DOS cajas distintas, no una sumada: la
+                  plata de Nequi no se cuenta con la mano y la maneja otra
+                  persona. Este KPI es solo el efectivo — Nequi tiene su
+                  propio banner abajo. */}
               <div className="min-w-0">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Total en caja hoy</p>
-                <p className={`text-xl font-bold ${(data?.saldo_caja ?? 0) >= 0 ? 'text-primary' : 'text-destructive'}`}>
-                  {isLoading ? '—' : formatCurrency(data?.saldo_caja ?? 0)}
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                  {hayNequi ? 'Efectivo en caja hoy' : 'Total en caja hoy'}
                 </p>
-                {/* El total es solo resumen: no se puede verificar contra nada.
-                    Lo que se revisa es cada cuenta contra su fuente (los
-                    billetes / la app de Nequi). */}
-                {cuentasConSaldo.length > 1 ? (
-                  <div className="mt-1 space-y-0.5">
-                    {cuentasConSaldo.map((a) => (
-                      <p key={a.id} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                        <span>{a.label}</span>
-                        <span className="tabular-nums font-medium text-foreground">
-                          {formatCurrency(data?.saldo_por_cuenta?.[a.id] ?? 0)}
-                        </span>
-                      </p>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    Ingresos − gastos acumulados
-                  </p>
-                )}
+                <p className={`text-xl font-bold ${saldoEfectivo >= 0 ? 'text-primary' : 'text-destructive'}`}>
+                  {isLoading ? '—' : formatCurrency(saldoEfectivo)}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {hayNequi ? 'Billetes en la caja física' : 'Ingresos − gastos acumulados'}
+                </p>
               </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* ── Caja Nequi. Es una caja menor aparte: su propio saldo, su propia
+            gente. El banner responde la pregunta de todos los días — "¿cuánto
+            debe haber en Nequi?" — sin tener que abrir nada. */}
+        {hayNequi && (
+          <Card className="border-0 shadow-sm bg-primary/5 border-l-4 border-l-primary">
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="flex items-start gap-4 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+                    <Smartphone className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Debe haber en Nequi
+                    </p>
+                    <p className={`text-2xl font-bold ${saldoNequi >= 0 ? 'text-primary' : 'text-destructive'}`}>
+                      {isLoading ? '—' : formatCurrency(saldoNequi)}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Entró <span className="tabular-nums font-medium text-success">{formatCurrency(ingresosNequi)}</span>
+                      {' · '}Salió <span className="tabular-nums font-medium text-destructive">{formatCurrency(egresosNequi)}</span>
+                      {' · '}{movsNequi.length} movimiento{movsNequi.length === 1 ? '' : 's'}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Comparalo contra el saldo real en la app de Nequi. No se suma con el efectivo: son dos cajas distintas.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-[11px]"
+                  onClick={() => setFiltroCuenta(filtroCuenta === 'nequi' ? 'todas' : 'nequi')}
+                >
+                  {filtroCuenta === 'nequi' ? 'Ver todo' : 'Ver movimientos de Nequi'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Tabla */}
         <Card className="border-0 shadow-sm">

@@ -5,6 +5,7 @@ import { es } from 'date-fns/locale';
 import { CalendarIcon, Plus, BadgeCheck, BadgeX, UserPlus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useDataOwner } from '@/hooks/useDataOwner';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -47,6 +48,7 @@ const NEW_PRESTADOR_VALUE = '__new__';
 
 export default function RegistrarGastoModal() {
   const { user } = useAuth();
+  const { isCollaborator } = useDataOwner();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -238,8 +240,15 @@ export default function RegistrarGastoModal() {
             </Select>
           </div>
 
-          {/* De qué cuenta salió la plata: cada una cuadra aparte en el cierre */}
-          <SelectorCuenta value={cuenta} onChange={setCuenta} label="¿De dónde salió?" />
+          {/* De qué caja salió la plata. Los gastos de Nequi solo los carga el
+              dueño (es quien tiene la app); el trigger de la base lo valida
+              igual, esto solo evita que un colaborador cargue y le rebote. */}
+          <SelectorCuenta
+            value={cuenta}
+            onChange={setCuenta}
+            label="¿De qué caja salió?"
+            bloqueadas={isCollaborator ? { nequi: 'Los gastos de Nequi los registra el dueño de la cuenta. Vos podés registrar ingresos a Nequi.' } : undefined}
+          />
 
           {/* Categoría — justo después de Tipo */}
           <div className="space-y-1.5">
