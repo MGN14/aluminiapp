@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Upload, FileSpreadsheet, X, AlertCircle, ArrowUpCircle, ArrowDownCircle, PackagePlus, Package, AlertTriangle, UserPlus } from 'lucide-react';
 import {
   fetchProductsByRefs,
+  saveRefAlias,
   createMissingProducts,
   applyRemisionInventory,
   type RemisionType,
@@ -488,8 +489,12 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
 
   /** Corrige una referencia mal digitada en TODOS los ítems de la remisión y
    *  la re-cruza contra el maestro (exacto o por familia -5) — así sale sola
-   *  de "sin cruzar" y el descuento de stock apunta al producto correcto. */
-  const corregirReferencia = (desde: string, hacia: string) => {
+   *  de "sin cruzar" y el descuento de stock apunta al producto correcto.
+   *
+   *  La unión queda GUARDADA (product_aliases): la próxima remisión que traiga
+   *  esa misma referencia cruza sola, sin volver a preguntar. Es el mismo
+   *  catálogo de alias que usa el conteo físico. */
+  const corregirReferencia = async (desde: string, hacia: string) => {
     const key = hacia.trim().toLowerCase();
     const prod = productMap.get(key)
       ?? [...productMap.values()].find((p) => refFamilyKey(p.reference) === refFamilyKey(hacia))
@@ -501,7 +506,21 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
       ? { ...it, reference: hacia, product_name: prod?.name || it.product_name }
       : it));
     setUnmatchedRefs((prev) => prev.filter((u) => u.reference !== desde));
-    toast({ title: `${desde} → ${hacia}`, description: 'Referencia corregida en esta remisión.' });
+
+    let guardado = true;
+    try {
+      await saveRefAlias(desde, hacia);
+    } catch {
+      // El alias es un plus: si falla, la corrección de ESTA remisión ya quedó
+      // aplicada en memoria. No bloqueamos el despacho por esto.
+      guardado = false;
+    }
+    toast({
+      title: `${desde} → ${hacia}`,
+      description: guardado
+        ? 'Corregida y guardada: la próxima vez cruza sola.'
+        : 'Corregida en esta remisión (no se pudo guardar para la próxima).',
+    });
   };
 
   const handleSave = async () => {
@@ -800,6 +819,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                         </p>
                         <p className="text-xs text-yellow-700 mt-0.5">
                           No descuentan stock y ensucian el análisis de cobertura. Corregilas acá o creá el producto en Inventario si son reales.
+                          <strong className="font-medium"> Lo que unas acá queda guardado</strong> y la próxima remisión cruza sola.
                         </p>
                         {/* Sugerencia de la referencia correcta: un clic la aplica */}
                         <div className="mt-2 space-y-1">
@@ -818,7 +838,7 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
                                         type="button"
                                         onClick={() => corregirReferencia(u.reference, s.reference)}
                                         className="font-mono font-semibold underline decoration-dotted hover:text-primary"
-                                        title={`Cambiar ${u.reference} → ${s.reference} en esta remisión`}
+                                        title={`Unir ${u.reference} → ${s.reference}. Queda guardado: la próxima remisión cruza sola.`}
                                       >
                                         {s.reference}
                                       </button>

@@ -39,17 +39,52 @@ async function adjustStockPhysical(productId: string, delta: number, fallbackCur
   if (upError) throw upError;
 }
 
+/**
+ * Alias confirmados a mano (tabla product_aliases): "lo que digita bodega" →
+ * "la ref del maestro". Compartidos con el conteo físico: lo que Lina une una
+ * vez en una remisión ya sale cruzado en la siguiente y en el conteo.
+ */
+export async function fetchRefAliases(): Promise<Map<string, string>> {
+  // Sin filtro user_id: RLS ya resuelve por current_data_owner().
+  const { data } = await (supabase as any)
+    .from('product_aliases')
+    .select('alias, ref_siigo');
+  const map = new Map<string, string>();
+  for (const r of (data ?? []) as { alias: string; ref_siigo: string }[]) {
+    if (r.alias && r.ref_siigo) map.set(normalizeRef(r.alias), r.ref_siigo);
+  }
+  return map;
+}
+
+/** Guarda (o pisa) el mapeo alias → ref del maestro. */
+export async function saveRefAlias(alias: string, refSiigo: string): Promise<void> {
+  // user_id lo reescribe al owner el trigger set_user_id_to_data_owner_trg;
+  // mandamos null para no depender de que el caller conozca al owner.
+  const { error } = await (supabase as any)
+    .from('product_aliases')
+    .upsert(
+      { alias: alias.trim(), ref_siigo: refSiigo.trim() },
+      { onConflict: 'user_id,alias' },
+    );
+  if (error) throw error;
+}
+
 export async function fetchProductsByRefs(
-  userId: string,
+  _userId: string,
   refs: string[],
 ): Promise<Map<string, ProductLite>> {
   const uniqueRefs = Array.from(new Set(refs.map((r) => r.trim()).filter(Boolean)));
   if (uniqueRefs.length === 0) return new Map();
 
+  // OJO: nada de .eq('user_id', ...) acá. La RLS de inventory_products filtra
+  // por current_data_owner(), así que para un COLABORADOR (Lina) el user.id
+  // que manda el frontend es el suyo propio y la intersección daba CERO filas:
+  // toda la remisión salía "sin match" y no descontaba stock. El síntoma
+  // delator era "PC635 ¿quisiste decir PC635?" — la sugerencia leía el
+  // catálogo real (esa query nunca filtró por user_id) y el cruce no.
   const { data, error } = await supabase
     .from('inventory_products')
     .select('id, reference, name, stock_physical, stock_system, cost_per_unit')
-    .eq('user_id', userId)
     .in('reference', uniqueRefs);
 
   if (error) throw error;
@@ -59,16 +94,34 @@ export async function fetchProductsByRefs(
   // Also check case-insensitive matches the DB missed (references stored in different case)
   const missing = uniqueRefs.filter((r) => !map.has(normalizeRef(r)));
   if (missing.length > 0) {
-    const { data: allUserProducts } = await supabase
-      .from('inventory_products')
-      .select('id, reference, name, stock_physical, stock_system, cost_per_unit')
-      .eq('user_id', userId);
+    const [{ data: allUserProducts }, aliases] = await Promise.all([
+      supabase
+        .from('inventory_products')
+        .select('id, reference, name, stock_physical, stock_system, cost_per_unit'),
+      fetchRefAliases().catch(() => new Map<string, string>()),
+    ]);
     (allUserProducts ?? []).forEach((p) => {
       const key = normalizeRef(p.reference);
       if (!map.has(key) && missing.some((r) => normalizeRef(r) === key)) {
         map.set(key, p as ProductLite);
       }
     });
+
+    const porRef = new Map<string, ProductLite>();
+    (allUserProducts ?? []).forEach((p) => porRef.set(normalizeRef(p.reference), p as ProductLite));
+
+    // ALIAS confirmados a mano: mandan sobre el cruce algorítmico porque son
+    // una decisión explícita del usuario ("MN92 es MN-92, ya te lo dije").
+    for (const r of missing) {
+      const key = normalizeRef(r);
+      if (map.has(key)) continue;
+      const destino = aliases.get(key);
+      if (!destino) continue;
+      const prod = porRef.get(normalizeRef(destino))
+        ?? [...porRef.values()].find((p) => refFamilyKey(p.reference) === refFamilyKey(destino));
+      if (prod) map.set(key, prod);
+    }
+
     // Cruce por FAMILIA (convención -5 de Siigo): la remisión despacha por
     // color o en mate ("PC635", "PC635-3") pero el maestro solo tiene la -5
     // ("PC635-5"). Es la MISMA pieza — el stock del producto vive en la -5 y
