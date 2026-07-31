@@ -16,6 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import ImportModal from '@/components/imports/ImportModal';
 import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
 import ReorderSuggestionCard from '@/components/imports/ReorderSuggestionCard';
+import ComparativoPedidosCard from '@/components/imports/ComparativoPedidosCard';
 import CoverageAnalysis from '@/components/imports/CoverageAnalysis';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
 import { computeTotalDays, computeStageAverages } from '@/lib/importStages';
@@ -525,6 +526,9 @@ export default function Importaciones() {
         <>
         {/* Sugerencia de próximo pedido: quiebre de stock − lead time − colchón */}
         <ReorderSuggestionCard onVerReporte={() => setView('cobertura')} />
+
+        {/* Último entregado vs los que están pedidos vs pedir hoy: costo y tiempos */}
+        <ComparativoPedidosCard />
 
         {/* KPIs de materia prima: cada uno con variación vs pedido anterior y vs año pasado */}
         {kpis && (
