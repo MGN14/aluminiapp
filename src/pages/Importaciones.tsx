@@ -304,6 +304,46 @@ export default function Importaciones() {
       .filter(v => v > 0);
     const fleteProm = avg(fletes);
 
+    // IMPUESTOS (arancel + IVA, COP) del pedido en foco — reemplaza las
+    // columnas Arancel/IVA/Agencia de la tabla (decisión de Nico 2026-07-30:
+    // "solo banners grandes, las columnas largas me hacen perder info").
+    const bdDe = (r: ImportRow | null) => r
+      ? computeImportBreakdown({
+          mercanciaUsd: Number(r.monto_total_usd ?? 0),
+          costs: r.import_costs,
+          trm: trmDe(r),
+          arancelPct: Number(r.arancel_pct ?? 5),
+          ivaPct: Number(r.iva_pct ?? 19),
+          cantidadKg: Number(r.cantidad_ton ?? 0) > 0 ? Number(r.cantidad_ton) * 1000 : null,
+        })
+      : null;
+    const impuestosDe = (r: ImportRow | null) => {
+      const bd = bdDe(r);
+      if (!bd) return null;
+      const t = (bd.arancelCop ?? 0) + (bd.ivaCop ?? 0);
+      return t > 0 ? t : null;
+    };
+    const impFoco = bdDe(foco);
+    const impLast = impuestosDe(foco);
+    const impArancel = impFoco?.arancelCop ?? null;
+    const impIva = impFoco?.ivaCop ?? null;
+    const impAgencia = foco ? sumImportCosts(foco.import_costs, 'nacionalizacion').cop : 0;
+    const impDeltaPct = pct(impLast, impuestosDe(anterior));
+    const impProm = avg(ordered.map(impuestosDe).filter((v): v is number => v != null));
+    // Real cargado vs estimado por % — que se vea de qué número estamos hablando.
+    const impEsReal = !!(impFoco?.usaArancelReal && impFoco?.usaIvaReal);
+
+    // DÍAS de la operación del pedido en foco (reemplaza la columna Días).
+    const diasFoco = foco?.import_estado_history?.length
+      ? computeTotalDays(foco.import_estado_history, foco.estado)
+      : null;
+    const diasCerrados = ordered
+      .filter(r => (r.estado === 'entregado' || r.estado === 'cerrado') && (r.import_estado_history?.length ?? 0) > 0)
+      .map(r => computeTotalDays(r.import_estado_history!, r.estado))
+      .filter((t): t is { dias: number; enCurso: boolean } => !!t && !t.enCurso && t.dias > 0)
+      .map(t => t.dias);
+    const diasProm = avg(diasCerrados);
+
     return {
       pedidosEsteAnio, pedidosAnioPasado, tonEsteAnio, tonAnioPasado,
       focoLabel,
@@ -312,6 +352,8 @@ export default function Importaciones() {
       nacLast, nacDeltaPct, nacYoYPct, nacProm,
       trmLast, trmDeltaPct, trmProm, trmEnCurso, trmDeLabel,
       fleteProm, fleteUltimo, fleteDeltaPct,
+      impLast, impArancel, impIva, impAgencia, impDeltaPct, impProm, impEsReal,
+      diasFoco, diasProm,
     };
   }, [data, currentYear, trmByImport, trmHoy]);
 
@@ -630,6 +672,52 @@ export default function Importaciones() {
                 )}
               </CardContent>
             </Card>
+            {/* IMPUESTOS — reemplaza las columnas Arancel / IVA / Agencia */}
+            <Card>
+              <CardContent className="py-3 px-4">
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Arancel + IVA de importación del pedido próximo a entregar. Con ≈ es el estimado por % sobre el CIF; cuando cargás la liquidación real de aduana en el Resumen del pedido, manda el real.">
+                  Impuestos del contenedor
+                </p>
+                <p className="text-2xl font-bold tabular-nums font-mono">
+                  {kpis.impLast != null ? `${kpis.impEsReal ? '' : '≈'}${fmtCOPShort(kpis.impLast)}` : '—'}
+                </p>
+                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                <p className="text-[11px] text-muted-foreground">
+                  {kpis.impArancel != null && `arancel ${fmtCOPShort(kpis.impArancel)}`}
+                  {kpis.impIva != null && ` + IVA ${fmtCOPShort(kpis.impIva)}`}
+                  {kpis.impAgencia > 0 && ` + agencia ${fmtCOPShort(kpis.impAgencia)}`}
+                </p>
+                <SignalLine curr={kpis.impLast} refVal={kpis.impProm} label="promedio" fmtVal={fmtCOPShort} />
+                <DeltaLine pct={kpis.impDeltaPct} label="vs último entregado" />
+                {kpis.impLast != null && !kpis.impEsReal && (
+                  <p className="text-[10px] text-amber-600">estimado — cargá la liquidación real en el pedido</p>
+                )}
+              </CardContent>
+            </Card>
+            {/* DÍAS — reemplaza la columna Días de la tabla */}
+            <Card>
+              <CardContent className="py-3 px-4">
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Días desde que se montó el pedido (entrada a producción) hasta la entrega — o hasta hoy si sigue en curso. La cotización no cuenta.">
+                  Días de la operación
+                </p>
+                <p className={cn('text-2xl font-bold tabular-nums font-mono', kpis.diasFoco?.enCurso && 'text-primary')}>
+                  {kpis.diasFoco ? `${kpis.diasFoco.dias}d` : '—'}
+                </p>
+                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}{kpis.diasFoco?.enCurso ? ' · en curso' : ''}</p>}
+                <p className="text-[11px] text-muted-foreground">
+                  {kpis.diasProm != null
+                    ? `prom. histórico ${Math.round(kpis.diasProm)}d de montaje a entrega`
+                    : 'sin ciclos completos todavía'}
+                </p>
+                {kpis.diasFoco && kpis.diasProm != null && (
+                  <p className={cn('text-[11px] font-medium', kpis.diasFoco.dias > kpis.diasProm ? 'text-destructive' : 'text-success')}>
+                    {kpis.diasFoco.dias > kpis.diasProm
+                      ? `+${kpis.diasFoco.dias - Math.round(kpis.diasProm)}d sobre el promedio`
+                      : `faltan ~${Math.round(kpis.diasProm) - kpis.diasFoco.dias}d si se comporta como siempre`}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
 
@@ -856,30 +944,27 @@ export default function Importaciones() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/80">
+                    {/* Tabla MÍNIMA (decisión de Nico 2026-07-30): con 12
+                        columnas había scroll horizontal y se perdía la info
+                        valiosa. El detalle (SMM, flete, impuestos, días) vive
+                        en los banners grandes de arriba y en el modal. */}
                     <TableHead className="font-semibold">Proveedor</TableHead>
                     <TableHead className="font-semibold">Estado</TableHead>
-                    <TableHead className="font-semibold text-right" title="Días de la operación: desde que se montó el pedido (producción) hasta la entrega (o hoy si sigue en curso)">Días</TableHead>
-                    <TableHead className="font-semibold text-right">SMM cerrado</TableHead>
-                    <TableHead className="font-semibold text-right">Flete</TableHead>
-                    <TableHead className="font-semibold text-right" title="Con ≈ es el estimado que calcula la app (CIF × %). Cuando cargués el real en el Resumen del pedido, manda el real.">Arancel</TableHead>
-                    <TableHead className="font-semibold text-right" title="Con ≈ es el estimado que calcula la app ((CIF + arancel) × %). Cuando cargués el real en el Resumen del pedido, manda el real.">IVA</TableHead>
-                    <TableHead className="font-semibold text-right">Agencia</TableHead>
                     <TableHead className="font-semibold text-right">Total USD</TableHead>
                     <TableHead className="font-semibold text-right">Saldo</TableHead>
-                    <TableHead className="font-semibold" title="Fecha en que arrancó el pedido (primera etapa registrada)">Inicio</TableHead>
                     <TableHead className="font-semibold" title="La ETA que cargás es la llegada a PUERTO; la app le suma tu promedio de nacionalización para pronosticar la llegada a bodega.">ETA bodega</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
                         Cargando importaciones...
                       </TableCell>
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-12">
+                      <TableCell colSpan={5} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
                           <p className="text-muted-foreground">
@@ -944,9 +1029,30 @@ export default function Importaciones() {
                                 />
                               )}
                             </div>
-                            {row.ref_pedido && (
-                              <div className="text-[10px] text-muted-foreground font-mono">{row.ref_pedido}</div>
-                            )}
+                            {/* Ref + inicio + días: el detalle de contexto que
+                                antes eran columnas propias, acá en chiquito. */}
+                            <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 flex-wrap">
+                              {row.ref_pedido && <span>{row.ref_pedido}</span>}
+                              {fechaInicio && (
+                                <span className="font-sans" title="Fecha en que se montó el pedido">
+                                  desde {format(parseLocalDate(fechaInicio), 'dd MMM yy', { locale: es })}
+                                </span>
+                              )}
+                              {(() => {
+                                const total = row.import_estado_history?.length
+                                  ? computeTotalDays(row.import_estado_history, row.estado)
+                                  : null;
+                                if (!total) return null;
+                                return (
+                                  <span
+                                    className={cn('font-sans font-semibold', total.enCurso && 'text-primary')}
+                                    title={total.enCurso ? 'Días desde que se montó el pedido (en curso)' : 'Días totales hasta la entrega'}
+                                  >
+                                    · {total.dias}d
+                                  </span>
+                                );
+                              })()}
+                            </div>
                             {sinProformaIds.has(row.id) && (
                               <div className="text-[10px] text-amber-600">sin proforma — subilo en Costeo</div>
                             )}
@@ -994,41 +1100,6 @@ export default function Importaciones() {
                               <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta cierre BanRep</div>
                             )}
                           </TableCell>
-                          {/* Días de la operación — al lado del estado, siempre visible */}
-                          <TableCell className="text-right text-sm font-mono">
-                            {(() => {
-                              const total = row.import_estado_history?.length
-                                ? computeTotalDays(row.import_estado_history, row.estado)
-                                : null;
-                              if (!total) return <span className="text-muted-foreground">—</span>;
-                              return (
-                                <span
-                                  className={total.enCurso ? 'text-primary font-semibold' : 'text-muted-foreground'}
-                                  title={total.enCurso ? 'Días desde que se montó el pedido (en curso)' : 'Días totales hasta la entrega'}
-                                >
-                                  {total.dias}d
-                                </span>
-                              );
-                            })()}
-                          </TableCell>
-                          <TableCell className="text-right text-sm font-mono">{fmtUSD(row.precio_smm_cerrado_usd_ton)}</TableCell>
-                          <TableCell className="text-right"><CostCell usd={flete.usd} cop={flete.cop} /></TableCell>
-                          {/* Arancel / IVA: real cargado si existe; si no, el estimado de la app (≈) */}
-                          <TableCell className="text-right">
-                            {hayArancelReal
-                              ? <CostCell usd={arancel.usd} cop={arancel.cop} />
-                              : arancelEst != null
-                                ? <span className="font-mono text-sm text-muted-foreground" title={`Estimado: CIF × ${Number(row.arancel_pct ?? 5)}% — cargá el real en el Resumen cuando lo pagues`}>≈{fmtCOPShort(arancelEst)}</span>
-                                : <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {hayIvaReal
-                              ? <CostCell usd={iva.usd} cop={iva.cop} />
-                              : ivaEst != null
-                                ? <span className="font-mono text-sm text-muted-foreground" title={`Estimado: (CIF + arancel) × ${Number(row.iva_pct ?? 19)}% — cargá el real en el Resumen cuando lo pagues`}>≈{fmtCOPShort(ivaEst)}</span>
-                                : <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          <TableCell className="text-right"><CostCell usd={agencia.usd} cop={agencia.cop} /></TableCell>
                           {/* Total USD = mercancía + flete (el saldo sigue siendo vs mercancía) */}
                           <TableCell
                             className="text-right text-sm font-mono"
@@ -1037,11 +1108,6 @@ export default function Importaciones() {
                             {fmtUSD(Number(row.monto_total_usd ?? 0) + flete.usd)}
                           </TableCell>
                           <TableCell className="text-right text-sm font-mono font-bold text-destructive">{fmtUSD0(row.saldo_pendiente_usd)}</TableCell>
-                          <TableCell className="text-sm whitespace-nowrap">
-                            {fechaInicio
-                              ? format(parseLocalDate(fechaInicio), 'dd MMM yy', { locale: es })
-                              : <span className="text-muted-foreground">—</span>}
-                          </TableCell>
                           {/* ETA cargada = PUERTO (dato de la naviera); bodega = + nacionalización
                               prom. (lo estimado). Entregado → manda la fecha REAL de entrega. */}
                           <TableCell className="text-sm whitespace-nowrap">
