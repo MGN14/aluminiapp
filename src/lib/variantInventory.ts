@@ -357,6 +357,31 @@ export function computeVariantDesglose(
 }
 
 /**
+ * TODOS los movimientos del ledger, paginando de a 1000: PostgREST corta
+ * cada request en 1000 filas SIN avisar, y el ledger ya pasa de eso (cada
+ * re-anclaje de maestra escribe ~una fila 'inicial' por variante). Con la
+ * historia incompleta el teórico salía mal y el cuadre no corregía nada
+ * (reporte de Nico 2026-08-01: "el problema del stock sigue igual").
+ */
+export async function fetchAllVariantMovements(): Promise<(VariantMovLite & { variant_id: string })[]> {
+  const PAGE = 1000;
+  const out: (VariantMovLite & { variant_id: string })[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from('inventory_variant_movements')
+      .select('variant_id, movement_type, quantity, source_type, created_at')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true }) // desempate estable para paginar sin duplicar
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as (VariantMovLite & { variant_id: string })[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+/**
  * Cuadra el stock guardado contra el teórico del ledger. Repara los saldos
  * que quedaron mal por bugs viejos (ej. el clamp a 0 que pisaba negativos al
  * entrar contenedor). Devuelve cuántas variantes se corrigieron.
@@ -367,13 +392,10 @@ export async function syncVariantStockToLedger(): Promise<number> {
     .select('id, stock, stock_inicial, stock_inicial_date')
     .eq('active', true);
   if (vErr) throw vErr;
-  const { data: mData, error: mErr } = await db
-    .from('inventory_variant_movements')
-    .select('variant_id, movement_type, quantity, source_type, created_at');
-  if (mErr) throw mErr;
+  const allMovs = await fetchAllVariantMovements();
 
   const movsPorVariante = new Map<string, VariantMovLite[]>();
-  for (const m of (mData ?? []) as (VariantMovLite & { variant_id: string })[]) {
+  for (const m of allMovs) {
     const arr = movsPorVariante.get(m.variant_id) ?? [];
     arr.push(m);
     movsPorVariante.set(m.variant_id, arr);
@@ -389,6 +411,67 @@ export async function syncVariantStockToLedger(): Promise<number> {
     corregidas++;
   }
   return corregidas;
+}
+
+export interface VariantValuation {
+  variant_reference: string;
+  name: string | null;
+  /** Teórico del ledger (inicial + contenedor − remisiones), NO el cacheado. */
+  stock: number;
+  avg_cost: number;
+  valor: number;
+}
+
+/**
+ * Valorización por variante calculada DESDE el ledger — la misma cuenta de
+ * la tabla de Inventario → Variantes. El Dashboard la usa para que el "vale
+ * oro" nunca dependa del stock cacheado (que puede estar descuadrado hasta
+ * que corra el auto-cuadre del panel).
+ */
+export async function fetchVariantValuation(): Promise<VariantValuation[]> {
+  const { data, error } = await db
+    .from('inventory_variants')
+    .select('id, variant_reference, name, stock, avg_cost, stock_inicial, stock_inicial_date')
+    .eq('active', true);
+  if (error) throw error;
+  const rows = (data ?? []) as {
+    id: string; variant_reference: string; name: string | null; stock: number;
+    avg_cost: number; stock_inicial: number | null; stock_inicial_date: string | null;
+  }[];
+  if (!rows.length) return [];
+  const allMovs = await fetchAllVariantMovements();
+  const movsPorVariante = new Map<string, VariantMovLite[]>();
+  for (const m of allMovs) {
+    const arr = movsPorVariante.get(m.variant_id) ?? [];
+    arr.push(m);
+    movsPorVariante.set(m.variant_id, arr);
+  }
+  const out: VariantValuation[] = [];
+  const descuadradas: { id: string; teorico: number }[] = [];
+  for (const v of rows) {
+    const teorico = computeVariantDesglose(v, movsPorVariante.get(v.id) ?? []).teorico;
+    const avg = Number(v.avg_cost ?? 0);
+    if (Math.round(Number(v.stock ?? 0)) !== Math.round(teorico)) descuadradas.push({ id: v.id, teorico });
+    out.push({
+      variant_reference: v.variant_reference,
+      name: v.name,
+      stock: teorico,
+      avg_cost: avg,
+      valor: teorico * avg,
+    });
+  }
+  // Self-healing best-effort: la columna cacheada la leen Importaciones y el
+  // radar de pedido — si difiere del teórico se corrige acá mismo, sin
+  // esperar a que alguien abra la pestaña Variantes. Si falla, el card igual
+  // muestra el teórico correcto.
+  if (descuadradas.length) {
+    try {
+      for (const d of descuadradas) {
+        await db.from('inventory_variants').update({ stock: d.teorico }).eq('id', d.id);
+      }
+    } catch { /* no bloquear la lectura por un fallo de escritura */ }
+  }
+  return out;
 }
 
 /**

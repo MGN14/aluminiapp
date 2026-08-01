@@ -6,7 +6,7 @@
  * (Entradas por packing nacionalizado y salidas por remisión llegan en Fase 2.)
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Upload, Loader2, Layers, Search, Check, X, RefreshCcw, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import {
   applyVariantRemision,
   purgeStaleImportMovements,
   computeVariantDesglose,
+  fetchAllVariantMovements,
   syncVariantStockToLedger,
   type VariantDesglose,
 } from '@/lib/variantInventory';
@@ -55,34 +56,57 @@ export default function VariantInventoryPanel() {
   // (reporte de Nico 2026-07-30: "siento que no suma el contenedor ni resta
   // las remisiones, es muy fijo" — con el desglose se VE de dónde sale cada
   // número y cualquier descuadre queda en evidencia).
-  const { data: movs = [] } = useQuery({
+  // PAGINADO: PostgREST corta en 1000 filas y el ledger ya pasa de eso — con
+  // la historia cortada el desglose salía mal (reporte de Nico 2026-08-01).
+  const { data: movs = [], isPending: movsPending } = useQuery({
     queryKey: ['inventory-variant-movs'],
     staleTime: 60_000,
-    queryFn: async () => {
-      const { data } = await (supabase as any)
-        .from('inventory_variant_movements')
-        .select('variant_id, movement_type, quantity, source_type, created_at');
-      return (data ?? []) as MovRow[];
-    },
+    queryFn: async (): Promise<MovRow[]> => fetchAllVariantMovements(),
   });
 
   // Desglose: el ANCLA es el conteo (stock_inicial) o el último ajuste manual
   // posterior; encima corren contenedores (+) y remisiones (−) POSTERIORES.
-  // La cuenta vive en computeVariantDesglose — la MISMA que usa el cuadre del
-  // recuadre, así el amarillo y el arreglo nunca se contradicen.
+  // La cuenta vive en computeVariantDesglose — compartida con el cuadre.
+  // Mientras cargan los movimientos el map queda vacío (la tabla cae al
+  // stock guardado) — sin esto se veía un flash con teóricos sin historia.
   const desglose = useMemo(() => {
+    const out = new Map<string, VariantDesglose>();
+    if (movsPending) return out;
     const porVariante = new Map<string, MovRow[]>();
     for (const m of movs) {
       const arr = porVariante.get(m.variant_id) ?? [];
       arr.push(m);
       porVariante.set(m.variant_id, arr);
     }
-    const out = new Map<string, VariantDesglose>();
     for (const v of variants) {
       out.set(v.id, computeVariantDesglose(v, porVariante.get(v.id) ?? []));
     }
     return out;
-  }, [variants, movs]);
+  }, [variants, movs, movsPending]);
+
+  // AUTO-CUADRE: el stock guardado se corrige solo apenas se detecta un
+  // descuadre contra el teórico — sin depender de que alguien apriete
+  // "Recuadrar movimientos". La tabla ya muestra el teórico (la suma que
+  // pide Nico); esto deja la base igual para Importaciones y el Dashboard.
+  const autoCuadreCorrido = useRef(false);
+  useEffect(() => {
+    if (autoCuadreCorrido.current || desglose.size === 0) return;
+    const hayDescuadre = variants.some((v) => {
+      const d = desglose.get(v.id);
+      return d != null && Math.round(Number(v.stock ?? 0)) !== Math.round(d.teorico);
+    });
+    if (!hayDescuadre) return;
+    autoCuadreCorrido.current = true; // una sola pasada por sesión (sin loops)
+    syncVariantStockToLedger()
+      .then((n) => {
+        if (n > 0) {
+          qc.invalidateQueries({ queryKey: ['inventory-variants'] });
+          qc.invalidateQueries({ queryKey: ['imports'] });
+          toast({ title: `Stock cuadrado automáticamente`, description: `${n} referencia(s) tenían el saldo guardado distinto a inicial + contenedor − remisiones. Ya quedaron iguales.`, duration: 8000 });
+        }
+      })
+      .catch(() => { /* best-effort: la tabla ya muestra el teórico igual */ });
+  }, [variants, desglose, qc, toast]);
 
   /**
    * RECUADRE: aplica lo que quedó sin aplicar por los bugs viejos (refs que
@@ -192,6 +216,10 @@ export default function VariantInventoryPanel() {
     }
   }
 
+  // Stock visible = TEÓRICO del ledger (inicial + contenedor − remisiones).
+  // El guardado queda de cache para Importaciones y lo cuadra el auto-cuadre.
+  const stockView = (v: InventoryVariant): number => desglose.get(v.id)?.teorico ?? Number(v.stock ?? 0);
+
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
     const val = (v: InventoryVariant): number => {
@@ -200,17 +228,21 @@ export default function VariantInventoryPanel() {
         case 'inicial': return d?.ancla ?? 0;
         case 'contenedor': return d?.contenedor ?? 0;
         case 'remisiones': return d?.remisiones ?? 0;
-        case 'stock': return Number(v.stock ?? 0);
+        case 'stock': return d?.teorico ?? Number(v.stock ?? 0);
         case 'costo': return Number(v.avg_cost ?? 0);
       }
     };
     return [...filtered].sort((a, b) => (sortAsc ? val(a) - val(b) : val(b) - val(a)));
   }, [filtered, sortKey, sortAsc, desglose]);
 
-  const totalUnidades = useMemo(() => variants.reduce((a, v) => a + Number(v.stock ?? 0), 0), [variants]);
+  // Totales sobre el TEÓRICO — el mismo número que muestra cada fila.
+  const totalUnidades = useMemo(
+    () => variants.reduce((a, v) => a + (desglose.get(v.id)?.teorico ?? Number(v.stock ?? 0)), 0),
+    [variants, desglose],
+  );
   const totalValor = useMemo(
-    () => variants.reduce((a, v) => a + Number(v.stock ?? 0) * Number(v.avg_cost ?? 0), 0),
-    [variants],
+    () => variants.reduce((a, v) => a + (desglose.get(v.id)?.teorico ?? Number(v.stock ?? 0)) * Number(v.avg_cost ?? 0), 0),
+    [variants, desglose],
   );
 
   async function onFile(file: File) {
@@ -255,12 +287,14 @@ export default function VariantInventoryPanel() {
 
   function startEdit(v: InventoryVariant) {
     setEditId(v.id);
-    setEditVal(String(v.stock ?? 0));
+    setEditVal(String(stockView(v)));
   }
   async function commitEdit(v: InventoryVariant) {
     const n = Number(editVal.replace(',', '.'));
     setEditId(null);
-    if (!Number.isFinite(n) || n === Number(v.stock)) return;
+    // Comparar contra lo VISIBLE (teórico): cerrar sin cambiar no debe
+    // registrar un ajuste fantasma.
+    if (!Number.isFinite(n) || n === stockView(v)) return;
     try {
       await adjustStock.mutateAsync({ id: v.id, stock: n });
       toast({ title: 'Stock ajustado', description: `${v.variant_reference} → ${fmt(n)}` });
@@ -365,7 +399,7 @@ export default function VariantInventoryPanel() {
                       ['inicial', 'Inicial', 'Tu conteo inicial (o el último ajuste manual)', 'px-3'],
                       ['contenedor', '+ Contenedor', 'Entradas de contenedores posteriores al conteo', 'px-3'],
                       ['remisiones', '− Remisiones', 'Salidas por remisión posteriores al conteo (las compras suman)', 'px-3'],
-                      ['stock', 'Stock', 'Inicial + contenedor − remisiones = lo que debe haber. Si difiere del stock, se marca en ámbar.', 'px-4'],
+                      ['stock', 'Stock', 'Inicial + contenedor − remisiones — calculado del ledger, siempre suma.', 'px-4'],
                       ['costo', 'Costo unit.', 'Costo landed promedio por unidad', 'px-4'],
                     ] as [SortKey, string, string, string][]).map(([key, label, tip, px]) => (
                       <th key={key} className={`text-right font-medium ${px} py-2.5`}>
@@ -387,7 +421,6 @@ export default function VariantInventoryPanel() {
                 <tbody className="divide-y divide-border">
                   {sorted.map((v) => {
                     const d = desglose.get(v.id);
-                    const descuadre = d != null && Math.round(Number(v.stock ?? 0)) !== Math.round(d.teorico);
                     return (
                     <tr key={v.id} className="hover:bg-muted/30">
                       <td className="px-4 py-2 font-medium text-foreground whitespace-nowrap">{v.variant_reference}</td>
@@ -399,8 +432,9 @@ export default function VariantInventoryPanel() {
                       <td className={`px-3 py-2 text-right tabular-nums ${d && d.remisiones !== 0 ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
                         {d && d.remisiones !== 0 ? `−${fmt(d.remisiones)}` : '—'}
                       </td>
-                      <td className={`px-4 py-2 text-right tabular-nums ${descuadre ? 'bg-amber-50 dark:bg-amber-950/20' : ''}`}
-                        title={descuadre && d ? `Descuadre: el teórico (inicial + contenedor − remisiones) da ${fmt(d.teorico)} pero el stock dice ${fmt(v.stock)} — probá "Recuadrar movimientos" o ajustá a mano` : undefined}>
+                      {/* SIEMPRE el teórico: inicial + contenedor − remisiones.
+                          La fila suma por construcción — ya no hay ámbar. */}
+                      <td className="px-4 py-2 text-right tabular-nums font-medium">
                         {editId === v.id ? (
                           <input
                             autoFocus
@@ -417,9 +451,9 @@ export default function VariantInventoryPanel() {
                           <button
                             onClick={() => startEdit(v)}
                             className="tabular-nums hover:underline decoration-dotted"
-                            title="Clic para ajustar"
+                            title="Clic para ajustar (el ajuste re-ancla el conteo de esta referencia)"
                           >
-                            {fmt(v.stock)}
+                            {fmt(stockView(v))}
                           </button>
                         )}
                       </td>

@@ -2,18 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import { Boxes, ArrowRight } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-
-// inventory_variants aún no está en supabase/types.ts — mismo cast que usan
-// el hook y la lib del inventario por variante.
-const db = supabase as never as { from: (t: string) => any };
-
-interface VariantRow {
-  variant_reference: string;
-  name: string | null;
-  stock: number;
-  avg_cost: number;
-}
+import { fetchVariantValuation } from '@/lib/variantInventory';
 
 const fmtCOP = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
@@ -21,21 +10,15 @@ const fmtNum = (n: number) => new Intl.NumberFormat('es-CO', { maximumFractionDi
 
 /**
  * Card del Dashboard: plata metida en bodega. Valor del inventario por
- * variante a costo landed (stock × costo promedio del contenedor) — el mismo
- * total que muestra Inventario → Variantes. Click → /inventario?tab=variantes.
+ * variante a costo landed, calculado DESDE el ledger (inicial + contenedor −
+ * remisiones) — el mismo número de Inventario → Variantes, nunca el stock
+ * cacheado. Click → /inventario?tab=variantes.
  */
 export default function InventoryValueCard() {
   const { data, isLoading } = useQuery({
     queryKey: ['inventory-variants-value'],
     staleTime: 5 * 60_000,
-    queryFn: async () => {
-      const { data: rows, error } = await db
-        .from('inventory_variants')
-        .select('variant_reference, name, stock, avg_cost')
-        .eq('active', true);
-      if (error) throw error;
-      return (rows ?? []) as VariantRow[];
-    },
+    queryFn: fetchVariantValuation,
   });
 
   if (isLoading) {
@@ -49,10 +32,9 @@ export default function InventoryValueCard() {
   }
 
   const variants = data ?? [];
-  const totalValor = variants.reduce((a, v) => a + Number(v.stock ?? 0) * Number(v.avg_cost ?? 0), 0);
-  const totalUnidades = variants.reduce((a, v) => a + Number(v.stock ?? 0), 0);
+  const totalValor = variants.reduce((a, v) => a + v.valor, 0);
+  const totalUnidades = variants.reduce((a, v) => a + v.stock, 0);
   const topPorValor = variants
-    .map((v) => ({ ...v, valor: Number(v.stock ?? 0) * Number(v.avg_cost ?? 0) }))
     .filter((v) => v.valor > 0)
     .sort((a, b) => b.valor - a.valor)
     .slice(0, 3);
