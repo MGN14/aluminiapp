@@ -282,7 +282,14 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
     const unit = a.qty > 0 ? a.costo / a.qty : 0;
     // Costo promedio ponderado: solo si la entrada trae costo (>0).
     if (unit > 0) {
-      const base = Math.max(0, Number(v.stock ?? 0));
+      // El clamp a 0 es SOLO para ponderar el costo (no promediar contra
+      // stock negativo). El stock se actualiza sobre el saldo REAL: si estaba
+      // en negativo (remisiones descontadas antes de que entrara el
+      // contenedor), pisarlo con 0 + qty borraba esas salidas y el stock
+      // quedaba inflado = contenedor completo (A059: 142−460+660 debía dar
+      // 342 y quedaba 660 — reporte de Nico 2026-08-01).
+      const stockPrevio = Number(v.stock ?? 0);
+      const base = Math.max(0, stockPrevio);
       // Mismo guard que el kardex: si el stock previo no tiene costo (ancla
       // de conteo sin columna de costo → avg 0), el costo de la entrada
       // MANDA — promediar contra $0 diluía el costo del excel (87 und a $0
@@ -293,7 +300,7 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
         : (base * avgPrevio + a.costo) / (base + a.qty);
       const { error: upErr } = await db
         .from('inventory_variants')
-        .update({ stock: base + a.qty, avg_cost: Math.round(nuevoAvg) })
+        .update({ stock: stockPrevio + a.qty, avg_cost: Math.round(nuevoAvg) })
         .eq('id', variantId);
       if (upErr) throw upErr;
     } else {
@@ -301,6 +308,87 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
     }
   }
   return { applied: acc.size, unmatched, created };
+}
+
+// ── Desglose teórico + cuadre stock↔ledger ─────────────────────────────────
+
+export interface VariantMovLite {
+  movement_type: string;
+  quantity: number;
+  source_type: string | null;
+  created_at: string;
+}
+
+export interface VariantDesglose {
+  ancla: number;
+  contenedor: number;
+  remisiones: number; // ventas − compras (neto que RESTA)
+  teorico: number;
+}
+
+/**
+ * La cuenta que Nico ve en la tabla: ancla (conteo o último ajuste manual)
+ * + contenedores − remisiones POSTERIORES al ancla. Única implementación —
+ * la usan el desglose del panel Y el cuadre de "Recuadrar movimientos",
+ * para que el amarillo y el arreglo nunca se contradigan.
+ */
+export function computeVariantDesglose(
+  v: { stock_inicial: number | null; stock_inicial_date: string | null },
+  movs: VariantMovLite[],
+): VariantDesglose {
+  let anclaTime = v.stock_inicial_date ?? '';
+  let ancla = Number(v.stock_inicial ?? 0);
+  for (const m of movs) {
+    if (m.movement_type === 'ajuste' && m.created_at > anclaTime) {
+      anclaTime = m.created_at;
+      ancla = Number(m.quantity ?? 0); // el ajuste guarda el stock ABSOLUTO
+    }
+  }
+  let contenedor = 0;
+  let remisiones = 0;
+  for (const m of movs) {
+    if (m.created_at <= anclaTime) continue; // ya está dentro del ancla
+    const qty = Number(m.quantity ?? 0);
+    if (m.source_type === 'import' && m.movement_type === 'entrada') contenedor += qty;
+    if (m.source_type === 'remision' && m.movement_type === 'salida') remisiones += qty;
+    if (m.source_type === 'remision' && m.movement_type === 'entrada') remisiones -= qty;
+  }
+  return { ancla, contenedor, remisiones, teorico: ancla + contenedor - remisiones };
+}
+
+/**
+ * Cuadra el stock guardado contra el teórico del ledger. Repara los saldos
+ * que quedaron mal por bugs viejos (ej. el clamp a 0 que pisaba negativos al
+ * entrar contenedor). Devuelve cuántas variantes se corrigieron.
+ */
+export async function syncVariantStockToLedger(): Promise<number> {
+  const { data: vData, error: vErr } = await db
+    .from('inventory_variants')
+    .select('id, stock, stock_inicial, stock_inicial_date')
+    .eq('active', true);
+  if (vErr) throw vErr;
+  const { data: mData, error: mErr } = await db
+    .from('inventory_variant_movements')
+    .select('variant_id, movement_type, quantity, source_type, created_at');
+  if (mErr) throw mErr;
+
+  const movsPorVariante = new Map<string, VariantMovLite[]>();
+  for (const m of (mData ?? []) as (VariantMovLite & { variant_id: string })[]) {
+    const arr = movsPorVariante.get(m.variant_id) ?? [];
+    arr.push(m);
+    movsPorVariante.set(m.variant_id, arr);
+  }
+
+  let corregidas = 0;
+  const rows = (vData ?? []) as { id: string; stock: number; stock_inicial: number | null; stock_inicial_date: string | null }[];
+  for (const v of rows) {
+    const d = computeVariantDesglose(v, movsPorVariante.get(v.id) ?? []);
+    if (Math.round(Number(v.stock ?? 0)) === Math.round(d.teorico)) continue;
+    const { error } = await db.from('inventory_variants').update({ stock: d.teorico }).eq('id', v.id);
+    if (error) throw error;
+    corregidas++;
+  }
+  return corregidas;
 }
 
 /**

@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers, ScanLine, FileDown } from 'lucide-react';
 import ConteoFisicoPanel from '@/components/scanner/ConteoFisicoPanel';
 import ProbarPistolaPanel from '@/components/scanner/ProbarPistolaPanel';
@@ -47,6 +48,18 @@ export default function Inventory() {
   // Persistido en sessionStorage: si Nico cambia de pestaña/app y vuelve, el
   // tab (Inventario / Maestro) se mantiene en vez de resetear a 'inventario'.
   const [tab, setTab] = usePersistedFormState<Tab>('inventario:tab:v1', 'inventario');
+  // ?tab=variantes (link desde el card del Dashboard) manda sobre lo
+  // persistido; se limpia de la URL para que navegar después no lo re-fuerce.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t === 'inventario' || t === 'variantes' || t === 'maestro' || t === 'conteo') {
+      setTab(t);
+      searchParams.delete('tab');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [conteoSub, setConteoSub] = useState<'contar' | 'probar'>('contar');
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);

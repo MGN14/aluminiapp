@@ -8,12 +8,19 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Loader2, Layers, Search, Check, X, RefreshCcw } from 'lucide-react';
+import { Upload, Loader2, Layers, Search, Check, X, RefreshCcw, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { supabase } from '@/integrations/supabase/client';
-import { applyVariantImportEntrada, applyVariantRemision, purgeStaleImportMovements } from '@/lib/variantInventory';
+import {
+  applyVariantImportEntrada,
+  applyVariantRemision,
+  purgeStaleImportMovements,
+  computeVariantDesglose,
+  syncVariantStockToLedger,
+  type VariantDesglose,
+} from '@/lib/variantInventory';
 import { useInventoryVariants, parseMaestra, type InventoryVariant } from '@/hooks/useInventoryVariants';
 
 function fmt(n: number | null | undefined): string {
@@ -29,13 +36,8 @@ interface MovRow {
   created_at: string;
 }
 
-/** Desglose por variante: ancla (conteo/ajuste) + contenedores − remisiones. */
-interface Desglose {
-  ancla: number;
-  contenedor: number;
-  remisiones: number; // ventas − compras (neto que RESTA)
-  teorico: number;
-}
+/** Columnas numéricas ordenables (Referencia/Descripción se buscan, no se ordenan). */
+type SortKey = 'inicial' | 'contenedor' | 'remisiones' | 'stock' | 'costo';
 
 export default function VariantInventoryPanel() {
   const { data: variants = [], isPending, importMaestra, adjustStock } = useInventoryVariants();
@@ -46,6 +48,8 @@ export default function VariantInventoryPanel() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
   const [recuadrando, setRecuadrando] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortAsc, setSortAsc] = useState(false);
 
   // Movimientos de TODAS las variantes — para el desglose por columna
   // (reporte de Nico 2026-07-30: "siento que no suma el contenedor ni resta
@@ -64,6 +68,8 @@ export default function VariantInventoryPanel() {
 
   // Desglose: el ANCLA es el conteo (stock_inicial) o el último ajuste manual
   // posterior; encima corren contenedores (+) y remisiones (−) POSTERIORES.
+  // La cuenta vive en computeVariantDesglose — la MISMA que usa el cuadre del
+  // recuadre, así el amarillo y el arreglo nunca se contradicen.
   const desglose = useMemo(() => {
     const porVariante = new Map<string, MovRow[]>();
     for (const m of movs) {
@@ -71,27 +77,9 @@ export default function VariantInventoryPanel() {
       arr.push(m);
       porVariante.set(m.variant_id, arr);
     }
-    const out = new Map<string, Desglose>();
+    const out = new Map<string, VariantDesglose>();
     for (const v of variants) {
-      const lista = porVariante.get(v.id) ?? [];
-      let anclaTime = v.stock_inicial_date ?? '';
-      let ancla = Number(v.stock_inicial ?? 0);
-      for (const m of lista) {
-        if (m.movement_type === 'ajuste' && m.created_at > anclaTime) {
-          anclaTime = m.created_at;
-          ancla = Number(m.quantity ?? 0); // el ajuste guarda el stock ABSOLUTO
-        }
-      }
-      let contenedor = 0;
-      let remisiones = 0;
-      for (const m of lista) {
-        if (m.created_at <= anclaTime) continue; // ya está dentro del ancla
-        const qty = Number(m.quantity ?? 0);
-        if (m.source_type === 'import' && m.movement_type === 'entrada') contenedor += qty;
-        if (m.source_type === 'remision' && m.movement_type === 'salida') remisiones += qty;
-        if (m.source_type === 'remision' && m.movement_type === 'entrada') remisiones -= qty;
-      }
-      out.set(v.id, { ancla, contenedor, remisiones, teorico: ancla + contenedor - remisiones });
+      out.set(v.id, computeVariantDesglose(v, porVariante.get(v.id) ?? []));
     }
     return out;
   }, [variants, movs]);
@@ -162,14 +150,18 @@ export default function VariantInventoryPanel() {
         if (r.applied > 0) salidas += 1;
         r.unmatched.forEach((u) => sinMatch.add(u));
       }
+      // Paso final: stock guardado := teórico del ledger. Repara los saldos
+      // que quedaron descuadrados por bugs viejos (las filas en ámbar) — el
+      // stock ES inicial + contenedor − remisiones, sin excepciones.
+      const cuadradas = await syncVariantStockToLedger();
       qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       qc.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
       qc.invalidateQueries({ queryKey: ['imports'] });
       toast({
-        title: `Recuadre listo: ${entradas} contenedor(es) entrados${creadas ? ` (${creadas} refs nuevas)` : ''} · ${salidas} remisión(es) descontadas`,
+        title: `Recuadre listo: ${entradas} contenedor(es) entrados${creadas ? ` (${creadas} refs nuevas)` : ''} · ${salidas} remisión(es) descontadas${cuadradas ? ` · ${cuadradas} stocks cuadrados` : ''}`,
         description: sinMatch.size
           ? `Sin match (revisá typos): ${[...sinMatch].slice(0, 6).join(', ')}${sinMatch.size > 6 ? '…' : ''}`
-          : 'Todo lo pendiente quedó aplicado. El desglose de la tabla ya lo refleja.',
+          : 'Todo lo pendiente quedó aplicado y el stock quedó igual a inicial + contenedor − remisiones.',
         duration: 12000,
       });
     } catch (e) {
@@ -186,6 +178,34 @@ export default function VariantInventoryPanel() {
       (v) => v.variant_reference.toLowerCase().includes(s) || (v.name ?? '').toLowerCase().includes(s),
     );
   }, [variants, q]);
+
+  // 1er clic: mayor a menor · 2do: menor a mayor · 3ro: vuelve al orden A-Z.
+  function toggleSort(k: SortKey) {
+    if (sortKey !== k) {
+      setSortKey(k);
+      setSortAsc(false);
+    } else if (!sortAsc) {
+      setSortAsc(true);
+    } else {
+      setSortKey(null);
+      setSortAsc(false);
+    }
+  }
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered;
+    const val = (v: InventoryVariant): number => {
+      const d = desglose.get(v.id);
+      switch (sortKey) {
+        case 'inicial': return d?.ancla ?? 0;
+        case 'contenedor': return d?.contenedor ?? 0;
+        case 'remisiones': return d?.remisiones ?? 0;
+        case 'stock': return Number(v.stock ?? 0);
+        case 'costo': return Number(v.avg_cost ?? 0);
+      }
+    };
+    return [...filtered].sort((a, b) => (sortAsc ? val(a) - val(b) : val(b) - val(a)));
+  }, [filtered, sortKey, sortAsc, desglose]);
 
   const totalUnidades = useMemo(() => variants.reduce((a, v) => a + Number(v.stock ?? 0), 0), [variants]);
   const totalValor = useMemo(
@@ -338,17 +358,34 @@ export default function VariantInventoryPanel() {
                     <th className="text-left font-medium px-4 py-2.5">Referencia</th>
                     <th className="text-left font-medium px-4 py-2.5">Descripción</th>
                     {/* La cuenta VISIBLE (pedido de Nico): conteo + contenedor
-                        − remisiones = lo que debe haber físicamente. */}
-                    <th className="text-right font-medium px-3 py-2.5" title="Tu conteo inicial (o el último ajuste manual)">Inicial</th>
-                    <th className="text-right font-medium px-3 py-2.5" title="Entradas de contenedores posteriores al conteo">+ Contenedor</th>
-                    <th className="text-right font-medium px-3 py-2.5" title="Salidas por remisión posteriores al conteo (las compras suman)">− Remisiones</th>
-                    <th className="text-right font-medium px-4 py-2.5" title="Inicial + contenedor − remisiones = lo que debe haber. Si difiere del stock, se marca en ámbar.">Stock</th>
-                    <th className="text-right font-medium px-4 py-2.5">Costo unit.</th>
+                        − remisiones = lo que debe haber físicamente. Las
+                        columnas numéricas ordenan con clic (mayor a menor →
+                        menor a mayor → orden A-Z). */}
+                    {([
+                      ['inicial', 'Inicial', 'Tu conteo inicial (o el último ajuste manual)', 'px-3'],
+                      ['contenedor', '+ Contenedor', 'Entradas de contenedores posteriores al conteo', 'px-3'],
+                      ['remisiones', '− Remisiones', 'Salidas por remisión posteriores al conteo (las compras suman)', 'px-3'],
+                      ['stock', 'Stock', 'Inicial + contenedor − remisiones = lo que debe haber. Si difiere del stock, se marca en ámbar.', 'px-4'],
+                      ['costo', 'Costo unit.', 'Costo landed promedio por unidad', 'px-4'],
+                    ] as [SortKey, string, string, string][]).map(([key, label, tip, px]) => (
+                      <th key={key} className={`text-right font-medium ${px} py-2.5`}>
+                        <button
+                          onClick={() => toggleSort(key)}
+                          title={`${tip} · Clic para ordenar`}
+                          className={`inline-flex items-center gap-1 hover:text-foreground transition-colors ${sortKey === key ? 'text-foreground' : ''}`}
+                        >
+                          {label}
+                          {sortKey === key
+                            ? (sortAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+                            : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                        </button>
+                      </th>
+                    ))}
                     <th className="px-2 py-2.5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.map((v) => {
+                  {sorted.map((v) => {
                     const d = desglose.get(v.id);
                     const descuadre = d != null && Math.round(Number(v.stock ?? 0)) !== Math.round(d.teorico);
                     return (
