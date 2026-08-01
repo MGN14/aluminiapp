@@ -16,9 +16,10 @@ import { supabase } from '@/integrations/supabase/client';
 import ImportModal from '@/components/imports/ImportModal';
 import ImportPriceAnalysis from '@/components/imports/ImportPriceAnalysis';
 import ReorderSuggestionCard from '@/components/imports/ReorderSuggestionCard';
-import ComparativoPedidosCard from '@/components/imports/ComparativoPedidosCard';
 import CoverageAnalysis from '@/components/imports/CoverageAnalysis';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
+import { useMacroIndicators } from '@/hooks/useMacroIndicators';
+import { buildComparativo, type TrmFuente } from '@/lib/importComparison';
 import { computeTotalDays, computeStageAverages } from '@/lib/importStages';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -125,6 +126,9 @@ export default function Importaciones() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ImportRow | null>(null);
   const [filter, setFilter] = useState<Filter>('abiertos');
+  // Foco de los banners: automático (próx. a entregar), un contenedor
+  // puntual, o la simulación "si pido hoy". Reemplaza la tabla comparativa.
+  const [focoSel, setFocoSel] = useState<'auto' | 'hoy' | string>('auto');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'pedidos' | 'analisis' | 'cobertura'>('pedidos');
   // Diálogo "¿en qué fecha cambió de estado?" al cambiar desde el select inline
@@ -153,6 +157,64 @@ export default function Importaciones() {
   const trmByImport = useMemo(
     () => new Map(liqRows.map(r => [r.import_id, r.trm_promedio_ponderada ? Number(r.trm_promedio_ponderada) : null])),
     [liqRows],
+  );
+
+  // Columna "si pido hoy" del motor de comparación — alimenta la simulación
+  // de los banners (reemplazo de la tabla comparativa, Nico 2026-07-30).
+  const { indicators } = useMacroIndicators();
+  const lme = indicators.find((i) => i.type === 'aluminio_lme') ?? null;
+  const columnaHoy = useMemo(() => {
+    const rows = (data?.all ?? []).filter(r => r.estado !== 'cancelado');
+    if (!rows.length) return null;
+    const fechaDe = (r: ImportRow, estado: string) =>
+      (r.import_estado_history ?? []).find((x) => x.estado === estado)?.fecha ?? null;
+    const cmp = buildComparativo({
+      pedidos: rows.map((r) => {
+        const pond = trmByImport.get(r.id);
+        const trm = (pond != null && pond > 0) ? pond
+          : (r.trm_causacion && Number(r.trm_causacion) > 0) ? Number(r.trm_causacion)
+          : (trmHoy != null ? Number(trmHoy) : null);
+        const fuente: TrmFuente = (pond != null && pond > 0) ? 'ponderada'
+          : (r.trm_causacion && Number(r.trm_causacion) > 0) ? 'causacion' : 'hoy';
+        const yaEntregada = r.estado === 'entregado' || r.estado === 'cerrado';
+        return {
+          id: r.id,
+          label: r.ref_pedido || r.proveedor_nombre || 'Pedido',
+          estado: r.estado,
+          cantidad_ton: r.cantidad_ton,
+          precio_smm_cerrado_usd_ton: r.precio_smm_cerrado_usd_ton,
+          monto_total_usd: r.monto_total_usd,
+          trm, trmFuente: fuente,
+          arancel_pct: r.arancel_pct,
+          iva_pct: r.iva_pct,
+          costs: r.import_costs,
+          fechas: {
+            estado: r.estado,
+            fecha_anticipo: fechaDe(r, 'produccion') ?? r.fecha_anticipo,
+            fecha_embarque: fechaDe(r, 'transito') ?? r.fecha_embarque,
+            fecha_estimada_llegada: r.fecha_estimada_llegada,
+            fecha_arribo_real: fechaDe(r, 'aduana') ?? r.fecha_arribo_real,
+            fecha_entregado: fechaDe(r, 'entregado') ?? (yaEntregada ? r.fecha_arribo_real : null),
+            fecha_listo_fabrica: fechaDe(r, 'listo_fabrica'),
+          },
+        };
+      }),
+      hoy: todayIso(),
+      trmHoy: trmHoy != null ? Number(trmHoy) : null,
+      lmeHoy: lme?.value ?? null,
+      lmeHistoria: lme?.history ?? [],
+    });
+    return cmp.columnas.find((c) => c.kind === 'hoy') ?? null;
+  }, [data, trmByImport, trmHoy, lme]);
+
+  // Chips del selector de foco: los pedidos recientes + la simulación.
+  const pedidosChips = useMemo(() =>
+    [...(data?.all ?? [])]
+      .filter(r => r.estado !== 'cancelado')
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 4)
+      .map(r => ({ id: r.id, label: r.ref_pedido || r.proveedor_nombre })),
+    [data],
   );
 
   // Contenedores ACTUALES en cada etapa (para los chips del filtro).
@@ -210,16 +272,26 @@ export default function Importaciones() {
     const fechaEntrega = (r: ImportRow) => r.fecha_arribo_real ?? fechaRef(r);
     const entregadosOrd = [...entregados].sort((a, b) => fechaEntrega(a).localeCompare(fechaEntrega(b)));
     // Sin abiertos, el foco cae al último entregado (y anterior al penúltimo).
-    const foco = abiertosPipeline[0] ?? entregadosOrd[entregadosOrd.length - 1] ?? null;
-    const anterior = abiertosPipeline[0]
-      ? entregadosOrd[entregadosOrd.length - 1] ?? null
-      : entregadosOrd[entregadosOrd.length - 2] ?? null;
+    const focoAuto = abiertosPipeline[0] ?? entregadosOrd[entregadosOrd.length - 1] ?? null;
+    // El usuario puede ENFOCAR cualquier contenedor con los chips (reemplaza
+    // la tabla comparativa gigante — decisión de Nico 2026-07-30: "comparar
+    // desde los banners grandes que ya teníamos").
+    const foco = (focoSel !== 'auto' && focoSel !== 'hoy')
+      ? ordered.find(r => r.id === focoSel) ?? focoAuto
+      : focoAuto;
+    // "Anterior" (la vara de los deltas) = último entregado DISTINTO del foco;
+    // si el foco es el último entregado, la vara es el penúltimo.
+    const entregadosSinFoco = entregadosOrd.filter(r => r.id !== foco?.id);
+    const anterior = entregadosSinFoco[entregadosSinFoco.length - 1] ?? null;
     const ESTADO_LABEL: Record<string, string> = {
       cotizacion: 'cotización', anticipo: 'anticipo', produccion: 'en producción',
       listo_fabrica: 'listo en fábrica', transito: 'en tránsito', aduana: 'en aduanas',
       entregado: 'entregado', cerrado: 'cerrado',
     };
-    const focoLabel = foco ? `${foco.ref_pedido || foco.proveedor_nombre} · ${ESTADO_LABEL[foco.estado] ?? foco.estado}` : null;
+    const esSimulacion = focoSel === 'hoy';
+    const focoLabel = esSimulacion
+      ? 'Si pido hoy · simulación'
+      : foco ? `${foco.ref_pedido || foco.proveedor_nombre} · ${ESTADO_LABEL[foco.estado] ?? foco.estado}` : null;
 
     // SMM (USD/ton): pedido en foco vs último entregado + promedios
     const conPrecio = ordered.filter(r => Number(r.precio_smm_cerrado_usd_ton ?? 0) > 0);
@@ -344,9 +416,9 @@ export default function Importaciones() {
       .map(t => t.dias);
     const diasProm = avg(diasCerrados);
 
-    return {
+    const out = {
       pedidosEsteAnio, pedidosAnioPasado, tonEsteAnio, tonAnioPasado,
-      focoLabel,
+      focoLabel, esSimulacion,
       usdLast, usdDeltaPct, usdYoYPct, usdProm,
       totLast, totDeltaPct, totProm,
       nacLast, nacDeltaPct, nacYoYPct, nacProm,
@@ -355,7 +427,47 @@ export default function Importaciones() {
       impLast, impArancel, impIva, impAgencia, impDeltaPct, impProm, impEsReal,
       diasFoco, diasProm,
     };
-  }, [data, currentYear, trmByImport, trmHoy]);
+
+    // ── Simulación "si pido hoy": mismos banners, números del motor de
+    // comparación (LME hoy + molde del último pedido + TRM de hoy) — lo que
+    // antes era la columna 'hoy' de la tabla comparativa que se quitó.
+    if (esSimulacion && columnaHoy) {
+      out.usdLast = columnaHoy.precioUsdTon;
+      out.usdDeltaPct = pct(columnaHoy.precioUsdTon, smmPedido(anterior));
+      out.totLast = columnaHoy.totalCop;
+      out.totDeltaPct = pct(columnaHoy.totalCop, anterior ? totalPorId.get(anterior.id) ?? null : null);
+      out.nacLast = columnaHoy.copPorKg != null ? columnaHoy.copPorKg * 1000 : null;
+      out.nacDeltaPct = pct(out.nacLast, anterior ? nacPorId.get(anterior.id) ?? null : null);
+      out.trmLast = columnaHoy.trm;
+      out.trmEnCurso = false;
+      out.trmDeLabel = 'TRM de hoy (mercado)';
+      out.trmDeltaPct = pct(columnaHoy.trm, trmPedido(anterior));
+      // Flete e impuestos: asumidos con tus promedios/porcentajes vigentes.
+      out.fleteUltimo = fleteProm;
+      out.fleteDeltaPct = pct(fleteProm, fletePedido(anterior));
+      const bdHoy = columnaHoy.mercanciaUsd != null && columnaHoy.trm != null
+        ? computeImportBreakdown({
+            mercanciaUsd: columnaHoy.mercanciaUsd,
+            costs: [],
+            trm: columnaHoy.trm,
+            arancelPct: 5,
+            ivaPct: 19,
+            cantidadKg: columnaHoy.toneladas != null ? columnaHoy.toneladas * 1000 : null,
+          })
+        : null;
+      out.impArancel = bdHoy?.arancelCop ?? null;
+      out.impIva = bdHoy?.ivaCop ?? null;
+      out.impAgencia = 0;
+      out.impLast = bdHoy && ((bdHoy.arancelCop ?? 0) + (bdHoy.ivaCop ?? 0)) > 0
+        ? (bdHoy.arancelCop ?? 0) + (bdHoy.ivaCop ?? 0)
+        : null;
+      out.impDeltaPct = pct(out.impLast, impuestosDe(anterior));
+      out.impEsReal = false;
+      out.diasFoco = columnaHoy.etapas.total != null ? { dias: columnaHoy.etapas.total, enCurso: false } : null;
+    }
+
+    return out;
+  }, [data, currentYear, trmByImport, trmHoy, focoSel, columnaHoy]);
 
   // Sugerencia de próximo pedido — MISMA fuente que la card de arriba (antes
   // el radar calculaba su propia fecha con cadencia de pedidos y se
@@ -569,10 +681,49 @@ export default function Importaciones() {
         {/* Sugerencia de próximo pedido: quiebre de stock − lead time − colchón */}
         <ReorderSuggestionCard onVerReporte={() => setView('cobertura')} />
 
-        {/* Último entregado vs los que están pedidos vs pedir hoy: costo y tiempos */}
-        <ComparativoPedidosCard />
-
-        {/* KPIs de materia prima: cada uno con variación vs pedido anterior y vs año pasado */}
+        {/* KPIs de materia prima: cada uno con variación vs pedido anterior y
+            vs año pasado. El SELECTOR enfoca los banners en cualquier
+            contenedor o en la simulación "si pido hoy" — reemplaza la tabla
+            comparativa gigante (Nico 2026-07-30: "comparar desde los banners
+            grandes que ya teníamos"). */}
+        {kpis && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-muted-foreground">Ver banners de:</span>
+            <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setFocoSel('auto')}
+                className={cn('px-2.5 py-1 rounded text-xs font-medium transition-colors', focoSel === 'auto' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                title="Automático: el pedido próximo a entregar"
+              >
+                Próx. a entregar
+              </button>
+              {pedidosChips.map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setFocoSel(p.id)}
+                  className={cn('px-2.5 py-1 rounded text-xs font-medium transition-colors font-mono', focoSel === p.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                >
+                  {p.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setFocoSel('hoy')}
+                className={cn('px-2.5 py-1 rounded text-xs font-semibold transition-colors', focoSel === 'hoy' ? 'bg-amber-100 text-amber-800 shadow-sm' : 'text-amber-600 hover:text-amber-700')}
+                title="Simulación: un contenedor montado HOY con el LME de hoy, la TRM de hoy y el molde de tu último pedido"
+              >
+                Si pido hoy
+              </button>
+            </div>
+            {kpis.esSimulacion && (
+              <span className="text-[10px] text-amber-600 font-medium">
+                ⚠ simulación — LME y TRM de hoy, flete e impuestos asumidos con tus promedios
+              </span>
+            )}
+          </div>
+        )}
         {kpis && (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             <Card>

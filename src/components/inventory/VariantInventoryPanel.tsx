@@ -7,10 +7,13 @@
  */
 
 import { useMemo, useRef, useState } from 'react';
-import { Upload, Loader2, Layers, Search, Check, X } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Upload, Loader2, Layers, Search, Check, X, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
+import { supabase } from '@/integrations/supabase/client';
+import { applyVariantImportEntrada, applyVariantRemision } from '@/lib/variantInventory';
 import { useInventoryVariants, parseMaestra, type InventoryVariant } from '@/hooks/useInventoryVariants';
 
 function fmt(n: number | null | undefined): string {
@@ -18,13 +21,144 @@ function fmt(n: number | null | undefined): string {
   return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
 }
 
+interface MovRow {
+  variant_id: string;
+  movement_type: string;
+  quantity: number;
+  source_type: string | null;
+  created_at: string;
+}
+
+/** Desglose por variante: ancla (conteo/ajuste) + contenedores − remisiones. */
+interface Desglose {
+  ancla: number;
+  contenedor: number;
+  remisiones: number; // ventas − compras (neto que RESTA)
+  teorico: number;
+}
+
 export default function VariantInventoryPanel() {
   const { data: variants = [], isPending, importMaestra, adjustStock } = useInventoryVariants();
   const { toast } = useToast();
+  const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
+  const [recuadrando, setRecuadrando] = useState(false);
+
+  // Movimientos de TODAS las variantes — para el desglose por columna
+  // (reporte de Nico 2026-07-30: "siento que no suma el contenedor ni resta
+  // las remisiones, es muy fijo" — con el desglose se VE de dónde sale cada
+  // número y cualquier descuadre queda en evidencia).
+  const { data: movs = [] } = useQuery({
+    queryKey: ['inventory-variant-movs'],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('inventory_variant_movements')
+        .select('variant_id, movement_type, quantity, source_type, created_at');
+      return (data ?? []) as MovRow[];
+    },
+  });
+
+  // Desglose: el ANCLA es el conteo (stock_inicial) o el último ajuste manual
+  // posterior; encima corren contenedores (+) y remisiones (−) POSTERIORES.
+  const desglose = useMemo(() => {
+    const porVariante = new Map<string, MovRow[]>();
+    for (const m of movs) {
+      const arr = porVariante.get(m.variant_id) ?? [];
+      arr.push(m);
+      porVariante.set(m.variant_id, arr);
+    }
+    const out = new Map<string, Desglose>();
+    for (const v of variants) {
+      const lista = porVariante.get(v.id) ?? [];
+      let anclaTime = v.stock_inicial_date ?? '';
+      let ancla = Number(v.stock_inicial ?? 0);
+      for (const m of lista) {
+        if (m.movement_type === 'ajuste' && m.created_at > anclaTime) {
+          anclaTime = m.created_at;
+          ancla = Number(m.quantity ?? 0); // el ajuste guarda el stock ABSOLUTO
+        }
+      }
+      let contenedor = 0;
+      let remisiones = 0;
+      for (const m of lista) {
+        if (m.created_at <= anclaTime) continue; // ya está dentro del ancla
+        const qty = Number(m.quantity ?? 0);
+        if (m.source_type === 'import' && m.movement_type === 'entrada') contenedor += qty;
+        if (m.source_type === 'remision' && m.movement_type === 'salida') remisiones += qty;
+        if (m.source_type === 'remision' && m.movement_type === 'entrada') remisiones -= qty;
+      }
+      out.set(v.id, { ancla, contenedor, remisiones, teorico: ancla + contenedor - remisiones });
+    }
+    return out;
+  }, [variants, movs]);
+
+  /**
+   * RECUADRE: aplica lo que quedó sin aplicar por los bugs viejos (refs que
+   * no matcheaban, contenedor aplicado con código anterior). Idempotente —
+   * lo ya aplicado no se duplica (chequeo por fuente).
+   */
+  async function recuadrar() {
+    const fechaAncla = variants.reduce((mx, v) => ((v.stock_inicial_date ?? '') > mx ? v.stock_inicial_date! : mx), '');
+    const { data: imps } = await (supabase as any)
+      .from('imports')
+      .select('id, ref_pedido, proveedor_nombre')
+      .in('estado', ['entregado', 'cerrado']);
+    const { data: rems } = await (supabase as any)
+      .from('remisiones')
+      .select('id, number, date, created_at, remision_type, status, remision_items(reference, units)')
+      .neq('status', 'cancelado')
+      .gte('created_at', fechaAncla || '1970-01-01');
+    const pedidos = (imps ?? []) as { id: string; ref_pedido: string | null; proveedor_nombre: string }[];
+    const remisiones = (rems ?? []) as { id: string; number: string; date: string; remision_type: 'venta' | 'compra'; remision_items: { reference: string; units: number }[] }[];
+    const ok = window.confirm(
+      `Voy a verificar y aplicar al inventario por variante:\n\n` +
+      `· ${pedidos.length} contenedor(es) entregado(s) — entradas (crea referencias nuevas si faltan)\n` +
+      `· ${remisiones.length} remisión(es) posteriores al conteo — salidas\n\n` +
+      'Lo que ya está aplicado NO se duplica. ¿Continuar?',
+    );
+    if (!ok) return;
+    setRecuadrando(true);
+    try {
+      let entradas = 0;
+      let creadas = 0;
+      let salidas = 0;
+      const sinMatch = new Set<string>();
+      for (const p of pedidos) {
+        const r = await applyVariantImportEntrada(p.id);
+        if (r.applied > 0) entradas += 1;
+        creadas += r.created ?? 0;
+        r.unmatched.forEach((u) => sinMatch.add(u));
+      }
+      for (const rem of remisiones) {
+        const r = await applyVariantRemision({
+          remisionId: rem.id,
+          remisionType: rem.remision_type === 'compra' ? 'compra' : 'venta',
+          movementDate: rem.date,
+          items: (rem.remision_items ?? []).map((i) => ({ reference: i.reference, units: Number(i.units ?? 0) })),
+        });
+        if (r.applied > 0) salidas += 1;
+        r.unmatched.forEach((u) => sinMatch.add(u));
+      }
+      qc.invalidateQueries({ queryKey: ['inventory-variants'] });
+      qc.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
+      qc.invalidateQueries({ queryKey: ['imports'] });
+      toast({
+        title: `Recuadre listo: ${entradas} contenedor(es) entrados${creadas ? ` (${creadas} refs nuevas)` : ''} · ${salidas} remisión(es) descontadas`,
+        description: sinMatch.size
+          ? `Sin match (revisá typos): ${[...sinMatch].slice(0, 6).join(', ')}${sinMatch.size > 6 ? '…' : ''}`
+          : 'Todo lo pendiente quedó aplicado. El desglose de la tabla ya lo refleja.',
+        duration: 12000,
+      });
+    } catch (e) {
+      toast({ title: 'Error en el recuadre', description: (e as Error).message, variant: 'destructive' });
+    } finally {
+      setRecuadrando(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -117,10 +251,21 @@ export default function VariantInventoryPanel() {
             className="hidden"
             onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
           />
-          <Button onClick={() => fileRef.current?.click()} disabled={importMaestra.isPending}>
-            {importMaestra.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Subir maestra + conteo
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={recuadrar}
+              disabled={recuadrando || variants.length === 0}
+              title="Aplica lo que quedó pendiente: entradas de contenedores entregados (crea refs nuevas) y salidas de remisiones posteriores al conteo. Idempotente — no duplica."
+            >
+              {recuadrando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+              Recuadrar movimientos
+            </Button>
+            <Button onClick={() => fileRef.current?.click()} disabled={importMaestra.isPending}>
+              {importMaestra.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              Subir maestra + conteo
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -173,19 +318,33 @@ export default function VariantInventoryPanel() {
                   <tr>
                     <th className="text-left font-medium px-4 py-2.5">Referencia</th>
                     <th className="text-left font-medium px-4 py-2.5">Descripción</th>
-                    <th className="text-left font-medium px-4 py-2.5">Sistema</th>
-                    <th className="text-right font-medium px-4 py-2.5">Stock</th>
+                    {/* La cuenta VISIBLE (pedido de Nico): conteo + contenedor
+                        − remisiones = lo que debe haber físicamente. */}
+                    <th className="text-right font-medium px-3 py-2.5" title="Tu conteo inicial (o el último ajuste manual)">Inicial</th>
+                    <th className="text-right font-medium px-3 py-2.5" title="Entradas de contenedores posteriores al conteo">+ Contenedor</th>
+                    <th className="text-right font-medium px-3 py-2.5" title="Salidas por remisión posteriores al conteo (las compras suman)">− Remisiones</th>
+                    <th className="text-right font-medium px-4 py-2.5" title="Inicial + contenedor − remisiones = lo que debe haber. Si difiere del stock, se marca en ámbar.">Stock</th>
                     <th className="text-right font-medium px-4 py-2.5">Costo unit.</th>
                     <th className="px-2 py-2.5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.map((v) => (
+                  {filtered.map((v) => {
+                    const d = desglose.get(v.id);
+                    const descuadre = d != null && Math.round(Number(v.stock ?? 0)) !== Math.round(d.teorico);
+                    return (
                     <tr key={v.id} className="hover:bg-muted/30">
                       <td className="px-4 py-2 font-medium text-foreground whitespace-nowrap">{v.variant_reference}</td>
                       <td className="px-4 py-2 text-muted-foreground">{v.name ?? '—'}</td>
-                      <td className="px-4 py-2 text-muted-foreground">{v.system ?? '—'}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{d ? fmt(d.ancla) : '—'}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${d && d.contenedor > 0 ? 'text-success font-medium' : 'text-muted-foreground'}`}>
+                        {d && d.contenedor > 0 ? `+${fmt(d.contenedor)}` : '—'}
+                      </td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${d && d.remisiones !== 0 ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                        {d && d.remisiones !== 0 ? `−${fmt(d.remisiones)}` : '—'}
+                      </td>
+                      <td className={`px-4 py-2 text-right tabular-nums ${descuadre ? 'bg-amber-50 dark:bg-amber-950/20' : ''}`}
+                        title={descuadre && d ? `Descuadre: el teórico (inicial + contenedor − remisiones) da ${fmt(d.teorico)} pero el stock dice ${fmt(v.stock)} — probá "Recuadrar movimientos" o ajustá a mano` : undefined}>
                         {editId === v.id ? (
                           <input
                             autoFocus
@@ -220,7 +379,8 @@ export default function VariantInventoryPanel() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
