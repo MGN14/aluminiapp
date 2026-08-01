@@ -342,7 +342,7 @@ export default function CajaMenor() {
         {/* ── Caja Nequi. Es una caja menor aparte: su propio saldo, su propia
             gente. El banner responde la pregunta de todos los días — "¿cuánto
             debe haber en Nequi?" — sin tener que abrir nada. */}
-        {hayNequi && (
+        {(
           <Card className="border-0 shadow-sm bg-primary/5 border-l-4 border-l-primary">
             <CardContent className="p-5">
               <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -363,18 +363,22 @@ export default function CajaMenor() {
                       {' · '}{movsNequi.length} movimiento{movsNequi.length === 1 ? '' : 's'}
                     </p>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      Comparalo contra el saldo real en la app de Nequi. No se suma con el efectivo: son dos cajas distintas.
+                      {hayNequi
+                        ? 'Ingresos − gastos de Nequi. Comparalo contra el saldo real en la app. No se suma con el efectivo: son dos cajas distintas.'
+                        : 'Todavía no hay movimientos en Nequi. Registrá un ingreso o un gasto marcando la caja Nequi y el saldo empieza a llevarse acá.'}
                     </p>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-[11px]"
-                  onClick={() => setFiltroCuenta(filtroCuenta === 'nequi' ? 'todas' : 'nequi')}
-                >
-                  {filtroCuenta === 'nequi' ? 'Ver todo' : 'Ver movimientos de Nequi'}
-                </Button>
+                {hayNequi && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-[11px]"
+                    onClick={() => setFiltroCuenta(filtroCuenta === 'nequi' ? 'todas' : 'nequi')}
+                  >
+                    {filtroCuenta === 'nequi' ? 'Ver todo' : 'Ver movimientos de Nequi'}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>

@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 import { useImports, type ImportRow } from '@/hooks/useImports';
 import { useMacroIndicators } from '@/hooks/useMacroIndicators';
 import { fetchTrmForDate } from '@/hooks/useImportPayments';
@@ -16,6 +17,7 @@ import {
   deltaPct,
   type ColumnaComparativo,
   type PedidoComparable,
+  type TrmFuente,
 } from '@/lib/importComparison';
 
 const fmtCop = (n: number | null) =>
@@ -48,7 +50,7 @@ function Delta({ pct, invertirColor = false }: { pct: number | null; invertirCol
   );
 }
 
-function toComparable(r: ImportRow, trm: number | null): PedidoComparable {
+function toComparable(r: ImportRow, trm: number | null, trmFuente: TrmFuente): PedidoComparable {
   const fechaDe = (estado: string) => (r.import_estado_history ?? []).find((x) => x.estado === estado)?.fecha ?? null;
   const yaEntregada = r.estado === 'entregado' || r.estado === 'cerrado';
   return {
@@ -59,6 +61,7 @@ function toComparable(r: ImportRow, trm: number | null): PedidoComparable {
     precio_smm_cerrado_usd_ton: r.precio_smm_cerrado_usd_ton,
     monto_total_usd: r.monto_total_usd,
     trm,
+    trmFuente,
     arancel_pct: r.arancel_pct,
     iva_pct: r.iva_pct,
     costs: r.import_costs,
@@ -92,22 +95,75 @@ export default function ComparativoPedidosCard() {
 
   const lme = indicators.find((i) => i.type === 'aluminio_lme') ?? null;
 
+  // TRM PONDERADA de los abonos reales: es la que de verdad se pagó por ese
+  // contenedor. Antes esto caía a la TRM de hoy y todas las columnas mostraban
+  // el mismo 3.132 — un dólar que la app ya tenía bien calculado en otro lado.
+  const { data: liqRows = [] } = useQuery({
+    queryKey: ['imports-liquidation-all'],
+    queryFn: async () => {
+      const { data: rows } = await (supabase as any)
+        .from('imports_liquidation')
+        .select('import_id, trm_promedio_ponderada');
+      return (rows ?? []) as { import_id: string; trm_promedio_ponderada: number | null }[];
+    },
+  });
+  const trmPonderada = useMemo(
+    () => new Map(liqRows.map((r) => [r.import_id, r.trm_promedio_ponderada ? Number(r.trm_promedio_ponderada) : null])),
+    [liqRows],
+  );
+
+  /** Orden de confianza: abonos reales > la cargada en el pedido > TRM de hoy. */
+  const trmDe = (r: ImportRow): { trm: number | null; fuente: TrmFuente } => {
+    const pond = trmPonderada.get(r.id);
+    if (pond != null && pond > 0) return { trm: pond, fuente: 'ponderada' };
+    if (r.trm_causacion && Number(r.trm_causacion) > 0) return { trm: Number(r.trm_causacion), fuente: 'causacion' };
+    return { trm: trmHoy, fuente: 'hoy' };
+  };
+
   const comparativo = useMemo(() => {
     const rows = data?.all ?? [];
     return buildComparativo({
-      pedidos: rows.map((r) => toComparable(r, r.trm_causacion ? Number(r.trm_causacion) : trmHoy)),
+      pedidos: rows.map((r) => {
+        const { trm, fuente } = trmDe(r);
+        return toComparable(r, trm, fuente);
+      }),
       hoy: todayIso(),
       trmHoy,
       lmeHoy: lme?.value ?? null,
       lmeHistoria: lme?.history ?? [],
     });
-  }, [data, trmHoy, lme]);
+  }, [data, trmHoy, lme, trmPonderada]);
 
-  const { columnas, baseId, leadTime } = comparativo;
+  const { columnas: todasLasColumnas, baseId: baseSugerida, leadTime } = comparativo;
+
+  // Selección: por defecto todas. Nico elige qué contenedores enfrentar y
+  // cuál es la vara — comparar 2026-2 contra 2026-3 no tiene por qué pasar
+  // siempre por el último entregado.
+  const [seleccion, setSeleccion] = useState<string[] | null>(null);
+  const [baseElegida, setBaseElegida] = useState<string | null>(null);
+
+  const idsDisponibles = todasLasColumnas.map((c) => c.id);
+  const idsVisibles = seleccion === null
+    ? idsDisponibles
+    : idsDisponibles.filter((id) => seleccion.includes(id));
+
+  const columnas = todasLasColumnas.filter((c) => idsVisibles.includes(c.id));
+  // La base tiene que estar visible; si se deseleccionó, cae a la primera.
+  const baseId = (baseElegida && idsVisibles.includes(baseElegida))
+    ? baseElegida
+    : (baseSugerida && idsVisibles.includes(baseSugerida) ? baseSugerida : columnas[0]?.id ?? null);
   const base = columnas.find((c) => c.id === baseId) ?? null;
   const hoyCol = columnas.find((c) => c.kind === 'hoy') ?? null;
 
-  if (columnas.length === 0) {
+  const toggle = (id: string) => {
+    const actual = seleccion ?? idsDisponibles;
+    const nuevo = actual.includes(id) ? actual.filter((x) => x !== id) : [...actual, id];
+    // Nunca dejar menos de dos columnas: sin dos no hay comparación.
+    if (nuevo.length < 2) return;
+    setSeleccion(nuevo);
+  };
+
+  if (todasLasColumnas.length === 0) {
     return (
       <Card>
         <CardHeader className="pb-3">
@@ -148,7 +204,12 @@ export default function ComparativoPedidosCard() {
     },
     {
       label: 'TRM',
-      valor: (c) => (c.trm == null ? '—' : fmtNum(c.trm)),
+      hint: 'Promedio ponderado de los abonos reales del pedido. Si no hay abonos cargados, cae a la TRM de causación y, en último caso, a la de hoy — el sufijo lo dice.',
+      valor: (c) => {
+        if (c.trm == null) return '—';
+        const sufijo = c.trmFuente === 'ponderada' ? '' : c.trmFuente === 'causacion' ? ' (causación)' : ' (hoy)';
+        return `${fmtNum(c.trm)}${sufijo}`;
+      },
       delta: (c) => deltaPct(c.trm, base?.trm ?? null),
     },
     {
@@ -207,8 +268,8 @@ export default function ComparativoPedidosCard() {
               Comparativo: lo entregado · lo que viene · si pido hoy
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              Todo se mide contra el último contenedor entregado
-              {base ? ` (${base.label})` : ''}. Verde = mejor que ese, rojo = peor.
+              Todo se mide contra {base ? <strong>{base.label}</strong> : 'la primera columna'}.
+              Verde = mejor que ese, rojo = peor. Elegí abajo qué contenedores enfrentar.
             </p>
           </div>
           {hoyCol && (
@@ -244,6 +305,47 @@ export default function ComparativoPedidosCard() {
             )}
           </div>
         )}
+
+        {/* Selector: qué contenedores enfrentar y contra cuál medir */}
+        <div className="rounded-lg border bg-muted/20 p-2.5 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-medium text-muted-foreground">Comparar:</span>
+            {todasLasColumnas.map((c) => {
+              const activa = idsVisibles.includes(c.id);
+              return (
+                <Button
+                  key={c.id}
+                  size="sm"
+                  variant={activa ? 'default' : 'outline'}
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => toggle(c.id)}
+                  title={activa ? 'Quitar de la comparación' : 'Agregar a la comparación'}
+                >
+                  {c.label}
+                </Button>
+              );
+            })}
+            {seleccion !== null && (
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => setSeleccion(null)}>
+                Todos
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-medium text-muted-foreground">Medir contra:</span>
+            {columnas.map((c) => (
+              <Button
+                key={c.id}
+                size="sm"
+                variant={c.id === baseId ? 'secondary' : 'ghost'}
+                className={cn('h-6 px-2 text-[11px]', c.id === baseId && 'ring-1 ring-border')}
+                onClick={() => setBaseElegida(c.id)}
+              >
+                {c.label}
+              </Button>
+            ))}
+          </div>
+        </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">

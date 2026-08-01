@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers, ScanLine } from 'lucide-react';
+import { Plus, Package, Upload, ClipboardCheck, BookOpen, RefreshCw, Loader2, FileText, ScrollText, ArrowDownToLine, CheckCheck, Layers, ScanLine, FileDown } from 'lucide-react';
 import ConteoFisicoPanel from '@/components/scanner/ConteoFisicoPanel';
 import ProbarPistolaPanel from '@/components/scanner/ProbarPistolaPanel';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,8 @@ import { useInventoryData, type ProductWithMetrics } from '@/hooks/useInventoryD
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { generateInventoryPdf } from '@/lib/inventoryPdf';
 import InventoryMetrics from '@/components/inventory/InventoryMetrics';
 import InventoryInsights from '@/components/inventory/InventoryInsights';
 import ReorderAlerts from '@/components/inventory/ReorderAlerts';
@@ -29,6 +31,8 @@ type Tab = 'inventario' | 'variantes' | 'maestro' | 'conteo';
 export default function Inventory() {
   const { isGerencial } = useModuleContext();
   const dataSource = isGerencial ? 'gerencial' : 'dian';
+  const [exportando, setExportando] = useState(false);
+  const { user } = useAuth();
   const { products, movements, metrics, loading, addProduct, updateProduct, addMovement, registerEntradaManual, cuadrarInventario, refetch } = useInventoryData(dataSource);
   const { toast } = useToast();
 
@@ -161,6 +165,35 @@ export default function Inventory() {
     }
   };
 
+  /** PDF del inventario para revisar en bodega. `soloDiferencias` imprime solo
+   *  las referencias descuadradas — que es el caso de uso real: el listado
+   *  completo son 160+ filas y el conteo se hace sobre lo que no cuadra. */
+  const handleExportPdf = async (soloDiferencias: boolean) => {
+    if (exportando) return;
+    setExportando(true);
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_name, company_nit, company_city')
+        .eq('user_id', user?.id ?? '')
+        .maybeSingle();
+      const doc = generateInventoryPdf(products, profile ?? {}, {
+        filtro: soloDiferencias ? 'con_diferencia' : 'todos',
+        etiquetaTeorico: isGerencial ? 'Teórico' : 'Siigo',
+      });
+      const hoy = new Date().toISOString().slice(0, 10);
+      doc.save(`inventario${soloDiferencias ? '-diferencias' : ''}-${hoy}.pdf`);
+    } catch (err: any) {
+      toast({
+        title: 'Error al generar el PDF',
+        description: err?.message ?? 'Error desconocido',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportando(false);
+    }
+  };
+
   const handleUpdateProduct = async (data: { reference: string; name: string; unit: string; stock_system: number; cost_per_unit: number; sale_price: number; min_stock: number; system: string | null }) => {
     if (!editProduct) return false;
     // No permitimos cambiar la referencia (es ID lógico). Resto sí.
@@ -271,6 +304,40 @@ export default function Inventory() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => handleExportPdf(false)}
+                disabled={exportando || products.length === 0}
+                title="Descargar el inventario completo en PDF"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, height: 36,
+                  padding: '0 14px', borderRadius: 10, background: '#fff',
+                  border: '1.5px solid oklch(0.43 0.14 155 / 0.30)',
+                  color: 'oklch(0.43 0.14 155)', fontSize: 13, fontWeight: 500,
+                  fontFamily: 'inherit', cursor: exportando ? 'wait' : 'pointer',
+                  opacity: products.length === 0 ? 0.5 : 1,
+                }}
+              >
+                <FileDown style={{ width: 14, height: 14 }} />
+                PDF inventario
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExportPdf(true)}
+                disabled={exportando || products.length === 0}
+                title="Solo las referencias cuyo físico no cuadra con el teórico"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, height: 36,
+                  padding: '0 14px', borderRadius: 10, background: '#fff',
+                  border: '1.5px solid oklch(0.55 0.18 25 / 0.30)',
+                  color: 'oklch(0.55 0.18 25)', fontSize: 13, fontWeight: 500,
+                  fontFamily: 'inherit', cursor: exportando ? 'wait' : 'pointer',
+                  opacity: products.length === 0 ? 0.5 : 1,
+                }}
+              >
+                <FileDown style={{ width: 14, height: 14 }} />
+                Solo diferencias
+              </button>
               {isGerencial && (
                 <>
                   <button

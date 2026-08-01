@@ -37,7 +37,13 @@ export interface PedidoComparable {
   iva_pct: number | null;
   costs: ImportCostLine[] | undefined;
   fechas: ImportFechas;
+  /** De dónde salió la TRM, para poder mostrarlo y auditarlo. */
+  trmFuente?: TrmFuente;
 }
+
+/** 'ponderada' = promedio de los abonos reales (la buena) · 'causacion' = la
+ *  cargada a mano en el pedido · 'hoy' = TRM del día, solo cuando no hay otra. */
+export type TrmFuente = 'ponderada' | 'causacion' | 'hoy';
 
 export interface EtapasDias {
   produccion: number | null;
@@ -60,6 +66,7 @@ export interface ColumnaComparativo {
   precioUsdTon: number | null;
   mercanciaUsd: number | null;
   trm: number | null;
+  trmFuente: TrmFuente;
   totalCop: number | null;
   /** La métrica que manda: cuánto sale el kg puesto en bodega. */
   copPorKg: number | null;
@@ -175,6 +182,7 @@ function columnaDePedido(p: PedidoComparable, kind: ColumnaKind, lt: LeadTimeEst
     precioUsdTon: num(p.precio_smm_cerrado_usd_ton),
     mercanciaUsd,
     trm: num(p.trm),
+    trmFuente: p.trmFuente ?? 'hoy',
     totalCop,
     copPorKg,
     etapas,
@@ -238,10 +246,23 @@ export function columnaHoy(
   const trm = opts.trmHoy ?? molde.trm;
   if (opts.trmHoy == null) supuestos.push('TRM: la del último pedido (no hay TRM de hoy cargada).');
 
-  // Mercancía: si hay precio y toneladas la recalculamos; si no, la del molde.
-  const mercanciaUsd = precioHoy != null && ton != null ? precioHoy * ton : num(molde.monto_total_usd);
-  if (precioHoy == null || ton == null) {
-    supuestos.push('Mercancía: el monto del último pedido (falta precio o toneladas para recalcular).');
+  // Mercancía: se ESCALA la factura real del molde por la variación de precio.
+  //
+  // Antes se recalculaba como precio × toneladas, y eso rompía la comparación:
+  // la factura real casi nunca es exactamente precio_cerrado × cantidad_ton
+  // (hay ítems, ajustes y redondeos que no están en esas dos cifras). Con el
+  // pedido 2026-1 la factura eran US$125.104 pero 3.585 × 28,4 t daba 101.814,
+  // así que la columna "hoy" arrancaba US$23.000 abajo por construcción y
+  // mostraba −21% cuando el precio solo había bajado 3,2%.
+  //
+  // Escalar preserva todo lo que la factura tiene de más y aplica SOLO el
+  // movimiento del aluminio, que es lo único que estamos simulando.
+  const mercanciaMolde = num(molde.monto_total_usd);
+  let mercanciaUsd: number | null = mercanciaMolde;
+  if (mercanciaMolde != null && precioHoy != null && precioMolde != null && precioMolde > 0) {
+    mercanciaUsd = mercanciaMolde * (precioHoy / precioMolde);
+  } else if (mercanciaMolde != null) {
+    supuestos.push('Mercancía: el monto del último pedido sin ajustar (falta el precio cerrado para escalarlo).');
   }
 
   if (mercanciaUsd == null) return null;
@@ -271,6 +292,7 @@ export function columnaHoy(
     precioUsdTon: precioHoy,
     mercanciaUsd,
     trm: num(trm),
+    trmFuente: 'hoy',
     totalCop,
     copPorKg: totalCop != null && kg ? totalCop / kg : null,
     etapas: {

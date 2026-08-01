@@ -209,3 +209,64 @@ describe('deltaPct', () => {
     expect(deltaPct(100, 0)).toBeNull();
   });
 });
+
+// ── Metodología de la columna "hoy" (Nico, jul 2026) ───────────────────────
+// El comparativo mostraba el pedido de hoy −21% en FOB cuando el precio del
+// aluminio solo había bajado 3,2%. La causa: la factura real (US$125.104) no
+// es precio × toneladas (3.585 × 28,4 = 101.814), y la simulación recalculaba
+// desde cero en vez de escalar la factura. Arrancaba US$23.000 abajo por
+// construcción.
+describe('la simulacion escala la factura real, no la recalcula', () => {
+  const moldeReal = (): PedidoComparable => base({
+    cantidad_ton: 28.4,
+    precio_smm_cerrado_usd_ton: 3585,
+    monto_total_usd: 125_104,  // != 28.4 * 3585
+  });
+
+  const lmeHistoria = [
+    { date: '2026-03-01', value: 3585 },
+    { date: '2026-07-01', value: 3469 }, // -3.235%
+  ];
+
+  it('el delta del FOB sigue al delta del precio, no al de precio x toneladas', () => {
+    const r = buildComparativo({
+      pedidos: [moldeReal()], hoy: '2026-07-31', trmHoy: 4000, lmeHoy: 3469, lmeHistoria,
+    });
+    const entregado = r.columnas.find((c) => c.kind === 'entregado')!;
+    const hoy = r.columnas.find((c) => c.kind === 'hoy')!;
+
+    const dPrecio = deltaPct(hoy.precioUsdTon, entregado.precioUsdTon)!;
+    const dFob = deltaPct(hoy.mercanciaUsd, entregado.mercanciaUsd)!;
+
+    expect(dPrecio).toBeCloseTo(-3.235, 1);
+    // Antes esto daba -21%: el FOB tiene que moverse igual que el precio.
+    expect(dFob).toBeCloseTo(dPrecio, 1);
+  });
+
+  it('no reemplaza la factura por precio x toneladas', () => {
+    const r = buildComparativo({
+      pedidos: [moldeReal()], hoy: '2026-07-31', trmHoy: 4000, lmeHoy: 3469, lmeHistoria,
+    });
+    const hoy = r.columnas.find((c) => c.kind === 'hoy')!;
+    // precio x ton daria ~98.520; escalar la factura da ~121.056.
+    expect(hoy.mercanciaUsd!).toBeGreaterThan(115_000);
+    expect(hoy.mercanciaUsd!).toBeCloseTo(125_104 * (3469 / 3585), 0);
+  });
+
+  it('sin precio cerrado deja la factura igual y lo declara', () => {
+    const r = buildComparativo({
+      pedidos: [moldeReal()], hoy: '2026-07-31', trmHoy: 4000, lmeHoy: null, lmeHistoria: [],
+    });
+    const hoy = r.columnas.find((c) => c.kind === 'hoy')!;
+    expect(hoy.mercanciaUsd).toBe(125_104);
+  });
+
+  it('propaga la fuente de la TRM a la columna', () => {
+    const r = buildComparativo({
+      pedidos: [{ ...moldeReal(), trmFuente: 'ponderada' as const }],
+      hoy: '2026-07-31', trmHoy: 4000, lmeHoy: 3469, lmeHistoria,
+    });
+    expect(r.columnas.find((c) => c.kind === 'entregado')!.trmFuente).toBe('ponderada');
+    expect(r.columnas.find((c) => c.kind === 'hoy')!.trmFuente).toBe('hoy');
+  });
+});
