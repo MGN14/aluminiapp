@@ -160,6 +160,11 @@ export function useInventoryVariants() {
         if (k && !spellingExistente.has(k)) spellingExistente.set(k, v.variant_reference);
       }
 
+      // Si el archivo NO trae columna de costo (el conteo de bodega solo trae
+      // unidades), NO pisar los costos existentes con $0 — el re-anclaje
+      // borraba el costo landed que había entrado con los contenedores y la
+      // tabla quedaba con "Valor $0" (reporte de Nico 2026-07-30).
+      const traeCostos = filas.some((f) => Number(f.cost ?? 0) > 0);
       const payload = filas.map((f) => ({
         // Respetar la escritura YA registrada de la misma variante.
         variant_reference: spellingExistente.get(canonicalizeRef(f.reference)) ?? f.reference,
@@ -169,7 +174,7 @@ export function useInventoryVariants() {
         stock_inicial: f.stock,
         stock_inicial_date: nowIso,
         last_count_date: nowIso,
-        avg_cost: f.cost || 0,
+        ...(traeCostos ? { avg_cost: f.cost || 0 } : {}),
         active: true,
       }));
 

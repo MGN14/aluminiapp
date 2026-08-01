@@ -283,7 +283,14 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
     // Costo promedio ponderado: solo si la entrada trae costo (>0).
     if (unit > 0) {
       const base = Math.max(0, Number(v.stock ?? 0));
-      const nuevoAvg = (base * Number(v.avg_cost ?? 0) + a.costo) / (base + a.qty);
+      // Mismo guard que el kardex: si el stock previo no tiene costo (ancla
+      // de conteo sin columna de costo → avg 0), el costo de la entrada
+      // MANDA — promediar contra $0 diluía el costo del excel (87 und a $0
+      // + 40 a $25.000 daba $7.874/und, reporte de Nico 2026-07-30).
+      const avgPrevio = Number(v.avg_cost ?? 0);
+      const nuevoAvg = (base <= 0 || avgPrevio <= 0)
+        ? unit
+        : (base * avgPrevio + a.costo) / (base + a.qty);
       const { error: upErr } = await db
         .from('inventory_variants')
         .update({ stock: base + a.qty, avg_cost: Math.round(nuevoAvg) })
@@ -294,6 +301,28 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
     }
   }
   return { applied: acc.size, unmatched, created };
+}
+
+/**
+ * Borra los movimientos de import ANTERIORES a un re-anclaje de conteo, SIN
+ * tocar el stock: su efecto ya fue pisado por el ancla (el conteo definió el
+ * stock), pero las filas seguían ahí y la idempotencia por fuente decía "ya
+ * aplicado" — el contenedor nunca re-entraba (reporte de Nico 2026-07-30).
+ * Después de purgar, applyVariantImportEntrada aplica limpio.
+ */
+export async function purgeStaleImportMovements(importId: string, cutoffIso: string): Promise<number> {
+  const { data, error } = await db
+    .from('inventory_variant_movements')
+    .select('id, created_at')
+    .eq('source_type', 'import')
+    .eq('source_id', importId)
+    .lte('created_at', cutoffIso);
+  if (error) throw error;
+  const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
+  if (!ids.length) return 0;
+  const { error: delErr } = await db.from('inventory_variant_movements').delete().in('id', ids);
+  if (delErr) throw delErr;
+  return ids.length;
 }
 
 /** Revierte la entrada de un pedido (estado corregido de 'entregado' a otro). */

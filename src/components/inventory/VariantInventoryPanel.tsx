@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { supabase } from '@/integrations/supabase/client';
-import { applyVariantImportEntrada, applyVariantRemision } from '@/lib/variantInventory';
+import { applyVariantImportEntrada, applyVariantRemision, purgeStaleImportMovements } from '@/lib/variantInventory';
 import { useInventoryVariants, parseMaestra, type InventoryVariant } from '@/hooks/useInventoryVariants';
 
 function fmt(n: number | null | undefined): string {
@@ -127,7 +127,26 @@ export default function VariantInventoryPanel() {
       let creadas = 0;
       let salidas = 0;
       const sinMatch = new Set<string>();
+      // Entradas de contenedor PISADAS por el re-anclaje del conteo: sus
+      // movimientos son anteriores al ancla (el conteo redefinió el stock,
+      // borrando su efecto) pero la idempotencia decía "ya aplicado" y el
+      // contenedor nunca re-entraba. Se purgan esas filas muertas y se
+      // aplica limpio — el stock actual no se toca al purgar.
+      const { data: movImp } = await (supabase as any)
+        .from('inventory_variant_movements')
+        .select('source_id, created_at')
+        .eq('source_type', 'import');
+      const maxPorImport = new Map<string, string>();
+      for (const m of (movImp ?? []) as { source_id: string | null; created_at: string }[]) {
+        if (!m.source_id) continue;
+        const prev = maxPorImport.get(m.source_id) ?? '';
+        if (m.created_at > prev) maxPorImport.set(m.source_id, m.created_at);
+      }
       for (const p of pedidos) {
+        const maxMov = maxPorImport.get(p.id);
+        if (maxMov && fechaAncla && maxMov <= fechaAncla) {
+          await purgeStaleImportMovements(p.id, fechaAncla);
+        }
         const r = await applyVariantImportEntrada(p.id);
         if (r.applied > 0) entradas += 1;
         creadas += r.created ?? 0;
