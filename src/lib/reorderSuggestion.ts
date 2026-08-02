@@ -495,31 +495,34 @@ export function computeReorderSuggestion(params: {
     };
   }
 
-  // ── EL GRUESO YA QUEBRÓ → la fecha es HOY ────────────────────────────────
-  // Si los FALTANTES (refs ya secas o que quiebran antes de que alcance a
-  // llegar un pedido montado hoy) concentran la masa de consumo y el conteo
-  // del umbral, el pedido va YA — cada día que pase agranda el hueco. Antes
-  // estos quiebres se EXCLUÍAN del disparador (por diseño: "un pedido nuevo
-  // no los alcanza") y la fecha grupal se calculaba solo con las
-  // sobrevivientes lentas: recién agotado el grueso, el módulo decía "montá
-  // pedido en 2036" (reporte de Nico 2026-08-02 — "debemos tener varias en 0
-  // y me dice que monte pedido en 10 años"). Que no se puedan salvar con este
-  // pedido no significa que el pedido pueda esperar: significa que ya vas
-  // tarde.
+  // ── EL GRUESO YA QUEBRÓ Y NADA LO REPONE → la fecha es HOY ───────────────
+  // Si los FALTANTES SECOS (refs quebradas SIN mercancía en camino) concentran
+  // la masa de consumo y el conteo del umbral, el pedido va YA — cada día que
+  // pase agranda el hueco. Antes estos quiebres se EXCLUÍAN del disparador y
+  // el grupal se calculaba solo con las sobrevivientes lentas: recién agotado
+  // el grueso, el módulo decía "montá pedido en 2036" (reporte de Nico
+  // 2026-08-02).
+  //
+  // OJO (segundo reporte, mismo día): un faltante CON tránsito NO dispara —
+  // esa ref la repone lo que ya viene (contenedor fabricado/montado); su
+  // decisión es "mandalo a traer" (alerta de retenidos), no "montá pedido
+  // hoy". "Una cosa es montar pedido y otra mandarlo a traer — son dos
+  // alertas y dos cálculos diferentes."
   const consumoTotal = criticos.reduce((s, q) => s + q.consumoDiario, 0);
-  const consumoFaltantes = faltantes.reduce((s, q) => s + q.consumoDiario, 0);
+  const faltantesSecos = faltantes.filter((q) => q.enTransito <= 0);
+  const consumoFaltantesSecos = faltantesSecos.reduce((s, q) => s + q.consumoDiario, 0);
   if (
-    faltantes.length >= Math.min(umbralRefs, teoricas.length) &&
+    faltantesSecos.length >= Math.min(umbralRefs, teoricas.length) &&
     consumoTotal > 0 &&
-    consumoFaltantes / consumoTotal >= umbralConsumoPct
+    consumoFaltantesSecos / consumoTotal >= umbralConsumoPct
   ) {
-    const enGrupal = new Set(faltantes.map((q) => q.reference));
+    const enGrupal = new Set(faltantesSecos.map((q) => q.reference));
     return {
       ...base,
       fechaLimite: todayIso,
       diasParaDecidir: 0,
-      fechaQuiebreGrupal: faltantes[faltantes.length - 1].fechaQuiebreTeorica ?? todayIso,
-      refsGrupal: faltantes,
+      fechaQuiebreGrupal: faltantesSecos[faltantesSecos.length - 1].fechaQuiebreTeorica ?? todayIso,
+      refsGrupal: faltantesSecos,
       alertas: [],
       faltantes,
       huecos: conHueco.filter((q) => !enGrupal.has(q.reference)),

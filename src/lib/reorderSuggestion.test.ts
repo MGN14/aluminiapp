@@ -212,6 +212,35 @@ describe('computeReorderSuggestion', () => {
     expect(sug.motivoSinFecha).toBeNull();
   });
 
+  it('refs en 0 CON contenedor en camino NO disparan "montá HOY" — su decisión es mandarlo a traer', () => {
+    // Segundo reporte de Nico (2026-08-02): refs agotadas pero con 40k
+    // unidades compradas en camino (fabricado + montado). "Una cosa es montar
+    // pedido y otra mandarlo a traer" — acá la fecha de montar sale del
+    // quiebre CON esa mercancía puesta, no un "HOY" alarmista.
+    const a = ref('p1', 'A', 0);
+    const b = ref('p2', 'B', 0);
+    const c = ref('p3', 'C', 0);
+    const llega = '2026-08-27'; // hoy + 50: el contenedor ya fabricado
+    const sug = computeReorderSuggestion({
+      todayIso: HOY,
+      imports: [],
+      stock: [a.stock, b.stock, c.stock],
+      salidas: [a.salida, b.salida, c.salida],
+      transito: [
+        { reference: 'A', cantidad: 500, fechaDisponible: llega },
+        { reference: 'B', cantidad: 500, fechaDisponible: llega },
+        { reference: 'C', cantidad: 500, fechaDisponible: llega },
+      ],
+    });
+    // Quiebre real ≈ llegada + 500/3 días ≈ hoy + 216 → la fecha de montar es
+    // una fecha concreta FUTURA (quiebre − lead − colchón), no HOY.
+    expect(sug.fechaLimite).not.toBe(HOY);
+    expect(sug.fechaLimite).not.toBeNull();
+    expect(sug.diasParaDecidir!).toBeGreaterThan(30);
+    // Y las refs siguen visibles como grupo que define el pedido.
+    expect(sug.refsGrupal.map((q) => q.reference).sort()).toEqual(['A', 'B', 'C']);
+  });
+
   it('con menos referencias críticas que el umbral, manda la última que quiebre', () => {
     const a = ref('p1', 'A', 100);
     const b = ref('p2', 'B', 140); // solo 2 críticos → grupal = la 2ª

@@ -79,7 +79,79 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
           </p>
         </div>
 
+        {/* ── DECISIÓN 1 · MANDÁ A TRAER (antes que montar nada) ──────────────
+            Dos decisiones distintas, dos cálculos (Nico 2026-08-02): lo YA
+            fabricado/comprado se manda a traer — eso corre el corte de
+            inventario; montar pedido NUEVO es la decisión de después. Por eso
+            este bloque va PRIMERO y en rojo cuando toca ya. */}
+        {retenidos.length > 0 && (
+          <div className={cn(
+            'rounded-lg border px-3 py-2.5 space-y-1.5',
+            dias != null && dias <= 30
+              ? 'border-destructive/50 bg-destructive/[0.06]'
+              : 'border-sky-400/40 bg-sky-50/60 dark:bg-sky-950/20',
+          )}>
+            <p className={cn(
+              'text-[10px] font-semibold uppercase tracking-wide',
+              dias != null && dias <= 30 ? 'text-destructive' : 'text-sky-700 dark:text-sky-300',
+            )}>
+              1ª decisión · Mandá a traer lo que ya está comprado
+            </p>
+            {retenidos.map((ret) => {
+              const trans = sug.leadTime.transito.dias;
+              const nac = sug.leadTime.nacionalizacion.dias;
+              const hoy = new Date().toISOString().slice(0, 10);
+              const llegaSiTraigo = addDaysIso(hoy, trans + nac);
+              const traerAntesDe = sug.fechaQuiebreGrupal
+                ? addDaysIso(sug.fechaQuiebreGrupal, -(trans + nac + sug.safetyDias))
+                : null;
+              const diasTraer = traerAntesDe ? daysFromToday(traerAntesDe) : null;
+              const urgente = diasTraer != null && diasTraer <= 0;
+              const pronto = diasTraer != null && diasTraer > 0 && diasTraer <= 7;
+              return (
+                <p key={ret.id} className="text-[11px] leading-relaxed">
+                  {ret.motivo === 'listo' ? (
+                    <>
+                      🏭 <strong>{ret.label} listo en fábrica</strong>
+                      {ret.listoDesde && <span className="text-muted-foreground"> desde {fmtFecha(ret.listoDesde)}</span>}
+                    </>
+                  ) : (
+                    <>
+                      ⏳ <strong>{ret.label} ya cumplió el promedio de producción</strong>
+                      <span className="text-muted-foreground"> ({ret.diasProduccion}d fabricando, promedio {sug.leadTime.produccion.dias}d)</span>
+                      {' '}— confirmá con la fábrica: cada día que no embarque corre la llegada un día
+                    </>
+                  )}
+                  {' '}— <strong className={urgente ? 'text-destructive' : pronto ? 'text-warning' : ''}>
+                    {urgente ? 'mandalo a traer YA' : traerAntesDe ? `mandalo a traer antes del ${fmtFecha(traerAntesDe)}` : 'mandalo a traer'}
+                  </strong>; queda en bodega ≈ <strong>{fmtFecha(llegaSiTraigo)}</strong>.
+                  {' '}El tránsito (~{trans}d) es tu ventana para girar el saldo
+                  {ret.saldoUsd > 0 && <> de <strong className="font-mono">{fmtUSD0(ret.saldoUsd)} USD</strong></>} antes de aduana.
+                </p>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pedidos abiertos sin packing list/proforma → INVISIBLES para la
+            cobertura: el corte sale más cerca de lo real y la fecha de montar
+            más alarmista. Va arriba y en ámbar — es la causa #1 de "me dice
+            que monte hoy teniendo 40k unidades en camino". */}
+        {pedidosSinItems.length > 0 && (
+          <p className="text-[11px] leading-relaxed rounded-md border border-amber-400/50 bg-amber-50/70 dark:bg-amber-950/20 px-2.5 py-2">
+            ⚠️ <strong>{pedidosSinItems.map((p) => p.label).join(', ')}: sin proforma/packing — NO cuenta{pedidosSinItems.length > 1 ? 'n' : ''} como cobertura.</strong>{' '}
+            El corte y la fecha de abajo salen SIN esa mercancía (más alarmistas de lo real). Subí el proforma en la
+            pestaña <strong>Costeo</strong> del pedido y todo se recalcula solo.
+          </p>
+        )}
+
         {sug.fechaLimite ? (
+          <div className="space-y-1">
+            {retenidos.length > 0 && (
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                2ª decisión · Montar pedido NUEVO
+              </p>
+            )}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-x-6 gap-y-2">
             {/* Cotizar arranca ANTES de montar: fecha límite − días promedio
                 de cotización (medidos de tus pedidos; 14d sin historia). */}
@@ -109,13 +181,21 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
             <div>
               <p className="text-[11px] text-muted-foreground">Días para decidir</p>
               <p className="text-lg font-bold text-foreground">
-                {dias != null && dias <= 0 ? 'montálo HOY' : `${dias} día${dias === 1 ? '' : 's'}`}
+                {dias != null && dias <= 0
+                  ? (retenidos.length > 0 || pedidosSinItems.length > 0)
+                    // Con mercancía comprada que aún no cuenta (retenida en
+                    // fábrica o sin proforma), "montá HOY" es prematuro: la
+                    // decisión 1 corre el corte y esta fecha se recalcula.
+                    ? <span className="text-warning" title="La fecha se recalcula sola cuando lo retenido embarque o subas el proforma faltante — resolvé la 1ª decisión primero.">tras la 1ª decisión</span>
+                    : 'montálo HOY'
+                  : `${dias} día${dias === 1 ? '' : 's'}`}
               </p>
             </div>
             <div>
               <p className="text-[11px] text-muted-foreground">Si lo montás hoy, llega</p>
               <p className="text-lg font-bold text-foreground">{fmtFecha(sug.llegadaSiPidoHoy)}</p>
             </div>
+          </div>
           </div>
         ) : sug.motivoSinFecha === 'sin_urgencia' ? (
           <div className="rounded-lg border border-success/30 bg-success/5 px-3 py-2.5">
@@ -143,52 +223,6 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
           </p>
         )}
 
-        {/* Contenedores LISTOS en fábrica (retenidos): cuándo mandarlos a
-            traer + la ventana de tránsito = plazo para girar el saldo */}
-        {retenidos.length > 0 && (
-          <div className="rounded-lg border border-sky-400/40 bg-sky-50/60 dark:bg-sky-950/20 px-3 py-2 space-y-1.5">
-            {retenidos.map((ret) => {
-              const trans = sug.leadTime.transito.dias;
-              const nac = sug.leadTime.nacionalizacion.dias;
-              const hoy = new Date().toISOString().slice(0, 10);
-              const llegaSiTraigo = addDaysIso(hoy, trans + nac);
-              const traerAntesDe = sug.fechaQuiebreGrupal
-                ? addDaysIso(sug.fechaQuiebreGrupal, -(trans + nac + sug.safetyDias))
-                : null;
-              const diasTraer = traerAntesDe ? daysFromToday(traerAntesDe) : null;
-              const urgente = diasTraer != null && diasTraer <= 0;
-              const pronto = diasTraer != null && diasTraer > 0 && diasTraer <= 7;
-              return (
-                <p key={ret.id} className="text-[11px] leading-relaxed">
-                  {ret.motivo === 'listo' ? (
-                    <>
-                      🏭 <strong>{ret.label} listo en fábrica</strong>
-                      {ret.listoDesde && <span className="text-muted-foreground"> desde {fmtFecha(ret.listoDesde)}</span>}
-                    </>
-                  ) : (
-                    <>
-                      ⏳ <strong>{ret.label} ya cumplió el promedio de producción</strong>
-                      <span className="text-muted-foreground"> ({ret.diasProduccion}d fabricando, promedio {sug.leadTime.produccion.dias}d)</span>
-                      {' '}— <strong className="text-warning">confirmá con la fábrica y mandalo a traer</strong>: cada día que no embarque corre la llegada un día
-                    </>
-                  )}
-                  {' '}— si lo mandás a traer hoy queda en bodega ≈ <strong>{fmtFecha(llegaSiTraigo)}</strong>.
-                  {traerAntesDe && (
-                    <>
-                      {' '}Para cubrir el quiebre del {fmtFecha(sug.fechaQuiebreGrupal!)}, mandalo a traer{' '}
-                      <strong className={urgente ? 'text-destructive' : pronto ? 'text-warning' : ''}>
-                        {urgente ? 'YA' : `antes del ${fmtFecha(traerAntesDe)}`}
-                      </strong>.
-                    </>
-                  )}
-                  {' '}El tránsito (~{trans}d) es tu ventana para girar el saldo
-                  {ret.saldoUsd > 0 && <> de <strong className="font-mono">{fmtUSD0(ret.saldoUsd)} USD</strong></>} antes de aduana.
-                </p>
-              );
-            })}
-          </div>
-        )}
-
         {/* Alertas: solo el conteo — el reporte completo vive en Cobertura */}
         {totalAlertas > 0 && (
           <div className="flex items-center justify-between gap-3 flex-wrap pt-1 border-t border-border/60">
@@ -206,16 +240,6 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
               </Button>
             )}
           </div>
-        )}
-
-        {/* Pedidos abiertos sin packing list/proforma → cobertura invisible */}
-        {pedidosSinItems.length > 0 && (
-          <p className="text-[11px] text-muted-foreground leading-relaxed rounded-md border border-border bg-muted/30 px-2 py-1.5">
-            📦 <strong>{pedidosSinItems.length} pedido{pedidosSinItems.length > 1 ? 's' : ''} abierto{pedidosSinItems.length > 1 ? 's' : ''} sin packing list/proforma</strong>{' '}
-            ({pedidosSinItems.map((p) => p.label).join(', ')}): no cuenta{pedidosSinItems.length > 1 ? 'n' : ''} como
-            cobertura. Subile el proforma en la pestaña <strong>Costeo</strong> del pedido (sirve desde producción;
-            cuando llegue el packing list definitivo lo reemplazás) y la fecha se corrige sola.
-          </p>
         )}
 
         {sug.leadTime.tieneDefaults && (

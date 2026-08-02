@@ -994,11 +994,21 @@ export default function Importaciones() {
                   {reorder.suggestion?.fechaLimite && reorder.suggestion.diasParaDecidir != null ? (
                     <p className="text-[11px] leading-relaxed">
                       {reorder.suggestion.diasParaDecidir <= 0 ? (
+                        reorder.retenidos.length > 0 || reorder.pedidosSinItems.length > 0 ? (
+                          // Dos decisiones distintas (Nico 2026-08-02): con
+                          // mercancía comprada retenida o sin proforma, lo
+                          // urgente es traerla/cargarla — no montar otro pedido.
+                          <>
+                            <span className="font-semibold text-warning">Primero mandá a traer / subí proforma</span> —
+                            la fecha de montar se recalcula sola. Detalle en la card de arriba.
+                          </>
+                        ) : (
                         <>
                           <span className="font-semibold text-destructive">Fecha límite alcanzada:</span>{' '}
                           <strong>{fmtFechaCorta(reorder.suggestion.fechaLimite)}</strong>. Uno montado hoy
                           queda en bodega ~<strong>{fmtFechaCorta(reorder.suggestion.llegadaSiPidoHoy)}</strong>.
                         </>
+                        )
                       ) : (
                         <>
                           Montalo antes del <strong>{fmtFechaCorta(reorder.suggestion.fechaLimite)}</strong>{' '}
@@ -1095,27 +1105,33 @@ export default function Importaciones() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/80">
-                    {/* Tabla MÍNIMA (decisión de Nico 2026-07-30): con 12
-                        columnas había scroll horizontal y se perdía la info
-                        valiosa. El detalle (SMM, flete, impuestos, días) vive
-                        en los banners grandes de arriba y en el modal. */}
+                    {/* Costos POR COLUMNA (pedido de Nico 2026-08-02: "cada
+                        ítem debe ser una columna, debo poder ver esa info
+                        fácil") — valores compactos ($3,2M) con el exacto en
+                        tooltip para que no explote el ancho. */}
                     <TableHead className="font-semibold">Proveedor</TableHead>
                     <TableHead className="font-semibold">Estado</TableHead>
                     <TableHead className="font-semibold text-right">Total USD</TableHead>
                     <TableHead className="font-semibold text-right">Saldo</TableHead>
+                    <TableHead className="font-semibold text-right" title="Flete internacional (USD)">Flete</TableHead>
+                    <TableHead className="font-semibold text-right" title="Mercancía en pesos: monto USD × TRM (abonos → causación → hoy)">Mercancía COP</TableHead>
+                    <TableHead className="font-semibold text-right" title="Arancel + IVA de importación (liquidación real si está cargada; si no, estimado)">Aduana</TableHead>
+                    <TableHead className="font-semibold text-right" title="Agencia de aduanas / nacionalización">Agencia</TableHead>
+                    <TableHead className="font-semibold text-right" title="Transporte local a bodega — costos cuyo concepto diga 'transporte' o 'Argemiro'">Transporte</TableHead>
+                    <TableHead className="font-semibold text-right" title="CIF COP + arancel + IVA + otros — la misma cuenta del Resumen del pedido">Total imp.</TableHead>
                     <TableHead className="font-semibold" title="La ETA que cargás es la llegada a PUERTO; la app le suma tu promedio de nacionalización para pronosticar la llegada a bodega.">ETA bodega</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                         Cargando importaciones...
                       </TableCell>
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12">
+                      <TableCell colSpan={11} className="text-center py-12">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-muted-foreground/40" />
                           <p className="text-muted-foreground">
@@ -1155,11 +1171,9 @@ export default function Importaciones() {
                       const ivaEst = bd.ivaCop != null && bd.ivaCop > 0 ? bd.ivaCop : null;
                       const hayArancelReal = arancel.usd > 0 || arancel.cop > 0;
                       const hayIvaReal = iva.usd > 0 || iva.cop > 0;
-                      // ── Franja de costos por contenedor (pedido de Nico
-                      // 2026-08-02): flete, mercancía COP, impuestos aduana,
-                      // agencia y transporte local a bodega (Argemiro), en una
-                      // línea compacta debajo de la fila — sin volver a las 12
-                      // columnas con scroll.
+                      // ── Costos del contenedor, por COLUMNA (pedido de Nico
+                      // 2026-08-02): flete, mercancía COP, aduana, agencia y
+                      // transporte local a bodega (Argemiro).
                       const mercanciaCop = trmEst ? Number(row.monto_total_usd ?? 0) * trmEst : null;
                       const impuestosAduanaCop = (bd.arancelCop ?? 0) + (bd.ivaCop ?? 0);
                       const agenciaCop = agencia.cop + (trmEst ? agencia.usd * trmEst : 0);
@@ -1170,13 +1184,6 @@ export default function Importaciones() {
                         const m = Number(c.monto ?? 0);
                         return s + (c.moneda === 'USD' ? (trmEst ? m * trmEst : 0) : m);
                       }, 0);
-                      const chips: { label: string; value: string; title?: string }[] = [];
-                      if (flete.usd > 0 || flete.cop > 0) chips.push({ label: 'Flete', value: flete.usd > 0 ? fmtUSD0(flete.usd) : fmtCOPShort(flete.cop), title: 'Flete internacional' });
-                      if (mercanciaCop != null && mercanciaCop > 0) chips.push({ label: 'Mercancía COP', value: fmtCOPShort(mercanciaCop), title: `Mercancía ${fmtUSD(row.monto_total_usd)} × TRM ${trmEst ? Math.round(trmEst).toLocaleString('es-CO') : '—'}` });
-                      if (impuestosAduanaCop > 0) chips.push({ label: 'Aduana (arancel+IVA)', value: fmtCOPShort(impuestosAduanaCop), title: hayArancelReal || hayIvaReal ? 'Liquidación real cargada' : 'Estimado (sin liquidación real todavía)' });
-                      if (agenciaCop > 0) chips.push({ label: 'Agencia', value: fmtCOPShort(agenciaCop), title: 'Nacionalización / agencia de aduanas' });
-                      if (transporteCop > 0) chips.push({ label: 'Transporte', value: fmtCOPShort(transporteCop), title: 'Transporte local a bodega (por concepto: "transporte"/"Argemiro")' });
-                      if (bd.totalImportacionCop != null && bd.totalImportacionCop > 0) chips.push({ label: 'Total importación', value: fmtCOPShort(bd.totalImportacionCop), title: 'CIF COP + arancel + IVA + otros (misma cuenta del Resumen)' });
                       // Inicio = primera etapa registrada en el historial (fallback: fecha de cotización).
                       const fechaInicio = (row.import_estado_history ?? [])
                         .map(h => h.fecha).filter(Boolean).sort()[0] ?? row.fecha_cotizacion ?? null;
@@ -1188,7 +1195,7 @@ export default function Importaciones() {
                       return (
                         <Fragment key={row.id}>
                         <TableRow
-                          className="cursor-pointer hover:bg-muted/40 border-b-0"
+                          className="cursor-pointer hover:bg-muted/40"
                           onClick={() => openEdit(row)}
                         >
                           <TableCell className="text-sm">
@@ -1281,6 +1288,30 @@ export default function Importaciones() {
                             {fmtUSD(Number(row.monto_total_usd ?? 0) + flete.usd)}
                           </TableCell>
                           <TableCell className="text-right text-sm font-mono font-bold text-destructive">{fmtUSD0(row.saldo_pendiente_usd)}</TableCell>
+                          {/* Costos por columna — compactos, exacto en tooltip */}
+                          <TableCell className="text-right text-xs font-mono" title="Flete internacional">
+                            {flete.usd > 0 ? fmtUSD0(flete.usd) : flete.cop > 0 ? fmtCOPShort(flete.cop) : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono" title={mercanciaCop != null ? `Mercancía ${fmtUSD(row.monto_total_usd)} × TRM ${trmEst ? Math.round(trmEst).toLocaleString('es-CO') : '—'} = $${Math.round(mercanciaCop).toLocaleString('es-CO')} COP` : 'Sin TRM para convertir'}>
+                            {mercanciaCop != null && mercanciaCop > 0 ? fmtCOPShort(mercanciaCop) : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono" title={impuestosAduanaCop > 0 ? `Arancel + IVA = $${Math.round(impuestosAduanaCop).toLocaleString('es-CO')} COP ${hayArancelReal || hayIvaReal ? '(liquidación real)' : '(estimado)'}` : 'Sin datos para estimar'}>
+                            {impuestosAduanaCop > 0 ? (
+                              <span>
+                                {fmtCOPShort(impuestosAduanaCop)}
+                                {!hayArancelReal && !hayIvaReal && <span className="text-muted-foreground font-sans"> est.</span>}
+                              </span>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono" title={agenciaCop > 0 ? `Agencia / nacionalización: $${Math.round(agenciaCop).toLocaleString('es-CO')} COP` : 'Sin costo de agencia cargado'}>
+                            {agenciaCop > 0 ? fmtCOPShort(agenciaCop) : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono" title={transporteCop > 0 ? `Transporte local a bodega: $${Math.round(transporteCop).toLocaleString('es-CO')} COP` : 'Cargalo en Costeo con concepto "transporte" o "Argemiro"'}>
+                            {transporteCop > 0 ? fmtCOPShort(transporteCop) : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono font-semibold" title={bd.totalImportacionCop != null ? `Total importación: $${Math.round(bd.totalImportacionCop).toLocaleString('es-CO')} COP (CIF + arancel + IVA + otros)` : 'Sin TRM para calcular'}>
+                            {bd.totalImportacionCop != null && bd.totalImportacionCop > 0 ? fmtCOPShort(bd.totalImportacionCop) : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
                           {/* ETA cargada = PUERTO (dato de la naviera); bodega = + nacionalización
                               prom. (lo estimado). Entregado → manda la fecha REAL de entrega. */}
                           <TableCell className="text-sm whitespace-nowrap">
@@ -1301,26 +1332,6 @@ export default function Importaciones() {
                             ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                         </TableRow>
-                        {/* Franja de costos del contenedor: flete, mercancía
-                            COP, aduana, agencia, transporte (Argemiro), total
-                            landed — visible sin abrir el modal. */}
-                        {chips.length > 0 && (
-                          <TableRow
-                            className="cursor-pointer hover:bg-muted/40"
-                            onClick={() => openEdit(row)}
-                          >
-                            <TableCell colSpan={5} className="pt-0 pb-2.5">
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] leading-tight">
-                                {chips.map((c) => (
-                                  <span key={c.label} title={c.title} className="whitespace-nowrap">
-                                    <span className="text-muted-foreground">{c.label}:</span>{' '}
-                                    <span className="font-mono font-medium">{c.value}</span>
-                                  </span>
-                                ))}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
                         </Fragment>
                       );
                     })
