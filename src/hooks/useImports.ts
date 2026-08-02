@@ -281,10 +281,11 @@ export function useImports() {
       }
       // Mismo enganche de inventario que el select inline: guardar desde el
       // modal con cambio de estado también entra/reversa el contenedor.
+      // entregado → cerrado NO reversa (cierre de negocio, el stock queda).
       if (patch.estado && estado_prev && patch.estado !== estado_prev) {
         if (patch.estado === 'entregado') {
           await aplicarEntradaInventario(id);
-        } else if (estado_prev === 'entregado') {
+        } else if (estado_prev === 'entregado' && patch.estado !== 'cerrado') {
           await reversarEntradaInventario(id);
         }
       }
@@ -321,7 +322,8 @@ export function useImports() {
       if (estado === 'entregado') datePatch.fecha_arribo_real = cambioFecha;
       // Regla de flujo: si el pedido NO está entregado, no puede quedar con
       // fecha de arribo real (generaba un 'entregado' fantasma en el timeline).
-      if (estado !== 'entregado' && estado !== 'cancelado') datePatch.fecha_arribo_real = null;
+      // 'cerrado' viene DESPUÉS de entregado: el arribo se conserva.
+      if (estado !== 'entregado' && estado !== 'cerrado' && estado !== 'cancelado') datePatch.fecha_arribo_real = null;
       const { error } = await supabase
         .from('imports' as never)
         .update({ estado, ...datePatch } as never)
@@ -333,10 +335,13 @@ export function useImports() {
       }
       // Inventario al ENTREGAR: entra a variantes (por color) Y al kardex -5
       // (inventory_products — la fuente del COGS). Idempotente; si el estado
-      // se corrige DESDE entregado, ambas entradas se revierten. Best-effort.
+      // se corrige DESDE entregado hacia ATRÁS, ambas entradas se revierten.
+      // entregado → CERRADO es hacia ADELANTE (cierre de negocio): la
+      // mercancía sigue en bodega, NO se reversa (bug 2026-08-02: cerrar el
+      // contenedor le borraba el stock).
       if (estado === 'entregado') {
         return await aplicarEntradaInventario(row.id);
-      } else if (row.estado === 'entregado') {
+      } else if (row.estado === 'entregado' && estado !== 'cerrado') {
         await reversarEntradaInventario(row.id);
       }
       return { variantes: null, kardex: null };

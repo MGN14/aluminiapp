@@ -353,21 +353,26 @@ describe('computeReorderSuggestion', () => {
     expect(sug.faltantes.map((q) => q.reference)).toEqual(['MN1103', 'ALN343', 'DIA09']);
   });
 
-  it('con quiebres inalcanzables Y alcanzables, la fecha se ancla en los alcanzables', () => {
-    const a = ref('p1', 'CORTA', 30);    // inalcanzable (< día 85) → faltante
-    const b = ref('p2', 'B', 150);       // alcanzables →
-    const c = ref('p3', 'C', 160);       //   el grupal (3ª = min(3, pool)) sale
-    const d = ref('p4', 'D', 170);       //   de estas tres
+  it('los quiebres inalcanzables NO arrastran la fecha al pasado, pero SÍ cuentan en la masa del ancla', () => {
+    // Regla final (2026-08-02, tras 3 reportes de Nico): el ancla NO filtra —
+    // excluir "inalcanzables" partía la masa y la fecha saltaba entre "HOY"
+    // y "2046" según qué subconjunto sobreviviera. La faltante (CORTA) entra
+    // a la masa del grupal (el umbral de 3 refs empuja el corte hasta C) y se
+    // reporta como faltante; la fecha límite sale futura igual.
+    const a = ref('p1', 'CORTA', 30);    // quiebra antes de que llegue un pedido (< día 85) → faltante
+    const b = ref('p2', 'B', 150);
+    const c = ref('p3', 'C', 160);       // ← 3ª ref del grupal
+    const d = ref('p4', 'D', 170);
     const sug = computeReorderSuggestion({
       todayIso: HOY, imports: [],
       stock: [a.stock, b.stock, c.stock, d.stock],
       salidas: [a.salida, b.salida, c.salida, d.salida],
       transito: [],
     });
-    // Grupal = 3ª alcanzable (D, día 170) → límite = 170 − 100 = día 70 (futuro).
-    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['B', 'C', 'D']);
-    expect(sug.fechaQuiebreGrupal).toBe('2026-12-25');
-    expect(sug.fechaLimite).toBe('2026-09-16');
+    // Grupal = 3ª ref por fecha (C, día 160) → límite = 160 − 100 = día 60 (futuro).
+    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['CORTA', 'B', 'C']);
+    expect(sug.fechaQuiebreGrupal).toBe('2026-12-15');
+    expect(sug.fechaLimite).toBe('2026-09-06');
     expect(sug.faltantes.map((q) => q.reference)).toEqual(['CORTA']);
     // La faltante NO arrastra la fecha al pasado.
     expect(sug.fechaLimite >= HOY).toBe(true);

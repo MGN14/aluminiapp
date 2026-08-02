@@ -172,12 +172,14 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
               <p className="text-[11px] text-muted-foreground">Días para decidir</p>
               <p className="text-lg font-bold text-foreground">
                 {dias != null && dias <= 0
-                  ? (retenidos.length > 0 || pedidosSinItems.length > 0)
-                    // Con mercancía comprada que aún no cuenta (retenida en
-                    // fábrica o sin proforma), "montá HOY" es prematuro: la
-                    // decisión 1 corre el corte y esta fecha se recalcula.
-                    ? <span className="text-warning" title="La fecha se recalcula sola cuando lo retenido embarque o subas el proforma faltante — resolvé la 1ª decisión primero.">tras la 1ª decisión</span>
-                    : 'montálo HOY'
+                  ? retenidos.length > 0
+                    // Con mercancía comprada retenida en fábrica, "montá HOY"
+                    // es prematuro: embarcarla corre el corte y esta fecha se
+                    // recalcula sola.
+                    ? <span className="text-warning" title="Embarcar lo retenido corre el corte — la fecha se recalcula sola. Resolvé la 1ª decisión primero.">tras mandar a traer</span>
+                    : pedidosSinItems.length > 0
+                      ? <span className="text-warning" title="Hay un pedido abierto sin proforma: esa mercancía no cuenta como cobertura y la fecha sale más alarmista de lo real.">subí proforma 1º</span>
+                      : 'montálo HOY'
                   : `${dias} día${dias === 1 ? '' : 's'}`}
               </p>
             </div>

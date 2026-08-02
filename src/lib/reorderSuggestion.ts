@@ -464,17 +464,13 @@ export function computeReorderSuggestion(params: {
   // fecha simplemente queda lejos y en verde (decisión de Nico: una card de
   // planeación sin fecha no planifica nada). Si hay menos referencias
   // críticas que el umbral, manda la última que quiebre.
-  // ── El ancla: solo quiebres ALCANZABLES por un pedido nuevo ──────────────
-  // Un pedido montado HOY llega a bodega en llegadaSiPidoHoy (hoy + lead).
-  // Un quiebre ANTERIOR a esa fecha es físicamente imposible de cubrir con un
-  // pedido nuevo: es un FALTANTE REAL (reposición local / apurar), no un
-  // disparador. Anclar la fecha a esos quiebres daba fechas en el pasado
-  // ("montá pedido el 5 de mayo" estando en julio) — inútil para planear.
   const llegadaSiPidoHoy = base.llegadaSiPidoHoy;
   const teoricas = criticos
     .filter((q) => q.fechaQuiebreTeorica != null)
     .sort((a, b) => a.fechaQuiebreTeorica!.localeCompare(b.fechaQuiebreTeorica!));
-  const alcanzables = teoricas.filter((q) => q.fechaQuiebreTeorica! >= llegadaSiPidoHoy);
+  // FALTANTES = etiqueta informativa: quiebres que un pedido montado hoy no
+  // alcanza (reposición local / apurar / mandar a traer). Solo REPORTE — no
+  // sacan masa del ancla (ver abajo).
   const faltantes = teoricas.filter((q) => q.fechaQuiebreTeorica! < llegadaSiPidoHoy);
 
   // Huecos operativos (quedan en 0 unos días hasta que nacionaliza lo que YA
@@ -495,72 +491,42 @@ export function computeReorderSuggestion(params: {
     };
   }
 
-  // ── EL GRUESO YA QUEBRÓ Y NADA LO REPONE → la fecha es HOY ───────────────
-  // Si los FALTANTES SECOS (refs quebradas SIN mercancía en camino) concentran
-  // la masa de consumo y el conteo del umbral, el pedido va YA — cada día que
-  // pase agranda el hueco. Antes estos quiebres se EXCLUÍAN del disparador y
-  // el grupal se calculaba solo con las sobrevivientes lentas: recién agotado
-  // el grueso, el módulo decía "montá pedido en 2036" (reporte de Nico
-  // 2026-08-02).
+  // ── EL ANCLA: todas las refs con consumo, SIN exclusiones ────────────────
+  // El quiebre grupal se camina sobre TODOS los quiebres teóricos (con todo
+  // el pipeline ya puesto — projectQuiebres repone con lo que viene, esté en
+  // fábrica, tránsito o aduana), en orden de fecha, acumulando consumo hasta
+  // juntar ≥ umbralConsumoPct de la masa y ≥ umbralRefs referencias.
   //
-  // OJO (segundo reporte, mismo día): un faltante CON tránsito NO dispara —
-  // esa ref la repone lo que ya viene (contenedor fabricado/montado); su
-  // decisión es "mandalo a traer" (alerta de retenidos), no "montá pedido
-  // hoy". "Una cosa es montar pedido y otra mandarlo a traer — son dos
-  // alertas y dos cálculos diferentes."
+  // LECCIÓN (3 reportes de Nico el 2026-08-02): cada intento de EXCLUIR
+  // quiebres del ancla ("alcanzables" vs "faltantes", "secos" vs "con
+  // tránsito") partía la masa de consumo y la fecha saltaba entre extremos —
+  // "montá HOY" con 40k unidades en camino, o "montá en 2046" con el grueso
+  // agotado — según qué subconjunto sobreviviera el filtro. La regla final:
+  // el ancla NO filtra. Quiebre del grueso = corte de inventario, esté donde
+  // esté; fecha límite = corte − lead − colchón; si eso ya pasó, la
+  // respuesta honesta es HOY. Alcanzable o no es una ETIQUETA (faltantes /
+  // alertas), nunca un filtro del ancla.
   const consumoTotal = criticos.reduce((s, q) => s + q.consumoDiario, 0);
-  const faltantesSecos = faltantes.filter((q) => q.enTransito <= 0);
-  const consumoFaltantesSecos = faltantesSecos.reduce((s, q) => s + q.consumoDiario, 0);
-  if (
-    faltantesSecos.length >= Math.min(umbralRefs, teoricas.length) &&
-    consumoTotal > 0 &&
-    consumoFaltantesSecos / consumoTotal >= umbralConsumoPct
-  ) {
-    const enGrupal = new Set(faltantesSecos.map((q) => q.reference));
-    return {
-      ...base,
-      fechaLimite: todayIso,
-      diasParaDecidir: 0,
-      fechaQuiebreGrupal: faltantesSecos[faltantesSecos.length - 1].fechaQuiebreTeorica ?? todayIso,
-      refsGrupal: faltantesSecos,
-      alertas: [],
-      faltantes,
-      huecos: conHueco.filter((q) => !enGrupal.has(q.reference)),
-      criticos,
-      porReferencia: quiebres,
-      motivoSinFecha: null,
-    };
-  }
-
-  // ── Grupal por MASA DE CONSUMO, no por conteo ────────────────────────────
-  // El contenedor se monta cuando se viene EL GRUESO: caminar los quiebres
-  // alcanzables en orden acumulando consumo diario; el grupal es la fecha en
-  // que lo quebrado acumula ≥ umbralConsumoPct del consumo total (y al menos
-  // umbralRefs referencias). 3 refs marginales quebrando temprano NO adelantan
-  // el contenedor (caso real: "montá hoy" con 3 contenedores recién
-  // comprometidos por 3 refs que no venían en ellos) — quedan como alertas.
-  // Si NADA es alcanzable (todo quiebra antes de que llegue un pedido montado
-  // hoy), la única respuesta es montar YA: límite = hoy.
-  const pool = alcanzables.length ? alcanzables : teoricas;
-  const minRefs = Math.min(umbralRefs, pool.length);
-  let corte = pool.length - 1; // fallback: la última que quiebre
+  const minRefs = Math.min(umbralRefs, teoricas.length);
+  let corte = teoricas.length - 1; // fallback: la última que quiebre
   let acumulado = 0;
-  for (let i = 0; i < pool.length; i++) {
-    acumulado += pool[i].consumoDiario;
+  for (let i = 0; i < teoricas.length; i++) {
+    acumulado += teoricas[i].consumoDiario;
     if (i + 1 >= minRefs && consumoTotal > 0 && acumulado / consumoTotal >= umbralConsumoPct) {
       corte = i;
       break;
     }
   }
-  const refsGrupal = pool.slice(0, corte + 1);
-  const fechaQuiebreGrupal = pool[corte].fechaQuiebreTeorica!;
+  const refsGrupal = teoricas.slice(0, corte + 1);
+  const fechaQuiebreGrupal = teoricas[corte].fechaQuiebreTeorica!;
 
   // SIN URGENCIA: si el quiebre grupal cae más allá del horizonte, una fecha
   // puntual es ruido ("montá pedido el 20 de febrero de 2046" — reporte de
   // Nico recién entrado el contenedor). La card lo dice en verde, sin fechas
   // ficticias; cuando el consumo acerque el quiebre, la fecha aparece sola.
   if (daysBetween(todayIso, fechaQuiebreGrupal) > MAX_HORIZONTE_DIAS) {
-    const alertasLejos = alcanzables.filter((q) => q.fechaQuiebreTeorica! < fechaQuiebreGrupal && (q.diasCobertura ?? Infinity) <= MAX_HORIZONTE_DIAS);
+    const alertasLejos = teoricas.filter((q) =>
+      !enFaltantes.has(q.reference) && q.fechaQuiebreTeorica! < fechaQuiebreGrupal && (q.diasCobertura ?? Infinity) <= MAX_HORIZONTE_DIAS);
     const enAlertasL = new Set(alertasLejos.map((q) => q.reference));
     return {
       ...base, ...vacio,
@@ -578,10 +544,12 @@ export function computeReorderSuggestion(params: {
   const fechaLimiteCruda = addDays(fechaQuiebreGrupal, -(leadTime.totalDias + safetyDias));
   const fechaLimite = fechaLimiteCruda >= todayIso ? fechaLimiteCruda : todayIso;
 
-  // Alertas: quiebres alcanzables ANTERIORES al grupal — no son masa para
-  // disparar contenedor, pero quedarían secas hasta que llegue el pedido:
-  // reposición local o sumarlas al próximo pedido.
-  const alertas = alcanzables.filter((q) => q.fechaQuiebreTeorica! < fechaQuiebreGrupal);
+  // Alertas: quiebres ANTERIORES al grupal que un pedido nuevo sí alcanza —
+  // quedarían secas hasta que llegue el pedido: reposición local o sumarlas
+  // al próximo pedido. (Los que ni un pedido montado hoy alcanza ya están en
+  // faltantes.)
+  const alertas = teoricas.filter((q) =>
+    !enFaltantes.has(q.reference) && q.fechaQuiebreTeorica! < fechaQuiebreGrupal);
   // Una ref con alerta no se repite en huecos (la alerta es el mensaje fuerte).
   const enAlertas = new Set(alertas.map((q) => q.reference));
   const huecos = conHueco.filter((q) => !enAlertas.has(q.reference));

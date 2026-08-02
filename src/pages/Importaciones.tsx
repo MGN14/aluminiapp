@@ -87,10 +87,19 @@ const fmtUSD0 = (n: number | null | undefined) => {
 /** Variación % con color: subir costos = rojo, bajar = verde. */
 function DeltaLine({ pct, label }: { pct: number | null; label: string }) {
   if (pct == null) return null;
+  const caro = pct > 0;
   return (
-    <p className={cn('text-[11px] font-medium inline-flex items-center gap-1', pct > 0 ? 'text-destructive' : 'text-success')}>
-      {pct > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-      {pct > 0 ? '+' : ''}{pct.toFixed(1)}% {label}
+    <p className="text-[11px] leading-tight">
+      <span className={cn(
+        'inline-flex items-center gap-1 rounded-full px-1.5 py-px font-bold tabular-nums',
+        caro
+          ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+          : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+      )}>
+        {caro ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+        {caro ? '+' : ''}{pct.toFixed(1)}%
+      </span>{' '}
+      <span className="text-muted-foreground">{label}</span>
     </p>
   );
 }
@@ -105,16 +114,27 @@ function SignalLine({ curr, refVal, label, fmtVal }: {
   const pct = ((curr - refVal) / refVal) * 100;
   if (Math.abs(pct) < 2) {
     return (
-      <p className="text-[11px] font-medium inline-flex items-center gap-1 text-muted-foreground">
-        <CheckCircle2 className="h-3 w-3 text-success" /> en línea con {label} ({fmtVal(refVal)})
+      <p className="text-[11px] leading-tight">
+        <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-px font-semibold text-foreground/70">
+          <CheckCircle2 className="h-3 w-3 text-success" /> en línea
+        </span>{' '}
+        <span className="text-muted-foreground">con {label} ({fmtVal(refVal)})</span>
       </p>
     );
   }
   const caro = pct > 0;
   return (
-    <p className={cn('text-[11px] font-semibold inline-flex items-center gap-1', caro ? 'text-destructive' : 'text-success')}>
-      {caro ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-      {caro ? '+' : ''}{pct.toFixed(1)}% vs {label} ({fmtVal(refVal)})
+    <p className="text-[11px] leading-tight">
+      <span className={cn(
+        'inline-flex items-center gap-1 rounded-full px-1.5 py-px font-bold tabular-nums',
+        caro
+          ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+          : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+      )}>
+        {caro ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+        {caro ? '+' : ''}{pct.toFixed(1)}%
+      </span>{' '}
+      <span className="text-muted-foreground">vs {label} ({fmtVal(refVal)})</span>
     </p>
   );
 }
@@ -208,14 +228,11 @@ export default function Importaciones() {
   }, [data, trmByImport, trmHoy, lme]);
 
   // Chips del selector de foco: los pedidos recientes + la simulación.
-  const pedidosChips = useMemo(() =>
-    [...(data?.all ?? [])]
-      .filter(r => r.estado !== 'cancelado')
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .slice(0, 4)
-      .map(r => ({ id: r.id, label: r.ref_pedido || r.proveedor_nombre })),
-    [data],
-  );
+  // Chips del selector de banners (Nico 2026-08-02): SOLO los pedidos en
+  // camino, ordenados por llegada estimada — el próximo a la izquierda. El
+  // último ENTREGADO no lleva chip: es la vista por defecto. "Si pido hoy"
+  // cierra a la derecha. (Se declara más abajo, después de `reorder`, porque
+  // el orden sale de la llegada estimada del motor.)
 
   // Contenedores ACTUALES en cada etapa (para los chips del filtro).
   const conteoPorEstado = useMemo(() => {
@@ -271,8 +288,10 @@ export default function Importaciones() {
       .sort((a, b) => (ESTADO_AVANCE[b.estado] ?? 0) - (ESTADO_AVANCE[a.estado] ?? 0) || fechaRef(a).localeCompare(fechaRef(b)));
     const fechaEntrega = (r: ImportRow) => r.fecha_arribo_real ?? fechaRef(r);
     const entregadosOrd = [...entregados].sort((a, b) => fechaEntrega(a).localeCompare(fechaEntrega(b)));
-    // Sin abiertos, el foco cae al último entregado (y anterior al penúltimo).
-    const focoAuto = abiertosPipeline[0] ?? entregadosOrd[entregadosOrd.length - 1] ?? null;
+    // Foco por defecto = el ÚLTIMO ENTREGADO (Nico 2026-08-02: "los banners
+    // muestran siempre el último entregado") — números REALES de lo que ya
+    // llegó, no proyecciones. Sin entregados, cae al abierto más avanzado.
+    const focoAuto = entregadosOrd[entregadosOrd.length - 1] ?? abiertosPipeline[0] ?? null;
     // El usuario puede ENFOCAR cualquier contenedor con los chips (reemplaza
     // la tabla comparativa gigante — decisión de Nico 2026-07-30: "comparar
     // desde los banners grandes que ya teníamos").
@@ -476,6 +495,15 @@ export default function Importaciones() {
   // ETA que carga Nico = llegada a PUERTO. Bodega = puerto + nacionalización
   // promedio (medida por el motor de reorden; 10d por defecto).
   const nacProm = reorder.suggestion?.leadTime.nacionalizacion.dias ?? 10;
+  // Pedidos EN CAMINO ordenados por llegada estimada (la misma del motor de
+  // reorden — respeta etapa y fechas reales); el próximo queda a la izquierda.
+  const pedidosChips = useMemo(() => {
+    const llegadaDe = (id: string) => reorder.disponibilidadPorImport.get(id) ?? '9999-12-31';
+    return [...(data?.abiertos ?? [])]
+      .sort((a, b) => llegadaDe(a.id).localeCompare(llegadaDe(b.id)))
+      .map(r => ({ id: r.id, label: r.ref_pedido || r.proveedor_nombre }));
+  }, [data, reorder.disponibilidadPorImport]);
+
   // ── Checklist documental por pedido (pedido de Nico 2026-08-02): las
   // alertas van POR FILA, como la de BanRep — nada de banners. Cascada:
   // sin ítems → "falta subir proforma"; en tránsito/aduana sin packing →
@@ -728,9 +756,9 @@ export default function Importaciones() {
                 type="button"
                 onClick={() => setFocoSel('auto')}
                 className={cn('px-2.5 py-1 rounded text-xs font-medium transition-colors', focoSel === 'auto' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
-                title="Automático: el pedido próximo a entregar"
+                title="El último contenedor que llegó a bodega (estado entregado) — números reales, no proyecciones"
               >
-                Próx. a entregar
+                Último entregado
               </button>
               {pedidosChips.map(p => (
                 <button
@@ -760,23 +788,23 @@ export default function Importaciones() {
         )}
         {kpis && (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-            <Card>
-              <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Pedidos {currentYear}</p>
-                <p className="text-2xl font-bold tabular-nums">{kpis.pedidosEsteAnio}</p>
+            <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="py-3.5 px-4 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Pedidos {currentYear}</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums">{kpis.pedidosEsteAnio}</p>
                 <p className="text-[11px] text-muted-foreground">
                   {kpis.pedidosAnioPasado} en {currentYear - 1}
                   {kpis.tonEsteAnio > 0 && ` · ${kpis.tonEsteAnio.toLocaleString('es-CO', { maximumFractionDigits: 1 })} t${kpis.tonAnioPasado > 0 ? ` (${kpis.tonAnioPasado.toLocaleString('es-CO', { maximumFractionDigits: 1 })} t en ${currentYear - 1})` : ''}`}
                 </p>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="SMM cerrado del pedido próximo a entregar — el costo del material que está por llegar a bodega. Cuando se entregue, el foco pasa solo al siguiente del pipeline.">SMM próx. a entregar (USD/t)</p>
-                <p className="text-2xl font-bold tabular-nums font-mono">
+            <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="py-3.5 px-4 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="SMM cerrado del pedido próximo a entregar — el costo del material que está por llegar a bodega. Cuando se entregue, el foco pasa solo al siguiente del pipeline.">SMM próx. a entregar (USD/t)</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
                   {kpis.usdLast != null ? `$${kpis.usdLast.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <SignalLine curr={kpis.usdLast} refVal={kpis.usdProm} label="promedio"
                   fmtVal={(n) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
                 <DeltaLine pct={kpis.usdDeltaPct} label="vs último entregado" />
@@ -786,13 +814,13 @@ export default function Importaciones() {
                 )}
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="CIF + arancel + IVA + otros costos del pedido PRÓXIMO A ENTREGAR, en pesos — la plata comprometida en lo que viene. Usa el estimado (≈) mientras no esté cargado el costo real.">Total Importación (COP)</p>
-                <p className="text-2xl font-bold tabular-nums font-mono">
+            <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="py-3.5 px-4 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="CIF + arancel + IVA + otros costos del pedido PRÓXIMO A ENTREGAR, en pesos — la plata comprometida en lo que viene. Usa el estimado (≈) mientras no esté cargado el costo real.">Total Importación (COP)</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
                   {kpis.totLast != null ? fmtCOPShort(kpis.totLast) : '—'}
                 </p>
-                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <SignalLine curr={kpis.totLast} refVal={kpis.totProm} label="promedio" fmtVal={fmtCOPShort} />
                 <DeltaLine pct={kpis.totDeltaPct} label="vs último entregado" />
                 {kpis.totLast == null && (kpis.totProm != null
@@ -800,13 +828,13 @@ export default function Importaciones() {
                   : <p className="text-[11px] text-muted-foreground">CIF + arancel + IVA + otros</p>)}
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Total Importación ÷ toneladas del pedido PRÓXIMO A ENTREGAR — el costo real de la materia prima que está por llegar a bodega.">COP/ton nacionalizado</p>
-                <p className="text-2xl font-bold tabular-nums font-mono">
+            <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="py-3.5 px-4 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Total Importación ÷ toneladas del pedido PRÓXIMO A ENTREGAR — el costo real de la materia prima que está por llegar a bodega.">COP/ton nacionalizado</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
                   {kpis.nacLast != null ? fmtCOPShort(kpis.nacLast) : '—'}
                 </p>
-                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <SignalLine curr={kpis.nacLast} refVal={kpis.nacProm} label="promedio" fmtVal={fmtCOPShort} />
                 <DeltaLine pct={kpis.nacDeltaPct} label="vs último entregado" />
                 <DeltaLine pct={kpis.nacYoYPct} label={`vs ${currentYear - 1}`} />
@@ -815,10 +843,10 @@ export default function Importaciones() {
                 )}
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="TRM ponderada de los abonos del pedido próximo a entregar — si aún no tiene abonos, la última ponderada disponible. La TRM de hoy (mercado) va abajo para comparar si conviene abonar ya.">TRM pagada</p>
-                <p className="text-2xl font-bold tabular-nums font-mono">
+            <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="py-3.5 px-4 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="TRM ponderada de los abonos del pedido próximo a entregar — si aún no tiene abonos, la última ponderada disponible. La TRM de hoy (mercado) va abajo para comparar si conviene abonar ya.">TRM pagada</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
                   {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
                 {/* De QUÉ pedido es el dato: en curso (se recalcula con cada
@@ -840,13 +868,13 @@ export default function Importaciones() {
                 </p>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Flete del pedido próximo a entregar (se conoce al embarcar). '—' = el pedido en foco todavía no tiene flete cargado.">Flete USD</p>
-                <p className="text-2xl font-bold tabular-nums font-mono">
+            <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="py-3.5 px-4 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Flete del pedido próximo a entregar (se conoce al embarcar). '—' = el pedido en foco todavía no tiene flete cargado.">Flete USD</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
                   {kpis.fleteUltimo != null ? `$${kpis.fleteUltimo.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <SignalLine curr={kpis.fleteUltimo} refVal={kpis.fleteProm} label="promedio"
                   fmtVal={(n) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
                 <DeltaLine pct={kpis.fleteDeltaPct} label="vs último entregado" />
@@ -858,15 +886,15 @@ export default function Importaciones() {
               </CardContent>
             </Card>
             {/* IMPUESTOS — reemplaza las columnas Arancel / IVA / Agencia */}
-            <Card>
-              <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Arancel + IVA de importación del pedido próximo a entregar. Con ≈ es el estimado por % sobre el CIF; cuando cargás la liquidación real de aduana en el Resumen del pedido, manda el real.">
+            <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="py-3.5 px-4 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Arancel + IVA de importación del pedido próximo a entregar. Con ≈ es el estimado por % sobre el CIF; cuando cargás la liquidación real de aduana en el Resumen del pedido, manda el real.">
                   Impuestos del contenedor
                 </p>
-                <p className="text-2xl font-bold tabular-nums font-mono">
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
                   {kpis.impLast != null ? `${kpis.impEsReal ? '' : '≈'}${fmtCOPShort(kpis.impLast)}` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <p className="text-[11px] text-muted-foreground">
                   {kpis.impArancel != null && `arancel ${fmtCOPShort(kpis.impArancel)}`}
                   {kpis.impIva != null && ` + IVA ${fmtCOPShort(kpis.impIva)}`}
@@ -880,15 +908,15 @@ export default function Importaciones() {
               </CardContent>
             </Card>
             {/* DÍAS — reemplaza la columna Días de la tabla */}
-            <Card>
-              <CardContent className="py-3 px-4">
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70" title="Días desde que se montó el pedido (entrada a producción) hasta la entrega — o hasta hoy si sigue en curso. La cotización no cuenta.">
+            <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="py-3.5 px-4 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Días desde que se montó el pedido (entrada a producción) hasta la entrega — o hasta hoy si sigue en curso. La cotización no cuenta.">
                   Días de la operación
                 </p>
-                <p className={cn('text-2xl font-bold tabular-nums font-mono', kpis.diasFoco?.enCurso && 'text-primary')}>
+                <p className={cn('text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono', kpis.diasFoco?.enCurso && 'text-primary')}>
                   {kpis.diasFoco ? `${kpis.diasFoco.dias}d` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="text-[10px] text-muted-foreground truncate">📦 {kpis.focoLabel}{kpis.diasFoco?.enCurso ? ' · en curso' : ''}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}{kpis.diasFoco?.enCurso ? ' · en curso' : ''}</p>}
                 <p className="text-[11px] text-muted-foreground">
                   {kpis.diasProm != null
                     ? `prom. histórico ${Math.round(kpis.diasProm)}d de montaje a entrega`
@@ -1033,8 +1061,10 @@ export default function Importaciones() {
                           // mercancía comprada retenida o sin proforma, lo
                           // urgente es traerla/cargarla — no montar otro pedido.
                           <>
-                            <span className="font-semibold text-warning">Primero mandá a traer / subí proforma</span> —
-                            la fecha de montar se recalcula sola. Detalle en la card de arriba.
+                            <span className="font-semibold text-warning">
+                              {reorder.retenidos.length > 0 ? 'Primero mandá a traer lo ya comprado' : 'Primero subí la proforma del pedido abierto'}
+                            </span>{' '}
+                            — la fecha de montar se recalcula sola. Detalle en la card de arriba.
                           </>
                         ) : (
                         <>
@@ -1294,7 +1324,9 @@ export default function Importaciones() {
                                   {row.estado === 'cotizacion' && (
                                     <SelectItem value="cotizacion" disabled>Cotización (viejo)</SelectItem>
                                   )}
-                                  <SelectItem value="cancelado">Cancelado</SelectItem>
+                                  {/* Cerrado (cierre de negocio) — NO "cancelado":
+                                      Nico 2026-08-02, "cancelado no existe". */}
+                                  <SelectItem value="cerrado">Cerrado</SelectItem>
                                 </SelectContent>
                               </Select>
                             )}
