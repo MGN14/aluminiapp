@@ -224,7 +224,9 @@ export default function Inventory() {
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${tab === 'inventario' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <Package className="h-4 w-4" />
-            Inventario
+            {/* "Inventario Siigo" — para que nadie confunda el mundo Siigo con
+                el interno (Por variante). Nico 2026-08-02. */}
+            Inventario Siigo
           </button>
           <button
             onClick={() => setTab('variantes')}

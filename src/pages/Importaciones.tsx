@@ -174,10 +174,37 @@ export default function Importaciones() {
       return (rows ?? []) as { import_id: string; trm_promedio_ponderada: number | null }[];
     },
   });
-  const trmByImport = useMemo(
-    () => new Map(liqRows.map(r => [r.import_id, r.trm_promedio_ponderada ? Number(r.trm_promedio_ponderada) : null])),
-    [liqRows],
-  );
+  // Abonos crudos: la ponderada se calcula ACÁ (Σ usd×trm ÷ Σ usd). La tabla
+  // imports_liquidation solo se usa de respaldo — si su fila no existe o su
+  // ponderada quedó nula, el KPI mostraba la TRM de OTRO pedido (2026-2 con
+  // abonos y salía 3.572, la del 2026-1 — reporte de Nico 2026-08-02).
+  const { data: payRows = [] } = useQuery({
+    queryKey: ['import-payments-all'],
+    queryFn: async () => {
+      const { data: rows } = await (supabase as any)
+        .from('import_payments')
+        .select('import_id, amount_usd, trm');
+      return (rows ?? []) as { import_id: string; amount_usd: number | null; trm: number | null }[];
+    },
+  });
+  const trmByImport = useMemo(() => {
+    const acc = new Map<string, { usd: number; usdPorTrm: number }>();
+    for (const p of payRows) {
+      const usd = Number(p.amount_usd ?? 0);
+      const trm = Number(p.trm ?? 0);
+      if (usd <= 0 || trm <= 0) continue;
+      const a = acc.get(p.import_id) ?? { usd: 0, usdPorTrm: 0 };
+      a.usd += usd;
+      a.usdPorTrm += usd * trm;
+      acc.set(p.import_id, a);
+    }
+    const out = new Map<string, number | null>();
+    for (const r of liqRows) {
+      out.set(r.import_id, r.trm_promedio_ponderada ? Number(r.trm_promedio_ponderada) : null);
+    }
+    for (const [id, a] of acc) out.set(id, a.usdPorTrm / a.usd); // los abonos mandan
+    return out;
+  }, [liqRows, payRows]);
 
   // Columna "si pido hoy" del motor de comparación — alimenta la simulación
   // de los banners (reemplazo de la tabla comparativa, Nico 2026-07-30).
@@ -366,16 +393,22 @@ export default function Importaciones() {
       .filter((x): x is { r: ImportRow; t: number } => x.t != null);
     const focoTrm = trmPedido(foco);
     // EN CURSO: la ponderada del pedido en foco se va recalculando con cada
-    // abono nuevo (imports_liquidation) — el KPI la muestra viva apenas exista.
+    // abono nuevo — el KPI la muestra viva apenas exista.
     const trmEnCurso = focoTrm != null;
-    const trmLast = focoTrm ?? (trmSerieRows.length ? trmSerieRows[trmSerieRows.length - 1].t : null);
+    // SIN ABONOS → TRM DEL DÍA (regla de Nico 2026-08-02). Antes caía a "el
+    // último pedido con abonos" y el banner quedaba PEGADO en la TRM de otro
+    // contenedor (3.572 del 2026-1 sobre el 2026-2/2026-3), inflando ~13% todo
+    // lo que se calcula con esa TRM.
+    const trmLast = focoTrm ?? (trmHoy != null ? Number(trmHoy) : null);
     const trmDeLabel = trmEnCurso
       ? (foco ? (foco.ref_pedido || foco.proveedor_nombre) : null)
-      : (trmSerieRows.length ? (trmSerieRows[trmSerieRows.length - 1].r.ref_pedido || trmSerieRows[trmSerieRows.length - 1].r.proveedor_nombre) : null);
-    // Delta contra el dato anterior al que se está mostrando.
+      : 'TRM de hoy (mercado)';
+    // Delta contra el dato anterior: si el foco tiene abonos, contra el último
+    // entregado; si estamos mostrando la TRM de hoy, contra la última pagada
+    // (así se lee "la TRM de hoy está X% por debajo de lo que vos pagaste").
     const trmPrev = trmEnCurso
       ? trmPedido(anterior) ?? (trmSerieRows.length >= 2 ? trmSerieRows[trmSerieRows.length - 2].t : null)
-      : (trmSerieRows.length >= 2 ? trmSerieRows[trmSerieRows.length - 2].t : null);
+      : (trmSerieRows.length ? trmSerieRows[trmSerieRows.length - 1].t : null);
     const trmDeltaPct = pct(trmLast, trmPrev);
     const conTrm = ordered
       .map(r => trmByImport.get(r.id) ?? null)
@@ -654,7 +687,7 @@ export default function Importaciones() {
   const filtered = useMemo(() => {
     const rows = data?.all ?? [];
     const q = search.trim().toLowerCase();
-    return rows.filter(r => {
+    const visibles = rows.filter(r => {
       if (filter === 'abiertos') {
         // El ciclo cierra en 'cerrado', no en 'entregado' (decisión de Nico):
         // un entregado sin cerrar frente al BanRep sigue siendo trabajo abierto.
@@ -671,7 +704,28 @@ export default function Importaciones() {
       }
       return true;
     });
-  }, [data, filter, search]);
+    // Orden (Nico 2026-08-02): EL PRÓXIMO A LLEGAR DE PRIMERAS, después del
+    // más nuevo al más viejo. Los que están en camino se ordenan por llegada
+    // estimada a bodega (la misma del motor de reorden); los ya entregados o
+    // cerrados van después, del más reciente al más antiguo.
+    const yaLlego = (r: ImportRow) => r.estado === 'entregado' || r.estado === 'cerrado' || r.estado === 'cancelado';
+    const inicioDe = (r: ImportRow) =>
+      (r.import_estado_history ?? []).map(h => h.fecha).filter(Boolean).sort()[0]
+      ?? r.fecha_cotizacion ?? r.created_at ?? '';
+    const llegadaDe = (r: ImportRow) =>
+      reorder.disponibilidadPorImport.get(r.id) ?? r.fecha_estimada_llegada ?? '';
+    return [...visibles].sort((a, b) => {
+      const aLlego = yaLlego(a), bLlego = yaLlego(b);
+      if (aLlego !== bLlego) return aLlego ? 1 : -1; // en camino primero
+      if (!aLlego) {
+        const la = llegadaDe(a), lb = llegadaDe(b);
+        if (la && lb && la !== lb) return la.localeCompare(lb); // el próximo primero
+        if (la && !lb) return -1;                              // con ETA antes que sin ETA
+        if (!la && lb) return 1;
+      }
+      return inicioDe(b).localeCompare(inicioDe(a));           // más nuevo → más viejo
+    });
+  }, [data, filter, search, reorder.disponibilidadPorImport]);
 
   const openNew = () => {
     setEditing(null);
@@ -845,25 +899,29 @@ export default function Importaciones() {
             </Card>
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="TRM ponderada de los abonos del pedido próximo a entregar — si aún no tiene abonos, la última ponderada disponible. La TRM de hoy (mercado) va abajo para comparar si conviene abonar ya.">TRM pagada</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="TRM ponderada de los abonos del pedido en foco (Σ USD×TRM ÷ Σ USD). Si ese pedido AÚN NO tiene abonos, se muestra la TRM de hoy — nunca la de otro contenedor.">
+                  {kpis.trmEnCurso ? 'TRM pagada' : 'TRM de hoy'}
+                </p>
                 <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
                   {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                {/* De QUÉ pedido es el dato: en curso (se recalcula con cada
-                    abono del nuevo contenedor) o el último con abonos */}
+                {/* De DÓNDE sale: abonos del pedido en foco, o mercado de hoy
+                    cuando ese pedido todavía no tiene abonos. */}
                 {kpis.trmDeLabel && (
-                  <p className="text-[10px] text-muted-foreground truncate">
-                    📦 {kpis.trmDeLabel}{kpis.trmEnCurso
-                      ? <span className="text-primary font-medium"> · en curso (se actualiza con cada abono)</span>
-                      : ' · último con abonos'}
+                  <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">
+                    {kpis.trmEnCurso
+                      ? <>📦 {kpis.trmDeLabel}<span className="text-primary font-medium"> · ponderada de sus abonos</span></>
+                      : <>💱 {kpis.trmDeLabel} — este pedido aún no tiene abonos</>}
                   </p>
                 )}
-                <SignalLine curr={kpis.trmLast} refVal={trmHoy != null ? Number(trmHoy) : null} label="TRM de hoy"
-                  fmtVal={(n) => `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`} />
-                <DeltaLine pct={kpis.trmDeltaPct} label="vs último entregado" />
+                {kpis.trmEnCurso && (
+                  <SignalLine curr={kpis.trmLast} refVal={trmHoy != null ? Number(trmHoy) : null} label="TRM de hoy"
+                    fmtVal={(n) => `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`} />
+                )}
+                <DeltaLine pct={kpis.trmDeltaPct} label={kpis.trmEnCurso ? 'vs último entregado' : 'vs la última pagada'} />
                 <p className="text-[11px] text-muted-foreground">
                   {kpis.trmProm != null
-                    ? `promedio $${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })} · ponderada de abonos`
+                    ? `promedio pagado $${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })} · ponderada de abonos`
                     : 'ponderada de los abonos'}
                 </p>
               </CardContent>
