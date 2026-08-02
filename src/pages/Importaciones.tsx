@@ -325,16 +325,22 @@ export default function Importaciones() {
     const foco = (focoSel !== 'auto' && focoSel !== 'hoy')
       ? ordered.find(r => r.id === focoSel) ?? focoAuto
       : focoAuto;
-    // "Anterior" (la vara de los deltas) = último entregado DISTINTO del foco;
-    // si el foco es el último entregado, la vara es el penúltimo.
-    const entregadosSinFoco = entregadosOrd.filter(r => r.id !== foco?.id);
+    // LA VARA DE TODOS LOS DELTAS ES EL ÚLTIMO ENTREGADO (Nico 2026-08-02:
+    // "todos los banners deben estar atados al último entregado"). Solo cuando
+    // el foco ES ese último entregado la vara pasa al penúltimo — comparar algo
+    // contra sí mismo daría 0%. En la simulación "Si pido hoy" el foco no es un
+    // pedido real, así que el último entregado NO se excluye: antes se
+    // excluía y la simulación quedaba sin ningún % (reporte de Nico).
+    const esSimulacion = focoSel === 'hoy';
+    const entregadosSinFoco = esSimulacion
+      ? entregadosOrd
+      : entregadosOrd.filter(r => r.id !== foco?.id);
     const anterior = entregadosSinFoco[entregadosSinFoco.length - 1] ?? null;
     const ESTADO_LABEL: Record<string, string> = {
       cotizacion: 'cotización', anticipo: 'anticipo', produccion: 'en producción',
       listo_fabrica: 'listo en fábrica', transito: 'en tránsito', aduana: 'en aduanas',
       entregado: 'entregado', cerrado: 'cerrado',
     };
-    const esSimulacion = focoSel === 'hoy';
     const focoLabel = esSimulacion
       ? 'Si pido hoy · simulación'
       : foco ? `${foco.ref_pedido || foco.proveedor_nombre} · ${ESTADO_LABEL[foco.estado] ?? foco.estado}` : null;
@@ -403,12 +409,12 @@ export default function Importaciones() {
     const trmDeLabel = trmEnCurso
       ? (foco ? (foco.ref_pedido || foco.proveedor_nombre) : null)
       : 'TRM de hoy (mercado)';
-    // Delta contra el dato anterior: si el foco tiene abonos, contra el último
-    // entregado; si estamos mostrando la TRM de hoy, contra la última pagada
-    // (así se lee "la TRM de hoy está X% por debajo de lo que vos pagaste").
-    const trmPrev = trmEnCurso
-      ? trmPedido(anterior) ?? (trmSerieRows.length >= 2 ? trmSerieRows[trmSerieRows.length - 2].t : null)
-      : (trmSerieRows.length ? trmSerieRows[trmSerieRows.length - 1].t : null);
+    // La vara es SIEMPRE la TRM del último entregado — igual que el resto de
+    // los banners. Antes, sin abonos, se comparaba contra "la última pagada"
+    // (que podía ser otro pedido abierto) y el % no era comparable con los
+    // demás KPIs: el 2026-3 mostraba −1,7% contra el 2026-2 mientras el resto
+    // medía contra el 2026-1 (reporte de Nico 2026-08-02).
+    const trmPrev = trmPedido(anterior);
     const trmDeltaPct = pct(trmLast, trmPrev);
     const conTrm = ordered
       .map(r => trmByImport.get(r.id) ?? null)
@@ -918,7 +924,7 @@ export default function Importaciones() {
                   <SignalLine curr={kpis.trmLast} refVal={trmHoy != null ? Number(trmHoy) : null} label="TRM de hoy"
                     fmtVal={(n) => `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`} />
                 )}
-                <DeltaLine pct={kpis.trmDeltaPct} label={kpis.trmEnCurso ? 'vs último entregado' : 'vs la última pagada'} />
+                <DeltaLine pct={kpis.trmDeltaPct} label="vs último entregado" />
                 <p className="text-[11px] text-muted-foreground">
                   {kpis.trmProm != null
                     ? `promedio pagado $${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })} · ponderada de abonos`
