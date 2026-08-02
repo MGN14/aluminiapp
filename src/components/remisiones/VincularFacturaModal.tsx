@@ -84,6 +84,32 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
     enabled: !!remisionId && open,
   });
 
+  // Mapa factura → remisión que YA la tiene. Una factura conciliada con otra
+  // remisión no se ofrece ni se sugiere acá (casi-error de Nico 2026-08-01:
+  // la ⭐ sugerida ya estaba vinculada a otra remisión y sin saldo). Solo
+  // reaparece si se busca explícito, bloqueada y diciendo a cuál está atada;
+  // para liberarla hay que borrar la unión desde esa remisión.
+  const { data: linkedElsewhere } = useQuery({
+    queryKey: ['remision-invoices-map'],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await (supabase
+        .from('remision_invoices') as any)
+        .select('invoice_id, remision_id, remisiones(number)');
+      const map = new Map<string, { remisionId: string; number: string }>();
+      for (const r of (data ?? []) as any[]) {
+        map.set(r.invoice_id, { remisionId: r.remision_id, number: r.remisiones?.number ?? 'otra remisión' });
+      }
+      return map;
+    },
+    enabled: open,
+  });
+  /** Si la factura está tomada por OTRA remisión, devuelve esa remisión. */
+  const takenBy = (invoiceId: string): { remisionId: string; number: string } | null => {
+    const l = linkedElsewhere?.get(invoiceId);
+    return l && l.remisionId !== remisionId ? l : null;
+  };
+
   // Pre-filtro por cliente de la remision (si tiene responsible_id):
   //   - Match exacto por responsible_id
   //   - Fallback por nombre TOLERANTE (clientNameMatches): Siigo trae typos
@@ -109,6 +135,7 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
   // primero con su estrella; el resto queda por fecha como siempre.
   const esSugerida = (inv: any): boolean => {
     if (remTotal <= 0 || linked.includes(inv.id)) return false;
+    if (takenBy(inv.id)) return false; // conciliada con otra remisión: jamás sugerir
     const total = Number(inv.total_amount || 0);
     if (total <= 0) return false;
     const desvio = Math.abs(total - remTotal) / remTotal;
@@ -130,6 +157,9 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
         inv.display_name?.toLowerCase().includes(searchQ)
       );
     })
+    // Sin búsqueda, las tomadas por otra remisión NO aparecen. Buscando sí
+    // (bloqueadas), para que no vuelvan a ser "inencontrables".
+    .filter((inv: any) => (searchQ ? true : !takenBy(inv.id)))
     .sort((a: any, b: any) => {
       const sa = esSugerida(a);
       const sb = esSugerida(b);
@@ -161,6 +191,7 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
         toast({ title: 'Factura vinculada correctamente' });
       }
       queryClient.invalidateQueries({ queryKey: ['remision-invoices', remisionId] });
+      queryClient.invalidateQueries({ queryKey: ['remision-invoices-map'] });
       queryClient.invalidateQueries({ queryKey: ['remisiones'] });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -236,13 +267,19 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
           ) : (
             filteredInvoices.map((inv: any) => {
               const isLinked = linked.includes(inv.id);
+              const taken = takenBy(inv.id);
               return (
                 <button
                   key={inv.id}
-                  onClick={() => handleToggle(inv.id)}
-                  disabled={saving}
+                  onClick={() => { if (!taken) handleToggle(inv.id); }}
+                  disabled={saving || !!taken}
+                  title={taken ? `Ya conciliada con ${taken.number}. Para usarla acá, primero borrá la unión desde esa remisión.` : undefined}
                   className={`w-full flex items-center justify-between p-3 rounded-lg border text-left transition-colors ${
-                    isLinked ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-border hover:bg-muted/50'
+                    isLinked
+                      ? 'border-green-500 bg-green-50 dark:bg-green-950/20'
+                      : taken
+                        ? 'border-border opacity-60 cursor-not-allowed'
+                        : 'border-border hover:bg-muted/50'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -255,6 +292,11 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {taken && (
+                      <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                        ya en {taken.number}
+                      </Badge>
+                    )}
                     {esSugerida(inv) && (
                       <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-700 bg-amber-50" title={`Valor ≈ al de la remisión (${formatCurrency(remTotal)}) y fecha posterior al despacho`}>
                         ⭐ sugerida
