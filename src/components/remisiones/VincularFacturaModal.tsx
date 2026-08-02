@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { CheckCircle, Search, FileText, X } from 'lucide-react';
+import { clientNameMatches } from '@/lib/nameMatch';
 
 interface Props {
   remisionId: string;
@@ -85,7 +86,10 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
 
   // Pre-filtro por cliente de la remision (si tiene responsible_id):
   //   - Match exacto por responsible_id
-  //   - Fallback: ilike por counterparty_name con el beneficiary text
+  //   - Fallback por nombre TOLERANTE (clientNameMatches): Siigo trae typos
+  //     ("Armotiguadores"), orden distinto y palabras extra — el .includes()
+  //     exacto ocultaba la factura correcta (REM-40 ↔ FV-2-299, reporte de
+  //     Nico 2026-08-01).
   // El usuario puede activar "showAll" para ver todas si necesita.
   const clientFilteredInvoices = (() => {
     if (showAll || !remision) return invoices;
@@ -95,6 +99,7 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
     return invoices.filter((inv: any) => {
       if (respId && inv.responsible_id === respId) return true;
       if (benef && inv.counterparty_name?.toLowerCase().includes(benef)) return true;
+      if (benef && clientNameMatches(benef, inv.counterparty_name ?? '')) return true;
       return false;
     });
   })();
