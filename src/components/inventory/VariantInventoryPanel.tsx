@@ -85,12 +85,12 @@ export default function VariantInventoryPanel() {
   }, [variants, movs, movsPending]);
 
   // AUTO-CONCILIACIÓN (una pasada por sesión, sin botón): primero se concilia
-  // el ledger contra remision_items — inserta líneas que nunca se descontaron
-  // (la variante nació después, con el contenedor), corrige cantidades de
-  // remisiones editadas y limpia canceladas — y después cuadra el stock
-  // guardado al teórico. Antes solo se cuadraba el stock: si al ledger le
-  // FALTABAN remisiones, el teórico mismo estaba mal y el cuadre lo daba por
-  // bueno (GL4102/SA325B sin descuentos, reporte de Nico 2026-08-02).
+  // el ledger contra remision_items — inserta descuentos que faltaban dentro
+  // de la vida rastreada de cada referencia (posteriores a su ancla), corrige
+  // cantidades de remisiones editadas y limpia canceladas y filas resucitadas
+  // por error — y después cuadra el stock guardado al teórico. Antes solo se
+  // cuadraba el stock: si el ledger estaba mal, el teórico mismo estaba mal y
+  // el cuadre lo daba por bueno (reportes de Nico 2026-08-02).
   const autoCuadreCorrido = useRef(false);
   useEffect(() => {
     if (autoCuadreCorrido.current || desglose.size === 0 || movsPending) return;

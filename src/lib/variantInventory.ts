@@ -33,17 +33,19 @@ interface VariantLite {
   variant_reference: string;
   stock: number;
   avg_cost: number;
-  /** Último conteo REAL (maestra o ajuste manual). null = nunca contada — el
-   *  stock_inicial_date de las auto-creadas por contenedor es solo su fecha de
-   *  nacimiento, NO un conteo que absorba remisiones anteriores. */
-  last_count_date: string | null;
+  /** Ancla base: conteo de maestra, o fecha de NACIMIENTO si la auto-creó un
+   *  contenedor. La vida rastreada de la variante arranca acá — remisiones
+   *  registradas antes salieron de stock viejo NO rastreado y no descuentan
+   *  (restarlas contra inicial 0 daba stocks negativos imposibles, −30M de
+   *  valor — reporte de Nico 2026-08-02). */
+  stock_inicial_date: string | null;
 }
 
 /** Todas las variantes activas (la maestra son ~cientos de filas: barato). */
 async function fetchActiveVariants(): Promise<VariantLite[]> {
   const { data, error } = await db
     .from('inventory_variants')
-    .select('id, variant_reference, stock, avg_cost, last_count_date')
+    .select('id, variant_reference, stock, avg_cost, stock_inicial_date')
     .eq('active', true);
   if (error) throw error;
   return (data ?? []) as VariantLite[];
@@ -166,21 +168,24 @@ async function fetchAliasesCanonicos(): Promise<Map<string, string>> {
  * Concilia el rastro de remisiones en el ledger por variante — la ÚNICA
  * escritura de filas source_type='remision'. Por cada par (remisión, variante):
  *
- *   · FALTA la fila y la remisión se registró DESPUÉS del último conteo real
- *     de esa variante → se inserta. (El bug viejo: la idempotencia era por
- *     remisión COMPLETA — si una línea no matcheaba porque la variante nació
- *     después con el contenedor, quedaba perdida para siempre. GL4102: 1000
- *     unidades despachadas que nunca se descontaron, reporte 2026-08-02.)
+ *   · FALTA la fila y la remisión se registró DESPUÉS del ancla de esa
+ *     variante → se inserta. (El bug viejo: la idempotencia era por remisión
+ *     COMPLETA — si una línea no matcheaba porque la variante nació después
+ *     con el contenedor, quedaba perdida para siempre y nunca descontaba.)
  *   · La fila EXISTE pero la cantidad no es la de remision_items (remisión
  *     editada en el detalle, que antes no re-aplicaba inventario) → se corrige.
- *   · La fila EXISTE pero la línea ya no está / la remisión se canceló → se
- *     elimina.
+ *   · La fila EXISTE (viva, posterior al ancla) pero NO debería: línea
+ *     borrada, remisión cancelada, o remisión ANTERIOR al ancla que un bug
+ *     resucitó → se elimina.
  *
- * GUARDIA DE CONTEO: nunca se toca una fila anterior al último conteo real
- * (last_count_date — maestra o ajuste manual): el conteo físico ya absorbió
- * esas salidas y re-aplicarlas descontaría doble. Las variantes auto-creadas
- * por contenedor nunca fueron contadas (last_count_date null) → TODAS sus
- * remisiones cuentan, aunque se hayan registrado antes de que nacieran.
+ * GUARDIA DE ANCLA — la misma cuenta que computeVariantDesglose: el ancla es
+ * el conteo de maestra, el nacimiento por contenedor o el último ajuste
+ * manual, lo que sea MÁS NUEVO. Solo descuentan remisiones registradas
+ * DESPUÉS del ancla: lo anterior o ya lo absorbió un conteo físico
+ * (re-aplicarlo descontaría doble) o salió de stock viejo NO rastreado
+ * (aplicarlo contra inicial 0 daba negativos imposibles: −30M de valor,
+ * reporte de Nico 2026-08-02). Filas anteriores al ancla son historia
+ * congelada: no se tocan.
  *
  * Idempotente: correrla dos veces seguidas no cambia nada.
  */
@@ -205,6 +210,33 @@ export async function reconcileVariantRemisionLedger(
     if (k && !porCanonical.has(k)) porCanonical.set(k, v);
   }
   const porId = new Map(variantes.map((v) => [v.id, v]));
+
+  // Ancla efectiva por variante: stock_inicial_date (conteo o nacimiento)
+  // pisado por ajustes manuales posteriores — el MISMO corte que usa
+  // computeVariantDesglose para decidir qué movimientos cuentan.
+  const anclaMs = new Map<string, number>();
+  for (const v of variantes) anclaMs.set(v.id, tsNum(v.stock_inicial_date));
+  {
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await db
+        .from('inventory_variant_movements')
+        .select('variant_id, created_at')
+        .eq('movement_type', 'ajuste')
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      const rows = (data ?? []) as { variant_id: string; created_at: string }[];
+      for (const a of rows) {
+        const t = tsNum(a.created_at);
+        if (t > (anclaMs.get(a.variant_id) ?? 0)) anclaMs.set(a.variant_id, t);
+      }
+      if (rows.length < PAGE) break;
+    }
+  }
+  const anclaDe = (variantId: string): number => anclaMs.get(variantId) ?? 0;
+
   const onlySet = opts?.onlyRefs?.length
     ? new Set(opts.onlyRefs.map((r) => canonicalizeRef(r)).filter(Boolean))
     : null;
@@ -287,13 +319,13 @@ export async function reconcileVariantRemisionLedger(
     for (const [variantId, qty] of qtyPorVariante) {
       const key = `${remId}|${variantId}`;
       consumidas.add(key);
-      const v = porId.get(variantId)!;
-      const ancla = tsNum(v.last_count_date);
+      const ancla = anclaDe(variantId);
       const fila = filaPorPar.get(key);
+      // ¿Le corresponde una fila VIVA (posterior al ancla)? Solo si la
+      // remisión se registró dentro de la vida rastreada de la variante.
+      const leCorresponde = tsNum(rem.created_at) > ancla;
       if (!fila) {
-        // Registrada después del último conteo real (o variante nunca contada)
-        // → el conteo NO la vio salir: se inserta. Si no, ya está absorbida.
-        if (tsNum(rem.created_at) > ancla) {
+        if (leCorresponde) {
           toInsert.push({
             variant_id: variantId,
             movement_type: movementType,
@@ -307,8 +339,15 @@ export async function reconcileVariantRemisionLedger(
         }
         continue;
       }
-      // Fila anterior al conteo = historia congelada (el desglose la ignora).
+      // Fila anterior al ancla = historia congelada (el desglose la ignora).
       if (tsNum(fila.created_at) <= ancla) continue;
+      if (!leCorresponde) {
+        // Fila viva de una remisión PRE-ancla: resucitada por error (el
+        // backfill del 2026-08-02 descontó historia de stock no rastreado).
+        toDeleteIds.push(fila.id);
+        acumular(variantId, -efecto(fila.movement_type, Number(fila.quantity)));
+        continue;
+      }
       if (Number(fila.quantity) !== qty || fila.movement_type !== movementType) {
         toUpdate.push({ id: fila.id, quantity: qty, movement_type: movementType, fecha: rem.date });
         acumular(variantId, efecto(movementType, qty) - efecto(fila.movement_type, Number(fila.quantity)));
@@ -325,7 +364,7 @@ export async function reconcileVariantRemisionLedger(
     if (!v || !permitida(v)) continue; // variante inactiva o fuera del alcance
     const rem = remPorId.get(row.source_id);
     if (!rem && !opts?.exhaustive) continue; // remisión fuera de la lista parcial
-    if (tsNum(row.created_at) <= tsNum(v.last_count_date)) continue; // absorbida
+    if (tsNum(row.created_at) <= anclaDe(row.variant_id)) continue; // absorbida
     toDeleteIds.push(row.id);
     acumular(row.variant_id, -efecto(row.movement_type, Number(row.quantity)));
   }
@@ -579,20 +618,6 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
     }
   }
 
-  // Referencias RECIÉN nacidas con este contenedor: descontarles de una las
-  // remisiones ya registradas. Antes quedaban con el contenedor completo como
-  // stock — la remisión se había despachado cuando la variante no existía, la
-  // idempotencia vieja (por remisión entera) la daba por aplicada y esas
-  // unidades no se restaban NUNCA (GL4102: 1000 und, reporte 2026-08-02).
-  if (nuevasPorCanonical.size) {
-    try {
-      await backfillVariantRemisionesDesdeDB({
-        onlyRefs: [...nuevasPorCanonical.values()].map((n) => n.variant_reference),
-      });
-    } catch (e) {
-      console.warn('[variantes] backfill de remisiones para refs nuevas falló:', e);
-    }
-  }
   return { applied: acc.size, unmatched, created };
 }
 
