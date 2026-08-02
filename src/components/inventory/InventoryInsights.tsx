@@ -51,8 +51,9 @@ function generateInsights(products: ProductWithMetrics[], metrics: InventoryMetr
     });
   }
 
-  if (metrics.totalDifference > 0) {
+  if (metrics.totalDifference !== 0) {
     const withDiff = products.filter(p => p.difference !== 0).length;
+    const sobra = metrics.totalDifference < 0; // físico real > Siigo
     out.push({
       severity: 'green',
       badge: 'Diferencia',
@@ -60,9 +61,13 @@ function generateInsights(products: ProductWithMetrics[], metrics: InventoryMetr
       text: (
         <>
           {/* Math.round + toLocaleString — sin esto, la suma de diferencias
-              arrastra ruido de floating point (ej: 17379.989999999998). */}
-          Se detectaron <strong>{Math.round(metrics.totalDifference).toLocaleString('es-CO')} unidades</strong> de diferencia
-          {metrics.totalDifferenceValue > 0 && <> (<strong>{fmtCur(metrics.totalDifferenceValue)}</strong>)</>} en {withDiff} productos. Revisar en el próximo conteo.
+              arrastra ruido de floating point (ej: 17379.989999999998).
+              NETO con signo: Siigo − físico real (fórmula de Nico 2026-08-02). */}
+          {sobra ? 'El físico real supera a Siigo por' : 'Siigo registra'}{' '}
+          <strong>{Math.abs(Math.round(metrics.totalDifference)).toLocaleString('es-CO')} unidades</strong>
+          {!sobra && ' más de las que hay físicamente'}
+          {metrics.totalDifferenceValue !== 0 && <> (<strong>{fmtCur(Math.abs(metrics.totalDifferenceValue))}</strong>)</>},
+          {' '}repartidas en {withDiff} productos.
         </>
       ),
     });

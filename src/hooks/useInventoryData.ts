@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { refFamilyKey } from '@/lib/refFamily';
+import { fetchVariantValuation } from '@/lib/variantInventory';
 
 export interface InventoryProduct {
   id: string;
@@ -181,10 +182,16 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
 
       // 1. Catálogo + historial completo de movimientos (para auditoría y
       //    compatibilidad) + inventario por VARIANTE (el físico real, en vivo).
-      const [prodRes, movRes, varRes, varMovRes] = await Promise.all([
+      // Las variantes se leen con fetchVariantValuation = TEÓRICO DEL LEDGER
+      // (inicial + contenedor − remisiones), NUNCA la columna `stock` cacheada:
+      // el cache puede quedar sucio hasta que el panel Por variante corra su
+      // auto-cuadre, y acá salían físicos NEGATIVOS (GL4102-5 "-2.184") que
+      // inflaban la diferencia a $933M (reporte de Nico 2026-08-02). Bonus:
+      // fetchVariantValuation auto-repara el cache al detectar descuadres.
+      const [prodRes, movRes, variantVal, varMovRes] = await Promise.all([
         supabase.from('inventory_products').select('*').eq('active', true).order('reference'),
         supabase.from('inventory_movements').select('*').order('movement_date', { ascending: false }),
-        (supabase as any).from('inventory_variants').select('variant_reference, stock').eq('active', true),
+        fetchVariantValuation().catch(() => []),
         (supabase as any)
           .from('inventory_variant_movements')
           .select('created_at')
@@ -203,7 +210,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
       // sube el físico en inventario por variante y desde ahí Siigo agrupa por
       // -5 y calcula la diferencia real" — el conteo físico viejo del -5 queda
       // de fallback para familias que no existan como variantes.
-      const variantRows = ((varRes as any)?.data ?? []) as { variant_reference: string; stock: number }[];
+      const variantRows = variantVal as { variant_reference: string; stock: number }[];
       const fisicoPorFamilia = new Map<string, number>();
       for (const v of variantRows) {
         const fam = refFamilyKey(v.variant_reference);
@@ -407,8 +414,11 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
       // arrastra ruido de floating point al sumarse, y la suma terminaba en
       // valores como 17379.989999999998. Redondear acá deja el valor limpio
       // para todos los consumidores (Insights, Metrics, score).
-      const totalDiff = Math.round(enriched.reduce((s, p) => s + Math.abs(p.difference), 0));
-      const totalDiffValue = Math.round(enriched.reduce((s, p) => s + Math.abs(p.difference) * (p.cost_per_unit || 0), 0));
+      // NETO, no |absoluto| (fórmula de Nico 2026-08-02): "la diferencia es
+      // Siigo − lo que hay en variantes sumado al -5". Sumar valores absolutos
+      // inflaba el número cuando unas refs iban por encima y otras por debajo.
+      const totalDiff = Math.round(enriched.reduce((s, p) => s + p.difference, 0));
+      const totalDiffValue = Math.round(enriched.reduce((s, p) => s + p.difference * (p.cost_per_unit || 0), 0));
 
       // hasMovementData refleja si la FUENTE ACTIVA (DIAN/Gerencial) tiene
       // ventas en los últimos 30d. Si no hay, "Días de Inventario" y
