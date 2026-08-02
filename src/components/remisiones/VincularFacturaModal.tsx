@@ -116,14 +116,18 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
     return desvio <= 0.15 && fechaOk;
   };
 
-  const filteredInvoices = clientFilteredInvoices
+  // El buscador manda sobre el pre-filtro de cliente: si Nico tipea "299"
+  // busca en TODAS las facturas (número/cliente), no solo en las del cliente
+  // de la remisión — el pre-filtro es una ayuda, no una jaula (reporte
+  // 2026-08-01: "debería dejar buscar si busco la 299").
+  const searchQ = search.trim().toLowerCase();
+  const filteredInvoices = (searchQ ? invoices : clientFilteredInvoices)
     .filter((inv: any) => {
-      const q = search.toLowerCase();
-      if (!q) return true;
+      if (!searchQ) return true;
       return (
-        inv.invoice_number?.toLowerCase().includes(q) ||
-        inv.counterparty_name?.toLowerCase().includes(q) ||
-        inv.display_name?.toLowerCase().includes(q)
+        inv.invoice_number?.toLowerCase().includes(searchQ) ||
+        inv.counterparty_name?.toLowerCase().includes(searchQ) ||
+        inv.display_name?.toLowerCase().includes(searchQ)
       );
     })
     .sort((a: any, b: any) => {
@@ -207,9 +211,11 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
           {(remision?.responsible_id || remision?.beneficiary) && (
             <div className="flex items-center justify-between gap-2 text-xs">
               <span className="text-muted-foreground">
-                {showAll
-                  ? 'Mostrando TODAS las facturas de venta'
-                  : `Filtrando facturas de "${remision.beneficiary || 'cliente de la remisión'}" (${clientFilteredInvoices.length})`}
+                {searchQ
+                  ? 'Buscando en TODAS las facturas de venta'
+                  : showAll
+                    ? 'Mostrando TODAS las facturas de venta'
+                    : `Filtrando facturas de "${remision.beneficiary || 'cliente de la remisión'}" (${clientFilteredInvoices.length})`}
               </span>
               <button
                 type="button"
