@@ -133,18 +133,8 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
           </div>
         )}
 
-        {/* Pedidos abiertos sin packing list/proforma → INVISIBLES para la
-            cobertura: el corte sale más cerca de lo real y la fecha de montar
-            más alarmista. Va arriba y en ámbar — es la causa #1 de "me dice
-            que monte hoy teniendo 40k unidades en camino". */}
-        {pedidosSinItems.length > 0 && (
-          <p className="text-[11px] leading-relaxed rounded-md border border-amber-400/50 bg-amber-50/70 dark:bg-amber-950/20 px-2.5 py-2">
-            ⚠️ <strong>{pedidosSinItems.map((p) => p.label).join(', ')}: sin proforma/packing — NO cuenta{pedidosSinItems.length > 1 ? 'n' : ''} como cobertura.</strong>{' '}
-            El corte y la fecha de abajo salen SIN esa mercancía (más alarmistas de lo real). Subí el proforma en la
-            pestaña <strong>Costeo</strong> del pedido y todo se recalcula solo.
-          </p>
-        )}
-
+        {/* Los avisos de documentos faltantes (proforma/packing/BanRep) viven
+            POR FILA en la tabla de pedidos, no acá (decisión de Nico 2026-08-02). */}
         {sug.fechaLimite ? (
           <div className="space-y-1">
             {retenidos.length > 0 && (

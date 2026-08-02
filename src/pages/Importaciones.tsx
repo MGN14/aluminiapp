@@ -476,12 +476,46 @@ export default function Importaciones() {
   // ETA que carga Nico = llegada a PUERTO. Bodega = puerto + nacionalización
   // promedio (medida por el motor de reorden; 10d por defecto).
   const nacProm = reorder.suggestion?.leadTime.nacionalizacion.dias ?? 10;
-  // Pedidos abiertos sin proforma/packing → badge en la lista (es incoherente
-  // una importación sin proforma: queda invisible para la cobertura).
-  const sinProformaIds = useMemo(
-    () => new Set(reorder.pedidosSinItems.map((p) => p.id)),
-    [reorder.pedidosSinItems],
-  );
+  // ── Checklist documental por pedido (pedido de Nico 2026-08-02): las
+  // alertas van POR FILA, como la de BanRep — nada de banners. Cascada:
+  // sin ítems → "falta subir proforma"; en tránsito/aduana sin packing →
+  // "falta subir packing list"; entregado sin packing costeado → "falta
+  // packing list costeado"; y por último la de BanRep (ya existía).
+  const { data: docStatusData } = useQuery({
+    queryKey: ['imports', 'items-doc-status'],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const PAGE = 1000;
+      const rows: { import_id: string; source: string | null; costo_unitario_excel: number | null }[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data: page, error } = await (supabase as any)
+          .from('import_items')
+          .select('import_id, source, costo_unitario_excel')
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const p = (page ?? []) as typeof rows;
+        rows.push(...p);
+        if (p.length < PAGE) break;
+      }
+      return rows;
+    },
+  });
+  const docStatus = useMemo(() => {
+    const map = new Map<string, { hasItems: boolean; hasPacking: boolean; hasPackingCosteado: boolean }>();
+    for (const r of docStatusData ?? []) {
+      const st = map.get(r.import_id) ?? { hasItems: false, hasPacking: false, hasPackingCosteado: false };
+      st.hasItems = true;
+      // source null = legacy, cuenta como packing (default histórico).
+      const esPacking = (r.source ?? 'packing') === 'packing';
+      if (esPacking) {
+        st.hasPacking = true;
+        if (Number(r.costo_unitario_excel ?? 0) > 0) st.hasPackingCosteado = true;
+      }
+      map.set(r.import_id, st);
+    }
+    return map;
+  }, [docStatusData]);
 
   // ── Radar de abastecimiento ───────────────────────────────────────────────
   // El análisis que el negocio necesita: (1) el contenedor que LLEGA — cuánta
@@ -1201,13 +1235,6 @@ export default function Importaciones() {
                           <TableCell className="text-sm">
                             <div className="font-medium flex items-center gap-1.5">
                               {row.proveedor_nombre}
-                              {sinProformaIds.has(row.id) && (
-                                <AlertTriangle
-                                  className="h-3.5 w-3.5 text-amber-500 shrink-0"
-                                  aria-label="Sin proforma"
-                                  // Un pedido sin proforma es invisible para la cobertura
-                                />
-                              )}
                             </div>
                             {/* Ref + inicio + días: el detalle de contexto que
                                 antes eran columnas propias, acá en chiquito. */}
@@ -1233,9 +1260,6 @@ export default function Importaciones() {
                                 );
                               })()}
                             </div>
-                            {sinProformaIds.has(row.id) && (
-                              <div className="text-[10px] text-amber-600">sin proforma — subilo en Costeo</div>
-                            )}
                           </TableCell>
                           {/* Estado editable en línea — mismos estados que el modal.
                               El cambio pide fecha en el dialog antes de aplicarse.
@@ -1274,6 +1298,25 @@ export default function Importaciones() {
                                 </SelectContent>
                               </Select>
                             )}
+                            {/* Checklist documental por etapa (Nico 2026-08-02):
+                                alertas chiquitas POR FILA, estilo BanRep —
+                                proforma → packing → packing costeado → BanRep. */}
+                            {(() => {
+                              const ds = docStatus.get(row.id);
+                              const enviado = row.estado === 'transito' || row.estado === 'aduana';
+                              const entregadoYa = row.estado === 'entregado' || row.estado === 'cerrado';
+                              if (row.estado === 'cancelado') return null;
+                              if (!ds?.hasItems) {
+                                return <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta subir proforma</div>;
+                              }
+                              if (enviado && !ds.hasPacking) {
+                                return <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta subir packing list</div>;
+                              }
+                              if (entregadoYa && !ds.hasPackingCosteado) {
+                                return <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta packing list costeado</div>;
+                              }
+                              return null;
+                            })()}
                             {/* Entregado pero sin declaración BanRep: la alerta
                                 vive acá, chiquita, para no engordar Cierre */}
                             {fechaEntrega && !tieneBanrep && (
