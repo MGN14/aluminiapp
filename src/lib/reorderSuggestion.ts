@@ -495,6 +495,40 @@ export function computeReorderSuggestion(params: {
     };
   }
 
+  // ── EL GRUESO YA QUEBRÓ → la fecha es HOY ────────────────────────────────
+  // Si los FALTANTES (refs ya secas o que quiebran antes de que alcance a
+  // llegar un pedido montado hoy) concentran la masa de consumo y el conteo
+  // del umbral, el pedido va YA — cada día que pase agranda el hueco. Antes
+  // estos quiebres se EXCLUÍAN del disparador (por diseño: "un pedido nuevo
+  // no los alcanza") y la fecha grupal se calculaba solo con las
+  // sobrevivientes lentas: recién agotado el grueso, el módulo decía "montá
+  // pedido en 2036" (reporte de Nico 2026-08-02 — "debemos tener varias en 0
+  // y me dice que monte pedido en 10 años"). Que no se puedan salvar con este
+  // pedido no significa que el pedido pueda esperar: significa que ya vas
+  // tarde.
+  const consumoTotal = criticos.reduce((s, q) => s + q.consumoDiario, 0);
+  const consumoFaltantes = faltantes.reduce((s, q) => s + q.consumoDiario, 0);
+  if (
+    faltantes.length >= Math.min(umbralRefs, teoricas.length) &&
+    consumoTotal > 0 &&
+    consumoFaltantes / consumoTotal >= umbralConsumoPct
+  ) {
+    const enGrupal = new Set(faltantes.map((q) => q.reference));
+    return {
+      ...base,
+      fechaLimite: todayIso,
+      diasParaDecidir: 0,
+      fechaQuiebreGrupal: faltantes[faltantes.length - 1].fechaQuiebreTeorica ?? todayIso,
+      refsGrupal: faltantes,
+      alertas: [],
+      faltantes,
+      huecos: conHueco.filter((q) => !enGrupal.has(q.reference)),
+      criticos,
+      porReferencia: quiebres,
+      motivoSinFecha: null,
+    };
+  }
+
   // ── Grupal por MASA DE CONSUMO, no por conteo ────────────────────────────
   // El contenedor se monta cuando se viene EL GRUESO: caminar los quiebres
   // alcanzables en orden acumulando consumo diario; el grupal es la fecha en
@@ -505,7 +539,6 @@ export function computeReorderSuggestion(params: {
   // Si NADA es alcanzable (todo quiebra antes de que llegue un pedido montado
   // hoy), la única respuesta es montar YA: límite = hoy.
   const pool = alcanzables.length ? alcanzables : teoricas;
-  const consumoTotal = criticos.reduce((s, q) => s + q.consumoDiario, 0);
   const minRefs = Math.min(umbralRefs, pool.length);
   let corte = pool.length - 1; // fallback: la última que quiebre
   let acumulado = 0;

@@ -51,6 +51,9 @@ export interface ImportEstadoHistoryRow {
 
 export interface ImportCostRow {
   tipo: 'flete' | 'seguro' | 'arancel' | 'iva_importacion' | 'nacionalizacion' | 'gastos_bancarios' | 'otro';
+  /** Texto libre del costo — se usa para reconocer el transporte local a
+   *  bodega ("Transporte Argemiro") dentro de los tipos genéricos. */
+  concepto?: string | null;
   monto: number;
   moneda: 'USD' | 'COP';
 }
@@ -120,7 +123,7 @@ export function useImports() {
 
       const { data, error } = await supabase
         .from('imports' as never)
-        .select('*, import_estado_history(estado, fecha), import_costs(tipo, monto, moneda), import_documents(tipo)')
+        .select('*, import_estado_history(estado, fecha), import_costs(tipo, concepto, monto, moneda), import_documents(tipo)')
         .order('fecha_estimada_llegada', { ascending: true, nullsFirst: false });
       if (error) throw error;
 

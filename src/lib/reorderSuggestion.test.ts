@@ -189,6 +189,29 @@ describe('computeReorderSuggestion', () => {
     expect(sug.faltantes.map((q) => q.reference)).toEqual(['LIV-40-5']);
   });
 
+  it('el grueso YA quebrado (faltantes con masa) dispara la fecha HOY, no 2036', () => {
+    // Bug real de Nico (2026-08-02): las refs más vendidas estaban en 0
+    // (quiebre hoy → "faltantes", inalcanzables por un pedido nuevo) y el
+    // grupal se calculaba SOLO con las sobrevivientes lentas → "montá pedido
+    // en 2036". Si lo ya quebrado concentra la masa de consumo, el pedido va YA.
+    const a = ref('p1', 'A', 0); // quiebra hoy
+    const b = ref('p2', 'B', 0);
+    const c = ref('p3', 'C', 0);
+    const d = ref('p4', 'D', 500); // lenta, más allá del horizonte
+    const sug = computeReorderSuggestion({
+      todayIso: HOY,
+      imports: [],
+      stock: [a.stock, b.stock, c.stock, d.stock],
+      salidas: [a.salida, b.salida, c.salida, d.salida],
+      transito: [],
+    });
+    expect(sug.fechaLimite).toBe(HOY);
+    expect(sug.diasParaDecidir).toBe(0);
+    expect(sug.refsGrupal.map((q) => q.reference)).toEqual(['A', 'B', 'C']);
+    expect(sug.faltantes.map((q) => q.reference)).toEqual(['A', 'B', 'C']);
+    expect(sug.motivoSinFecha).toBeNull();
+  });
+
   it('con menos referencias críticas que el umbral, manda la última que quiebre', () => {
     const a = ref('p1', 'A', 100);
     const b = ref('p2', 'B', 140); // solo 2 críticos → grupal = la 2ª

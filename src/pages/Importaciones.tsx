@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { Fragment, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1155,6 +1155,28 @@ export default function Importaciones() {
                       const ivaEst = bd.ivaCop != null && bd.ivaCop > 0 ? bd.ivaCop : null;
                       const hayArancelReal = arancel.usd > 0 || arancel.cop > 0;
                       const hayIvaReal = iva.usd > 0 || iva.cop > 0;
+                      // ── Franja de costos por contenedor (pedido de Nico
+                      // 2026-08-02): flete, mercancía COP, impuestos aduana,
+                      // agencia y transporte local a bodega (Argemiro), en una
+                      // línea compacta debajo de la fila — sin volver a las 12
+                      // columnas con scroll.
+                      const mercanciaCop = trmEst ? Number(row.monto_total_usd ?? 0) * trmEst : null;
+                      const impuestosAduanaCop = (bd.arancelCop ?? 0) + (bd.ivaCop ?? 0);
+                      const agenciaCop = agencia.cop + (trmEst ? agencia.usd * trmEst : 0);
+                      // Transporte local: se reconoce por el concepto ("Transporte
+                      // Argemiro", "acarreo"...) dentro de otros/gastos.
+                      const transporteCop = (row.import_costs ?? []).reduce((s, c) => {
+                        if (!/transport|argemiro|acarreo|flete\s*local/i.test(String((c as { concepto?: string | null }).concepto ?? ''))) return s;
+                        const m = Number(c.monto ?? 0);
+                        return s + (c.moneda === 'USD' ? (trmEst ? m * trmEst : 0) : m);
+                      }, 0);
+                      const chips: { label: string; value: string; title?: string }[] = [];
+                      if (flete.usd > 0 || flete.cop > 0) chips.push({ label: 'Flete', value: flete.usd > 0 ? fmtUSD0(flete.usd) : fmtCOPShort(flete.cop), title: 'Flete internacional' });
+                      if (mercanciaCop != null && mercanciaCop > 0) chips.push({ label: 'Mercancía COP', value: fmtCOPShort(mercanciaCop), title: `Mercancía ${fmtUSD(row.monto_total_usd)} × TRM ${trmEst ? Math.round(trmEst).toLocaleString('es-CO') : '—'}` });
+                      if (impuestosAduanaCop > 0) chips.push({ label: 'Aduana (arancel+IVA)', value: fmtCOPShort(impuestosAduanaCop), title: hayArancelReal || hayIvaReal ? 'Liquidación real cargada' : 'Estimado (sin liquidación real todavía)' });
+                      if (agenciaCop > 0) chips.push({ label: 'Agencia', value: fmtCOPShort(agenciaCop), title: 'Nacionalización / agencia de aduanas' });
+                      if (transporteCop > 0) chips.push({ label: 'Transporte', value: fmtCOPShort(transporteCop), title: 'Transporte local a bodega (por concepto: "transporte"/"Argemiro")' });
+                      if (bd.totalImportacionCop != null && bd.totalImportacionCop > 0) chips.push({ label: 'Total importación', value: fmtCOPShort(bd.totalImportacionCop), title: 'CIF COP + arancel + IVA + otros (misma cuenta del Resumen)' });
                       // Inicio = primera etapa registrada en el historial (fallback: fecha de cotización).
                       const fechaInicio = (row.import_estado_history ?? [])
                         .map(h => h.fecha).filter(Boolean).sort()[0] ?? row.fecha_cotizacion ?? null;
@@ -1164,9 +1186,9 @@ export default function Importaciones() {
                       const tieneBanrep = row.cerrada
                         || (row.import_documents ?? []).some(d => d.tipo === 'certificado_banrep');
                       return (
+                        <Fragment key={row.id}>
                         <TableRow
-                          key={row.id}
-                          className="cursor-pointer hover:bg-muted/40"
+                          className="cursor-pointer hover:bg-muted/40 border-b-0"
                           onClick={() => openEdit(row)}
                         >
                           <TableCell className="text-sm">
@@ -1279,6 +1301,27 @@ export default function Importaciones() {
                             ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                         </TableRow>
+                        {/* Franja de costos del contenedor: flete, mercancía
+                            COP, aduana, agencia, transporte (Argemiro), total
+                            landed — visible sin abrir el modal. */}
+                        {chips.length > 0 && (
+                          <TableRow
+                            className="cursor-pointer hover:bg-muted/40"
+                            onClick={() => openEdit(row)}
+                          >
+                            <TableCell colSpan={5} className="pt-0 pb-2.5">
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] leading-tight">
+                                {chips.map((c) => (
+                                  <span key={c.label} title={c.title} className="whitespace-nowrap">
+                                    <span className="text-muted-foreground">{c.label}:</span>{' '}
+                                    <span className="font-mono font-medium">{c.value}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        </Fragment>
                       );
                     })
                   )}

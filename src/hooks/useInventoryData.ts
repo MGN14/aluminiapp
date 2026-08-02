@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { refFamilyKey } from '@/lib/refFamily';
 
 export interface InventoryProduct {
   id: string;
@@ -68,6 +69,9 @@ export interface ProductWithMetrics extends InventoryProduct {
    *  stock_inicial + entradas manuales − remisiones de venta. En modo DIAN
    *  es igual a stock_system (Siigo). */
   teorico: number;
+  /** true = stock_physical viene EN VIVO del inventario por variante (suma de
+   *  la familia agrupada a la -5), no del conteo físico viejo del -5. */
+  fisico_vivo?: boolean;
 }
 
 export interface InventoryMetrics {
@@ -93,8 +97,14 @@ export interface InventoryMetrics {
   /** Última fecha en la que se registró conteo físico (MAX de
    *  inventory_products.last_count_date). Null si nunca se hizo conteo.
    *  El delta entre esta fecha y lastSiigoSyncAt explica los descuadres
-   *  por entradas/salidas no contadas todavía. */
+   *  por entradas/salidas no contadas todavía. Con físico por variante,
+   *  es la fecha del último movimiento del ledger (en vivo). */
   lastPhysicalCountAt: string | null;
+  /** true = el físico del comparativo sale del inventario por variante
+   *  (agrupado por familia a la -5), actualizado en vivo con cada remisión y
+   *  contenedor — no del conteo físico manual del -5 (decisión de Nico,
+   *  2026-08-02: "Siigo siempre debe tener en cuenta el stock por variante"). */
+  fisicoDesdeVariantes: boolean;
 }
 
 function classifyStatus(daysOfInventory: number, avgDailySales: number, stock: number): InventoryStatus {
@@ -120,6 +130,7 @@ const DEFAULT_METRICS: InventoryMetrics = {
   totalProducts: 0, criticalCount: 0, excessCount: 0,
   hasMovementData: false,
   lastSiigoSyncAt: null, lastPhysicalCountAt: null,
+  fisicoDesdeVariantes: false,
 };
 let invCache: {
   key: string;
@@ -168,10 +179,17 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const thirtyDaysAgoIso = thirtyDaysAgo.toISOString().split('T')[0];
 
-      // 1. Catálogo + historial completo de movimientos (para auditoría y compatibilidad)
-      const [prodRes, movRes] = await Promise.all([
+      // 1. Catálogo + historial completo de movimientos (para auditoría y
+      //    compatibilidad) + inventario por VARIANTE (el físico real, en vivo).
+      const [prodRes, movRes, varRes, varMovRes] = await Promise.all([
         supabase.from('inventory_products').select('*').eq('active', true).order('reference'),
         supabase.from('inventory_movements').select('*').order('movement_date', { ascending: false }),
+        (supabase as any).from('inventory_variants').select('variant_reference, stock').eq('active', true),
+        (supabase as any)
+          .from('inventory_variant_movements')
+          .select('created_at')
+          .order('created_at', { ascending: false })
+          .limit(1),
       ]);
 
       if (prodRes.error) throw prodRes.error;
@@ -179,6 +197,31 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
 
       const rawProducts = (prodRes.data || []) as InventoryProduct[];
       const rawInventoryMovements = (movRes.data || []) as InventoryMovement[];
+
+      // FÍSICO EN VIVO por familia: el inventario por variante (ref-por-color)
+      // sumado a la -5. Es la fuente que pidió Nico (2026-08-02): "el usuario
+      // sube el físico en inventario por variante y desde ahí Siigo agrupa por
+      // -5 y calcula la diferencia real" — el conteo físico viejo del -5 queda
+      // de fallback para familias que no existan como variantes.
+      const variantRows = ((varRes as any)?.data ?? []) as { variant_reference: string; stock: number }[];
+      const fisicoPorFamilia = new Map<string, number>();
+      for (const v of variantRows) {
+        const fam = refFamilyKey(v.variant_reference);
+        if (!fam) continue;
+        fisicoPorFamilia.set(fam, (fisicoPorFamilia.get(fam) ?? 0) + Number(v.stock ?? 0));
+      }
+      // Dueño del físico por familia: la -5 (la ref de Siigo). Si una familia
+      // tuviera dos filas en el maestro (base y -5), solo la -5 recibe la suma
+      // — asignarla a ambas duplicaría la diferencia.
+      const duenoPorFamilia = new Map<string, string>();
+      for (const p of rawProducts) {
+        const fam = refFamilyKey(p.reference);
+        if (!fam) continue;
+        const actual = duenoPorFamilia.get(fam);
+        if (!actual || /-5$/i.test(p.reference.trim())) duenoPorFamilia.set(fam, p.id);
+      }
+      const ultimoMovVarianteAt: string | null =
+        (((varMovRes as any)?.data ?? []) as { created_at: string }[])[0]?.created_at ?? null;
 
       // 2. Ventas y compras de los últimos 90 días según fuente del modo.
       //    Devuelve eventos individuales (date, quantity, reference) para
@@ -301,6 +344,14 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         const refKey = (p.reference ?? '').trim().toLowerCase();
         const recentSales = recentSalesByRef.get(refKey) ?? 0;
 
+        // Físico EN VIVO desde variantes (si la familia existe allá y esta
+        // fila es la dueña de la familia). Pisa el conteo físico viejo.
+        const fam = refFamilyKey(p.reference);
+        const fisicoVivo =
+          fam && fisicoPorFamilia.has(fam) && duenoPorFamilia.get(fam) === p.id
+            ? Math.round(fisicoPorFamilia.get(fam)!)
+            : null;
+
         // En Gerencial el stock "real" es el teórico; en DIAN es Siigo. Si en
         // Gerencial la referencia no tiene stock_inicial cargado, degradamos a
         // Siigo para no dejar la fila vacía (el usuario debería cargarlo).
@@ -320,10 +371,15 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         // Math.round: stock_system/physical son numeric de Postgres y arrastran
         // ruido de floating point (ej: 175.99 → DIF +170.99). Las unidades de
         // inventario son enteras, así que la diferencia también.
-        const difference = p.stock_physical !== null ? Math.round(compareBase - p.stock_physical) : 0;
+        const fisicoBase = fisicoVivo ?? p.stock_physical;
+        const difference = fisicoBase !== null ? Math.round(compareBase - fisicoBase) : 0;
 
         return {
           ...p,
+          // El físico visible es el vivo cuando existe — tabla, PDF y métricas
+          // quedan coherentes con Inventario → Por variante.
+          stock_physical: fisicoVivo ?? p.stock_physical,
+          fisico_vivo: fisicoVivo !== null,
           teorico,
           difference,
           days_of_inventory: Math.round(daysOfInventory),
@@ -371,7 +427,12 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         return best;
       };
       const lastSiigoSyncAt = maxIso(rawProducts.map(p => p.last_siigo_sync_at));
-      const lastPhysicalCountAt = maxIso(rawProducts.map(p => p.last_count_date));
+      // Con físico por variante, la "fecha del físico" es el último movimiento
+      // del ledger (se actualiza solo con cada remisión/contenedor).
+      const fisicoDesdeVariantes = fisicoPorFamilia.size > 0;
+      const lastPhysicalCountAt = fisicoDesdeVariantes
+        ? (ultimoMovVarianteAt ?? maxIso(rawProducts.map(p => p.last_count_date)))
+        : maxIso(rawProducts.map(p => p.last_count_date));
 
       const metricsObj: InventoryMetrics = {
         totalValue,
@@ -386,6 +447,7 @@ export function useInventoryData(dataSource: InventoryDataSource = 'dian') {
         hasMovementData,
         lastSiigoSyncAt,
         lastPhysicalCountAt,
+        fisicoDesdeVariantes,
       };
       setMetrics(metricsObj);
 

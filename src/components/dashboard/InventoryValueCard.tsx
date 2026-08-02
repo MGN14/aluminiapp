@@ -86,9 +86,9 @@ export default function InventoryValueCard() {
             <ul className="space-y-1.5">
               {topPorValor.map((v) => (
                 <li key={v.variant_reference} className="flex items-center gap-2 p-2 rounded-md bg-muted/30 text-xs">
+                  {/* Solo la referencia — el nombre apretaba la card (Nico 2026-08-02). */}
                   <div className="flex-1 min-w-0">
                     <span className="font-medium">{v.variant_reference}</span>
-                    {v.name && <span className="text-muted-foreground text-[10px] ml-1.5 truncate">{v.name}</span>}
                     <div className="text-muted-foreground text-[10px]">{fmtNum(v.stock)} und</div>
                   </div>
                   <span className="font-mono font-semibold tabular-nums whitespace-nowrap">{fmtCOP(v.valor)}</span>

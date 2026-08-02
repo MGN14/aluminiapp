@@ -3,6 +3,9 @@ import { Clock, RefreshCw, ClipboardCheck, AlertTriangle } from 'lucide-react';
 interface Props {
   lastSiigoSyncAt: string | null;
   lastPhysicalCountAt: string | null;
+  /** true = el físico sale del inventario por variante (en vivo, se mueve con
+   *  cada remisión y contenedor) — no hay "conteo atrasado" que advertir. */
+  fisicoEnVivo?: boolean;
 }
 
 function formatRelative(iso: string | null): { label: string; days: number } | null {
@@ -27,17 +30,19 @@ function formatRelative(iso: string | null): { label: string; days: number } | n
 export default function InventoryFreshnessBanner({
   lastSiigoSyncAt,
   lastPhysicalCountAt,
+  fisicoEnVivo = false,
 }: Props) {
   const siigo = formatRelative(lastSiigoSyncAt);
   const physical = formatRelative(lastPhysicalCountAt);
 
   // Si la sync de Siigo es más fresca que el conteo físico por > 7 días,
   // mostrar alerta: el descuadre actual probablemente es por movimientos
-  // entrados a Siigo sin reflejar en conteo físico.
+  // entrados a Siigo sin reflejar en conteo físico. Con físico EN VIVO
+  // (inventario por variante) no aplica: se actualiza con cada remisión.
   const staleByDays =
     siigo && physical ? physical.days - siigo.days : null;
-  const showStaleWarning = staleByDays !== null && staleByDays > 7;
-  const noPhysicalEver = physical === null && siigo !== null;
+  const showStaleWarning = !fisicoEnVivo && staleByDays !== null && staleByDays > 7;
+  const noPhysicalEver = !fisicoEnVivo && physical === null && siigo !== null;
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 text-xs">
@@ -54,9 +59,11 @@ export default function InventoryFreshnessBanner({
       <div className="flex items-center gap-2">
         <ClipboardCheck className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
         <div>
-          <span className="text-muted-foreground">Conteo físico:</span>{' '}
+          <span className="text-muted-foreground">
+            {fisicoEnVivo ? 'Físico (por variante, en vivo):' : 'Conteo físico:'}
+          </span>{' '}
           <span className="font-medium tabular-nums">
-            {physical ? physical.label : 'nunca realizado'}
+            {physical ? (fisicoEnVivo ? `último movimiento ${physical.label}` : physical.label) : fisicoEnVivo ? 'sin movimientos aún' : 'nunca realizado'}
           </span>
         </div>
       </div>

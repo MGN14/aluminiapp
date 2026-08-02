@@ -632,6 +632,7 @@ export default function Inventory() {
               <InventoryFreshnessBanner
                 lastSiigoSyncAt={metrics.lastSiigoSyncAt}
                 lastPhysicalCountAt={metrics.lastPhysicalCountAt}
+                fisicoEnVivo={metrics.fisicoDesdeVariantes}
               />
             </div>
 
