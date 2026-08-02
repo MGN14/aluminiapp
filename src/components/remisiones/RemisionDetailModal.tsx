@@ -14,6 +14,11 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon, Trash2 } from 'lucide-react';
+import {
+  applyRemisionInventory,
+  fetchProductsByRefs,
+  reverseRemisionInventory,
+} from '@/lib/remisionInventory';
 
 interface Props {
   remisionId: string;
@@ -82,7 +87,7 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
     queryFn: async () => {
       const { data, error } = await (supabase
         .from('remisiones') as any)
-        .select(`id, date, number, beneficiary, responsible_id, notes, status, total_manual, module_origin, remision_type,
+        .select(`id, user_id, created_at, date, number, beneficiary, responsible_id, notes, status, total_manual, module_origin, remision_type,
           remision_items(id, reference, product_name, units, unit_cost, total_cost),
           remision_invoices(invoice_id, invoices(id, invoice_number, total_amount, issue_date, counterparty_name))`)
         .eq('id', remisionId)
@@ -170,6 +175,53 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
           })
           .eq('id', it.id);
         if (upErr) throw upErr;
+      }
+
+      // RE-SINCRONIZAR INVENTARIO con los ítems como quedaron. Antes el
+      // guardado solo tocaba remision_items: cambiar unidades o borrar líneas
+      // dejaba el stock físico (-5) y el ledger por variante con las
+      // cantidades VIEJAS (reporte de Nico 2026-08-02: 1000 GL4102 que el
+      // inventario por variante nunca vio salir). Reversa + re-aplicación con
+      // el created_at ORIGINAL: lo que un conteo posterior ya absorbió no se
+      // resucita (guardia por variante en la conciliación).
+      try {
+        const vivos = toUpdate
+          .map((i) => ({
+            reference: i.reference,
+            product_name: i.product_name,
+            units: Number(i.units) || 0,
+            unit_cost: Number(i.unit_cost) || 0,
+          }))
+          .filter((i) => i.units > 0);
+        if (status !== 'cancelado' && vivos.length > 0) {
+          // -5: reversa + re-aplicación. Variantes: NO se reversan — la
+          // conciliación (adentro de applyRemisionInventory) corrige por diff
+          // sin tocar filas que un conteo ya absorbió.
+          await reverseRemisionInventory(remision.id, { skipVariantes: true });
+          const map = await fetchProductsByRefs(user?.id ?? '', vivos.map((v) => v.reference));
+          await applyRemisionInventory({
+            userId: (remision as any).user_id ?? user?.id ?? '',
+            remisionId: remision.id,
+            remisionType: (remision.remision_type === 'compra' ? 'compra' : 'venta'),
+            movementDate: date || remision.date,
+            items: vivos,
+            productMap: map,
+            remisionCreatedAt: (remision as any).created_at ?? undefined,
+          });
+        } else {
+          // Cancelada o sin ítems vivos: misma reversa total que al eliminar.
+          await reverseRemisionInventory(remision.id);
+        }
+        queryClient.invalidateQueries({ queryKey: ['inventory-variants'] });
+        queryClient.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
+        queryClient.invalidateQueries({ queryKey: ['imports'] });
+      } catch (invErr) {
+        console.warn('[remisiones] edición guardada pero el inventario no se re-sincronizó:', invErr);
+        toast({
+          title: 'Ítems guardados, pero el inventario no se pudo re-sincronizar',
+          description: 'Abrí Inventario → Por variante: el cuadre automático lo corrige al cargar.',
+          variant: 'destructive',
+        });
       }
 
       await queryClient.invalidateQueries({ queryKey: ['remision-detail', remisionId] });

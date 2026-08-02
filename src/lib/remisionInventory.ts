@@ -179,6 +179,9 @@ export interface ApplyRemisionInput {
   movementDate: string;
   items: RemisionItemInput[];
   productMap: Map<string, ProductLite>;
+  /** created_at real de la remisión — para re-aplicar tras una EDICIÓN sin
+   *  resucitar salidas que un conteo posterior ya absorbió. Omitir al crear. */
+  remisionCreatedAt?: string;
 }
 
 export interface ApplyRemisionResult {
@@ -197,6 +200,7 @@ export async function applyRemisionInventory({
   movementDate,
   items,
   productMap,
+  remisionCreatedAt,
 }: ApplyRemisionInput): Promise<ApplyRemisionResult> {
   const movementType = remisionType === 'compra' ? 'entrada' : 'salida';
   const sign = remisionType === 'compra' ? 1 : -1;
@@ -225,6 +229,7 @@ export async function applyRemisionInventory({
         remisionType,
         movementDate,
         items: items.map((i) => ({ reference: i.reference, units: i.units })),
+        remisionCreatedAt,
       });
       variantesAplicadas = v.applied;
     } catch (e) {
@@ -273,6 +278,7 @@ export async function applyRemisionInventory({
       remisionType,
       movementDate,
       items: items.map((i) => ({ reference: i.reference, units: i.units })),
+      remisionCreatedAt,
     });
     variantesAplicadas = v.applied;
   } catch (e) {
@@ -283,7 +289,13 @@ export async function applyRemisionInventory({
 }
 
 // Reverse all movements sourced from a remisión: undo stock_physical deltas and delete the movement rows.
-export async function reverseRemisionInventory(remisionId: string): Promise<void> {
+// opts.skipVariantes: solo revierte el -5 — para el flujo de EDICIÓN, donde el
+// ledger por variante se concilia por diff (applyVariantRemision) sin borrar
+// filas absorbidas por conteos ni desacomodar el stock cacheado.
+export async function reverseRemisionInventory(
+  remisionId: string,
+  opts?: { skipVariantes?: boolean },
+): Promise<void> {
   const { data: movements, error } = await supabase
     .from('inventory_movements')
     .select('id, product_id, movement_type, quantity')
@@ -318,9 +330,11 @@ export async function reverseRemisionInventory(remisionId: string): Promise<void
   await supabase.from('inventory_movements').delete().in('id', ids);
 
   // Revertir también el ledger por variante (best-effort, mismo criterio).
-  try {
-    await reverseVariantRemision(remisionId);
-  } catch (e) {
-    console.warn('[variantes] no se pudo revertir la remisión en el inventario por variante:', e);
+  if (!opts?.skipVariantes) {
+    try {
+      await reverseVariantRemision(remisionId);
+    } catch (e) {
+      console.warn('[variantes] no se pudo revertir la remisión en el inventario por variante:', e);
+    }
   }
 }

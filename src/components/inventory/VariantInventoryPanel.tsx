@@ -15,7 +15,7 @@ import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { supabase } from '@/integrations/supabase/client';
 import {
   applyVariantImportEntrada,
-  applyVariantRemision,
+  backfillVariantRemisionesDesdeDB,
   purgeStaleImportMovements,
   computeVariantDesglose,
   fetchAllVariantMovements,
@@ -84,29 +84,37 @@ export default function VariantInventoryPanel() {
     return out;
   }, [variants, movs, movsPending]);
 
-  // AUTO-CUADRE: el stock guardado se corrige solo apenas se detecta un
-  // descuadre contra el teórico — sin depender de que alguien apriete
-  // "Recuadrar movimientos". La tabla ya muestra el teórico (la suma que
-  // pide Nico); esto deja la base igual para Importaciones y el Dashboard.
+  // AUTO-CONCILIACIÓN (una pasada por sesión, sin botón): primero se concilia
+  // el ledger contra remision_items — inserta líneas que nunca se descontaron
+  // (la variante nació después, con el contenedor), corrige cantidades de
+  // remisiones editadas y limpia canceladas — y después cuadra el stock
+  // guardado al teórico. Antes solo se cuadraba el stock: si al ledger le
+  // FALTABAN remisiones, el teórico mismo estaba mal y el cuadre lo daba por
+  // bueno (GL4102/SA325B sin descuentos, reporte de Nico 2026-08-02).
   const autoCuadreCorrido = useRef(false);
   useEffect(() => {
-    if (autoCuadreCorrido.current || desglose.size === 0) return;
-    const hayDescuadre = variants.some((v) => {
-      const d = desglose.get(v.id);
-      return d != null && Math.round(Number(v.stock ?? 0)) !== Math.round(d.teorico);
-    });
-    if (!hayDescuadre) return;
+    if (autoCuadreCorrido.current || desglose.size === 0 || movsPending) return;
     autoCuadreCorrido.current = true; // una sola pasada por sesión (sin loops)
-    syncVariantStockToLedger()
-      .then((n) => {
-        if (n > 0) {
+    (async () => {
+      try {
+        const r = await backfillVariantRemisionesDesdeDB();
+        const n = await syncVariantStockToLedger();
+        const tocadas = r.insertadas + r.corregidas + r.eliminadas;
+        if (tocadas > 0 || n > 0) {
           qc.invalidateQueries({ queryKey: ['inventory-variants'] });
+          qc.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
           qc.invalidateQueries({ queryKey: ['imports'] });
-          toast({ title: `Stock cuadrado automáticamente`, description: `${n} referencia(s) tenían el saldo guardado distinto a inicial + contenedor − remisiones. Ya quedaron iguales.`, duration: 8000 });
+          const partes = [
+            r.insertadas ? `${r.insertadas} descuento(s) de remisión que faltaban` : '',
+            r.corregidas ? `${r.corregidas} cantidad(es) corregidas` : '',
+            r.eliminadas ? `${r.eliminadas} residuo(s) de canceladas limpiados` : '',
+            n ? `${n} stock(s) cuadrados al ledger` : '',
+          ].filter(Boolean);
+          toast({ title: 'Inventario cuadrado automáticamente', description: partes.join(' · ') + '.', duration: 8000 });
         }
-      })
-      .catch(() => { /* best-effort: la tabla ya muestra el teórico igual */ });
-  }, [variants, desglose, qc, toast]);
+      } catch { /* best-effort: la tabla ya muestra el teórico igual */ }
+    })();
+  }, [variants, desglose, movsPending, qc, toast]);
 
   /**
    * RECUADRE: aplica lo que quedó sin aplicar por los bugs viejos (refs que
@@ -119,17 +127,19 @@ export default function VariantInventoryPanel() {
       .from('imports')
       .select('id, ref_pedido, proveedor_nombre')
       .in('estado', ['entregado', 'cerrado']);
-    const { data: rems } = await (supabase as any)
+    // TODAS las remisiones, sin filtro de fecha: el filtro viejo (created_at
+    // >= MAX ancla de TODAS las variantes) se corría a "ahora" cada vez que un
+    // contenedor auto-creaba una referencia, y el recuadre terminaba sin mirar
+    // casi ninguna remisión. El corte por conteo es POR VARIANTE y lo aplica
+    // la conciliación (guardia last_count_date).
+    const { count: remCount } = await (supabase as any)
       .from('remisiones')
-      .select('id, number, date, created_at, remision_type, status, remision_items(reference, units)')
-      .neq('status', 'cancelado')
-      .gte('created_at', fechaAncla || '1970-01-01');
+      .select('id', { count: 'exact', head: true });
     const pedidos = (imps ?? []) as { id: string; ref_pedido: string | null; proveedor_nombre: string }[];
-    const remisiones = (rems ?? []) as { id: string; number: string; date: string; remision_type: 'venta' | 'compra'; remision_items: { reference: string; units: number }[] }[];
     const ok = window.confirm(
       `Voy a verificar y aplicar al inventario por variante:\n\n` +
       `· ${pedidos.length} contenedor(es) entregado(s) — entradas (crea referencias nuevas si faltan)\n` +
-      `· ${remisiones.length} remisión(es) posteriores al conteo — salidas\n\n` +
+      `· ${remCount ?? 0} remisión(es) — se aplican los descuentos que falten, se corrigen cantidades editadas y se limpian canceladas (cada referencia respeta su propio conteo)\n\n` +
       'Lo que ya está aplicado NO se duplica. ¿Continuar?',
     );
     if (!ok) return;
@@ -137,7 +147,6 @@ export default function VariantInventoryPanel() {
     try {
       let entradas = 0;
       let creadas = 0;
-      let salidas = 0;
       const sinMatch = new Set<string>();
       // Entradas de contenedor PISADAS por el re-anclaje del conteo: sus
       // movimientos son anteriores al ancla (el conteo redefinió el stock,
@@ -164,16 +173,12 @@ export default function VariantInventoryPanel() {
         creadas += r.created ?? 0;
         r.unmatched.forEach((u) => sinMatch.add(u));
       }
-      for (const rem of remisiones) {
-        const r = await applyVariantRemision({
-          remisionId: rem.id,
-          remisionType: rem.remision_type === 'compra' ? 'compra' : 'venta',
-          movementDate: rem.date,
-          items: (rem.remision_items ?? []).map((i) => ({ reference: i.reference, units: Number(i.units ?? 0) })),
-        });
-        if (r.applied > 0) salidas += 1;
-        r.unmatched.forEach((u) => sinMatch.add(u));
-      }
+      // Conciliación remisiones ↔ ledger POR LÍNEA: inserta descuentos que
+      // faltaban (variante nacida después del despacho), corrige cantidades
+      // de remisiones editadas y limpia residuos de canceladas/borradas.
+      const rec = await backfillVariantRemisionesDesdeDB();
+      rec.unmatched.forEach((u) => sinMatch.add(u));
+      const salidas = rec.insertadas + rec.corregidas + rec.eliminadas;
       // Paso final: stock guardado := teórico del ledger. Repara los saldos
       // que quedaron descuadrados por bugs viejos (las filas en ámbar) — el
       // stock ES inicial + contenedor − remisiones, sin excepciones.
@@ -182,7 +187,7 @@ export default function VariantInventoryPanel() {
       qc.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
       qc.invalidateQueries({ queryKey: ['imports'] });
       toast({
-        title: `Recuadre listo: ${entradas} contenedor(es) entrados${creadas ? ` (${creadas} refs nuevas)` : ''} · ${salidas} remisión(es) descontadas${cuadradas ? ` · ${cuadradas} stocks cuadrados` : ''}`,
+        title: `Recuadre listo: ${entradas} contenedor(es) entrados${creadas ? ` (${creadas} refs nuevas)` : ''} · ${salidas} movimiento(s) de remisión conciliados${cuadradas ? ` · ${cuadradas} stocks cuadrados` : ''}`,
         description: sinMatch.size
           ? `Sin match (revisá typos): ${[...sinMatch].slice(0, 6).join(', ')}${sinMatch.size > 6 ? '…' : ''}`
           : 'Todo lo pendiente quedó aplicado y el stock quedó igual a inicial + contenedor − remisiones.',
