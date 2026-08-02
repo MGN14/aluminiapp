@@ -168,6 +168,43 @@ En una frase: **se medía "cuántos días hubo stock" en una tabla que no ve las
 
 ---
 
+## 4-bis. Segunda vuelta: la censura seguía inflando (y una auditoría externa que apuntó al lugar equivocado)
+
+Tras el fix de §4 el síntoma persistía. Una segunda auditoría externa concluyó que **el pipeline no llegaba a las referencias con demanda** (`enTransito = 0`) y propuso arreglar la imputación del tránsito y fusionar el stock de variantes con el de Siigo.
+
+**Esa conclusión era falsa, y la verificación es directa** — la tabla de Cobertura en producción mostraba el tránsito correctamente imputado:
+
+```
+GL4102 mate    872,3/día   stock 1.103   +1.100 en tránsito
+T077A mate     257,8/día   stock 40      +2.300 en tránsito
+DIA11 mate     291,3/día   stock 123     +1.190 en tránsito
+```
+
+El pipeline sí entraba. Lo que estaba mal seguía siendo **la demanda**, y el tope ×5 solo tapaba el síntoma: con base real de ~20 und/día, GL4102 salía en ~100.
+
+### La causa remanente: censura sobre días que la referencia no existía
+
+`computeFamilyDemand` reconstruía el stock hacia atrás sobre los 90 días de ventana **completos**, aunque la referencia hubiera nacido hace 10 (auto-creada por el contenedor de julio). Los 80 días anteriores se contaban como "agotada" cuando en realidad son **sin dato**:
+
+```
+diasConStock = 10 de 90  →  censura = 9×  →  tope ×5  →  demanda 5 veces la real
+```
+
+**Fix:** se introduce `ventanaEfectiva = min(ventanaDias, días desde el primer movimiento)`. El consumo simple se mide sobre esa misma base, así que una referencia que tuvo stock **todos los días que existió** obtiene censura exactamente 1. El caso canónico que motivó la censura (500 unidades vendidas en 21 de 85 días) sigue dando ~4×, intacto.
+
+### Qué sí se tomó de esa auditoría
+
+- **Reparto del tránsito huérfano** (su §2.1b): la regla binaria de re-anclaje exigía demanda por color *exactamente* 0 para imputar a la `-5`; una sola remisión escrita sin sufijo la desactivaba para toda la familia. Ahora, una llegada cuya llave no tenga consumo ni stock propio **se reparte entre las variantes de su familia proporcionalmente al consumo** (mismo criterio con el que ya se repartía el stock).
+- **Instrumentación** (su §3), que era su mejor aporte: `transitoSinImputar` — unidades en camino que no cubren ningún quiebre — se calcula y se muestra en la card con la advertencia de que la fecha no las cuenta. Y las `refsGrupal` que fijaron el corte ahora se listan con su consumo, stock y tránsito, para poder auditar la fecha a ojo.
+
+### Qué se rechazó, y por qué
+
+**Fusionar el stock de `inventory_variants` con el de `inventory_products`** (su §2.2). El `-5` de Siigo declara $728M contra $216M reales — un descuadre confirmado de $432M. Completar el stock interno con esa fuente metería mercancía fantasma al motor y volvería la fecha demasiado optimista, que es el error opuesto y más caro. El switch todo-o-nada se queda: mientras la maestra de variantes esté sembrada, es la única fuente correcta.
+
+**Lección transversal:** una reproducción del cálculo "por fuera" puede coincidir con un escenario y aun así atribuirlo a la causa equivocada. Antes de aceptar un diagnóstico, hay que mirar los valores intermedios que el propio módulo ya muestra en pantalla.
+
+---
+
 ## 5. Estado actual y qué falta verificar
 
 **Datos de producción al momento de la auditoría:**

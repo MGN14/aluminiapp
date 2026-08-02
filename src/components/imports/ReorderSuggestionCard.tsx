@@ -33,9 +33,10 @@ function daysFromToday(iso: string): number {
 }
 
 const fmtUSD0 = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+const fmtUnd = (n: number) => Math.round(n).toLocaleString('es-CO');
 
 export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?: () => void }) {
-  const { isPending, suggestion: sug, pedidosSinItems, pipeline, diasCotizacion, retenidos } = useReorderSuggestion();
+  const { isPending, suggestion: sug, pedidosSinItems, pipeline, diasCotizacion, retenidos, transitoSinImputar } = useReorderSuggestion();
 
   if (isPending || !sug) {
     return (
@@ -133,6 +134,23 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
           </div>
         )}
 
+        {/* DIAGNÓSTICO: unidades en camino que el modelo no está usando para
+            cubrir ningún quiebre. Si esto aparece, la fecha de abajo es más
+            alarmista que la realidad y hay que revisar cómo se escribió la
+            referencia en el packing (auditoría externa 2026-08-02). */}
+        {transitoSinImputar.length > 0 && (() => {
+          const total = transitoSinImputar.reduce((s, t) => s + t.unidades, 0);
+          return (
+            <p className="text-[11px] leading-relaxed rounded-md border border-amber-400/50 bg-amber-50/70 dark:bg-amber-950/20 px-2.5 py-2">
+              ⚠️ <strong>{fmtUnd(total)} unidades en camino no cruzan con ninguna referencia que tenga demanda o stock</strong>{' '}
+              ({transitoSinImputar.slice(0, 4).map((t) => `${t.label} (${fmtUnd(t.unidades)})`).join(', ')}
+              {transitoSinImputar.length > 4 ? `, +${transitoSinImputar.length - 4} más` : ''}):
+              la fecha de abajo NO las cuenta como cobertura. Revisá cómo quedó escrita esa referencia en el
+              packing/proforma del pedido.
+            </p>
+          );
+        })()}
+
         {/* Los avisos de documentos faltantes (proforma/packing/BanRep) viven
             POR FILA en la tabla de pedidos, no acá (decisión de Nico 2026-08-02). */}
         {sug.fechaLimite ? (
@@ -188,6 +206,24 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
               <p className="text-lg font-bold text-foreground">{fmtFecha(sug.llegadaSiPidoHoy)}</p>
             </div>
           </div>
+          {/* POR QUÉ esa fecha: las referencias que fijaron el corte, con sus
+              números. Sin esto la fecha no se puede auditar a ojo (idea de la
+              auditoría externa 2026-08-02). */}
+          {sug.refsGrupal.length > 0 && sug.fechaQuiebreGrupal && (
+            <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
+              El corte del <strong className="text-foreground">{fmtFecha(sug.fechaQuiebreGrupal)}</strong> lo fijan{' '}
+              {sug.refsGrupal.length} referencia{sug.refsGrupal.length === 1 ? '' : 's'}:{' '}
+              {sug.refsGrupal.slice(-3).map((q, i, arr) => (
+                <span key={q.reference}>
+                  <strong className="text-foreground font-mono">{q.reference}</strong>
+                  {' '}({fmtUnd(q.consumoDiario)}/día · stock {fmtUnd(q.stock)}
+                  {q.enTransito > 0 ? ` · +${fmtUnd(q.enTransito)} en camino` : ' · nada en camino'})
+                  {i < arr.length - 1 ? ' · ' : ''}
+                </span>
+              ))}
+              {sug.refsGrupal.length > 3 ? ` y ${sug.refsGrupal.length - 3} más` : ''}.
+            </p>
+          )}
           </div>
         ) : sug.motivoSinFecha === 'sin_urgencia' ? (
           <div className="rounded-lg border border-success/30 bg-success/5 px-3 py-2.5">

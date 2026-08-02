@@ -54,6 +54,9 @@ export interface FamilyDemand {
   /** Días de la ventana en que la familia tuvo stock > 0. */
   diasConStock: number;
   ventanaDias: number;
+  /** Ventana realmente observable: min(ventanaDias, días desde el primer
+   *  movimiento). Los días anteriores no son "sin stock", son SIN DATO. */
+  ventanaEfectiva: number;
   /** true si hubo días sin stock con ventas antes y después (censura real). */
   huboQuiebre: boolean;
   /** Serie mensual de salidas (toda la historia consultada), 'YYYY-MM'. */
@@ -90,7 +93,8 @@ export function computeFamilyDemand(params: {
   stockActual: number;
   movimientos: DemandMovement[];
 }): FamilyDemand {
-  const { todayIso, ventanaDias, movimientos } = params;
+  const { todayIso, movimientos } = params;
+  const ventanaDias = params.ventanaDias;
   const desdeVentana = addDaysIso(todayIso, -ventanaDias);
 
   // Neto por día (salidas positivas, entradas negativas) para reconstruir
@@ -125,7 +129,21 @@ export function computeFamilyDemand(params: {
   let huboDiaSeco = false;
   let huboQuiebre = false;
 
-  for (let i = 0; i < ventanaDias; i++) {
+  // VENTANA EFECTIVA: no se puede afirmar "estuvo agotada 79 de 90 días" sobre
+  // una referencia que el sistema conoce hace 10 (nació con el contenedor de
+  // julio). Esos días pre-historia no son "sin stock": son SIN DATO, y
+  // contarlos como agote disparaba la censura al tope (GL4102 marcaba 872
+  // und/día contra ~20 reales — auditoría 2026-08-02, segunda vuelta).
+  // La ventana se recorta a la historia realmente observada.
+  const diasDeHistoria = primerMovimiento
+    ? Math.round((new Date(todayIso + 'T00:00:00Z').getTime()
+      - new Date(primerMovimiento + 'T00:00:00Z').getTime()) / 86_400_000) + 1
+    : 0;
+  const ventanaEfectiva = primerMovimiento
+    ? Math.max(1, Math.min(ventanaDias, diasDeHistoria))
+    : ventanaDias;
+
+  for (let i = 0; i < ventanaEfectiva; i++) {
     const day = addDaysIso(todayIso, -i);
     if (day < desdeVentana) break;
     const mov = netoPorDia.get(day);
@@ -145,7 +163,10 @@ export function computeFamilyDemand(params: {
     }
   }
 
-  const consumoDiarioSimple = salidasVentana / ventanaDias;
+  // El SIMPLE se mide sobre la ventana efectiva — misma base que el censurado,
+  // para que el ratio censura = censurado/simple sea 1 cuando la referencia
+  // tuvo stock todos los días que existió (aunque sean 10 de 90).
+  const consumoDiarioSimple = salidasVentana / Math.max(ventanaEfectiva, 1);
   // Censurado: si vendió, al menos 1 día tuvo stock (defensa contra datos
   // imperfectos donde la reconstrucción da 0 días).
   const consumoDiario = salidasVentana > 0
@@ -200,6 +221,7 @@ export function computeFamilyDemand(params: {
     salidasVentana,
     diasConStock,
     ventanaDias,
+    ventanaEfectiva,
     huboQuiebre,
     serieMensual,
     mesesDeHistoria,

@@ -56,6 +56,14 @@ export interface VariantPrimitives {
    * y se listan aparte para corregirlas en la remisión.
    */
   sinCruzar: { key: string; label: string; units: number }[];
+  /**
+   * Unidades EN CAMINO que no cayeron en ninguna referencia con demanda ni
+   * stock (ni siquiera repartidas entre las variantes de su familia): el
+   * modelo no las usa para cubrir ningún quiebre. Antes desaparecían sin
+   * aviso — si este número es grande, la fecha de pedido sale más alarmista
+   * de lo real y hay que revisar cómo se escribió la referencia en el packing.
+   */
+  transitoSinImputar: { key: string; label: string; unidades: number }[];
 }
 
 export interface BuildVariantsParams {
@@ -133,16 +141,52 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
   // la llegada por color se imputa a la -5 — donde física y contablemente cae
   // (Siigo no discrimina color). Si SÍ hay demanda por color, se respeta la
   // imputación por color (el reparto de stock ya la contempla).
-  const transitoAnclado: TransitoItem[] = transito.map((t) => {
+  //
+  // REGLA (2026-08-02, tras auditoría externa): la vieja condición binaria
+  // exigía demanda por color EXACTAMENTE 0 para re-anclar en la -5. Bastaba
+  // una remisión escrita sin sufijo (mate) para apagar el re-anclaje de toda
+  // la familia y dejar la llegada en una variante huérfana. Ahora: si la
+  // llave de la llegada no tiene ni consumo ni stock propio, sus unidades se
+  // REPARTEN entre las variantes de su familia proporcionalmente al consumo
+  // (mismo criterio con el que ya se reparte el stock). Sin demanda en la
+  // familia, la llegada se queda donde está y se reporta como sin imputar.
+  const consumoDe = (k: string) => consumoPorVariante.get(k) ?? 0;
+  const stockDe = (k: string) => stockExacto.get(k) ?? 0;
+  const variantesPorFamilia = new Map<string, string[]>();
+  for (const k of new Set<string>([...consumoPorVariante.keys(), ...stockExacto.keys()])) {
+    if (colorFromSuffix(k) === 'total' && (demandaColorPorFamilia.get(refFamilyKey(k)) ?? 0) > 0) continue;
+    const fam = refFamilyKey(k);
+    const arr = variantesPorFamilia.get(fam) ?? [];
+    arr.push(k);
+    variantesPorFamilia.set(fam, arr);
+  }
+
+  const transitoAnclado: TransitoItem[] = [];
+  const sinImputar: { key: string; label: string; unidades: number }[] = [];
+  for (const t of transito) {
     const colorKey = t.matchKey ?? variantKey(t.reference);
     const familia = refFamilyKey(colorKey);
-    const totalKey = totalKeyPorFamilia.get(familia);
-    const anclaEnTotal =
-      colorFromSuffix(colorKey) !== 'total' &&
-      (demandaColorPorFamilia.get(familia) ?? 0) === 0 &&
-      !!totalKey;
-    return { ...t, matchKey: anclaEnTotal ? totalKey! : colorKey };
-  });
+    const qty = Number(t.cantidad ?? 0);
+    // Tiene destino propio (vende o tiene stock esa variante exacta): directo.
+    if (consumoDe(colorKey) > 0 || stockDe(colorKey) > 0) {
+      transitoAnclado.push({ ...t, matchKey: colorKey });
+      continue;
+    }
+    // Huérfana: repartir entre las variantes de la familia que SÍ consumen.
+    const hermanas = (variantesPorFamilia.get(familia) ?? []).filter((k) => consumoDe(k) > 0);
+    const totalConsumo = hermanas.reduce((s, k) => s + consumoDe(k), 0);
+    if (hermanas.length && totalConsumo > 0 && qty > 0) {
+      for (const k of hermanas) {
+        transitoAnclado.push({ ...t, cantidad: qty * (consumoDe(k) / totalConsumo), matchKey: k });
+      }
+      continue;
+    }
+    // Ni destino propio ni hermanas con demanda: queda donde está, y se
+    // REPORTA — antes desaparecía del modelo sin ningún aviso.
+    transitoAnclado.push({ ...t, matchKey: colorKey });
+    if (qty > 0) sinImputar.push({ key: colorKey, label: t.reference.trim(), unidades: qty });
+  }
+  sinImputar.sort((a, b) => b.unidades - a.unidades);
 
   // Referencias vendidas que no existen ni en inventario ni en tránsito:
   // errores de digitación de la remisión. Fuera del cálculo, listadas aparte.
@@ -226,6 +270,7 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
     consumoPorVariante,
     transito: transitoAnclado,
     sinCruzar,
+    transitoSinImputar: sinImputar,
   };
 }
 

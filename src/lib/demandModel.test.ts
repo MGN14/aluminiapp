@@ -19,12 +19,39 @@ describe('computeFamilyDemand — consumo censurado (idea de Nico)', () => {
       ],
     });
     expect(d.salidasVentana).toBe(500);
-    // Ingenuo: 500/90 ≈ 5,6 — subestima brutal.
-    expect(d.consumoDiarioSimple).toBeCloseTo(5.56, 1);
+    // La familia solo tiene historia desde el 15-abr (85 días contando ambos
+    // extremos), así que la ventana efectiva es 85, no 90: los días anteriores
+    // no son "sin stock", son SIN DATO (fix 2026-08-02).
+    expect(d.ventanaEfectiva).toBe(85);
+    // Ingenuo: 500/85 ≈ 5,88 — subestima brutal igual.
+    expect(d.consumoDiarioSimple).toBeCloseTo(5.88, 1);
     // Censurado: solo cuenta los ~21 días con stock → ~24/día.
     expect(d.diasConStock).toBeGreaterThan(15);
     expect(d.diasConStock).toBeLessThan(30);
     expect(d.consumoDiario).toBeGreaterThan(15);
+    // La corrección sigue siendo la que quiso Nico: ~4×, no ~40×.
+    expect(d.consumoDiario / d.consumoDiarioSimple).toBeGreaterThan(3);
+    expect(d.consumoDiario / d.consumoDiarioSimple).toBeLessThan(5);
+  });
+
+  it('referencia RECIÉN NACIDA con stock todo su corto historial: censura = 1', () => {
+    // El caso que rompía el motor (GL4102, auditoría 2026-08-02): la variante
+    // nació con el contenedor hace 10 días y vendió bien esos 10 días. Medir
+    // "estuvo agotada 80 de 90 días" es falso — no existía. Sin ventana
+    // efectiva, la censura daba ×9 y su demanda salía 9 veces la real.
+    const d = computeFamilyDemand({
+      todayIso: HOY,
+      ventanaDias: 90,
+      stockActual: 1100,
+      movimientos: [
+        { tipo: 'entrada', quantity: 2100, date: '2026-06-29' },
+        { tipo: 'salida', quantity: 1000, date: '2026-07-06' },
+      ],
+    });
+    expect(d.ventanaEfectiva).toBe(10);
+    expect(d.diasConStock).toBe(10);
+    expect(d.consumoDiario).toBeCloseTo(d.consumoDiarioSimple, 5); // censura = 1
+    expect(d.consumoDiario).toBeCloseTo(100, 0); // 1000 / 10 días reales
   });
 
   it('referencia siempre con stock: censurado ≈ ingenuo', () => {
@@ -33,11 +60,14 @@ describe('computeFamilyDemand — consumo censurado (idea de Nico)', () => {
       ventanaDias: 90,
       stockActual: 400,
       movimientos: [
+        // Historia desde el arranque de la ventana: efectiva = 90 completos.
+        { tipo: 'salida', quantity: 90, date: '2026-04-09' },
         { tipo: 'salida', quantity: 90, date: '2026-05-01' },
         { tipo: 'salida', quantity: 90, date: '2026-06-01' },
         { tipo: 'salida', quantity: 90, date: '2026-07-01' },
       ],
     });
+    expect(d.ventanaEfectiva).toBe(90);
     expect(d.diasConStock).toBe(90);
     expect(d.consumoDiario).toBeCloseTo(d.consumoDiarioSimple, 5);
   });
