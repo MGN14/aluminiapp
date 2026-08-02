@@ -23,6 +23,7 @@ import {
   type VariantDesglose,
 } from '@/lib/variantInventory';
 import { useInventoryVariants, parseMaestra, type InventoryVariant } from '@/hooks/useInventoryVariants';
+import InventoryCountClosing from '@/components/inventory/InventoryCountClosing';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -362,6 +363,10 @@ export default function VariantInventoryPanel() {
           <p className="text-xl font-bold text-foreground">${fmt(totalValor)}</p>
         </div>
       </div>
+
+      {/* Cierre de inventario: subir conteo → revisar diferencias → confirmar
+          (solo admin) → el conteo queda como fuente de verdad. */}
+      <InventoryCountClosing />
 
       {isPending ? (
         <div className="flex items-center justify-center py-20 text-muted-foreground">

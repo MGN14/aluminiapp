@@ -86,6 +86,12 @@ export interface UseReorderSuggestionResult {
   kgPorUnidadVariante: Map<string, number>;
 }
 
+/** Tope de la corrección por censura (días sin stock). Ver comentario en el
+ *  cálculo de factorDemandaPorFamilia — auditoría 2026-08-02. */
+export const CENSURA_MAX = 5;
+/** Tope del factor combinado censura × tendencia × estacionalidad. */
+export const FACTOR_TOTAL_MAX = 6;
+
 function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -215,10 +221,42 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     queryFn: async () => {
       const { data, error } = await (supabase as never as { from: (t: string) => any })
         .from('inventory_variants')
-        .select('variant_reference, stock')
+        .select('id, variant_reference, stock')
         .eq('active', true);
       if (error) throw error;
-      return (data ?? []) as { variant_reference: string; stock: number }[];
+      return (data ?? []) as { id: string; variant_reference: string; stock: number }[];
+    },
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+
+  // LEDGER por variante — entradas de contenedor y salidas de remisión con su
+  // fecha. Es la historia REAL de movimientos del inventario interno y la
+  // única fuente coherente para medir "días con stock" (censura). Antes la
+  // censura salía de inventory_movements (mundo -5), que NO registra salidas
+  // por remisión (regla dura: el -5 solo se mueve al facturar) pero sí
+  // entradas de contenedor: la reconstrucción hacia atrás daba 1-3 "días con
+  // stock" de 90 e inflaba el consumo hasta ×36 (GL4102 marcaba 872 und/día
+  // contra 24 reales — auditoría 2026-08-02).
+  const variantMovsQuery = useQuery({
+    queryKey: ['imports', 'reorder-variant-movs'],
+    queryFn: async () => {
+      const db = supabase as never as { from: (t: string) => any };
+      const PAGE = 1000;
+      const out: { variant_id: string; movement_type: string; quantity: number; fecha: string | null; created_at: string }[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db
+          .from('inventory_variant_movements')
+          .select('variant_id, movement_type, quantity, fecha, created_at')
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const rows = (data ?? []) as typeof out;
+        out.push(...rows);
+        if (rows.length < PAGE) break;
+      }
+      return out;
     },
     staleTime: 10 * 60_000,
     gcTime: 60 * 60_000,
@@ -228,7 +266,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // en tránsito" y una fecha alarmista mientras la query seguía en vuelo.
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
   const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
-  if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || itemsPending) {
+  if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || variantMovsQuery.isPending || itemsPending) {
     return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], disponibilidadPorImport: new Map(), referenciasSinCruzar: [], demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
   }
 
@@ -287,27 +325,73 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // ── Modelo de demanda por familia: consumo CENSURADO por días con stock
   // (idea de Nico: medir solo cuando había con qué vender) + serie mensual
   // para estacionalidad (se activa sola a los 12 meses de historia). ──
-  const movsPorFamilia = new Map<string, DemandMovement[]>();
-  for (const m of inv.movimientos) {
-    const fam = familiaPorProductId.get(m.product_id);
+  //
+  // FUENTE: el LEDGER POR VARIANTE (entradas de contenedor + salidas de
+  // remisión) agrupado por familia, y el stock por variante. Es la única
+  // historia coherente con la demanda (que sale de remision_items).
+  // Antes se usaba inventory_movements + stock_physical del -5: ese mundo NO
+  // registra salidas por remisión pero sí entradas de contenedor, así que la
+  // reconstrucción hacia atrás dejaba el stock en 0 casi toda la ventana y la
+  // censura multiplicaba el consumo hasta ×36 (GL4102: 872 und/día contra 24
+  // reales → todo "quiebra" mañana → "montá pedido HOY" con 40k unidades en
+  // camino. Auditoría 2026-08-02).
+  const variantesRows = variantsQuery.data ?? [];
+  const famPorVariantId = new Map<string, string>();
+  const stockPorFamiliaVariante = new Map<string, number>();
+  for (const v of variantesRows) {
+    const fam = refFamilyKey(v.variant_reference);
     if (!fam) continue;
-    const arr = movsPorFamilia.get(fam) ?? [];
-    arr.push({
-      tipo: m.movement_type === 'entrada' ? 'entrada' : 'salida',
-      quantity: Number(m.quantity ?? 0),
-      date: (m.movement_date ?? '').slice(0, 10),
-    });
-    movsPorFamilia.set(fam, arr);
+    famPorVariantId.set(v.id, fam);
+    stockPorFamiliaVariante.set(fam, (stockPorFamiliaVariante.get(fam) ?? 0) + Math.max(0, Number(v.stock ?? 0)));
+  }
+  const movsPorFamilia = new Map<string, DemandMovement[]>();
+  const hayLedgerVariantes = (variantMovsQuery.data ?? []).length > 0 && famPorVariantId.size > 0;
+  if (hayLedgerVariantes) {
+    for (const m of variantMovsQuery.data ?? []) {
+      const fam = famPorVariantId.get(m.variant_id);
+      if (!fam) continue;
+      // 'inicial'/'ajuste' son anclas de conteo, no flujo: no son demanda ni
+      // reposición (meterlos falsearía los días con stock).
+      const tipo = m.movement_type === 'entrada' ? 'entrada' : m.movement_type === 'salida' ? 'salida' : null;
+      if (!tipo) continue;
+      const arr = movsPorFamilia.get(fam) ?? [];
+      arr.push({
+        tipo,
+        quantity: Number(m.quantity ?? 0),
+        date: (m.fecha ?? m.created_at ?? '').slice(0, 10),
+      });
+      movsPorFamilia.set(fam, arr);
+    }
+  } else {
+    // Fallback pre-siembra: el mundo -5 (comportamiento histórico).
+    for (const m of inv.movimientos) {
+      const fam = familiaPorProductId.get(m.product_id);
+      if (!fam) continue;
+      const arr = movsPorFamilia.get(fam) ?? [];
+      arr.push({
+        tipo: m.movement_type === 'entrada' ? 'entrada' : 'salida',
+        quantity: Number(m.quantity ?? 0),
+        date: (m.movement_date ?? '').slice(0, 10),
+      });
+      movsPorFamilia.set(fam, arr);
+    }
   }
   const demandPorFamilia = new Map<string, FamilyDemand>();
-  for (const f of familias.values()) {
+  const clavesFamilia = new Set<string>([
+    ...familias.keys(),
+    ...(hayLedgerVariantes ? stockPorFamiliaVariante.keys() : []),
+  ]);
+  for (const key of clavesFamilia) {
+    const stockActual = hayLedgerVariantes
+      ? (stockPorFamiliaVariante.get(key) ?? 0)
+      : (familias.get(key)?.stock ?? 0);
     const demanda = computeFamilyDemand({
       todayIso: today,
       ventanaDias: CONSUMO_VENTANA_DIAS,
-      stockActual: f.stock,
-      movimientos: movsPorFamilia.get(f.key) ?? [],
+      stockActual,
+      movimientos: movsPorFamilia.get(key) ?? [],
     });
-    demandPorFamilia.set(f.key, demanda);
+    demandPorFamilia.set(key, demanda);
   }
 
   // NOTA: la fecha global YA NO se calcula a nivel familia — se calcula con
@@ -387,10 +471,16 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // 20 de octubre"). Ahora el índice estacional corre la fecha solo.
   const factorDemandaPorFamilia = new Map<string, number>();
   for (const [fam, d] of demandPorFamilia) {
+    // Censura ACOTADA (auditoría 2026-08-02): sin tope, una familia con pocos
+    // días de stock reconstruidos multiplicaba la demanda por 36 y ponía a
+    // toda la bodega "en quiebre mañana". Los demás índices del modelo ya
+    // están acotados (tendencia 0,5–2 · estacional 0,6–1,8 · combinado ≤2,2);
+    // la censura ahora también. Tope CENSURA_MAX: el caso que planteó Nico
+    // ("vendió 500 en 21 días de 90") da ×4,3 y sigue entrando entero.
     const censura = d.consumoDiarioSimple > 0 && d.consumoDiario > 0
-      ? Math.max(1, d.consumoDiario / d.consumoDiarioSimple)
+      ? Math.min(CENSURA_MAX, Math.max(1, d.consumoDiario / d.consumoDiarioSimple))
       : 1;
-    const factor = censura * (d.factorDemanda || 1);
+    const factor = Math.min(FACTOR_TOTAL_MAX, censura * (d.factorDemanda || 1));
     if (factor !== 1) factorDemandaPorFamilia.set(fam, factor);
   }
 
