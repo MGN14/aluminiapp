@@ -33,19 +33,21 @@ interface VariantLite {
   variant_reference: string;
   stock: number;
   avg_cost: number;
-  /** Ancla base: conteo de maestra, o fecha de NACIMIENTO si la auto-creó un
-   *  contenedor. La vida rastreada de la variante arranca acá — remisiones
-   *  registradas antes salieron de stock viejo NO rastreado y no descuentan
-   *  (restarlas contra inicial 0 daba stocks negativos imposibles, −30M de
-   *  valor — reporte de Nico 2026-08-02). */
+  /** Conteo de maestra, o timestamp de NACIMIENTO si la auto-creó un contenedor. */
   stock_inicial_date: string | null;
+  /** Último conteo REAL (maestra o ajuste manual). null = nunca contada: su
+   *  vida rastreada arranca en la FECHA DE ARRIBO del contenedor que la creó
+   *  (regla de Nico 2026-08-02: "las remisiones solo restan después de la
+   *  fecha del entregado") — no en el click de 'entregado' en la app, que
+   *  puede ser días después de que bodega ya despachaba de ese contenedor. */
+  last_count_date: string | null;
 }
 
 /** Todas las variantes activas (la maestra son ~cientos de filas: barato). */
 async function fetchActiveVariants(): Promise<VariantLite[]> {
   const { data, error } = await db
     .from('inventory_variants')
-    .select('id, variant_reference, stock, avg_cost, stock_inicial_date')
+    .select('id, variant_reference, stock, avg_cost, stock_inicial_date, last_count_date')
     .eq('active', true);
   if (error) throw error;
   return (data ?? []) as VariantLite[];
@@ -178,14 +180,18 @@ async function fetchAliasesCanonicos(): Promise<Map<string, string>> {
  *     borrada, remisión cancelada, o remisión ANTERIOR al ancla que un bug
  *     resucitó → se elimina.
  *
- * GUARDIA DE ANCLA — la misma cuenta que computeVariantDesglose: el ancla es
- * el conteo de maestra, el nacimiento por contenedor o el último ajuste
- * manual, lo que sea MÁS NUEVO. Solo descuentan remisiones registradas
- * DESPUÉS del ancla: lo anterior o ya lo absorbió un conteo físico
- * (re-aplicarlo descontaría doble) o salió de stock viejo NO rastreado
- * (aplicarlo contra inicial 0 daba negativos imposibles: −30M de valor,
- * reporte de Nico 2026-08-02). Filas anteriores al ancla son historia
- * congelada: no se tocan.
+ * GUARDIA DE ANCLA (regla de Nico, 2026-08-02):
+ *   · Variante CONTADA (maestra o ajuste manual): descuentan las remisiones
+ *     registradas después del conteo — lo anterior ya lo absorbió el conteo
+ *     físico y re-aplicarlo descontaría doble.
+ *   · Variante NACIDA por contenedor (nunca contada): descuentan las
+ *     remisiones con FECHA igual o posterior a la fecha de ARRIBO del
+ *     contenedor que la creó (fecha_arribo_real — cuando la mercancía entró
+ *     físicamente a bodega, NO el click de 'entregado' en la app, que llega
+ *     días tarde y dejaba sin descontar lo ya despachado del contenedor).
+ *     Remisiones anteriores al arribo salieron de stock viejo NO rastreado:
+ *     aplicarlas contra inicial 0 daba negativos imposibles (−30M de valor).
+ * Filas anteriores al ancla son historia congelada: no se tocan.
  *
  * Idempotente: correrla dos veces seguidas no cambia nada.
  */
@@ -211,31 +217,80 @@ export async function reconcileVariantRemisionLedger(
   }
   const porId = new Map(variantes.map((v) => [v.id, v]));
 
-  // Ancla efectiva por variante: stock_inicial_date (conteo o nacimiento)
-  // pisado por ajustes manuales posteriores — el MISMO corte que usa
-  // computeVariantDesglose para decidir qué movimientos cuentan.
-  const anclaMs = new Map<string, number>();
-  for (const v of variantes) anclaMs.set(v.id, tsNum(v.stock_inicial_date));
+  // ── Anclas por variante ───────────────────────────────────────────────────
+  // CONTADAS: conteo (stock_inicial_date) pisado por ajustes posteriores — el
+  // mismo corte de computeVariantDesglose. NACIDAS por contenedor: fecha de
+  // ARRIBO real del contenedor que las creó (día, no timestamp del click).
+  const ajusteMs = new Map<string, number>();
+  const importsPorVariante = new Map<string, Set<string>>();
+  const entradaClickMs = new Map<string, number>(); // primer click de entrega (fallback)
   {
     const PAGE = 1000;
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await db
         .from('inventory_variant_movements')
-        .select('variant_id, created_at')
-        .eq('movement_type', 'ajuste')
+        .select('variant_id, movement_type, source_type, source_id, created_at')
+        .in('movement_type', ['ajuste', 'entrada'])
         .order('created_at', { ascending: true })
         .order('id', { ascending: true })
         .range(from, from + PAGE - 1);
       if (error) throw error;
-      const rows = (data ?? []) as { variant_id: string; created_at: string }[];
-      for (const a of rows) {
-        const t = tsNum(a.created_at);
-        if (t > (anclaMs.get(a.variant_id) ?? 0)) anclaMs.set(a.variant_id, t);
+      const rows = (data ?? []) as { variant_id: string; movement_type: string; source_type: string | null; source_id: string | null; created_at: string }[];
+      for (const m of rows) {
+        if (m.movement_type === 'ajuste') {
+          const t = tsNum(m.created_at);
+          if (t > (ajusteMs.get(m.variant_id) ?? 0)) ajusteMs.set(m.variant_id, t);
+        } else if (m.source_type === 'import' && m.source_id) {
+          const set = importsPorVariante.get(m.variant_id) ?? new Set<string>();
+          set.add(m.source_id);
+          importsPorVariante.set(m.variant_id, set);
+          const t = tsNum(m.created_at);
+          const prev = entradaClickMs.get(m.variant_id) ?? Infinity;
+          if (t < prev) entradaClickMs.set(m.variant_id, t);
+        }
       }
       if (rows.length < PAGE) break;
     }
   }
-  const anclaDe = (variantId: string): number => anclaMs.get(variantId) ?? 0;
+  const arriboPorImport = new Map<string, number>();
+  {
+    const { data, error } = await db
+      .from('imports')
+      .select('id, fecha_arribo_real');
+    if (error) throw error;
+    for (const im of (data ?? []) as { id: string; fecha_arribo_real: string | null }[]) {
+      const t = tsNum(im.fecha_arribo_real);
+      if (t > 0) arriboPorImport.set(im.id, t);
+    }
+  }
+  const DIA = 86_400_000;
+  const diaMs = (ms: number) => ms - (ms % DIA);
+  /** Arranque de vida rastreada de una variante NUNCA contada: el arribo más
+   *  viejo de sus contenedores (fallback: click de entrega, o su creación). */
+  const nacimientoDiaMs = (v: VariantLite): number => {
+    let min = Infinity;
+    for (const impId of importsPorVariante.get(v.id) ?? []) {
+      const t = arriboPorImport.get(impId);
+      if (t != null && t < min) min = t;
+    }
+    if (min === Infinity) min = entradaClickMs.get(v.id) ?? tsNum(v.stock_inicial_date);
+    return diaMs(min);
+  };
+  const contada = (v: VariantLite) => v.last_count_date != null;
+  const anclaConteoMs = (v: VariantLite): number =>
+    Math.max(contada(v) ? tsNum(v.stock_inicial_date) : 0, ajusteMs.get(v.id) ?? 0);
+  /** ¿Esta remisión descuenta de esta variante? */
+  const remisionCuenta = (rem: RemisionParaLedger, v: VariantLite): boolean => {
+    if (contada(v)) return tsNum(rem.created_at) > anclaConteoMs(v);
+    // Nunca contada: manda la FECHA de la remisión vs el día del arribo.
+    const remDia = diaMs(tsNum(rem.date) || tsNum(rem.created_at));
+    return remDia >= nacimientoDiaMs(v);
+  };
+  /** Corte de "historia congelada" para filas ya escritas en el ledger. */
+  const anclaFilaMs = (variantId: string): number => {
+    const v = porId.get(variantId);
+    return v ? anclaConteoMs(v) : 0;
+  };
 
   const onlySet = opts?.onlyRefs?.length
     ? new Set(opts.onlyRefs.map((r) => canonicalizeRef(r)).filter(Boolean))
@@ -319,11 +374,10 @@ export async function reconcileVariantRemisionLedger(
     for (const [variantId, qty] of qtyPorVariante) {
       const key = `${remId}|${variantId}`;
       consumidas.add(key);
-      const ancla = anclaDe(variantId);
       const fila = filaPorPar.get(key);
-      // ¿Le corresponde una fila VIVA (posterior al ancla)? Solo si la
-      // remisión se registró dentro de la vida rastreada de la variante.
-      const leCorresponde = tsNum(rem.created_at) > ancla;
+      // ¿Le corresponde una fila VIVA? Solo si la remisión cae dentro de la
+      // vida rastreada de la variante (post-conteo o post-arribo).
+      const leCorresponde = remisionCuenta(rem, porId.get(variantId)!);
       if (!fila) {
         if (leCorresponde) {
           toInsert.push({
@@ -339,11 +393,11 @@ export async function reconcileVariantRemisionLedger(
         }
         continue;
       }
-      // Fila anterior al ancla = historia congelada (el desglose la ignora).
-      if (tsNum(fila.created_at) <= ancla) continue;
+      // Fila anterior al conteo = historia congelada (el desglose la ignora).
+      if (tsNum(fila.created_at) <= anclaFilaMs(variantId)) continue;
       if (!leCorresponde) {
-        // Fila viva de una remisión PRE-ancla: resucitada por error (el
-        // backfill del 2026-08-02 descontó historia de stock no rastreado).
+        // Fila viva de una remisión fuera de la vida rastreada: resucitada
+        // por error (backfill del 2026-08-02) — se elimina.
         toDeleteIds.push(fila.id);
         acumular(variantId, -efecto(fila.movement_type, Number(fila.quantity)));
         continue;
@@ -364,7 +418,7 @@ export async function reconcileVariantRemisionLedger(
     if (!v || !permitida(v)) continue; // variante inactiva o fuera del alcance
     const rem = remPorId.get(row.source_id);
     if (!rem && !opts?.exhaustive) continue; // remisión fuera de la lista parcial
-    if (tsNum(row.created_at) <= anclaDe(row.variant_id)) continue; // absorbida
+    if (tsNum(row.created_at) <= anclaFilaMs(row.variant_id)) continue; // absorbida
     toDeleteIds.push(row.id);
     acumular(row.variant_id, -efecto(row.movement_type, Number(row.quantity)));
   }
