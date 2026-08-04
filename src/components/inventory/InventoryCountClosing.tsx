@@ -15,6 +15,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ClipboardCheck, Upload, Loader2, Check, X, AlertTriangle, History, ChevronDown, ChevronRight,
+  FileSpreadsheet, Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +23,8 @@ import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { parseMaestra } from '@/hooks/useInventoryVariants';
-import { useInventoryCount, type CountLine } from '@/hooks/useInventoryCount';
+import { useInventoryCount, fetchCountLines, type CountLine, type CountSession } from '@/hooks/useInventoryCount';
+import { calcularLineas, totalizar, exportCountToExcel } from '@/lib/inventoryCountExport';
 import { cn } from '@/lib/utils';
 
 const fmt = (n: number) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
@@ -47,34 +49,24 @@ export default function InventoryCountClosing() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
   const [verHistorial, setVerHistorial] = useState(false);
+  const [exportando, setExportando] = useState<string | null>(null);
 
-  const resumen = useMemo(() => {
-    const conDif = lineasBorrador.filter((l) => Math.round(Number(l.diferencia ?? 0)) !== 0);
-    const faltan = conDif.filter((l) => Number(l.diferencia) < 0);
-    const sobran = conDif.filter((l) => Number(l.diferencia) > 0);
-    const valorDe = (arr: CountLine[]) =>
-      arr.reduce((s, l) => s + Number(l.diferencia ?? 0) * Number(l.costo_unitario ?? 0), 0);
-    return {
-      total: lineasBorrador.length,
-      conDif: conDif.length,
-      nuevas: lineasBorrador.filter((l) => l.es_nueva).length,
-      noContadas: lineasBorrador.filter(esNoContada).length,
-      unidadesFaltan: faltan.reduce((s, l) => s + Number(l.diferencia ?? 0), 0),
-      unidadesSobran: sobran.reduce((s, l) => s + Number(l.diferencia ?? 0), 0),
-      valorFaltan: valorDe(faltan),
-      valorSobran: valorDe(sobran),
-      valorNeto: valorDe(conDif),
-    };
-  }, [lineasBorrador]);
+  // Las cifras de pantalla, del diálogo de confirmación y del Excel salen del
+  // MISMO cálculo: marcar "conteo completo" tiene que mover la merma a la
+  // vista, no solo al confirmar.
+  const calc = useMemo(
+    () => calcularLineas(lineasBorrador, faltantesCero),
+    [lineasBorrador, faltantesCero],
+  );
+  const resumen = useMemo(() => ({
+    ...totalizar(calc),
+    noContadas: lineasBorrador.filter(esNoContada).length,
+  }), [calc, lineasBorrador]);
 
   const visibles = useMemo(() => {
-    const arr = soloDiferencias
-      ? lineasBorrador.filter((l) => Math.round(Number(l.diferencia ?? 0)) !== 0)
-      : lineasBorrador;
-    return [...arr].sort((a, b) =>
-      Math.abs(Number(b.diferencia) * Number(b.costo_unitario)) -
-      Math.abs(Number(a.diferencia) * Number(a.costo_unitario)));
-  }, [lineasBorrador, soloDiferencias]);
+    const arr = soloDiferencias ? calc.filter((c) => c.diferencia !== 0) : calc;
+    return [...arr].sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));
+  }, [calc, soloDiferencias]);
 
   async function onFile(file: File) {
     try {
@@ -126,6 +118,35 @@ export default function InventoryCountClosing() {
       });
     } catch (e) {
       toast({ title: 'No se pudo cerrar', description: (e as Error).message, variant: 'destructive' });
+    }
+  }
+
+  /** Excel del borrador vivo (lo que hay en pantalla, con el mismo cálculo). */
+  async function onExportarBorrador() {
+    if (!borrador) return;
+    setExportando('borrador');
+    try {
+      await exportCountToExcel(
+        { fecha_conteo: borrador.fecha_conteo, estado: 'borrador', cuenta_faltantes_como_cero: faltantesCero },
+        lineasBorrador,
+      );
+    } catch (e) {
+      toast({ title: 'No se pudo exportar', description: (e as Error).message, variant: 'destructive' });
+    } finally {
+      setExportando(null);
+    }
+  }
+
+  /** Excel de un cierre ya confirmado: el soporte del ajuste para el contador. */
+  async function onExportarCierre(s: CountSession) {
+    setExportando(s.id);
+    try {
+      const lineas = await fetchCountLines(s.id);
+      await exportCountToExcel(s, lineas);
+    } catch (e) {
+      toast({ title: 'No se pudo exportar', description: (e as Error).message, variant: 'destructive' });
+    } finally {
+      setExportando(null);
     }
   }
 
@@ -201,6 +222,13 @@ export default function InventoryCountClosing() {
                 )}
               </div>
               <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="h-8 text-xs"
+                  onClick={onExportarBorrador} disabled={exportando === 'borrador'}
+                  title="Descarga el reporte de diferencias en Excel (con el costo de cada faltante/sobrante)">
+                  {exportando === 'borrador'
+                    ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Armando…</>
+                    : <><FileSpreadsheet className="h-3.5 w-3.5 mr-1" /> Exportar Excel</>}
+                </Button>
                 <Button size="sm" variant="ghost" className="h-8 text-xs"
                   onClick={() => { if (window.confirm('¿Descartar este borrador? El inventario no se toca.')) descartarBorrador.mutate(borrador.id); }}>
                   <X className="h-3.5 w-3.5 mr-1" /> Descartar
@@ -238,9 +266,7 @@ export default function InventoryCountClosing() {
                     <tr><td colSpan={5} className="px-3 py-6 text-center text-success font-medium">
                       Sin diferencias: el conteo cuadra con el sistema. ✓
                     </td></tr>
-                  ) : visibles.slice(0, 300).map((l) => {
-                    const dif = Math.round(Number(l.diferencia ?? 0));
-                    const valor = dif * Number(l.costo_unitario ?? 0);
+                  ) : visibles.slice(0, 300).map(({ linea: l, teorico, contado, diferencia: dif, valor }) => {
                     return (
                       <tr key={l.id} className="border-t border-border/60 hover:bg-muted/30">
                         <td className="px-3 py-1.5">
@@ -249,7 +275,7 @@ export default function InventoryCountClosing() {
                           {l.es_nueva && <span className="ml-1.5 rounded bg-blue-50 text-blue-700 px-1 py-px text-[10px] dark:bg-blue-950/40 dark:text-blue-300">nueva</span>}
                           {esNoContada(l) && <span className="ml-1.5 rounded bg-muted px-1 py-px text-[10px] text-muted-foreground">no vino en el archivo</span>}
                         </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{fmt(Number(l.stock_teorico))}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{fmt(teorico)}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">
                           {editId === l.id ? (
                             <input
@@ -268,7 +294,7 @@ export default function InventoryCountClosing() {
                           ) : (
                             <button className="hover:underline" title="Corregir un error de conteo"
                               onClick={() => { setEditId(l.id); setEditVal(String(Number(l.stock_contado))); }}>
-                              {fmt(Number(l.stock_contado))}
+                              {fmt(contado)}
                             </button>
                           )}
                         </td>
@@ -311,10 +337,19 @@ export default function InventoryCountClosing() {
                   <span className="text-muted-foreground">
                     {fmt(s.total_referencias)} refs · {fmt(s.total_con_diferencia)} con diferencia
                   </span>
-                  <span className={cn('font-mono font-semibold tabular-nums',
-                    Number(s.total_valor_diferencia) < 0 ? 'text-destructive' : 'text-success')}>
-                    {fmtCOP(Number(s.total_valor_diferencia))}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={cn('font-mono font-semibold tabular-nums',
+                      Number(s.total_valor_diferencia) < 0 ? 'text-destructive' : 'text-success')}>
+                      {fmtCOP(Number(s.total_valor_diferencia))}
+                    </span>
+                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                      onClick={() => onExportarCierre(s)} disabled={exportando === s.id}
+                      title="Descargar el reporte de este cierre en Excel">
+                      {exportando === s.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Download className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

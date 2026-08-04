@@ -63,6 +63,20 @@ export interface ConteoRow {
   cost: number;
 }
 
+/**
+ * Líneas de una sesión de conteo, imperativo (para exportar a Excel un cierre
+ * del historial sin montar un hook por fila).
+ */
+export async function fetchCountLines(sessionId: string): Promise<CountLine[]> {
+  const { data, error } = await db
+    .from('inventory_count_lines')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('variant_reference');
+  if (error) throw error;
+  return (data ?? []) as CountLine[];
+}
+
 export function useInventoryCount() {
   const qc = useQueryClient();
 
@@ -327,15 +341,7 @@ export function useInventoryCount() {
   const useLineasDe = (sessionId: string | null) => useQuery({
     queryKey: ['inventory-count-lines', sessionId],
     enabled: !!sessionId,
-    queryFn: async (): Promise<CountLine[]> => {
-      const { data, error } = await db
-        .from('inventory_count_lines')
-        .select('*')
-        .eq('session_id', sessionId!)
-        .order('variant_reference');
-      if (error) throw error;
-      return (data ?? []) as CountLine[];
-    },
+    queryFn: () => fetchCountLines(sessionId!),
   });
 
   return {
