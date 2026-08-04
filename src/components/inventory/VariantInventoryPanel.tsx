@@ -7,24 +7,26 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Loader2, Layers, Search, Check, X, RefreshCcw, ArrowDown, ArrowUp, ArrowUpDown, Calculator } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Upload, Loader2, Layers, Search, Check, X, RefreshCcw, ArrowDown, ArrowUp, ArrowUpDown, CalendarClock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { usePermissions } from '@/hooks/usePermissions';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { supabase } from '@/integrations/supabase/client';
 import {
   applyVariantImportEntrada,
   backfillVariantRemisionesDesdeDB,
-  purgeStaleImportMovements,
   computeVariantDesglose,
   fetchAllVariantMovements,
   syncVariantStockToLedger,
   type VariantDesglose,
 } from '@/lib/variantInventory';
+import { fetchFechaCorte, saveFechaCorte } from '@/lib/inventoryConfig';
+import { fetchLineasSinCruce, type LineaSinCruce } from '@/lib/refsSinCruce';
 import { useInventoryVariants, parseMaestra, type InventoryVariant } from '@/hooks/useInventoryVariants';
 import InventoryCountClosing from '@/components/inventory/InventoryCountClosing';
-import StockFormulaPreview from '@/components/inventory/StockFormulaPreview';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -37,6 +39,7 @@ interface MovRow {
   quantity: number;
   source_type: string | null;
   created_at: string;
+  fecha?: string | null;
 }
 
 /** Columnas numéricas ordenables (Referencia/Descripción se buscan, no se ordenan). */
@@ -51,7 +54,45 @@ export default function VariantInventoryPanel() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
   const [recuadrando, setRecuadrando] = useState(false);
-  const [verComparador, setVerComparador] = useState(false);
+  const { isAdmin } = usePermissions();
+
+  // F0 — LA fecha de corte global: el stock es inicial + contenedor −
+  // remisiones con fecha POSTERIOR a esta. Editable solo por admin; se mueve
+  // sola al confirmar un cierre de inventario.
+  const { data: fechaCorte } = useQuery({
+    queryKey: ['inventory-fecha-corte'],
+    queryFn: fetchFechaCorte,
+    staleTime: 60_000,
+  });
+  const guardarCorte = useMutation({
+    mutationFn: async (fecha: string) => {
+      await saveFechaCorte(fecha);
+      await syncVariantStockToLedger(); // el cache sigue a la fórmula
+    },
+    onSuccess: (_d, fecha) => {
+      qc.invalidateQueries({ queryKey: ['inventory-fecha-corte'] });
+      qc.invalidateQueries({ queryKey: ['inventory-variants'] });
+      qc.invalidateQueries({ queryKey: ['imports'] });
+      toast({
+        title: `Fecha de corte: ${fecha}`,
+        description: 'El stock cuenta contenedores y remisiones desde esa fecha en adelante.',
+        duration: 7000,
+      });
+    },
+    onError: (e) => toast({
+      title: 'No se pudo guardar la fecha de corte',
+      description: (e as Error).message,
+      variant: 'destructive',
+    }),
+  });
+
+  // Líneas de remisión cuya referencia no cruza con ninguna variante: esas
+  // unidades NUNCA descuentan. Visible permanente (antes moría en un toast).
+  const { data: sinCruce = [] } = useQuery({
+    queryKey: ['remisiones-sin-cruce'],
+    queryFn: fetchLineasSinCruce,
+    staleTime: 5 * 60_000,
+  });
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -67,14 +108,12 @@ export default function VariantInventoryPanel() {
     queryFn: async (): Promise<MovRow[]> => fetchAllVariantMovements(),
   });
 
-  // Desglose: el ANCLA es el conteo (stock_inicial) o el último ajuste manual
-  // posterior; encima corren contenedores (+) y remisiones (−) POSTERIORES.
-  // La cuenta vive en computeVariantDesglose — compartida con el cuadre.
-  // Mientras cargan los movimientos el map queda vacío (la tabla cae al
-  // stock guardado) — sin esto se veía un flash con teóricos sin historia.
+  // Desglose con LA fórmula: inicial + contenedor − remisiones desde F0.
+  // Mientras cargan los movimientos (o la fecha de corte) el map queda vacío
+  // (la tabla cae al stock guardado) — sin esto se veía un flash sin historia.
   const desglose = useMemo(() => {
     const out = new Map<string, VariantDesglose>();
-    if (movsPending) return out;
+    if (movsPending || !fechaCorte) return out;
     const porVariante = new Map<string, MovRow[]>();
     for (const m of movs) {
       const arr = porVariante.get(m.variant_id) ?? [];
@@ -82,10 +121,10 @@ export default function VariantInventoryPanel() {
       porVariante.set(m.variant_id, arr);
     }
     for (const v of variants) {
-      out.set(v.id, computeVariantDesglose(v, porVariante.get(v.id) ?? []));
+      out.set(v.id, computeVariantDesglose(v, porVariante.get(v.id) ?? [], fechaCorte));
     }
     return out;
-  }, [variants, movs, movsPending]);
+  }, [variants, movs, movsPending, fechaCorte]);
 
   // AUTO-CONCILIACIÓN (una pasada por sesión, sin botón): primero se concilia
   // el ledger contra remision_items — inserta descuentos que faltaban dentro
@@ -120,21 +159,15 @@ export default function VariantInventoryPanel() {
   }, [variants, desglose, movsPending, qc, toast]);
 
   /**
-   * RECUADRE: aplica lo que quedó sin aplicar por los bugs viejos (refs que
-   * no matcheaban, contenedor aplicado con código anterior). Idempotente —
-   * lo ya aplicado no se duplica (chequeo por fuente).
+   * RECUADRE: el ledger queda como espejo de contenedores + remisiones y el
+   * cache se recalcula con la fórmula. Como F0 solo filtra al CALCULAR,
+   * correr esto dos veces seguidas da exactamente el mismo total.
    */
   async function recuadrar() {
-    const fechaAncla = variants.reduce((mx, v) => ((v.stock_inicial_date ?? '') > mx ? v.stock_inicial_date! : mx), '');
     const { data: imps } = await (supabase as any)
       .from('imports')
       .select('id, ref_pedido, proveedor_nombre')
       .in('estado', ['entregado', 'cerrado']);
-    // TODAS las remisiones, sin filtro de fecha: el filtro viejo (created_at
-    // >= MAX ancla de TODAS las variantes) se corría a "ahora" cada vez que un
-    // contenedor auto-creaba una referencia, y el recuadre terminaba sin mirar
-    // casi ninguna remisión. El corte por conteo es POR VARIANTE y lo aplica
-    // la conciliación (guardia last_count_date).
     const { count: remCount } = await (supabase as any)
       .from('remisiones')
       .select('id', { count: 'exact', head: true });
@@ -142,8 +175,8 @@ export default function VariantInventoryPanel() {
     const ok = window.confirm(
       `Voy a verificar y aplicar al inventario por variante:\n\n` +
       `· ${pedidos.length} contenedor(es) entregado(s) — entradas (crea referencias nuevas si faltan)\n` +
-      `· ${remCount ?? 0} remisión(es) — se aplican los descuentos que falten, se corrigen cantidades editadas y se limpian canceladas (cada referencia respeta su propio conteo)\n\n` +
-      'Lo que ya está aplicado NO se duplica. ¿Continuar?',
+      `· ${remCount ?? 0} remisión(es) — el ledger queda como espejo exacto de lo despachado\n\n` +
+      `El stock cuenta desde la fecha de corte (${fechaCorte ?? '…'}). Lo ya aplicado NO se duplica. ¿Continuar?`,
     );
     if (!ok) return;
     setRecuadrando(true);
@@ -151,49 +184,28 @@ export default function VariantInventoryPanel() {
       let entradas = 0;
       let creadas = 0;
       const sinMatch = new Set<string>();
-      // Entradas de contenedor PISADAS por el re-anclaje del conteo: sus
-      // movimientos son anteriores al ancla (el conteo redefinió el stock,
-      // borrando su efecto) pero la idempotencia decía "ya aplicado" y el
-      // contenedor nunca re-entraba. Se purgan esas filas muertas y se
-      // aplica limpio — el stock actual no se toca al purgar.
-      const { data: movImp } = await (supabase as any)
-        .from('inventory_variant_movements')
-        .select('source_id, created_at')
-        .eq('source_type', 'import');
-      const maxPorImport = new Map<string, string>();
-      for (const m of (movImp ?? []) as { source_id: string | null; created_at: string }[]) {
-        if (!m.source_id) continue;
-        const prev = maxPorImport.get(m.source_id) ?? '';
-        if (m.created_at > prev) maxPorImport.set(m.source_id, m.created_at);
-      }
       for (const p of pedidos) {
-        const maxMov = maxPorImport.get(p.id);
-        if (maxMov && fechaAncla && maxMov <= fechaAncla) {
-          await purgeStaleImportMovements(p.id, fechaAncla);
-        }
         const r = await applyVariantImportEntrada(p.id);
         if (r.applied > 0) entradas += 1;
         creadas += r.created ?? 0;
         r.unmatched.forEach((u) => sinMatch.add(u));
       }
-      // Conciliación remisiones ↔ ledger POR LÍNEA: inserta descuentos que
-      // faltaban (variante nacida después del despacho), corrige cantidades
-      // de remisiones editadas y limpia residuos de canceladas/borradas.
+      // Conciliación remisiones ↔ ledger POR LÍNEA: espejo de remision_items
+      // (inserta lo que falte, corrige ediciones, limpia canceladas).
       const rec = await backfillVariantRemisionesDesdeDB();
       rec.unmatched.forEach((u) => sinMatch.add(u));
       const salidas = rec.insertadas + rec.corregidas + rec.eliminadas;
-      // Paso final: stock guardado := teórico del ledger. Repara los saldos
-      // que quedaron descuadrados por bugs viejos (las filas en ámbar) — el
-      // stock ES inicial + contenedor − remisiones, sin excepciones.
+      // Paso final: cache := fórmula, para TODAS las variantes.
       const cuadradas = await syncVariantStockToLedger();
       qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       qc.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
+      qc.invalidateQueries({ queryKey: ['remisiones-sin-cruce'] });
       qc.invalidateQueries({ queryKey: ['imports'] });
       toast({
         title: `Recuadre listo: ${entradas} contenedor(es) entrados${creadas ? ` (${creadas} refs nuevas)` : ''} · ${salidas} movimiento(s) de remisión conciliados${cuadradas ? ` · ${cuadradas} stocks cuadrados` : ''}`,
         description: sinMatch.size
-          ? `Sin match (revisá typos): ${[...sinMatch].slice(0, 6).join(', ')}${sinMatch.size > 6 ? '…' : ''}`
-          : 'Todo lo pendiente quedó aplicado y el stock quedó igual a inicial + contenedor − remisiones.',
+          ? `Sin cruce (subilas al Maestro → Referencias por variante): ${[...sinMatch].slice(0, 6).join(', ')}${sinMatch.size > 6 ? '…' : ''}`
+          : 'El ledger es el espejo de lo despachado y el stock sale de la fórmula.',
         duration: 12000,
       });
     } catch (e) {
@@ -324,7 +336,29 @@ export default function VariantInventoryPanel() {
             Inventario) queda solo para cuadrar contra lo declarado.
           </p>
         </div>
-        <div>
+        <div className="flex flex-col items-end gap-2">
+          {/* F0 — LA fecha de corte global (decisión de Nico 2026-08-04):
+              el stock cuenta contenedores y remisiones desde acá en adelante.
+              Se mueve sola al confirmar un cierre de inventario. */}
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-1.5"
+            title="El stock es: inicial + contenedores − remisiones con fecha POSTERIOR a esta. Es la fecha del conteo que definió el inicial. Al confirmar un cierre de inventario se actualiza sola.">
+            <CalendarClock className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-xs font-medium">Remisiones descuentan desde</span>
+            <Input
+              type="date"
+              value={fechaCorte ?? ''}
+              disabled={!isAdmin || guardarCorte.isPending}
+              onChange={(e) => {
+                const f = e.target.value;
+                if (!f || f === fechaCorte) return;
+                if (window.confirm(`Cambiar la fecha de corte a ${f}:\n\nEl stock de TODAS las referencias se recalcula contando contenedores y remisiones desde esa fecha. ¿Continuar?`)) {
+                  guardarCorte.mutate(f);
+                }
+              }}
+              className="h-7 w-36 text-xs"
+            />
+            {guardarCorte.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          </div>
           <input
             ref={fileRef}
             type="file"
@@ -333,18 +367,11 @@ export default function VariantInventoryPanel() {
             onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
           />
           <div className="flex gap-2">
-            {/* Fase 1 del plan 2026-08-04: cuadrar la fórmula contra el Excel
-                de Nico antes de tocar el motor. No escribe nada. */}
-            <Button variant="outline" onClick={() => setVerComparador((v) => !v)}
-              title="Compara el stock de hoy contra la fórmula inicial + contenedor − remisiones, con una sola fecha de corte. Solo lectura.">
-              <Calculator className="h-4 w-4" />
-              Comparar fórmula
-            </Button>
             <Button
               variant="outline"
               onClick={recuadrar}
               disabled={recuadrando || variants.length === 0}
-              title="Aplica lo que quedó pendiente: entradas de contenedores entregados (crea refs nuevas) y salidas de remisiones posteriores al conteo. Idempotente — no duplica."
+              title="Deja el ledger como espejo de contenedores + remisiones y recalcula el stock con la fórmula. Idempotente — correrlo dos veces da lo mismo."
             >
               {recuadrando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
               Recuadrar movimientos
@@ -356,6 +383,23 @@ export default function VariantInventoryPanel() {
           </div>
         </div>
       </div>
+
+      {/* Unidades despachadas que NUNCA descuentan: la referencia de la
+          remisión no cruza con ninguna variante. Antes moría en un toast. */}
+      {sinCruce.length > 0 && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/[0.05] px-4 py-3 text-xs space-y-1">
+          <p className="font-semibold text-destructive flex items-center gap-1.5">
+            <AlertTriangle className="h-4 w-4" />
+            {sinCruce.length} línea(s) de remisión no cruzan con ninguna referencia —{' '}
+            {fmt(sinCruce.reduce((s, l) => s + l.units, 0))} unidades que NO están descontando
+          </p>
+          <p className="text-muted-foreground">
+            Subí las referencias que faltan en <strong>Maestro de Productos → Referencias por variante</strong> y
+            después apretá «Recuadrar movimientos». Ejemplos:{' '}
+            {sinCruce.slice(0, 5).map((l: LineaSinCruce) => l.reference).join(', ')}{sinCruce.length > 5 ? '…' : ''}
+          </p>
+        </div>
+      )}
 
       {/* Resumen */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -372,8 +416,6 @@ export default function VariantInventoryPanel() {
           <p className="text-xl font-bold text-foreground">${fmt(totalValor)}</p>
         </div>
       </div>
-
-      {verComparador && <StockFormulaPreview onClose={() => setVerComparador(false)} />}
 
       {/* Cierre de inventario: subir conteo → revisar diferencias → confirmar
           (solo admin) → el conteo queda como fuente de verdad. */}

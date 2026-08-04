@@ -12,8 +12,6 @@
 
 import type { CountLine, CountSession } from '@/hooks/useInventoryCount';
 
-const esNoContada = (l: CountLine) => (l.nota ?? '').includes('no vino en el archivo');
-
 export interface CountLineCalc {
   linea: CountLine;
   teorico: number;
@@ -21,20 +19,19 @@ export interface CountLineCalc {
   diferencia: number;
   costo: number;
   valor: number;
-  estado: 'Faltante' | 'Sobrante' | 'Cuadra' | 'Sin contar';
+  estado: 'Faltante' | 'Sobrante' | 'Cuadra';
   nueva: boolean;
 }
 
 /**
- * Resuelve el contado EFECTIVO de cada línea. Si el conteo se declaró completo
- * (`cuentaFaltantesComoCero`), lo que no vino en el archivo se ancla en 0 — el
- * export tiene que mostrar esa merma, no un cuadre falso.
+ * Deriva cada línea del conteo. Regla de Nico (2026-08-04): lo que no vino
+ * en el archivo ya llega con contado 0 desde el borrador — acá no hay casos
+ * especiales, la diferencia es contado − teórico y punto.
  */
-export function calcularLineas(lineas: CountLine[], cuentaFaltantesComoCero: boolean): CountLineCalc[] {
+export function calcularLineas(lineas: CountLine[]): CountLineCalc[] {
   return lineas.map((l) => {
     const teorico = Number(l.stock_teorico ?? 0);
-    const sinContar = esNoContada(l);
-    const contado = sinContar && cuentaFaltantesComoCero ? 0 : Number(l.stock_contado ?? 0);
+    const contado = Number(l.stock_contado ?? 0);
     const diferencia = Math.round(contado - teorico);
     const costo = Number(l.costo_unitario ?? 0);
     return {
@@ -44,9 +41,7 @@ export function calcularLineas(lineas: CountLine[], cuentaFaltantesComoCero: boo
       diferencia,
       costo,
       valor: diferencia * costo,
-      estado: sinContar && !cuentaFaltantesComoCero
-        ? 'Sin contar'
-        : diferencia < 0 ? 'Faltante' : diferencia > 0 ? 'Sobrante' : 'Cuadra',
+      estado: diferencia < 0 ? 'Faltante' : diferencia > 0 ? 'Sobrante' : 'Cuadra',
       nueva: !!l.es_nueva,
     };
   });
@@ -59,7 +54,8 @@ export interface CountTotals {
   lineasFaltan: number;
   lineasSobran: number;
   nuevas: number;
-  sinContar: number;
+  /** Cuántas no vinieron en el archivo (informativo: cuentan como 0). */
+  noVinieron: number;
   unidadesFaltan: number;
   unidadesSobran: number;
   valorFaltan: number;
@@ -78,7 +74,7 @@ export function totalizar(calc: CountLineCalc[]): CountTotals {
     lineasFaltan: faltan.length,
     lineasSobran: sobran.length,
     nuevas: calc.filter((c) => c.nueva).length,
-    sinContar: calc.filter((c) => c.estado === 'Sin contar').length,
+    noVinieron: calc.filter((c) => (c.linea.nota ?? '').includes('no vino en el archivo')).length,
     unidadesFaltan: suma(faltan, (c) => c.diferencia),
     unidadesSobran: suma(sobran, (c) => c.diferencia),
     valorFaltan: suma(faltan, (c) => c.valor),
@@ -96,24 +92,25 @@ const fila = (c: CountLineCalc) => ({
   'Diferencia': c.diferencia,
   'Costo unitario': Math.round(c.costo),
   'Valor diferencia': Math.round(c.valor),
+  'Nota': c.linea.nota ?? '',
 });
 
-const ANCHOS = [{ wch: 16 }, { wch: 38 }, { wch: 16 }, { wch: 14 }, { wch: 11 }, { wch: 12 }, { wch: 14 }, { wch: 17 }];
+const ANCHOS = [{ wch: 16 }, { wch: 38 }, { wch: 16 }, { wch: 14 }, { wch: 11 }, { wch: 12 }, { wch: 14 }, { wch: 17 }, { wch: 22 }];
 
 /**
  * Arma y descarga el .xlsx: hoja "Diferencias" (lo accionable, ordenado por
  * impacto en plata), hoja "Detalle" (todas las referencias) y hoja "Resumen".
  */
 export async function exportCountToExcel(
-  session: Pick<CountSession, 'fecha_conteo' | 'estado' | 'cuenta_faltantes_como_cero'>,
+  session: Pick<CountSession, 'fecha_conteo' | 'estado'>,
   lineas: CountLine[],
 ): Promise<void> {
   const XLSX = await import('xlsx');
-  const calc = calcularLineas(lineas, !!session.cuenta_faltantes_como_cero);
+  const calc = calcularLineas(lineas);
   const t = totalizar(calc);
 
   const porImpacto = [...calc].sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));
-  const soloDif = porImpacto.filter((c) => c.diferencia !== 0 || c.estado === 'Sin contar');
+  const soloDif = porImpacto.filter((c) => c.diferencia !== 0);
 
   const wb = XLSX.utils.book_new();
 
@@ -130,11 +127,10 @@ export async function exportCountToExcel(
   const wsRes = XLSX.utils.json_to_sheet([
     { Concepto: 'Fecha del conteo', Valor: session.fecha_conteo },
     { Concepto: 'Estado', Valor: session.estado === 'confirmado' ? 'Confirmado (aplicado)' : 'Borrador (sin aplicar)' },
-    { Concepto: 'Conteo completo (lo no contado va a 0)', Valor: session.cuenta_faltantes_como_cero ? 'Sí' : 'No' },
     { Concepto: 'Referencias en el reporte', Valor: t.total },
     { Concepto: 'Referencias con diferencia', Valor: t.conDif },
     { Concepto: 'Referencias nuevas (no existían)', Valor: t.nuevas },
-    { Concepto: 'Referencias sin contar', Valor: t.sinContar },
+    { Concepto: 'No vinieron en el archivo (cuentan como 0)', Valor: t.noVinieron },
     { Concepto: 'Unidades faltantes', Valor: Math.abs(t.unidadesFaltan) },
     { Concepto: 'Unidades sobrantes', Valor: t.unidadesSobran },
     { Concepto: 'Valor faltante (COP)', Valor: Math.round(Math.abs(t.valorFaltan)) },

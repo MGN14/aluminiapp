@@ -21,6 +21,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { applyColorSuffix, canonicalizeRef } from '@/lib/refFamily';
+import { fetchFechaCorte } from '@/lib/inventoryConfig';
 
 
 const db = supabase as never as {
@@ -67,20 +68,6 @@ async function fetchVariantsByRefs(refs: string[]): Promise<Map<string, VariantL
     if (buscadas.has(key)) map.set(key, v);
   }
   return map;
-}
-
-async function applyVariantDelta(variantId: string, delta: number, fallbackCurrent: number): Promise<void> {
-  if (delta === 0) return;
-  const { error } = await db.rpc('apply_variant_stock_delta', { p_variant_id: variantId, p_delta: delta });
-  if (!error) return;
-  // RPC aún no desplegado (migración sin aplicar) → read-modify-write.
-  const missingFn = /function|schema cache|not.*found|404/i.test(String((error as any).message || (error as any).code || ''));
-  if (!missingFn) throw error;
-  const { error: upErr } = await db
-    .from('inventory_variants')
-    .update({ stock: fallbackCurrent + delta })
-    .eq('id', variantId);
-  if (upErr) throw upErr;
 }
 
 /** ¿Esta fuente ya se aplicó al ledger? (idempotencia por source). */
@@ -137,15 +124,6 @@ export interface ReconcileResult {
   unmatched: string[];
 }
 
-const tsNum = (s: string | null | undefined): number => {
-  const n = Date.parse(s ?? '');
-  return Number.isFinite(n) ? n : 0;
-};
-
-/** Efecto sobre el stock de una fila del ledger: entrada suma, salida resta. */
-const efecto = (movementType: string, qty: number): number =>
-  movementType === 'entrada' ? qty : -qty;
-
 const chunk = <T,>(arr: T[], n: number): T[][] => {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
@@ -168,32 +146,18 @@ async function fetchAliasesCanonicos(): Promise<Map<string, string>> {
 
 /**
  * Concilia el rastro de remisiones en el ledger por variante — la ÚNICA
- * escritura de filas source_type='remision'. Por cada par (remisión, variante):
+ * escritura de filas source_type='remision'.
  *
- *   · FALTA la fila y la remisión se registró DESPUÉS del ancla de esa
- *     variante → se inserta. (El bug viejo: la idempotencia era por remisión
- *     COMPLETA — si una línea no matcheaba porque la variante nació después
- *     con el contenedor, quedaba perdida para siempre y nunca descontaba.)
- *   · La fila EXISTE pero la cantidad no es la de remision_items (remisión
- *     editada en el detalle, que antes no re-aplicaba inventario) → se corrige.
- *   · La fila EXISTE (viva, posterior al ancla) pero NO debería: línea
- *     borrada, remisión cancelada, o remisión ANTERIOR al ancla que un bug
- *     resucitó → se elimina.
+ * DESDE LA FÓRMULA ÚNICA (2026-08-04) el ledger es INCONDICIONAL: un espejo
+ * fiel de remision_items, sin ventanas ni anclas. Por cada par (remisión,
+ * variante): falta la fila → se inserta con la fecha REAL de la remisión;
+ * la cantidad/fecha difiere (remisión editada) → se corrige; sobra (línea
+ * borrada, remisión cancelada) → se elimina. La fecha de corte F0 se aplica
+ * únicamente al CALCULAR el stock (computeVariantDesglose) — por eso mover
+ * F0 o recuadrar nunca puede cambiar el valor del inventario.
  *
- * GUARDIA DE ANCLA (regla de Nico, 2026-08-02):
- *   · Variante CONTADA (maestra o ajuste manual): descuentan las remisiones
- *     registradas después del conteo — lo anterior ya lo absorbió el conteo
- *     físico y re-aplicarlo descontaría doble.
- *   · Variante NACIDA por contenedor (nunca contada): descuentan las
- *     remisiones con FECHA igual o posterior a la fecha de ARRIBO del
- *     contenedor que la creó (fecha_arribo_real — cuando la mercancía entró
- *     físicamente a bodega, NO el click de 'entregado' en la app, que llega
- *     días tarde y dejaba sin descontar lo ya despachado del contenedor).
- *     Remisiones anteriores al arribo salieron de stock viejo NO rastreado:
- *     aplicarlas contra inicial 0 daba negativos imposibles (−30M de valor).
- * Filas anteriores al ancla son historia congelada: no se tocan.
- *
- * Idempotente: correrla dos veces seguidas no cambia nada.
+ * Al final, el stock cacheado de las variantes tocadas se recalcula con la
+ * fórmula. Idempotente: correrla dos veces seguidas no cambia nada.
  */
 export async function reconcileVariantRemisionLedger(
   remisiones: RemisionParaLedger[],
@@ -216,81 +180,6 @@ export async function reconcileVariantRemisionLedger(
     if (k && !porCanonical.has(k)) porCanonical.set(k, v);
   }
   const porId = new Map(variantes.map((v) => [v.id, v]));
-
-  // ── Anclas por variante ───────────────────────────────────────────────────
-  // CONTADAS: conteo (stock_inicial_date) pisado por ajustes posteriores — el
-  // mismo corte de computeVariantDesglose. NACIDAS por contenedor: fecha de
-  // ARRIBO real del contenedor que las creó (día, no timestamp del click).
-  const ajusteMs = new Map<string, number>();
-  const importsPorVariante = new Map<string, Set<string>>();
-  const entradaClickMs = new Map<string, number>(); // primer click de entrega (fallback)
-  {
-    const PAGE = 1000;
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await db
-        .from('inventory_variant_movements')
-        .select('variant_id, movement_type, source_type, source_id, created_at')
-        .in('movement_type', ['ajuste', 'entrada'])
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (error) throw error;
-      const rows = (data ?? []) as { variant_id: string; movement_type: string; source_type: string | null; source_id: string | null; created_at: string }[];
-      for (const m of rows) {
-        if (m.movement_type === 'ajuste') {
-          const t = tsNum(m.created_at);
-          if (t > (ajusteMs.get(m.variant_id) ?? 0)) ajusteMs.set(m.variant_id, t);
-        } else if (m.source_type === 'import' && m.source_id) {
-          const set = importsPorVariante.get(m.variant_id) ?? new Set<string>();
-          set.add(m.source_id);
-          importsPorVariante.set(m.variant_id, set);
-          const t = tsNum(m.created_at);
-          const prev = entradaClickMs.get(m.variant_id) ?? Infinity;
-          if (t < prev) entradaClickMs.set(m.variant_id, t);
-        }
-      }
-      if (rows.length < PAGE) break;
-    }
-  }
-  const arriboPorImport = new Map<string, number>();
-  {
-    const { data, error } = await db
-      .from('imports')
-      .select('id, fecha_arribo_real');
-    if (error) throw error;
-    for (const im of (data ?? []) as { id: string; fecha_arribo_real: string | null }[]) {
-      const t = tsNum(im.fecha_arribo_real);
-      if (t > 0) arriboPorImport.set(im.id, t);
-    }
-  }
-  const DIA = 86_400_000;
-  const diaMs = (ms: number) => ms - (ms % DIA);
-  /** Arranque de vida rastreada de una variante NUNCA contada: el arribo más
-   *  viejo de sus contenedores (fallback: click de entrega, o su creación). */
-  const nacimientoDiaMs = (v: VariantLite): number => {
-    let min = Infinity;
-    for (const impId of importsPorVariante.get(v.id) ?? []) {
-      const t = arriboPorImport.get(impId);
-      if (t != null && t < min) min = t;
-    }
-    if (min === Infinity) min = entradaClickMs.get(v.id) ?? tsNum(v.stock_inicial_date);
-    return diaMs(min);
-  };
-  const contada = (v: VariantLite) => v.last_count_date != null;
-  const anclaConteoMs = (v: VariantLite): number =>
-    Math.max(contada(v) ? tsNum(v.stock_inicial_date) : 0, ajusteMs.get(v.id) ?? 0);
-  /** ¿Esta remisión descuenta de esta variante? */
-  const remisionCuenta = (rem: RemisionParaLedger, v: VariantLite): boolean => {
-    if (contada(v)) return tsNum(rem.created_at) > anclaConteoMs(v);
-    // Nunca contada: manda la FECHA de la remisión vs el día del arribo.
-    const remDia = diaMs(tsNum(rem.date) || tsNum(rem.created_at));
-    return remDia >= nacimientoDiaMs(v);
-  };
-  /** Corte de "historia congelada" para filas ya escritas en el ledger. */
-  const anclaFilaMs = (variantId: string): number => {
-    const v = porId.get(variantId);
-    return v ? anclaConteoMs(v) : 0;
-  };
 
   const onlySet = opts?.onlyRefs?.length
     ? new Set(opts.onlyRefs.map((r) => canonicalizeRef(r)).filter(Boolean))
@@ -327,14 +216,14 @@ export async function reconcileVariantRemisionLedger(
   }
 
   // Lo APLICADO: filas del ledger de esas remisiones (o todas, si exhaustive).
-  interface LedgerRow { id: string; variant_id: string; movement_type: string; quantity: number; source_id: string; created_at: string }
+  interface LedgerRow { id: string; variant_id: string; movement_type: string; quantity: number; source_id: string; fecha: string | null }
   const existentes: LedgerRow[] = [];
   if (opts?.exhaustive) {
     const PAGE = 1000;
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await db
         .from('inventory_variant_movements')
-        .select('id, variant_id, movement_type, quantity, source_id, created_at')
+        .select('id, variant_id, movement_type, quantity, source_id, fecha')
         .eq('source_type', 'remision')
         .order('created_at', { ascending: true })
         .order('id', { ascending: true })
@@ -348,7 +237,7 @@ export async function reconcileVariantRemisionLedger(
     for (const ids of chunk([...remPorId.keys()], 150)) {
       const { data, error } = await db
         .from('inventory_variant_movements')
-        .select('id, variant_id, movement_type, quantity, source_id, created_at')
+        .select('id, variant_id, movement_type, quantity, source_id, fecha')
         .eq('source_type', 'remision')
         .in('source_id', ids);
       if (error) throw error;
@@ -358,14 +247,12 @@ export async function reconcileVariantRemisionLedger(
   const filaPorPar = new Map<string, LedgerRow>();
   for (const row of existentes) filaPorPar.set(`${row.source_id}|${row.variant_id}`, row);
 
-  // Diff → insertar / corregir / eliminar, acumulando el delta de stock.
+  // Diff → insertar / corregir / eliminar. SIN ventanas: el ledger es el
+  // espejo de remision_items; F0 filtra recién al calcular el stock.
   const toInsert: Record<string, unknown>[] = [];
   const toUpdate: { id: string; quantity: number; movement_type: string; fecha: string }[] = [];
   const toDeleteIds: string[] = [];
-  const deltaPorVariante = new Map<string, number>();
-  const acumular = (variantId: string, d: number) => {
-    if (d !== 0) deltaPorVariante.set(variantId, (deltaPorVariante.get(variantId) ?? 0) + d);
-  };
+  const afectadas = new Set<string>();
   const consumidas = new Set<string>();
 
   for (const [remId, qtyPorVariante] of esperado) {
@@ -375,36 +262,24 @@ export async function reconcileVariantRemisionLedger(
       const key = `${remId}|${variantId}`;
       consumidas.add(key);
       const fila = filaPorPar.get(key);
-      // ¿Le corresponde una fila VIVA? Solo si la remisión cae dentro de la
-      // vida rastreada de la variante (post-conteo o post-arribo).
-      const leCorresponde = remisionCuenta(rem, porId.get(variantId)!);
       if (!fila) {
-        if (leCorresponde) {
-          toInsert.push({
-            variant_id: variantId,
-            movement_type: movementType,
-            quantity: qty,
-            unit_cost: 0,
-            source_type: 'remision',
-            source_id: remId,
-            fecha: rem.date,
-          });
-          acumular(variantId, efecto(movementType, qty));
-        }
+        toInsert.push({
+          variant_id: variantId,
+          movement_type: movementType,
+          quantity: qty,
+          unit_cost: 0,
+          source_type: 'remision',
+          source_id: remId,
+          fecha: rem.date,
+        });
+        afectadas.add(variantId);
         continue;
       }
-      // Fila anterior al conteo = historia congelada (el desglose la ignora).
-      if (tsNum(fila.created_at) <= anclaFilaMs(variantId)) continue;
-      if (!leCorresponde) {
-        // Fila viva de una remisión fuera de la vida rastreada: resucitada
-        // por error (backfill del 2026-08-02) — se elimina.
-        toDeleteIds.push(fila.id);
-        acumular(variantId, -efecto(fila.movement_type, Number(fila.quantity)));
-        continue;
-      }
-      if (Number(fila.quantity) !== qty || fila.movement_type !== movementType) {
+      const filaFecha = (fila.fecha ?? '').slice(0, 10);
+      if (Number(fila.quantity) !== qty || fila.movement_type !== movementType
+        || filaFecha !== rem.date.slice(0, 10)) {
         toUpdate.push({ id: fila.id, quantity: qty, movement_type: movementType, fecha: rem.date });
-        acumular(variantId, efecto(movementType, qty) - efecto(fila.movement_type, Number(fila.quantity)));
+        afectadas.add(variantId);
       }
     }
   }
@@ -418,9 +293,8 @@ export async function reconcileVariantRemisionLedger(
     if (!v || !permitida(v)) continue; // variante inactiva o fuera del alcance
     const rem = remPorId.get(row.source_id);
     if (!rem && !opts?.exhaustive) continue; // remisión fuera de la lista parcial
-    if (tsNum(row.created_at) <= anclaFilaMs(row.variant_id)) continue; // absorbida
     toDeleteIds.push(row.id);
-    acumular(row.variant_id, -efecto(row.movement_type, Number(row.quantity)));
+    afectadas.add(row.variant_id);
   }
 
   for (const lote of chunk(toInsert, 500)) {
@@ -438,9 +312,8 @@ export async function reconcileVariantRemisionLedger(
     const { error } = await db.from('inventory_variant_movements').delete().in('id', ids);
     if (error) throw error;
   }
-  for (const [variantId, delta] of deltaPorVariante) {
-    await applyVariantDelta(variantId, delta, porId.get(variantId)?.stock ?? 0);
-  }
+  // El cache de las tocadas se recalcula con la MISMA fórmula del panel.
+  if (afectadas.size) await syncVariantStockToLedger({ onlyIds: [...afectadas] });
 
   res.insertadas = toInsert.length;
   res.corregidas = toUpdate.length;
@@ -512,22 +385,19 @@ export async function applyVariantRemision(params: {
   return { applied: r.insertadas + r.corregidas, unmatched: r.unmatched };
 }
 
-/** Revierte los movimientos por variante de una remisión (borrado/edición). */
+/** Revierte los movimientos por variante de una remisión (borrado/edición):
+ *  borra sus filas y recalcula el cache de las variantes tocadas con LA fórmula. */
 export async function reverseVariantRemision(remisionId: string): Promise<void> {
   const { data, error } = await db
     .from('inventory_variant_movements')
-    .select('id, variant_id, movement_type, quantity')
+    .select('id, variant_id')
     .eq('source_type', 'remision')
     .eq('source_id', remisionId);
   if (error) throw error;
-  const rows = (data ?? []) as { id: string; variant_id: string; movement_type: string; quantity: number }[];
+  const rows = (data ?? []) as { id: string; variant_id: string }[];
   if (!rows.length) return;
-
-  for (const m of rows) {
-    const sign = m.movement_type === 'entrada' ? -1 : 1; // revertir el signo original
-    await applyVariantDelta(m.variant_id, sign * Number(m.quantity), 0);
-  }
   await db.from('inventory_variant_movements').delete().in('id', rows.map((r) => r.id));
+  await syncVariantStockToLedger({ onlyIds: [...new Set(rows.map((r) => r.variant_id))] });
 }
 
 // ── ENTRADA por packing nacionalizado (import → entregado) ─────────────────
@@ -628,6 +498,16 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
   }
   if (!acc.size) return { applied: 0, unmatched, created };
 
+  // La fecha del HECHO: el arribo real del contenedor (no el click de
+  // 'entregado') — es la que usa la fórmula para decidir si suma sobre F0.
+  const { data: impRows } = await db
+    .from('imports')
+    .select('fecha_arribo_real')
+    .eq('id', importId)
+    .limit(1);
+  const fechaEntrada = String((impRows as { fecha_arribo_real: string | null }[] | null)?.[0]?.fecha_arribo_real ?? '').slice(0, 10)
+    || new Date().toISOString().slice(0, 10);
+
   const porId = new Map([...variants.values()].map((v) => [v.id, v]));
   const rows = [...acc.entries()].map(([variantId, a]) => ({
     variant_id: variantId,
@@ -636,6 +516,7 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
     unit_cost: a.qty > 0 ? a.costo / a.qty : 0,
     source_type: 'import',
     source_id: importId,
+    fecha: fechaEntrada,
     nota: 'Packing list nacionalizado',
   }));
   const { error } = await db.from('inventory_variant_movements').insert(rows);
@@ -644,33 +525,28 @@ async function applyVariantImportEntradaInner(importId: string): Promise<Variant
   for (const [variantId, a] of acc) {
     const v = porId.get(variantId)!;
     const unit = a.qty > 0 ? a.costo / a.qty : 0;
-    // Costo promedio ponderado: solo si la entrada trae costo (>0).
+    // Costo promedio ponderado: solo si la entrada trae costo (>0). El STOCK
+    // ya no se toca acá — lo recalcula la fórmula única al final.
     if (unit > 0) {
       // El clamp a 0 es SOLO para ponderar el costo (no promediar contra
-      // stock negativo). El stock se actualiza sobre el saldo REAL: si estaba
-      // en negativo (remisiones descontadas antes de que entrara el
-      // contenedor), pisarlo con 0 + qty borraba esas salidas y el stock
-      // quedaba inflado = contenedor completo (A059: 142−460+660 debía dar
-      // 342 y quedaba 660 — reporte de Nico 2026-08-01).
-      const stockPrevio = Number(v.stock ?? 0);
-      const base = Math.max(0, stockPrevio);
-      // Mismo guard que el kardex: si el stock previo no tiene costo (ancla
-      // de conteo sin columna de costo → avg 0), el costo de la entrada
-      // MANDA — promediar contra $0 diluía el costo del excel (87 und a $0
-      // + 40 a $25.000 daba $7.874/und, reporte de Nico 2026-07-30).
+      // stock negativo). Guard del kardex: si el stock previo no tiene costo
+      // (ancla de conteo sin columna de costo → avg 0), el costo de la
+      // entrada MANDA — promediar contra $0 diluía el costo del excel
+      // (reporte de Nico 2026-07-30).
+      const base = Math.max(0, Number(v.stock ?? 0));
       const avgPrevio = Number(v.avg_cost ?? 0);
       const nuevoAvg = (base <= 0 || avgPrevio <= 0)
         ? unit
         : (base * avgPrevio + a.costo) / (base + a.qty);
       const { error: upErr } = await db
         .from('inventory_variants')
-        .update({ stock: stockPrevio + a.qty, avg_cost: Math.round(nuevoAvg) })
+        .update({ avg_cost: Math.round(nuevoAvg) })
         .eq('id', variantId);
       if (upErr) throw upErr;
-    } else {
-      await applyVariantDelta(variantId, a.qty, Number(v.stock ?? 0));
     }
   }
+  // Cache := fórmula (inicial + contenedor − remisiones desde F0).
+  await syncVariantStockToLedger({ onlyIds: [...acc.keys()] });
 
   return { applied: acc.size, unmatched, created };
 }
@@ -682,6 +558,9 @@ export interface VariantMovLite {
   quantity: number;
   source_type: string | null;
   created_at: string;
+  /** Fecha del HECHO (cuándo salió/entró la mercancía) — el corte va por acá,
+   *  nunca por created_at (cuándo se digitó). Filas viejas pueden no traerla. */
+  fecha?: string | null;
 }
 
 export interface VariantDesglose {
@@ -691,28 +570,48 @@ export interface VariantDesglose {
   teorico: number;
 }
 
+/** Día del hecho de un movimiento; sin `fecha` cae al día de la digitación. */
+export const diaDeMov = (m: { fecha?: string | null; created_at: string }): string => {
+  const f = (m.fecha ?? '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : (m.created_at ?? '').slice(0, 10);
+};
+
 /**
- * La cuenta que Nico ve en la tabla: ancla (conteo o último ajuste manual)
- * + contenedores − remisiones POSTERIORES al ancla. Única implementación —
- * la usan el desglose del panel Y el cuadre de "Recuadrar movimientos",
- * para que el amarillo y el arreglo nunca se contradigan.
+ * LA fórmula del stock por variante (decisión de Nico, 2026-08-04):
+ *
+ *   stock = inicial + contenedor − remisiones, con UNA fecha de corte global
+ *   (F0). Cuenta todo movimiento con fecha POSTERIOR a F0; lo anterior ya
+ *   está dentro del inicial. Se corta por la fecha del HECHO — mover F0 o
+ *   recargar jamás cambia el resultado, porque no depende de cuándo se digitó.
+ *
+ * El INICIAL es la foto más reciente ('inicial'/'ajuste' guardan el stock
+ * ABSOLUTO); sin fotos, cae a inventory_variants.stock_inicial. Una foto
+ * POSTERIOR a F0 (ajuste manual, cierre nuevo) mueve el arranque de ESA
+ * referencia hacia adelante — si no, la corrección se desharía sola en el
+ * siguiente cuadre.
+ *
+ * Única implementación: la usan la tabla, el cuadre, la valorización del
+ * Dashboard y el teórico del cierre de inventario.
  */
 export function computeVariantDesglose(
-  v: { stock_inicial: number | null; stock_inicial_date: string | null },
+  v: { stock_inicial: number | null; stock_inicial_date?: string | null },
   movs: VariantMovLite[],
+  corte: string,
 ): VariantDesglose {
-  let anclaTime = v.stock_inicial_date ?? '';
-  let ancla = Number(v.stock_inicial ?? 0);
+  let foto: VariantMovLite | null = null;
   for (const m of movs) {
-    if (m.movement_type === 'ajuste' && m.created_at > anclaTime) {
-      anclaTime = m.created_at;
-      ancla = Number(m.quantity ?? 0); // el ajuste guarda el stock ABSOLUTO
-    }
+    if (m.movement_type !== 'inicial' && m.movement_type !== 'ajuste') continue;
+    if (!foto || diaDeMov(m) > diaDeMov(foto)
+      || (diaDeMov(m) === diaDeMov(foto) && m.created_at > foto.created_at)) foto = m;
   }
+  const ancla = foto ? Number(foto.quantity ?? 0) : Number(v.stock_inicial ?? 0);
+  const corteVar = foto && diaDeMov(foto) > corte ? diaDeMov(foto) : corte;
+
   let contenedor = 0;
   let remisiones = 0;
   for (const m of movs) {
-    if (m.created_at <= anclaTime) continue; // ya está dentro del ancla
+    if (m.movement_type === 'inicial' || m.movement_type === 'ajuste') continue;
+    if (diaDeMov(m) <= corteVar) continue; // ya está dentro del inicial
     const qty = Number(m.quantity ?? 0);
     if (m.source_type === 'import' && m.movement_type === 'entrada') contenedor += qty;
     if (m.source_type === 'remision' && m.movement_type === 'salida') remisiones += qty;
@@ -728,16 +627,20 @@ export function computeVariantDesglose(
  * historia incompleta el teórico salía mal y el cuadre no corregía nada
  * (reporte de Nico 2026-08-01: "el problema del stock sigue igual").
  */
-export async function fetchAllVariantMovements(): Promise<(VariantMovLite & { variant_id: string })[]> {
+export async function fetchAllVariantMovements(
+  opts?: { onlyVariantIds?: string[] },
+): Promise<(VariantMovLite & { variant_id: string })[]> {
   const PAGE = 1000;
   const out: (VariantMovLite & { variant_id: string })[] = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
+    let q = db
       .from('inventory_variant_movements')
-      .select('variant_id, movement_type, quantity, source_type, created_at')
+      .select('variant_id, movement_type, quantity, source_type, created_at, fecha')
       .order('created_at', { ascending: true })
       .order('id', { ascending: true }) // desempate estable para paginar sin duplicar
       .range(from, from + PAGE - 1);
+    if (opts?.onlyVariantIds?.length) q = q.in('variant_id', opts.onlyVariantIds);
+    const { data, error } = await q;
     if (error) throw error;
     const rows = (data ?? []) as (VariantMovLite & { variant_id: string })[];
     out.push(...rows);
@@ -747,17 +650,21 @@ export async function fetchAllVariantMovements(): Promise<(VariantMovLite & { va
 }
 
 /**
- * Cuadra el stock guardado contra el teórico del ledger. Repara los saldos
- * que quedaron mal por bugs viejos (ej. el clamp a 0 que pisaba negativos al
- * entrar contenedor). Devuelve cuántas variantes se corrigieron.
+ * Cuadra el stock guardado (cache que lee Importaciones) con LA fórmula:
+ * inicial + contenedor − remisiones desde F0. Devuelve cuántas corrigió.
+ * Con `onlyIds` limita el cuadre a esas variantes (post-conciliación).
  */
-export async function syncVariantStockToLedger(): Promise<number> {
-  const { data: vData, error: vErr } = await db
+export async function syncVariantStockToLedger(opts?: { onlyIds?: string[] }): Promise<number> {
+  if (opts?.onlyIds && !opts.onlyIds.length) return 0;
+  const corte = await fetchFechaCorte();
+  let vQuery = db
     .from('inventory_variants')
     .select('id, stock, stock_inicial, stock_inicial_date')
     .eq('active', true);
+  if (opts?.onlyIds?.length) vQuery = vQuery.in('id', opts.onlyIds);
+  const { data: vData, error: vErr } = await vQuery;
   if (vErr) throw vErr;
-  const allMovs = await fetchAllVariantMovements();
+  const allMovs = await fetchAllVariantMovements({ onlyVariantIds: opts?.onlyIds });
 
   const movsPorVariante = new Map<string, VariantMovLite[]>();
   for (const m of allMovs) {
@@ -769,7 +676,7 @@ export async function syncVariantStockToLedger(): Promise<number> {
   let corregidas = 0;
   const rows = (vData ?? []) as { id: string; stock: number; stock_inicial: number | null; stock_inicial_date: string | null }[];
   for (const v of rows) {
-    const d = computeVariantDesglose(v, movsPorVariante.get(v.id) ?? []);
+    const d = computeVariantDesglose(v, movsPorVariante.get(v.id) ?? [], corte);
     if (Math.round(Number(v.stock ?? 0)) === Math.round(d.teorico)) continue;
     const { error } = await db.from('inventory_variants').update({ stock: d.teorico }).eq('id', v.id);
     if (error) throw error;
@@ -804,6 +711,7 @@ export async function fetchVariantValuation(): Promise<VariantValuation[]> {
     avg_cost: number; stock_inicial: number | null; stock_inicial_date: string | null;
   }[];
   if (!rows.length) return [];
+  const corte = await fetchFechaCorte();
   const allMovs = await fetchAllVariantMovements();
   const movsPorVariante = new Map<string, VariantMovLite[]>();
   for (const m of allMovs) {
@@ -814,7 +722,7 @@ export async function fetchVariantValuation(): Promise<VariantValuation[]> {
   const out: VariantValuation[] = [];
   const descuadradas: { id: string; teorico: number }[] = [];
   for (const v of rows) {
-    const teorico = computeVariantDesglose(v, movsPorVariante.get(v.id) ?? []).teorico;
+    const teorico = computeVariantDesglose(v, movsPorVariante.get(v.id) ?? [], corte).teorico;
     const avg = Number(v.avg_cost ?? 0);
     if (Math.round(Number(v.stock ?? 0)) !== Math.round(teorico)) descuadradas.push({ id: v.id, teorico });
     out.push({
@@ -839,40 +747,17 @@ export async function fetchVariantValuation(): Promise<VariantValuation[]> {
   return out;
 }
 
-/**
- * Borra los movimientos de import ANTERIORES a un re-anclaje de conteo, SIN
- * tocar el stock: su efecto ya fue pisado por el ancla (el conteo definió el
- * stock), pero las filas seguían ahí y la idempotencia por fuente decía "ya
- * aplicado" — el contenedor nunca re-entraba (reporte de Nico 2026-07-30).
- * Después de purgar, applyVariantImportEntrada aplica limpio.
- */
-export async function purgeStaleImportMovements(importId: string, cutoffIso: string): Promise<number> {
-  const { data, error } = await db
-    .from('inventory_variant_movements')
-    .select('id, created_at')
-    .eq('source_type', 'import')
-    .eq('source_id', importId)
-    .lte('created_at', cutoffIso);
-  if (error) throw error;
-  const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
-  if (!ids.length) return 0;
-  const { error: delErr } = await db.from('inventory_variant_movements').delete().in('id', ids);
-  if (delErr) throw delErr;
-  return ids.length;
-}
-
-/** Revierte la entrada de un pedido (estado corregido de 'entregado' a otro). */
+/** Revierte la entrada de un pedido (estado corregido de 'entregado' a otro):
+ *  borra sus filas y recalcula el cache de las variantes tocadas con LA fórmula. */
 export async function reverseVariantImportEntrada(importId: string): Promise<void> {
   const { data, error } = await db
     .from('inventory_variant_movements')
-    .select('id, variant_id, quantity')
+    .select('id, variant_id')
     .eq('source_type', 'import')
     .eq('source_id', importId);
   if (error) throw error;
-  const rows = (data ?? []) as { id: string; variant_id: string; quantity: number }[];
+  const rows = (data ?? []) as { id: string; variant_id: string }[];
   if (!rows.length) return;
-  for (const m of rows) {
-    await applyVariantDelta(m.variant_id, -Number(m.quantity), 0);
-  }
   await db.from('inventory_variant_movements').delete().in('id', rows.map((r) => r.id));
+  await syncVariantStockToLedger({ onlyIds: [...new Set(rows.map((r) => r.variant_id))] });
 }

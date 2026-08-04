@@ -48,19 +48,15 @@ export default function InventoryCountClosing() {
   // tapaban a los sobrantes (chicos): el card decía "sobran 9M" y en la tabla
   // no se veía un solo positivo (reporte de Nico 2026-08-04). Filtro explícito.
   const [filtro, setFiltro] = useState<'dif' | 'faltan' | 'sobran' | 'todas'>('dif');
-  const [faltantesCero, setFaltantesCero] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
   const [verHistorial, setVerHistorial] = useState(false);
   const [exportando, setExportando] = useState<string | null>(null);
 
-  // Las cifras de pantalla, del diálogo de confirmación y del Excel salen del
-  // MISMO cálculo: marcar "conteo completo" tiene que mover la merma a la
-  // vista, no solo al confirmar.
-  const calc = useMemo(
-    () => calcularLineas(lineasBorrador, faltantesCero),
-    [lineasBorrador, faltantesCero],
-  );
+  // Pantalla, diálogo de confirmación y Excel salen del MISMO cálculo.
+  // Lo que no vino en el archivo ya llega con contado 0 desde el borrador
+  // (regla de Nico 2026-08-04: si Yolis no lo puso, no hay).
+  const calc = useMemo(() => calcularLineas(lineasBorrador), [lineasBorrador]);
   const resumen = useMemo(() => ({
     ...totalizar(calc),
     noContadas: lineasBorrador.filter(esNoContada).length,
@@ -108,15 +104,12 @@ export default function InventoryCountClosing() {
       `· ${resumen.conDif} referencia(s) con diferencia\n` +
       `· Faltantes: ${fmt(Math.abs(resumen.unidadesFaltan))} und (${fmtCOP(Math.abs(resumen.valorFaltan))})\n` +
       `· Sobrantes: ${fmt(resumen.unidadesSobran)} und (${fmtCOP(resumen.valorSobran)})\n` +
-      (faltantesCero ? `· Las ${resumen.noContadas} que NO vinieron en el archivo quedan en 0\n` : '') +
-      `\nEl conteo pasa a ser la fuente de verdad. Las remisiones y contenedores POSTERIORES vuelven a mover el saldo desde acá. La historia no se borra.\n\n¿Continuar?`,
+      (resumen.noContadas > 0 ? `· Las ${resumen.noContadas} que NO vinieron en el archivo quedan en 0 (si no se contó, no hay)\n` : '') +
+      `\nEl conteo pasa a ser la fuente de verdad y la fecha de corte se mueve al ${borrador.fecha_conteo}: remisiones y contenedores POSTERIORES vuelven a mover el saldo desde ahí. La historia no se borra.\n\n¿Continuar?`,
     );
     if (!ok) return;
     try {
-      const r = await confirmarCierre.mutateAsync({
-        sessionId: borrador.id,
-        cuentaFaltantesComoCero: faltantesCero,
-      });
+      const r = await confirmarCierre.mutateAsync({ sessionId: borrador.id });
       qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       toast({
         title: 'Inventario cerrado',
@@ -133,10 +126,7 @@ export default function InventoryCountClosing() {
     if (!borrador) return;
     setExportando('borrador');
     try {
-      await exportCountToExcel(
-        { fecha_conteo: borrador.fecha_conteo, estado: 'borrador', cuenta_faltantes_como_cero: faltantesCero },
-        lineasBorrador,
-      );
+      await exportCountToExcel({ fecha_conteo: borrador.fecha_conteo, estado: 'borrador' }, lineasBorrador);
     } catch (e) {
       toast({ title: 'No se pudo exportar', description: (e as Error).message, variant: 'destructive' });
     } finally {
@@ -202,24 +192,11 @@ export default function InventoryCountClosing() {
               </span>
             </div>
 
-            {/* Conteo claramente PARCIAL: marcar "van a 0" borraría medio
-                inventario de un click. El aviso va antes que la casilla. */}
-            {resumen.noContadas > resumen.total * 0.2 && (
-              <div className="rounded-lg border border-destructive/40 bg-destructive/[0.05] px-3 py-2 text-xs flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
-                <span>
-                  <strong>Conteo parcial: {fmt(resumen.noContadas)} de {fmt(resumen.total)} referencias no vinieron en el archivo.</strong>{' '}
-                  NO marques «conteo completo» — anclaría esas {fmt(resumen.noContadas)} en cero y borraría su stock.
-                  Si bodega sí contó todo, el archivo llegó incompleto: revisalo antes de confirmar.
-                </span>
-              </div>
-            )}
-
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <Metric label="Referencias contadas" value={fmt(resumen.total - resumen.noContadas)}
                 hint={resumen.nuevas > 0 ? `${resumen.nuevas} nuevas` : undefined} />
               <Metric label="Con diferencia" value={fmt(resumen.conDif)}
-                hint={resumen.noContadas > 0 ? `${resumen.noContadas} sin contar` : undefined} tone="amber" />
+                hint={resumen.noContadas > 0 ? `${resumen.noContadas} no vinieron → cuentan 0` : undefined} tone="amber" />
               <Metric label="Faltan (merma)" value={fmt(Math.abs(resumen.unidadesFaltan))}
                 hint={fmtCOP(Math.abs(resumen.valorFaltan))} tone="red"
                 activo={filtro === 'faltan'} onClick={() => setFiltro(filtro === 'faltan' ? 'dif' : 'faltan')} />
@@ -245,13 +222,10 @@ export default function InventoryCountClosing() {
                   ))}
                 </div>
                 {resumen.noContadas > 0 && (
-                  <label className={cn('inline-flex items-center gap-1.5 cursor-pointer',
-                    faltantesCero && 'text-destructive font-medium')}
-                    title="Si el conteo fue de TODA la bodega, lo que no aparece en el archivo es porque no está: se ancla en 0. Si fue parcial, dejalo sin marcar.">
-                    <input type="checkbox" checked={faltantesCero}
-                      onChange={(e) => setFaltantesCero(e.target.checked)} />
-                    Las {resumen.noContadas} que no vinieron en el archivo van a 0 (conteo completo)
-                  </label>
+                  <span className="text-muted-foreground"
+                    title="Regla: si no se contó, no hay. Si de verdad hay stock sin contar, corregí la línea con el lápiz antes de confirmar.">
+                    {resumen.noContadas} referencias no vinieron en el archivo → quedan en 0
+                  </span>
                 )}
               </div>
               <div className="flex items-center gap-2">

@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Pencil, Trash2, Lock, Search, Upload, Download, FileSpreadsheet, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Lock, Search, Upload, Download, FileSpreadsheet, X, BookOpen, Layers } from 'lucide-react';
 import { usePersistedFormState, usePersistedDialogOpen } from '@/hooks/usePersistedFormState';
+import VariantRefsMaestro from '@/components/inventory/VariantRefsMaestro';
 
 const UNIDADES = ['und', 'm', 'm²', 'm³', 'kg', 'lb', 'ton', 'l', 'ml', 'caja', 'par', 'rollo', 'paquete', 'juego', 'kit', 'otro'];
 
@@ -120,6 +121,7 @@ export default function MaestroProductos() {
 
   // Persistido: la búsqueda del maestro sobrevive si cambia de tab/pestaña.
   const [search, setSearch] = usePersistedFormState<string>('maestro-productos:search:v1', '');
+  const [subTab, setSubTab] = usePersistedFormState<'siigo' | 'variantes'>('maestro-productos:subtab:v1', 'siigo');
   // El modal de agregar/editar producto también se reabre solo si Nico
   // estaba en medio de tipear y se refresca / cambia de tab.
   const [modalOpen, setModalOpen] = usePersistedDialogOpen('maestro-productos:form:open');
@@ -328,6 +330,28 @@ export default function MaestroProductos() {
 
   return (
     <div className="space-y-4">
+      {/* Sub-pestañas: el maestro Siigo (-5) y la fuente de verdad de
+          referencias por variante (Nico, 2026-08-04). */}
+      <div className="inline-flex rounded-lg bg-muted p-1 gap-1">
+        <button
+          onClick={() => setSubTab('siigo')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subTab === 'siigo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <BookOpen className="h-4 w-4" />
+          Productos Siigo (-5)
+        </button>
+        <button
+          onClick={() => setSubTab('variantes')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subTab === 'variantes' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <Layers className="h-4 w-4" />
+          Referencias por variante
+        </button>
+      </div>
+
+      {subTab === 'variantes' && <VariantRefsMaestro />}
+
+      {subTab === 'siigo' && (<>
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">
@@ -585,6 +609,7 @@ export default function MaestroProductos() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </>)}
     </div>
   );
 }

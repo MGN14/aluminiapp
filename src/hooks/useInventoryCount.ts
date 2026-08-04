@@ -21,6 +21,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { canonicalizeRef } from '@/lib/refFamily';
 import { fetchVariantValuation } from '@/lib/variantInventory';
+import { trySaveFechaCorte } from '@/lib/inventoryConfig';
 
 const db = supabase as never as { from: (t: string) => any };
 
@@ -180,7 +181,10 @@ export function useInventoryCount() {
           variant_reference: v.variant_reference,
           descripcion: v.name,
           stock_teorico: teo,
-          stock_contado: teo,
+          // Regla de Nico (2026-08-04): si no vino en el archivo es porque
+          // NO HAY — contado 0, diferencia = −teórico. El admin puede
+          // corregir la línea si de verdad hay stock sin contar.
+          stock_contado: 0,
           costo_unitario: Number(v.avg_cost ?? 0),
           es_nueva: false,
           // @ts-expect-error columna opcional, la usa la UI para marcarla
@@ -212,21 +216,24 @@ export function useInventoryCount() {
 
   /**
    * CONFIRMA el cierre: el conteo pasa a ser la fuente de verdad.
-   * Por cada variante con diferencia (o todas, si el conteo es completo) se
-   * escribe un movimiento 'ajuste' con el stock ABSOLUTO contado — el ancla
-   * que usa computeVariantDesglose. Los movimientos viejos NO se borran.
+   * Por cada línea se escribe un movimiento 'ajuste' con el stock ABSOLUTO
+   * contado (lo que no vino en el archivo va con 0 — regla de Nico
+   * 2026-08-04), FECHADO EL DÍA DEL CONTEO, y la fecha de corte global (F0)
+   * se mueve a ese día: las remisiones y contenedores posteriores vuelven a
+   * mover el saldo desde ahí. Los movimientos viejos NO se borran.
    */
   const confirmarCierre = useMutation({
-    mutationFn: async ({ sessionId, cuentaFaltantesComoCero, notas }: {
-      sessionId: string; cuentaFaltantesComoCero: boolean; notas?: string;
-    }) => {
-      const { data: lineasData, error: lErr } = await db
-        .from('inventory_count_lines')
-        .select('*')
-        .eq('session_id', sessionId);
+    mutationFn: async ({ sessionId, notas }: { sessionId: string; notas?: string }) => {
+      const [{ data: lineasData, error: lErr }, { data: sesData, error: sErr }] = await Promise.all([
+        db.from('inventory_count_lines').select('*').eq('session_id', sessionId),
+        db.from('inventory_count_sessions').select('fecha_conteo').eq('id', sessionId).limit(1),
+      ]);
       if (lErr) throw lErr;
+      if (sErr) throw sErr;
       const lineas = (lineasData ?? []) as CountLine[];
       if (!lineas.length) throw new Error('El cierre no tiene líneas.');
+      const fechaConteo = String((sesData as { fecha_conteo: string }[] | null)?.[0]?.fecha_conteo ?? '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaConteo)) throw new Error('La sesión no tiene fecha de conteo.');
 
       const nowIso = new Date().toISOString();
 
@@ -259,31 +266,31 @@ export function useInventoryCount() {
         }
       }
 
-      // 2. Aplicar el ancla. Regla: se ancla lo CONTADO. Lo que no vino en el
-      //    archivo solo se toca si el admin marcó "conteo completo".
-      const noContada = (l: CountLine) => (l.nota ?? '').includes('no vino en el archivo');
-      const aAncla = lineas.filter((l) => l.variant_id && (!noContada(l) || cuentaFaltantesComoCero));
+      // 2. Aplicar el ancla: TODO se ancla a lo contado (el borrador ya trae
+      //    0 en lo que no vino en el archivo).
+      const aAncla = lineas.filter((l) => l.variant_id);
       const movimientos: Record<string, unknown>[] = [];
       for (const l of aAncla) {
-        const stockFinal = noContada(l) && cuentaFaltantesComoCero ? 0 : Number(l.stock_contado ?? 0);
+        const stockFinal = Number(l.stock_contado ?? 0);
         const { error } = await db
           .from('inventory_variants')
           .update({
             stock: stockFinal,
             stock_inicial: stockFinal,
-            stock_inicial_date: nowIso,
-            last_count_date: nowIso,
+            stock_inicial_date: `${fechaConteo}T00:00:00Z`,
+            last_count_date: `${fechaConteo}T00:00:00Z`,
             ...(Number(l.costo_unitario ?? 0) > 0 ? { avg_cost: Math.round(Number(l.costo_unitario)) } : {}),
           })
           .eq('id', l.variant_id);
         if (error) throw error;
         movimientos.push({
           variant_id: l.variant_id,
-          movement_type: 'ajuste',       // ancla absoluta (computeVariantDesglose)
+          movement_type: 'ajuste',       // foto absoluta (computeVariantDesglose)
           quantity: stockFinal,
           unit_cost: Number(l.costo_unitario ?? 0),
           source_type: 'cierre_inventario',
           source_id: sessionId,
+          fecha: fechaConteo,            // el día CONTADO, no el click
           nota: `Cierre de inventario · dif ${Number(l.diferencia ?? 0) > 0 ? '+' : ''}${Math.round(Number(l.diferencia ?? 0))}`,
         });
       }
@@ -292,6 +299,10 @@ export function useInventoryCount() {
         const { error } = await db.from('inventory_variant_movements').insert(movimientos.slice(i, i + CHUNK));
         if (error) throw error;
       }
+
+      // 2b. F0 := fecha del conteo — desde acá cuentan remisiones y
+      //     contenedores para TODO el inventario.
+      await trySaveFechaCorte(fechaConteo);
 
       // 3. Congelar los totales del reporte y cerrar la sesión.
       const conDif = lineas.filter((l) => Math.round(Number(l.diferencia ?? 0)) !== 0);
@@ -302,7 +313,7 @@ export function useInventoryCount() {
         .from('inventory_count_sessions')
         .update({
           estado: 'confirmado',
-          cuenta_faltantes_como_cero: cuentaFaltantesComoCero,
+          cuenta_faltantes_como_cero: true, // regla fija: no vino = 0
           notas: notas ?? null,
           total_referencias: lineas.length,
           total_con_diferencia: conDif.length,
@@ -321,6 +332,7 @@ export function useInventoryCount() {
       invalidate();
       qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       qc.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
+      qc.invalidateQueries({ queryKey: ['inventory-fecha-corte'] });
       qc.invalidateQueries({ queryKey: ['imports'] });
     },
   });
