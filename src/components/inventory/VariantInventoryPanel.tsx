@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Loader2, Layers, Search, Check, X, RefreshCcw, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { Upload, Loader2, Layers, Search, Check, X, RefreshCcw, ArrowDown, ArrowUp, ArrowUpDown, Calculator } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
@@ -24,6 +24,7 @@ import {
 } from '@/lib/variantInventory';
 import { useInventoryVariants, parseMaestra, type InventoryVariant } from '@/hooks/useInventoryVariants';
 import InventoryCountClosing from '@/components/inventory/InventoryCountClosing';
+import StockFormulaPreview from '@/components/inventory/StockFormulaPreview';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -50,6 +51,7 @@ export default function VariantInventoryPanel() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
   const [recuadrando, setRecuadrando] = useState(false);
+  const [verComparador, setVerComparador] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -331,6 +333,13 @@ export default function VariantInventoryPanel() {
             onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
           />
           <div className="flex gap-2">
+            {/* Fase 1 del plan 2026-08-04: cuadrar la fórmula contra el Excel
+                de Nico antes de tocar el motor. No escribe nada. */}
+            <Button variant="outline" onClick={() => setVerComparador((v) => !v)}
+              title="Compara el stock de hoy contra la fórmula inicial + contenedor − remisiones, con una sola fecha de corte. Solo lectura.">
+              <Calculator className="h-4 w-4" />
+              Comparar fórmula
+            </Button>
             <Button
               variant="outline"
               onClick={recuadrar}
@@ -363,6 +372,8 @@ export default function VariantInventoryPanel() {
           <p className="text-xl font-bold text-foreground">${fmt(totalValor)}</p>
         </div>
       </div>
+
+      {verComparador && <StockFormulaPreview onClose={() => setVerComparador(false)} />}
 
       {/* Cierre de inventario: subir conteo → revisar diferencias → confirmar
           (solo admin) → el conteo queda como fuente de verdad. */}
