@@ -44,7 +44,10 @@ export default function InventoryCountClosing() {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [fechaConteo, setFechaConteo] = useState(hoyIso());
-  const [soloDiferencias, setSoloDiferencias] = useState(true);
+  // La tabla ordena por impacto en plata, así que los faltantes (grandes)
+  // tapaban a los sobrantes (chicos): el card decía "sobran 9M" y en la tabla
+  // no se veía un solo positivo (reporte de Nico 2026-08-04). Filtro explícito.
+  const [filtro, setFiltro] = useState<'dif' | 'faltan' | 'sobran' | 'todas'>('dif');
   const [faltantesCero, setFaltantesCero] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
@@ -64,9 +67,13 @@ export default function InventoryCountClosing() {
   }), [calc, lineasBorrador]);
 
   const visibles = useMemo(() => {
-    const arr = soloDiferencias ? calc.filter((c) => c.diferencia !== 0) : calc;
+    const arr = calc.filter((c) =>
+      filtro === 'todas' ? true
+        : filtro === 'faltan' ? c.diferencia < 0
+          : filtro === 'sobran' ? c.diferencia > 0
+            : c.diferencia !== 0);
     return [...arr].sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));
-  }, [calc, soloDiferencias]);
+  }, [calc, filtro]);
 
   async function onFile(file: File) {
     try {
@@ -195,26 +202,52 @@ export default function InventoryCountClosing() {
               </span>
             </div>
 
+            {/* Conteo claramente PARCIAL: marcar "van a 0" borraría medio
+                inventario de un click. El aviso va antes que la casilla. */}
+            {resumen.noContadas > resumen.total * 0.2 && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/[0.05] px-3 py-2 text-xs flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                <span>
+                  <strong>Conteo parcial: {fmt(resumen.noContadas)} de {fmt(resumen.total)} referencias no vinieron en el archivo.</strong>{' '}
+                  NO marques «conteo completo» — anclaría esas {fmt(resumen.noContadas)} en cero y borraría su stock.
+                  Si bodega sí contó todo, el archivo llegó incompleto: revisalo antes de confirmar.
+                </span>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <Metric label="Referencias contadas" value={fmt(resumen.total - resumen.noContadas)}
                 hint={resumen.nuevas > 0 ? `${resumen.nuevas} nuevas` : undefined} />
               <Metric label="Con diferencia" value={fmt(resumen.conDif)}
                 hint={resumen.noContadas > 0 ? `${resumen.noContadas} sin contar` : undefined} tone="amber" />
               <Metric label="Faltan (merma)" value={fmt(Math.abs(resumen.unidadesFaltan))}
-                hint={fmtCOP(Math.abs(resumen.valorFaltan))} tone="red" />
+                hint={fmtCOP(Math.abs(resumen.valorFaltan))} tone="red"
+                activo={filtro === 'faltan'} onClick={() => setFiltro(filtro === 'faltan' ? 'dif' : 'faltan')} />
               <Metric label="Sobran" value={fmt(resumen.unidadesSobran)}
-                hint={fmtCOP(resumen.valorSobran)} tone="green" />
+                hint={fmtCOP(resumen.valorSobran)} tone="green"
+                activo={filtro === 'sobran'} onClick={() => setFiltro(filtro === 'sobran' ? 'dif' : 'sobran')} />
             </div>
 
             <div className="flex items-center justify-between gap-3 flex-wrap text-xs">
               <div className="flex items-center gap-3 flex-wrap">
-                <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={soloDiferencias}
-                    onChange={(e) => setSoloDiferencias(e.target.checked)} />
-                  Solo las que tienen diferencia
-                </label>
+                <div className="inline-flex rounded-md border border-border overflow-hidden">
+                  {([
+                    ['dif', `Con diferencia (${fmt(resumen.conDif)})`],
+                    ['faltan', `Faltantes (${fmt(resumen.lineasFaltan)})`],
+                    ['sobran', `Sobrantes (${fmt(resumen.lineasSobran)})`],
+                    ['todas', 'Todas'],
+                  ] as [typeof filtro, string][]).map(([k, label]) => (
+                    <button key={k} onClick={() => setFiltro(k)}
+                      className={cn('px-2.5 py-1 transition-colors border-r border-border last:border-r-0',
+                        filtro === k ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-muted')}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 {resumen.noContadas > 0 && (
-                  <label className="inline-flex items-center gap-1.5 cursor-pointer" title="Si el conteo fue de TODA la bodega, lo que no aparece en el archivo es porque no está: se ancla en 0. Si fue parcial, dejalo sin marcar.">
+                  <label className={cn('inline-flex items-center gap-1.5 cursor-pointer',
+                    faltantesCero && 'text-destructive font-medium')}
+                    title="Si el conteo fue de TODA la bodega, lo que no aparece en el archivo es porque no está: se ancla en 0. Si fue parcial, dejalo sin marcar.">
                     <input type="checkbox" checked={faltantesCero}
                       onChange={(e) => setFaltantesCero(e.target.checked)} />
                     Las {resumen.noContadas} que no vinieron en el archivo van a 0 (conteo completo)
@@ -263,8 +296,10 @@ export default function InventoryCountClosing() {
                   {lineasPending ? (
                     <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Cargando líneas…</td></tr>
                   ) : visibles.length === 0 ? (
-                    <tr><td colSpan={5} className="px-3 py-6 text-center text-success font-medium">
-                      Sin diferencias: el conteo cuadra con el sistema. ✓
+                    <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
+                      {filtro === 'faltan' ? 'Ninguna referencia con faltante.'
+                        : filtro === 'sobran' ? 'Ninguna referencia con sobrante.'
+                          : <span className="text-success font-medium">Sin diferencias: el conteo cuadra con el sistema. ✓</span>}
                     </td></tr>
                   ) : visibles.slice(0, 300).map(({ linea: l, teorico, contado, diferencia: dif, valor }) => {
                     return (
@@ -360,18 +395,26 @@ export default function InventoryCountClosing() {
   );
 }
 
-function Metric({ label, value, hint, tone }: {
+function Metric({ label, value, hint, tone, onClick, activo }: {
   label: string; value: string; hint?: string; tone?: 'red' | 'green' | 'amber';
+  /** Clic = filtrar la tabla por esa categoría. */
+  onClick?: () => void; activo?: boolean;
 }) {
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div className={cn('rounded-lg border px-3 py-2',
-      tone === 'red' ? 'border-destructive/30 bg-destructive/[0.04]'
-        : tone === 'green' ? 'border-success/30 bg-success/[0.04]'
-          : tone === 'amber' ? 'border-amber-400/40 bg-amber-50/50 dark:bg-amber-950/10'
-            : 'border-border bg-muted/20')}>
+    <Tag
+      onClick={onClick}
+      title={onClick ? (activo ? 'Clic para ver todas las diferencias' : 'Clic para ver solo estas en la tabla') : undefined}
+      className={cn('rounded-lg border px-3 py-2 text-left w-full',
+        onClick && 'cursor-pointer transition-colors hover:brightness-95',
+        activo && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
+        tone === 'red' ? 'border-destructive/30 bg-destructive/[0.04]'
+          : tone === 'green' ? 'border-success/30 bg-success/[0.04]'
+            : tone === 'amber' ? 'border-amber-400/40 bg-amber-50/50 dark:bg-amber-950/10'
+              : 'border-border bg-muted/20')}>
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
       <p className="text-lg font-bold tabular-nums">{value}</p>
       {hint && <p className="text-[10px] text-muted-foreground font-mono">{hint}</p>}
-    </div>
+    </Tag>
   );
 }

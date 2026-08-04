@@ -55,6 +55,9 @@ export function calcularLineas(lineas: CountLine[], cuentaFaltantesComoCero: boo
 export interface CountTotals {
   total: number;
   conDif: number;
+  /** Cuántas REFERENCIAS faltan / sobran (distinto de las unidades). */
+  lineasFaltan: number;
+  lineasSobran: number;
   nuevas: number;
   sinContar: number;
   unidadesFaltan: number;
@@ -72,6 +75,8 @@ export function totalizar(calc: CountLineCalc[]): CountTotals {
   return {
     total: calc.length,
     conDif: conDif.length,
+    lineasFaltan: faltan.length,
+    lineasSobran: sobran.length,
     nuevas: calc.filter((c) => c.nueva).length,
     sinContar: calc.filter((c) => c.estado === 'Sin contar').length,
     unidadesFaltan: suma(faltan, (c) => c.diferencia),
