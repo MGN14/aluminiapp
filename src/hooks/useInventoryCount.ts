@@ -230,21 +230,6 @@ export function useInventoryCount() {
 
       const nowIso = new Date().toISOString();
 
-      // El ANCLA lleva la fecha del CONTEO, no la del click de confirmar.
-      // Antes se guardaba `nowIso`: un conteo del 28/07 confirmado el 04/08
-      // censuraba todas las remisiones de esos días y el teórico quedaba
-      // inflado (~3.000 unidades — reporte de Nico 2026-08-04).
-      // Convención: el conteo cierra el día contado; descuenta lo del día
-      // siguiente en adelante.
-      const { data: ses, error: sesErr } = await db
-        .from('inventory_count_sessions')
-        .select('fecha_conteo')
-        .eq('id', sessionId)
-        .single();
-      if (sesErr) throw sesErr;
-      const fechaConteo = String((ses as { fecha_conteo: string }).fecha_conteo).slice(0, 10);
-      const anclaIso = `${fechaConteo}T23:59:59.999Z`;
-
       // 1. Crear las variantes nuevas que trajo el conteo.
       const nuevas = lineas.filter((l) => l.es_nueva && !l.variant_id);
       if (nuevas.length) {
@@ -286,8 +271,8 @@ export function useInventoryCount() {
           .update({
             stock: stockFinal,
             stock_inicial: stockFinal,
-            stock_inicial_date: anclaIso,
-            last_count_date: anclaIso,
+            stock_inicial_date: nowIso,
+            last_count_date: nowIso,
             ...(Number(l.costo_unitario ?? 0) > 0 ? { avg_cost: Math.round(Number(l.costo_unitario)) } : {}),
           })
           .eq('id', l.variant_id);
@@ -299,8 +284,6 @@ export function useInventoryCount() {
           unit_cost: Number(l.costo_unitario ?? 0),
           source_type: 'cierre_inventario',
           source_id: sessionId,
-          fecha: fechaConteo,       // el ancla vale desde el día CONTADO
-          created_at: anclaIso,
           nota: `Cierre de inventario · dif ${Number(l.diferencia ?? 0) > 0 ? '+' : ''}${Math.round(Number(l.diferencia ?? 0))}`,
         });
       }

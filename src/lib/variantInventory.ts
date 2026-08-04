@@ -279,29 +279,18 @@ export async function reconcileVariantRemisionLedger(
   const contada = (v: VariantLite) => v.last_count_date != null;
   const anclaConteoMs = (v: VariantLite): number =>
     Math.max(contada(v) ? tsNum(v.stock_inicial_date) : 0, ajusteMs.get(v.id) ?? 0);
-  /** ¿Esta remisión descuenta de esta variante?
-   *  Manda la FECHA de la remisión (cuándo SALIÓ la mercancía) contra el DÍA
-   *  del conteo — no cuándo se digitó. Comparar created_at censuraba todo lo
-   *  cargado antes del click de confirmar, aunque hubiera salido después del
-   *  conteo (reporte de Nico 2026-08-04). Convención: el conteo del día X
-   *  cierra el día X; descuenta lo del día X+1 en adelante. */
+  /** ¿Esta remisión descuenta de esta variante? */
   const remisionCuenta = (rem: RemisionParaLedger, v: VariantLite): boolean => {
+    if (contada(v)) return tsNum(rem.created_at) > anclaConteoMs(v);
+    // Nunca contada: manda la FECHA de la remisión vs el día del arribo.
     const remDia = diaMs(tsNum(rem.date) || tsNum(rem.created_at));
-    if (contada(v)) return remDia > diaMs(anclaConteoMs(v));
-    // Nunca contada: la vida rastreada arranca en el arribo del contenedor.
     return remDia >= nacimientoDiaMs(v);
   };
-  /** Corte de "historia congelada" para filas ya escritas en el ledger:
-   *  el mismo criterio, en días, para que el recuadre y el desglose no se
-   *  contradigan (una escribía la fila y el otro la ignoraba). */
-  const anclaFilaDiaMs = (variantId: string): number => {
+  /** Corte de "historia congelada" para filas ya escritas en el ledger. */
+  const anclaFilaMs = (variantId: string): number => {
     const v = porId.get(variantId);
-    return v ? diaMs(anclaConteoMs(v)) : 0;
+    return v ? anclaConteoMs(v) : 0;
   };
-  /** Día del hecho de una fila del ledger: su `fecha` (la de la remisión),
-   *  con fallback a la digitación en filas viejas sin fecha. */
-  const filaDiaMs = (fila: { fecha?: string | null; created_at: string }): number =>
-    diaMs(tsNum(fila.fecha) || tsNum(fila.created_at));
 
   const onlySet = opts?.onlyRefs?.length
     ? new Set(opts.onlyRefs.map((r) => canonicalizeRef(r)).filter(Boolean))
@@ -338,14 +327,14 @@ export async function reconcileVariantRemisionLedger(
   }
 
   // Lo APLICADO: filas del ledger de esas remisiones (o todas, si exhaustive).
-  interface LedgerRow { id: string; variant_id: string; movement_type: string; quantity: number; source_id: string; created_at: string; fecha: string | null }
+  interface LedgerRow { id: string; variant_id: string; movement_type: string; quantity: number; source_id: string; created_at: string }
   const existentes: LedgerRow[] = [];
   if (opts?.exhaustive) {
     const PAGE = 1000;
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await db
         .from('inventory_variant_movements')
-        .select('id, variant_id, movement_type, quantity, source_id, created_at, fecha')
+        .select('id, variant_id, movement_type, quantity, source_id, created_at')
         .eq('source_type', 'remision')
         .order('created_at', { ascending: true })
         .order('id', { ascending: true })
@@ -359,7 +348,7 @@ export async function reconcileVariantRemisionLedger(
     for (const ids of chunk([...remPorId.keys()], 150)) {
       const { data, error } = await db
         .from('inventory_variant_movements')
-        .select('id, variant_id, movement_type, quantity, source_id, created_at, fecha')
+        .select('id, variant_id, movement_type, quantity, source_id, created_at')
         .eq('source_type', 'remision')
         .in('source_id', ids);
       if (error) throw error;
@@ -405,7 +394,7 @@ export async function reconcileVariantRemisionLedger(
         continue;
       }
       // Fila anterior al conteo = historia congelada (el desglose la ignora).
-      if (filaDiaMs(fila) <= anclaFilaDiaMs(variantId)) continue;
+      if (tsNum(fila.created_at) <= anclaFilaMs(variantId)) continue;
       if (!leCorresponde) {
         // Fila viva de una remisión fuera de la vida rastreada: resucitada
         // por error (backfill del 2026-08-02) — se elimina.
@@ -429,7 +418,7 @@ export async function reconcileVariantRemisionLedger(
     if (!v || !permitida(v)) continue; // variante inactiva o fuera del alcance
     const rem = remPorId.get(row.source_id);
     if (!rem && !opts?.exhaustive) continue; // remisión fuera de la lista parcial
-    if (filaDiaMs(row) <= anclaFilaDiaMs(row.variant_id)) continue; // absorbida
+    if (tsNum(row.created_at) <= anclaFilaMs(row.variant_id)) continue; // absorbida
     toDeleteIds.push(row.id);
     acumular(row.variant_id, -efecto(row.movement_type, Number(row.quantity)));
   }
@@ -693,30 +682,6 @@ export interface VariantMovLite {
   quantity: number;
   source_type: string | null;
   created_at: string;
-  /** Fecha del HECHO (la remisión salió el 29/07) — distinta de created_at,
-   *  que es cuándo se digitó. Puede ser null en filas viejas. */
-  fecha?: string | null;
-}
-
-/**
- * Instante efectivo de un movimiento para decidir si un conteo ya lo absorbió.
- *
- * Manda la FECHA del hecho, no la digitación: una remisión del 29/07 cargada
- * el 03/08 salió de bodega el 29 — si el conteo es del 28, tiene que
- * descontar. Comparar por created_at hacía que el conteo se "comiera" todo lo
- * digitado antes del click de confirmar (reporte de Nico 2026-08-04: el
- * teórico mostraba ~3.000 unidades de más).
- *
- * Convención: el conteo del día X fija el saldo al CIERRE del día X.
- *   · como ancla  → fin del día  (23:59:59.999)
- *   · como movimiento → inicio del día (00:00)
- * Así lo del MISMO día del conteo queda dentro del conteo, y lo del día
- * siguiente en adelante descuenta. Sin empates ambiguos.
- */
-export function movInstante(m: VariantMovLite, comoAncla: boolean): string {
-  const dia = (m.fecha ?? '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return m.created_at;
-  return `${dia}T${comoAncla ? '23:59:59.999' : '00:00:00.000'}Z`;
 }
 
 export interface VariantDesglose {
@@ -739,16 +704,15 @@ export function computeVariantDesglose(
   let anclaTime = v.stock_inicial_date ?? '';
   let ancla = Number(v.stock_inicial ?? 0);
   for (const m of movs) {
-    const t = movInstante(m, true);
-    if (m.movement_type === 'ajuste' && t > anclaTime) {
-      anclaTime = t;
+    if (m.movement_type === 'ajuste' && m.created_at > anclaTime) {
+      anclaTime = m.created_at;
       ancla = Number(m.quantity ?? 0); // el ajuste guarda el stock ABSOLUTO
     }
   }
   let contenedor = 0;
   let remisiones = 0;
   for (const m of movs) {
-    if (movInstante(m, false) <= anclaTime) continue; // ya está dentro del ancla
+    if (m.created_at <= anclaTime) continue; // ya está dentro del ancla
     const qty = Number(m.quantity ?? 0);
     if (m.source_type === 'import' && m.movement_type === 'entrada') contenedor += qty;
     if (m.source_type === 'remision' && m.movement_type === 'salida') remisiones += qty;
@@ -770,7 +734,7 @@ export async function fetchAllVariantMovements(): Promise<(VariantMovLite & { va
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await db
       .from('inventory_variant_movements')
-      .select('variant_id, movement_type, quantity, source_type, created_at, fecha')
+      .select('variant_id, movement_type, quantity, source_type, created_at')
       .order('created_at', { ascending: true })
       .order('id', { ascending: true }) // desempate estable para paginar sin duplicar
       .range(from, from + PAGE - 1);
