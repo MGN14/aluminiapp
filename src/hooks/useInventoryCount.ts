@@ -78,6 +78,36 @@ export async function fetchCountLines(sessionId: string): Promise<CountLine[]> {
   return (data ?? []) as CountLine[];
 }
 
+/**
+ * Re-sincroniza el "Debería haber" de un borrador con el stock VIVO de la
+ * fórmula. El teórico se congela al crear el borrador; si después cambia la
+ * fecha de corte, se recuadran movimientos o entra un contenedor, el borrador
+ * quedaba comparando contra un número viejo (reporte de Nico 2026-08-05:
+ * "faltan" $410M cuando la merma real era ~$5M). `diferencia` es columna
+ * generada — se recalcula sola al actualizar stock_teorico.
+ * Devuelve cuántas líneas se corrigieron.
+ */
+export async function syncTeoricoBorrador(sessionId: string): Promise<number> {
+  const [lineas, valuacion] = await Promise.all([
+    fetchCountLines(sessionId),
+    fetchVariantValuation(),
+  ]);
+  const teoricoPorCanon = new Map(valuacion.map((v) => [canonicalizeRef(v.variant_reference), v.stock]));
+  let corregidas = 0;
+  for (const l of lineas) {
+    const vivo = teoricoPorCanon.get(canonicalizeRef(l.variant_reference));
+    if (vivo == null) continue; // ref nueva: no existe en variantes todavía
+    if (Math.abs(Number(l.stock_teorico ?? 0) - vivo) < 0.5) continue;
+    const { error } = await db
+      .from('inventory_count_lines')
+      .update({ stock_teorico: vivo })
+      .eq('id', l.id);
+    if (error) throw error;
+    corregidas++;
+  }
+  return corregidas;
+}
+
 export function useInventoryCount() {
   const qc = useQueryClient();
 
@@ -224,6 +254,9 @@ export function useInventoryCount() {
    */
   const confirmarCierre = useMutation({
     mutationFn: async ({ sessionId, notas }: { sessionId: string; notas?: string }) => {
+      // El cierre SIEMPRE se confirma contra el teórico vivo — nunca contra
+      // el congelado al crear el borrador.
+      await syncTeoricoBorrador(sessionId);
       const [{ data: lineasData, error: lErr }, { data: sesData, error: sErr }] = await Promise.all([
         db.from('inventory_count_lines').select('*').eq('session_id', sessionId),
         db.from('inventory_count_sessions').select('fecha_conteo').eq('id', sessionId).limit(1),

@@ -26,6 +26,7 @@ import {
 import { fetchFechaCorte, saveFechaCorte } from '@/lib/inventoryConfig';
 import { fetchLineasSinCruce, type LineaSinCruce } from '@/lib/refsSinCruce';
 import { useInventoryVariants, parseMaestra, type InventoryVariant } from '@/hooks/useInventoryVariants';
+import { syncTeoricoBorrador } from '@/hooks/useInventoryCount';
 import InventoryCountClosing from '@/components/inventory/InventoryCountClosing';
 
 function fmt(n: number | null | undefined): string {
@@ -64,10 +65,27 @@ export default function VariantInventoryPanel() {
     queryFn: fetchFechaCorte,
     staleTime: 60_000,
   });
+  /** Si hay un borrador de conteo vivo, su "Debería haber" sigue al stock. */
+  async function syncBorradorVivo() {
+    try {
+      const { data } = await (supabase as any)
+        .from('inventory_count_sessions')
+        .select('id')
+        .eq('estado', 'borrador')
+        .limit(1);
+      const id = (data as { id: string }[] | null)?.[0]?.id;
+      if (id) {
+        await syncTeoricoBorrador(id);
+        qc.invalidateQueries({ queryKey: ['inventory-count-lines'] });
+      }
+    } catch { /* best-effort */ }
+  }
+
   const guardarCorte = useMutation({
     mutationFn: async (fecha: string) => {
       await saveFechaCorte(fecha);
       await syncVariantStockToLedger(); // el cache sigue a la fórmula
+      await syncBorradorVivo();
     },
     onSuccess: (_d, fecha) => {
       qc.invalidateQueries({ queryKey: ['inventory-fecha-corte'] });
@@ -197,6 +215,7 @@ export default function VariantInventoryPanel() {
       const salidas = rec.insertadas + rec.corregidas + rec.eliminadas;
       // Paso final: cache := fórmula, para TODAS las variantes.
       const cuadradas = await syncVariantStockToLedger();
+      await syncBorradorVivo();
       qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       qc.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
       qc.invalidateQueries({ queryKey: ['remisiones-sin-cruce'] });

@@ -11,7 +11,7 @@
  * remisiones.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ClipboardCheck, Upload, Loader2, Check, X, AlertTriangle, History, ChevronDown, ChevronRight,
@@ -23,7 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { parseMaestra } from '@/hooks/useInventoryVariants';
-import { useInventoryCount, fetchCountLines, type CountLine, type CountSession } from '@/hooks/useInventoryCount';
+import { useInventoryCount, fetchCountLines, syncTeoricoBorrador, type CountLine, type CountSession } from '@/hooks/useInventoryCount';
 import { calcularLineas, totalizar, exportCountToExcel } from '@/lib/inventoryCountExport';
 import { cn } from '@/lib/utils';
 
@@ -52,6 +52,28 @@ export default function InventoryCountClosing() {
   const [editVal, setEditVal] = useState('');
   const [verHistorial, setVerHistorial] = useState(false);
   const [exportando, setExportando] = useState<string | null>(null);
+
+  // El teórico del borrador se congela al crearlo; si después cambió la fecha
+  // de corte o se recuadró, quedaba comparando contra un número viejo (los
+  // "$410M de faltante" del 2026-08-05). Al abrir el borrador se
+  // re-sincroniza contra el stock VIVO de la fórmula, una vez por sesión.
+  const sincronizado = useRef<string | null>(null);
+  useEffect(() => {
+    if (!borrador || lineasPending || sincronizado.current === borrador.id) return;
+    sincronizado.current = borrador.id;
+    syncTeoricoBorrador(borrador.id)
+      .then((n) => {
+        if (n > 0) {
+          qc.invalidateQueries({ queryKey: ['inventory-count-lines'] });
+          toast({
+            title: `Teórico actualizado en ${n} referencia(s)`,
+            description: 'El borrador quedó comparando contra el stock actual (la fecha de corte o el recuadre lo habían movido).',
+            duration: 8000,
+          });
+        }
+      })
+      .catch(() => { /* best-effort: la tabla igual se muestra */ });
+  }, [borrador, lineasPending, qc, toast]);
 
   // Pantalla, diálogo de confirmación y Excel salen del MISMO cálculo.
   // Lo que no vino en el archivo ya llega con contado 0 desde el borrador
