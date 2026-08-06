@@ -11,7 +11,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { applyColorSuffix, canonicalizeRef } from '@/lib/refFamily';
-import { trySaveFechaCorte } from '@/lib/inventoryConfig';
 
 // La tabla es nueva; types.ts todavía no la conoce. Mismo cast que usa el
 // resto del código para tablas recién creadas (ej. import_items).
@@ -230,9 +229,10 @@ export function useInventoryVariants() {
         const { error: mErr } = await db.from('inventory_variant_movements').insert(movs);
         if (mErr) throw mErr;
       }
-      // F0 := hoy — este re-anclaje ES un conteo de hoy: remisiones y
-      // contenedores cuentan de hoy en adelante (fórmula única 2026-08-04).
-      await trySaveFechaCorte(nowIso.slice(0, 10));
+      // F0 NO se toca: la fecha de corte solo cambia si el usuario la mueve o
+      // si se confirma un cierre de conteo (regla de Nico 2026-08-05 — "si yo
+      // no la toco no debe cambiar"). El movimiento 'inicial' que se acaba de
+      // escribir ya re-ancla esta referencia por su cuenta en la fórmula.
       return { count: payload.length, ancladasEnCero };
     },
     onSuccess: () => {

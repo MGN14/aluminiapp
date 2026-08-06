@@ -23,11 +23,12 @@ import {
   syncVariantStockToLedger,
   type VariantDesglose,
 } from '@/lib/variantInventory';
-import { fetchFechaCorte, saveFechaCorte } from '@/lib/inventoryConfig';
-import { fetchLineasSinCruce, type LineaSinCruce } from '@/lib/refsSinCruce';
+import { fetchFechaCorte, saveFechaCorte, fetchUltimoContenedorEntregado, fechaCorteEsLocal } from '@/lib/inventoryConfig';
+import { fetchLineasSinCruce } from '@/lib/refsSinCruce';
 import { useInventoryVariants, parseMaestra, type InventoryVariant } from '@/hooks/useInventoryVariants';
 import { syncTeoricoBorrador } from '@/hooks/useInventoryCount';
 import InventoryCountClosing from '@/components/inventory/InventoryCountClosing';
+import RemisionRefFixer from '@/components/inventory/RemisionRefFixer';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -110,6 +111,14 @@ export default function VariantInventoryPanel() {
     queryKey: ['remisiones-sin-cruce'],
     queryFn: fetchLineasSinCruce,
     staleTime: 5 * 60_000,
+  });
+
+  // Sugerencia de F0: la llegada del último contenedor entregado. Solo
+  // SUGIERE — la fecha nunca se mueve sola (regla de Nico 2026-08-05).
+  const { data: fechaUltimoContenedor } = useQuery({
+    queryKey: ['ultimo-contenedor-entregado'],
+    queryFn: fetchUltimoContenedorEntregado,
+    staleTime: 10 * 60_000,
   });
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(false);
@@ -359,24 +368,50 @@ export default function VariantInventoryPanel() {
           {/* F0 — LA fecha de corte global (decisión de Nico 2026-08-04):
               el stock cuenta contenedores y remisiones desde acá en adelante.
               Se mueve sola al confirmar un cierre de inventario. */}
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-1.5"
-            title="El stock es: inicial + contenedores − remisiones con fecha POSTERIOR a esta. Es la fecha del conteo que definió el inicial. Al confirmar un cierre de inventario se actualiza sola.">
-            <CalendarClock className="h-4 w-4 text-primary shrink-0" />
-            <span className="text-xs font-medium">Remisiones descuentan desde</span>
-            <Input
-              type="date"
-              value={fechaCorte ?? ''}
-              disabled={!isAdmin || guardarCorte.isPending}
-              onChange={(e) => {
-                const f = e.target.value;
-                if (!f || f === fechaCorte) return;
-                if (window.confirm(`Cambiar la fecha de corte a ${f}:\n\nEl stock de TODAS las referencias se recalcula contando contenedores y remisiones desde esa fecha. ¿Continuar?`)) {
-                  guardarCorte.mutate(f);
-                }
-              }}
-              className="h-7 w-36 text-xs"
-            />
-            {guardarCorte.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-1.5">
+            <div className="flex items-center gap-2"
+              title="El stock es: inicial + contenedores − remisiones con fecha POSTERIOR a esta. Queda fija: solo cambia si la movés vos o si confirmás un cierre de conteo.">
+              <CalendarClock className="h-4 w-4 text-primary shrink-0" />
+              <span className="text-xs font-medium">Remisiones descuentan desde</span>
+              <Input
+                type="date"
+                value={fechaCorte ?? ''}
+                disabled={!isAdmin || guardarCorte.isPending}
+                onChange={(e) => {
+                  const f = e.target.value;
+                  if (!f || f === fechaCorte) return;
+                  if (window.confirm(`Cambiar la fecha de corte a ${f}:\n\nEl stock de TODAS las referencias se recalcula contando contenedores y remisiones desde esa fecha. ¿Continuar?`)) {
+                    guardarCorte.mutate(f);
+                  }
+                }}
+                className="h-7 w-36 text-xs"
+              />
+              {guardarCorte.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            </div>
+            {/* Sugerencia (no se aplica sola): la llegada del último contenedor. */}
+            {fechaUltimoContenedor && (
+              <p className="text-[10px] text-muted-foreground mt-1 pl-6">
+                Último contenedor entregado: <strong>{fechaUltimoContenedor}</strong>
+                {fechaUltimoContenedor !== fechaCorte && isAdmin && (
+                  <button
+                    className="ml-1.5 underline hover:text-foreground"
+                    disabled={guardarCorte.isPending}
+                    onClick={() => {
+                      if (window.confirm(`Usar ${fechaUltimoContenedor} como fecha de corte?\n\nEl stock se recalcula contando desde esa fecha.`)) {
+                        guardarCorte.mutate(fechaUltimoContenedor);
+                      }
+                    }}
+                  >
+                    usar esta fecha
+                  </button>
+                )}
+              </p>
+            )}
+            {fechaCorte && fechaCorteEsLocal && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-1 pl-6">
+                Guardada solo en este navegador — corré <span className="font-mono">supabase db push</span> para que quede en la base.
+              </p>
+            )}
           </div>
           <input
             ref={fileRef}
@@ -404,21 +439,12 @@ export default function VariantInventoryPanel() {
       </div>
 
       {/* Unidades despachadas que NUNCA descuentan: la referencia de la
-          remisión no cruza con ninguna variante. Antes moría en un toast. */}
-      {sinCruce.length > 0 && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/[0.05] px-4 py-3 text-xs space-y-1">
-          <p className="font-semibold text-destructive flex items-center gap-1.5">
-            <AlertTriangle className="h-4 w-4" />
-            {sinCruce.length} línea(s) de remisión no cruzan con ninguna referencia —{' '}
-            {fmt(sinCruce.reduce((s, l) => s + l.units, 0))} unidades que NO están descontando
-          </p>
-          <p className="text-muted-foreground">
-            Subí las referencias que faltan en <strong>Maestro de Productos → Referencias por variante</strong> y
-            después apretá «Recuadrar movimientos». Ejemplos:{' '}
-            {sinCruce.slice(0, 5).map((l: LineaSinCruce) => l.reference).join(', ')}{sinCruce.length > 5 ? '…' : ''}
-          </p>
-        </div>
-      )}
+          remisión no cruza con ninguna variante. Se corrigen ahí mismo. */}
+      <RemisionRefFixer
+        lineas={sinCruce}
+        referencias={variants.map((v) => ({ variant_reference: v.variant_reference, name: v.name }))}
+        onAplicado={syncBorradorVivo}
+      />
 
       {/* Resumen */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
