@@ -7,6 +7,8 @@ import { Transaction, Category, Responsible } from '@/types/transaction';
 import { parseLocalDate } from '@/lib/dateUtils';
 import TransactionRow from '@/components/transactions/TransactionRow';
 import TransactionDetailModal from '@/components/transactions/TransactionDetailModal';
+import ReglasSugeridasCard from '@/components/transactions/ReglasSugeridasCard';
+import { useReconciliationRules } from '@/hooks/useReconciliationRules';
 import ResponsibleManagement from '@/components/management/ResponsibleManagement';
 import CategoryManagement from '@/components/management/CategoryManagement';
 import TransactionFilters, {
@@ -411,6 +413,21 @@ export default function Transactions() {
   // Persistir filtros, año y extracto cada vez que cambian (sobrevive a
   // re-mounts por tab discard).
   useEffect(() => { saveFilters(filters); }, [filters]);
+
+  // RETRO-APLICACIÓN de reglas al abrir Conciliación (una vez por sesión):
+  // las reglas corrían solo al subir el extracto — una regla creada DESPUÉS
+  // nunca barría los pendientes viejos salvo yendo a Nico → Reglas (reporte
+  // de Nico 2026-08-06: "no me está llenando categoría ni beneficiario").
+  // quiet: si no matchea nada, ni un toast.
+  const { rules, applyPendingRulesViaRPC } = useReconciliationRules();
+  const reglasBarridas = useRef(false);
+  useEffect(() => {
+    if (reglasBarridas.current || !rules.length) return;
+    if (!rules.some(r => r.active && (r.category_id || r.responsible_id || r.movement_nature))) return;
+    reglasBarridas.current = true;
+    applyPendingRulesViaRPC(5000, { quiet: true }).catch(() => { /* best-effort */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rules]);
   useEffect(() => { saveStringToStorage(YEAR_STORAGE_KEY, selectedYear); }, [selectedYear]);
   useEffect(() => { saveStringToStorage(STATEMENT_STORAGE_KEY, selectedStatement); }, [selectedStatement]);
 
@@ -836,6 +853,10 @@ export default function Transactions() {
               </div>
             </div>
           </div>
+
+          {/* Reglas sugeridas por el historial: un clic las crea y barre
+              los pendientes — cada mes conciliado enseña a la app. */}
+          <ReglasSugeridasCard categories={categories} responsibles={responsibles} />
 
           {/* Filters */}
           <TransactionFilters

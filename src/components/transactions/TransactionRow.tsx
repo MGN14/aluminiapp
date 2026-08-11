@@ -27,6 +27,12 @@ import InvoiceSelector, { InvoiceTag } from './InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { classifyBucket, bucketWantsInvoice } from '@/lib/txBucket';
+import { toast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
+import { useConciliacionHistorial } from '@/hooks/useConciliacionHistorial';
+import {
+  sugerirBeneficiario, sugerirCategoria, alertaCategoriaInusual, alertaMontoInusual,
+} from '@/lib/conciliacionHistorial';
 import {
   type CardDescriptionRule,
   findMatchingCardRule,
@@ -114,6 +120,48 @@ export default function TransactionRow({
 
   const handleCategoryChange = (categoryId: string | null) => {
     updateField(withCardDescription({ category_id: categoryId, category: null }));
+    // Aviso (sin bloquear) si contradice el histórico de esta descripción:
+    // ≥4 casos previos y ≥75% en otra categoría. Un clic lo corrige.
+    if (historial && categoryId) {
+      const a = alertaCategoriaInusual(historial, localTransaction.description, categoryId);
+      if (a) {
+        const dominante = categories.find(c => c.id === a.dominanteId);
+        if (dominante) {
+          toast({
+            title: 'Distinto a como lo venías clasificando',
+            description: `«${localTransaction.description}» fue ${dominante.name} ${a.veces} de ${a.total} veces.`,
+            duration: 9000,
+            action: (
+              <ToastAction altText={`Usar ${dominante.name}`}
+                onClick={() => updateField(withCardDescription({ category_id: a.dominanteId, category: null }))}>
+                Usar {dominante.name}
+              </ToastAction>
+            ),
+          });
+        }
+      }
+    }
+  };
+
+  const handleResponsibleChange = (value: string | null) => {
+    updateField(withCardDescription({ responsible_id: value }));
+    // Auto-assign N/A tag when responsible is "Banco"
+    const selectedResp = responsibles.find(r => r.id === value);
+    if (selectedResp && selectedResp.name.toLowerCase() === 'banco' && !derivedTags.includes('na') && !derivedInvoiceId) {
+      handleInvoiceChange(null, [...derivedTags, 'na']);
+    }
+    // Aviso si el monto se sale del rango histórico de ese beneficiario en
+    // esa categoría (≥4 pagos previos, 30% fuera del rango). Solo informa.
+    if (historial && value) {
+      const a = alertaMontoInusual(historial, localTransaction.category_id, value, localTransaction.amount);
+      if (a && selectedResp) {
+        toast({
+          title: 'Monto fuera de lo habitual',
+          description: `A ${selectedResp.name} le venías pagando ${a.texto} (${a.n} pagos). Este movimiento es distinto — revisá que no sea otro beneficiario.`,
+          duration: 9000,
+        });
+      }
+    }
   };
 
   const handleTypeChange = (type: SimpleTransactionType) => {
@@ -246,14 +294,42 @@ export default function TransactionRow({
   const amountColor = (localTransaction.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive';
   const isReconciled = !!localTransaction.responsible_id;
 
+  // Historial de conciliación (cacheado, compartido entre todas las filas):
+  // alimenta las sugerencias de beneficiario/categoría y las alertas.
+  const { historial } = useConciliacionHistorial(true);
+
+  // Beneficiarios sugeridos para ESTA fila: por categoría + monto. El que
+  // calza en monto va primero ("Nómina de $1.250.000 → Rocío, 7 veces").
+  const sugerenciasResp = useMemo(
+    () => (historial && localTransaction.category_id
+      ? sugerirBeneficiario(historial, localTransaction.category_id, localTransaction.amount)
+      : []),
+    [historial, localTransaction.category_id, localTransaction.amount],
+  );
+  const sugerenciaCat = useMemo(
+    () => (historial && !localTransaction.category_id
+      ? sugerirCategoria(historial, localTransaction.description)
+      : null),
+    [historial, localTransaction.category_id, localTransaction.description],
+  );
+
   // Prepare options for searchable selects
   const categoryOptions = categories
     .filter(c => c.active)
     .map(c => ({ value: c.id, label: c.name }));
-  
-  const responsibleOptions = responsibles
-    .filter(r => r.active)
-    .map(r => ({ value: r.id, label: r.name }));
+
+  // Los sugeridos se fijan arriba de la lista, con estrella y su evidencia.
+  const responsibleOptions = useMemo(() => {
+    const base = responsibles.filter(r => r.active);
+    if (!sugerenciasResp.length) return base.map(r => ({ value: r.id, label: r.name }));
+    const rank = new Map(sugerenciasResp.map((s, i) => [s.responsibleId, i]));
+    return [...base]
+      .sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99))
+      .map(r => {
+        const s = sugerenciasResp.find(x => x.responsibleId === r.id);
+        return { value: r.id, label: s ? `★ ${r.name} · ${s.veces}×` : r.name };
+      });
+  }, [responsibles, sugerenciasResp]);
 
   // Derive invoiceId and tags from transaction data
   const derivedInvoiceId = localTransaction.invoice_id || null;
@@ -361,6 +437,16 @@ export default function TransactionRow({
           onAdd={handleAddCategory}
           triggerClassName="w-full"
         />
+        {/* Sugerencia de un clic: la categoría dominante de esta descripción. */}
+        {!localTransaction.category_id && sugerenciaCat && (
+          <button
+            className="mt-0.5 block max-w-full truncate text-[10px] text-primary hover:underline text-left"
+            title={`Así clasificaste esta descripción ${sugerenciaCat.veces} de ${sugerenciaCat.total} veces. Clic para aplicar.`}
+            onClick={() => handleCategoryChange(sugerenciaCat.categoryId)}
+          >
+            ¿{categories.find(c => c.id === sugerenciaCat.categoryId)?.name}? · {sugerenciaCat.veces} de {sugerenciaCat.total}
+          </button>
+        )}
       </TableCell>
 
       {/* Responsible */}
@@ -369,14 +455,7 @@ export default function TransactionRow({
           <SearchableSelect
             options={responsibleOptions}
             value={localTransaction.responsible_id}
-            onChange={(value) => {
-              updateField(withCardDescription({ responsible_id: value }));
-              // Auto-assign N/A tag when responsible is "Banco"
-              const selectedResp = responsibles.find(r => r.id === value);
-              if (selectedResp && selectedResp.name.toLowerCase() === 'banco' && !derivedTags.includes('na') && !derivedInvoiceId) {
-                handleInvoiceChange(null, [...derivedTags, 'na']);
-              }
-            }}
+            onChange={handleResponsibleChange}
             placeholder="Pendiente"
             emptyLabel="Pendiente"
             addLabel="+ Agregar beneficiario"
@@ -387,8 +466,20 @@ export default function TransactionRow({
             <span className="shrink-0 text-[10px] text-warning font-medium">⚠</span>
           )}
         </div>
+        {/* Sugerencia de un clic: beneficiario por categoría + monto
+            ("Nómina de $1.250.000 → Rocío Gaitán, 7 veces"). */}
+        {!localTransaction.responsible_id && sugerenciasResp[0] && (
+          <button
+            className="mt-0.5 block max-w-full truncate text-[10px] text-primary hover:underline text-left"
+            title={`${sugerenciasResp[0].veces} pagos en esta categoría${sugerenciasResp[0].evidenciaMonto ? ` · ${sugerenciasResp[0].evidenciaMonto}` : ''}${sugerenciasResp[0].calzaMonto ? ' · el monto calza' : ''}. Clic para aplicar.`}
+            onClick={() => handleResponsibleChange(sugerenciasResp[0].responsibleId)}
+          >
+            ¿{responsibles.find(r => r.id === sugerenciasResp[0].responsibleId)?.name}?
+            {' '}· {sugerenciasResp[0].veces}×{sugerenciasResp[0].calzaMonto ? ' · monto calza ✓' : ''}
+          </button>
+        )}
       </TableCell>
-      
+
       {/* #Factura — solo donde puede existir factura. Traspasos y movimientos
           generados por el banco (4x1000, intereses, comisiones) tienen N/A
           automático y silencioso: pintar un dropdown vacío ahí era el ruido

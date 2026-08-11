@@ -382,7 +382,10 @@ export function useReconciliationRules() {
    * Mucho más rápido que applyRulesToAllUserTransactions (que itera en JS).
    * Usa la función SQL apply_pending_rules_for_user implementada en migration auto_matching_v2.
    */
-  const applyPendingRulesViaRPC = async (limit = 5000): Promise<{ processed: number; matched: number }> => {
+  const applyPendingRulesViaRPC = async (
+    limit = 5000,
+    opts?: { quiet?: boolean },
+  ): Promise<{ processed: number; matched: number }> => {
     const { data, error } = await (supabase as any).rpc('apply_pending_rules_for_user', {
       p_user_id: user?.id ?? null,
       p_limit: limit,
@@ -394,7 +397,9 @@ export function useReconciliationRules() {
     if (stats?.matched > 0) {
       qc.invalidateQueries({ queryKey: ['conciliacion'] });
       toast.success(`${stats.matched} de ${stats.processed} transacciones categorizadas automáticamente`);
-    } else if (stats?.processed > 0) {
+    } else if (stats?.processed > 0 && !opts?.quiet) {
+      // quiet: la pasada automática al abrir Conciliación no hace ruido si
+      // no había nada que conciliar.
       toast.info(`Procesadas ${stats.processed} transacciones — ninguna matcheó una regla activa`);
     }
     return stats ?? { processed: 0, matched: 0 };
