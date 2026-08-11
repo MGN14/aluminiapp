@@ -94,6 +94,7 @@ const documentItemsGerencial: NavItem[] = [];
 
 const movementItems: NavItem[] = [
   { title: 'Conciliación bancaria', url: '/transactions', icon: ArrowLeftRight, highlight: true, permKey: 'conciliacion' },
+  { title: 'Terceros', url: '/terceros', icon: Users, permKey: 'conciliacion' },
   { title: 'Caja Menor', url: '/caja-menor', icon: Banknote, hideInGerencial: true, permKey: 'caja_menor' },
   { title: 'Inventarios', url: '/inventarios', icon: Package, permKey: 'inventarios' },
   { title: 'Remisiones', url: '/remisiones', icon: ClipboardList, hasGerencialVariant: true, permKey: 'remisiones' },

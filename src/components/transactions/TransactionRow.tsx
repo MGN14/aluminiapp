@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/tooltip';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Eye } from 'lucide-react';
+import { Eye, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTransactionEdit } from '@/hooks/useTransactionEdit';
 import SaveStatusIndicator from './SaveStatusIndicator';
@@ -467,6 +467,20 @@ export default function TransactionRow({
           />
           {!localTransaction.responsible_id && (
             <span className="shrink-0 text-[10px] text-warning font-medium">⚠</span>
+          )}
+          {/* Ficha del tercero: "quería ver quién era y no pude" (Nico
+              2026-08-06). Abre en pestaña nueva para no perder la conciliación. */}
+          {localTransaction.responsible_id && (
+            <a
+              href={`/terceros/${localTransaction.responsible_id}`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
+              title="Ver la ficha de este tercero (NIT, contacto, cartera, qué compra)"
+            >
+              <Info className="h-3.5 w-3.5" />
+            </a>
           )}
         </div>
         {/* Sugerencia de un clic: beneficiario por categoría + monto

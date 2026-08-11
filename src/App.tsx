@@ -56,6 +56,8 @@ const InvoicesCompra = lazy(() => import("./pages/InvoicesCompra"));
 const FinancialHealth = lazy(() => import("./pages/FinancialHealth"));
 const VisitaDIAN = lazy(() => import("./pages/VisitaDIAN"));
 const Inventory = lazy(() => import("./pages/Inventory"));
+const Terceros = lazy(() => import("./pages/Terceros"));
+const TerceroDetalle = lazy(() => import("./pages/TerceroDetalle"));
 const Founder = lazy(() => import("./pages/Founder"));
 const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
@@ -356,6 +358,17 @@ const App = () => (
               <Route
                 path="/inventarios"
                 element={<RequireModule moduleKey="inventarios"><Inventory /></RequireModule>}
+              />
+              {/* Terceros: la ficha 360° de cada beneficiario. Comparte el
+                  permiso de Conciliación — quien concilia necesita saber a
+                  quién le está pagando. */}
+              <Route
+                path="/terceros"
+                element={<RequireModule moduleKey="conciliacion"><Terceros /></RequireModule>}
+              />
+              <Route
+                path="/terceros/:id"
+                element={<RequireModule moduleKey="conciliacion"><TerceroDetalle /></RequireModule>}
               />
               <Route
                 path="/colaboradores"
