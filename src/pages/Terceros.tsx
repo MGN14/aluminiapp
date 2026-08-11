@@ -43,7 +43,9 @@ export function RolChips({ roles }: { roles: RolTercero[] }) {
 
 type Filtro = 'todos' | RolTercero | 'incompletos';
 
-export default function Terceros() {
+/** El listado, embebible: vive como pestaña dentro de Conciliación bancaria
+ *  (pedido de Nico 2026-08-07) y también como página propia /terceros. */
+export function TercerosListado() {
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [filtro, setFiltro] = useState<Filtro>('todos');
@@ -88,18 +90,7 @@ export default function Terceros() {
   }, [terceros, resumen]);
 
   return (
-    <AppLayout>
-      <div className="max-w-full mx-auto space-y-4 px-4">
-        <div>
-          <h1 className="text-[26px] font-semibold tracking-tight flex items-center gap-2">
-            <Users className="h-6 w-6 text-primary" /> Terceros
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Clientes, proveedores, empleados y entidades. El rol sale de lo que cada uno hizo —
-            no hay que clasificarlos a mano.
-          </p>
-        </div>
-
+      <div className="space-y-4">
         <div className="flex items-center gap-3 flex-wrap">
           <div className="relative max-w-xs flex-1 min-w-52">
             <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
@@ -195,6 +186,25 @@ export default function Terceros() {
             )}
           </CardContent>
         </Card>
+      </div>
+  );
+}
+
+/** Página propia /terceros — el mismo listado con su cabecera. */
+export default function Terceros() {
+  return (
+    <AppLayout>
+      <div className="max-w-full mx-auto space-y-4 px-4">
+        <div>
+          <h1 className="text-[26px] font-semibold tracking-tight flex items-center gap-2">
+            <Users className="h-6 w-6 text-primary" /> Terceros
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Clientes, proveedores, empleados y entidades. El rol sale de lo que cada uno hizo —
+            no hay que clasificarlos a mano.
+          </p>
+        </div>
+        <TercerosListado />
       </div>
     </AppLayout>
   );

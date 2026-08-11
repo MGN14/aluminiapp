@@ -30,6 +30,7 @@ import { classifyBucket, bucketWantsInvoice } from '@/lib/txBucket';
 import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { useConciliacionHistorial } from '@/hooks/useConciliacionHistorial';
+import { useBankInvoiceMatches } from '@/hooks/useBankInvoiceMatches';
 import {
   sugerirBeneficiario, sugerirCategoria, alertaCategoriaInusual, alertaMontoInusual,
 } from '@/lib/conciliacionHistorial';
@@ -297,6 +298,31 @@ export default function TransactionRow({
   // Historial de conciliación (cacheado, compartido entre todas las filas):
   // alimenta las sugerencias de beneficiario/categoría y las alertas.
   const { historial, esExcluida } = useConciliacionHistorial(true);
+
+  // Sugerencia del motor banco→factura para ESTE ingreso (confianza 50-79:
+  // las ≥80 se aplican solas). Traída a la fila para que se vea DONDE se
+  // trabaja, no en un reporte aparte (Nico 2026-08-07).
+  const { pending: matchesPendientes, confirm: confirmarMatch, reject: rechazarMatch } = useBankInvoiceMatches();
+  const sugerenciaFactura = useMemo(() => {
+    if (localTransaction.invoice_id || Number(localTransaction.amount ?? 0) <= 0) return null;
+    return matchesPendientes.find((s) => s.transaction_id === localTransaction.id) ?? null;
+  }, [matchesPendientes, localTransaction.invoice_id, localTransaction.amount, localTransaction.id]);
+
+  async function aceptarSugerenciaFactura() {
+    if (!sugerenciaFactura) return;
+    await confirmarMatch.mutateAsync(sugerenciaFactura);
+    // Sincronizar la fila local con lo que el confirm escribió en la base.
+    const inv = sugerenciaFactura.signals;
+    const respFactura = responsibles.find((r) => r.name === inv.counterparty_name)?.id ?? null;
+    updateField({
+      invoice_id: sugerenciaFactura.invoice_id,
+      ...(localTransaction.responsible_id ? {} : respFactura ? { responsible_id: respFactura } : {}),
+      ...(localTransaction.category_id ? {} : (() => {
+        const ventas = categories.find((c) => c.name.toLowerCase().includes('venta'))?.id;
+        return ventas ? { category_id: ventas } : {};
+      })()),
+    });
+  }
   // Descripciones "no auditar" (pagos de clientes por transferencia/Nequi):
   // ni chips por descripción ni alertas — el beneficiario varía legítimamente.
   const descExcluida = esExcluida(localTransaction.description);
@@ -463,6 +489,7 @@ export default function TransactionRow({
             emptyLabel="Pendiente"
             addLabel="+ Agregar beneficiario"
             onAdd={handleAddResponsible}
+            optionHref={(id) => `/terceros/${id}`}
             triggerClassName={cn('w-full', !localTransaction.responsible_id && 'border-warning/50 text-warning')}
           />
           {!localTransaction.responsible_id && (
@@ -503,6 +530,7 @@ export default function TransactionRow({
           que hacía sentir el módulo incompleto. */}
       <TableCell className="w-[140px]">
         {bucketWantsInvoice(bucket, localTransaction.type) ? (
+          <>
           <InvoiceSelector
             invoiceId={derivedInvoiceId}
             tags={derivedTags}
@@ -514,6 +542,29 @@ export default function TransactionRow({
             responsibleName={responsibles.find(r => r.id === localTransaction.responsible_id)?.name ?? null}
             onChange={handleInvoiceChange}
           />
+          {/* Sugerencia del motor: "¿este ingreso es la factura X de Y?" —
+              con su evidencia. ✓ vincula Y concilia; ✕ la descarta. */}
+          {sugerenciaFactura && !derivedInvoiceId && (
+            <span className="mt-0.5 flex items-center gap-1 max-w-full">
+              <button
+                className="min-w-0 truncate text-[10px] text-primary hover:underline text-left"
+                disabled={confirmarMatch.isPending}
+                title={`Confianza ${sugerenciaFactura.confidence}% · saldo ${sugerenciaFactura.signals.balance_pending ?? '—'} · clic para vincular y conciliar`}
+                onClick={aceptarSugerenciaFactura}
+              >
+                ¿{sugerenciaFactura.signals.counterparty_name ?? 'Cliente'} · {sugerenciaFactura.signals.invoice_number ?? 'FV'}? · {sugerenciaFactura.confidence}%
+              </button>
+              <button
+                className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive"
+                disabled={rechazarMatch.isPending}
+                title="No es esta factura"
+                onClick={() => rechazarMatch.mutate(sugerenciaFactura.id)}
+              >
+                ✕
+              </button>
+            </span>
+          )}
+          </>
         ) : (
           <span
             className="text-[10px] text-muted-foreground/60 select-none"

@@ -6,7 +6,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { ChevronDown, Plus, Search, Check, Loader2 } from 'lucide-react';
+import { ChevronDown, Plus, Search, Check, Loader2, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface SelectOption {
@@ -26,6 +26,10 @@ interface SearchableSelectProps {
   triggerClassName?: string;
   disabled?: boolean;
   allowEmpty?: boolean;
+  /** Si viene, cada opción muestra un ícono que abre este link en pestaña
+   *  nueva SIN seleccionar — mirar la ficha del tercero antes de decidir
+   *  (pedido de Nico 2026-08-07). */
+  optionHref?: (value: string) => string;
 }
 
 export function SearchableSelect({
@@ -40,6 +44,7 @@ export function SearchableSelect({
   triggerClassName,
   disabled,
   allowEmpty = true,
+  optionHref,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -134,19 +139,35 @@ export function SearchableSelect({
           )}
           
           {filteredOptions.map((option) => (
-            <button
+            <div
               key={option.value}
               className={cn(
-                'w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left',
+                'w-full flex items-center gap-2 pl-3 pr-1 text-xs hover:bg-muted transition-colors group',
                 value === option.value && 'bg-muted'
               )}
-              onClick={() => handleSelect(option.value)}
             >
-              <span className="w-3">
-                {value === option.value && <Check className="h-3 w-3" />}
-              </span>
-              <span className="truncate">{option.label}</span>
-            </button>
+              <button
+                className="flex-1 min-w-0 flex items-center gap-2 py-1.5 text-left"
+                onClick={() => handleSelect(option.value)}
+              >
+                <span className="w-3 shrink-0">
+                  {value === option.value && <Check className="h-3 w-3" />}
+                </span>
+                <span className="truncate">{option.label}</span>
+              </button>
+              {optionHref && (
+                <a
+                  href={optionHref(option.value)}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="shrink-0 p-1 rounded text-muted-foreground/40 group-hover:text-muted-foreground hover:!text-primary transition-colors"
+                  title="Ver la ficha de este tercero antes de decidir (pestaña nueva)"
+                >
+                  <Info className="h-3 w-3" />
+                </a>
+              )}
+            </div>
           ))}
           
           {filteredOptions.length === 0 && !adding && (

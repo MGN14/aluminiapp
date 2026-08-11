@@ -74,10 +74,27 @@ export function useBankInvoiceMatches() {
 
   const confirm = useMutation({
     mutationFn: async (suggestion: BankMatchSuggestion) => {
-      // 1. Linkear la TX a la invoice
+      // 0. El pago es de esta factura ⇒ beneficiario = su cliente, categoría
+      //    = Ventas. Solo si la fila los tenía vacíos (lo manual manda) —
+      //    así el ingreso queda CONCILIADO, no solo vinculado (Nico 2026-08-07).
+      const [{ data: inv }, { data: cats }, { data: tx }] = await Promise.all([
+        supabase.from('invoices').select('responsible_id').eq('id', suggestion.invoice_id).limit(1),
+        supabase.from('categories').select('id, name, active').eq('active', true),
+        supabase.from('transactions').select('responsible_id, category_id').eq('id', suggestion.transaction_id).limit(1),
+      ]);
+      const ventasCat = (cats ?? []).find((c) => c.name.toLowerCase().includes('venta'))?.id ?? null;
+      const actual = (tx ?? [])[0];
+
+      // 1. Linkear la TX a la invoice (+ conciliar si faltaba)
       const { error: linkErr } = await supabase
         .from('transactions')
-        .update({ invoice_id: suggestion.invoice_id })
+        .update({
+          invoice_id: suggestion.invoice_id,
+          ...(actual && !actual.responsible_id && (inv ?? [])[0]?.responsible_id
+            ? { responsible_id: (inv ?? [])[0].responsible_id }
+            : {}),
+          ...(actual && !actual.category_id && ventasCat ? { category_id: ventasCat } : {}),
+        })
         .eq('id', suggestion.transaction_id);
       if (linkErr) throw linkErr;
 
@@ -109,7 +126,8 @@ export function useBankInvoiceMatches() {
       qc.invalidateQueries({ queryKey: ['bank-match-suggestions'] });
       qc.invalidateQueries({ queryKey: ['accounts-receivable-by-client'] });
       qc.invalidateQueries({ queryKey: ['collection-data'] });
-      toast.success('Pago vinculado a la factura');
+      qc.invalidateQueries({ queryKey: ['conciliacion'] });
+      toast.success('Pago vinculado a la factura y conciliado');
     },
     onError: (err: Error) => {
       toast.error('Error: ' + err.message);
