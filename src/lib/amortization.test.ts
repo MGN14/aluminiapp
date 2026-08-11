@@ -1,0 +1,103 @@
+/**
+ * Amortización — calibrado contra el crédito REAL de Nico (2026-08-08):
+ * $100.000.000, 24 meses, 1.33% MV, desembolso 6/07/2026, ALEMANA
+ * (capital constante $4.166.667, cuota decreciente).
+ */
+
+import { describe, it, expect } from 'vitest';
+import { buildAmortization, simulateExtraPayment, summarizeCredit } from './amortization';
+
+const CREDITO = {
+  principal: 100_000_000,
+  interestRateMonthlyPct: 1.33,
+  termMonths: 24,
+  firstPaymentDate: '2026-08-06',
+  type: 'alemana' as const,
+};
+
+describe('alemana — la tabla del banco', () => {
+  const rows = buildAmortization(CREDITO);
+
+  it('24 cuotas con capital constante de $4.166.667', () => {
+    expect(rows).toHaveLength(24);
+    for (const r of rows.slice(0, 23)) expect(Math.round(r.capitalPagado)).toBe(4_166_667);
+  });
+
+  it('la cuota decrece y el saldo llega exactamente a 0', () => {
+    expect(rows[0].cuotaTotal).toBeGreaterThan(rows[23].cuotaTotal);
+    expect(Math.round(rows[23].saldoRestante)).toBe(0);
+  });
+
+  it('la última cuota coincide con el banco ($4.222.066, diferencia < $100)', () => {
+    expect(Math.abs(rows[23].cuotaTotal - 4_222_066)).toBeLessThan(100);
+  });
+
+  it('el total de intereses queda dentro del 2% de lo que liquida el banco', () => {
+    // Banco (Actual/360, días reales): $16.891.248.
+    const total = rows.reduce((s, r) => s + r.interesPagado, 0);
+    expect(Math.abs(total - 16_891_248) / 16_891_248).toBeLessThan(0.02);
+  });
+
+  it('la primera cuota se parece a la del banco ($5.540.569)', () => {
+    expect(Math.abs(rows[0].cuotaTotal - 5_540_569)).toBeLessThan(60_000);
+  });
+});
+
+describe('abonos a capital en alemana', () => {
+  it('un abono de $10M salta 2 cuotas completas (capital fijo $4.166.667)', () => {
+    const r = simulateExtraPayment(100_000_000, 1.33, 24, 10_000_000, 'alemana');
+    expect(r.newBalance).toBe(90_000_000);
+    expect(r.monthsSavedReducingTerm).toBe(2); // 10M / 4.166.667 = 2,4 → 2 cuotas enteras
+    expect(r.interestSavedReducingTerm).toBeGreaterThan(0);
+  });
+
+  it('un abono que cubre el saldo entero cancela el crédito', () => {
+    const r = simulateExtraPayment(100_000_000, 1.33, 24, 100_000_000, 'alemana');
+    expect(r.newBalance).toBe(0);
+  });
+
+  it('reducir plazo ahorra MÁS intereses que mantener plazo', () => {
+    const r = simulateExtraPayment(100_000_000, 1.33, 24, 20_000_000, 'alemana');
+    expect(r.monthsSavedReducingTerm).toBe(4);
+    expect(r.interestSavedReducingTerm).toBeGreaterThanOrEqual(r.interestSavedKeepingTerm);
+  });
+
+  it('francesa sigue calculando sus meses ahorrados (no se rompió)', () => {
+    const r = simulateExtraPayment(100_000_000, 1.33, 24, 20_000_000, 'francesa');
+    expect(r.monthsSavedReducingTerm).toBeGreaterThan(0);
+  });
+});
+
+describe('summarizeCredit — el saldo sigue los pagos reales', () => {
+  it('sin pagos, el saldo es el principal completo', () => {
+    const s = summarizeCredit(CREDITO, []);
+    expect(s.currentBalance).toBe(100_000_000);
+    expect(s.percentPaid).toBe(0);
+  });
+
+  it('los intereses REALES del banco mandan sobre los teóricos', () => {
+    // Cuota 1 tal como la liquidó el banco (Actual/360).
+    const s = summarizeCredit(CREDITO, [{
+      payment_date: '2026-08-06', amount_paid: 5_540_569,
+      principal_paid: 4_166_667, interest_paid: 1_373_903, is_extra: false,
+    }]);
+    expect(s.currentBalance).toBe(95_833_333);
+    expect(s.totalInterestPaid).toBe(1_373_903);
+  });
+
+  it('un abono extra adelanta el saldo real por debajo del teórico', () => {
+    const s = summarizeCredit(CREDITO, [
+      { payment_date: '2026-08-06', amount_paid: 5_540_569, principal_paid: 4_166_667, interest_paid: 1_373_903, is_extra: false },
+      { payment_date: '2026-08-20', amount_paid: 20_000_000, principal_paid: 20_000_000, interest_paid: 0, is_extra: true },
+    ]);
+    expect(s.currentBalance).toBe(75_833_333);
+    expect(s.percentPaid).toBeCloseTo(24.17, 1);
+  });
+
+  it('el costo total incluye los costos adicionales (el seguro del crédito)', () => {
+    // Seguro $163.120 × 24 = $3.914.880 = 3.91% del principal.
+    const s = summarizeCredit(CREDITO, [], 3.91);
+    const sinSeguro = summarizeCredit(CREDITO, [], 0);
+    expect(s.totalCreditCost - sinSeguro.totalCreditCost).toBeCloseTo(3_910_000, -4);
+  });
+});

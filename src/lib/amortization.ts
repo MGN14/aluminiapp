@@ -313,6 +313,18 @@ export function simulateExtraPayment(
       // intereses ahorrados ≈ (cuotas pagadas en menos meses) - capital extra abonado
       interestSavedReducingTerm = (totalCuotasOriginal - totalCuotasNuevo);
     }
+  } else if (amortizationType === 'alemana' && newBalance > 0 && remainingMonths > 0) {
+    // En alemana el capital mensual es FIJO: un abono extra se traduce
+    // directo en cuotas que ya no se pagan. Antes esta rama caía en el else
+    // y devolvía 0 meses ahorrados — justo el dato que más importa cuando
+    // uno planea abonos (reporte de Nico 2026-08-08).
+    const capitalMensual = currentBalance / remainingMonths;
+    if (capitalMensual > 0) {
+      monthsSavedReducingTerm = Math.min(remainingMonths, Math.floor(extraAmount / capitalMensual));
+      const newN = Math.max(1, remainingMonths - monthsSavedReducingTerm);
+      interestSavedReducingTerm = baseFuture
+        - simulateInterestForward(newBalance, monthlyRatePct, newN, 'alemana');
+    }
   } else {
     interestSavedReducingTerm = interestSavedKeepingTerm;
   }
