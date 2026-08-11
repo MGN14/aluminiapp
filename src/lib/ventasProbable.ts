@@ -35,6 +35,18 @@ export interface FacturaAbierta {
   balance_pending: number;
 }
 
+export interface EmisionFactura {
+  id: string;
+  issue_date: string;
+  responsible_id: string | null;
+}
+
+/**
+ * SOLO DATOS PLANOS: esto se persiste como cache de react-query (JSON), y un
+ * Map no sobrevive la rehidratación — al recargar quedaba "t.get is not a
+ * function" (reporte de Nico 2026-08-08, segunda vez que pasa). Los índices
+ * se arman en memoria, nunca se guardan.
+ */
 export interface DatosVentasProbable {
   clientes: { id: string; name: string }[];
   aliases: { responsible_id: string; alias: string }[];
@@ -47,8 +59,9 @@ export interface DatosVentasProbable {
     amount: number;
     date: string;
   }[];
-  /** issue_date por factura histórica (para calcular días de pago). */
-  emisionPorFactura: Map<string, { issue_date: string; responsible_id: string | null }>;
+  /** Emisión de facturas históricas (para calcular días de pago). Array
+   *  plano — el Map se arma al usarlo. */
+  emisiones: EmisionFactura[];
 }
 
 export interface ComboFacturas {
@@ -116,13 +129,16 @@ const diasEntre = (a: string, b: string) =>
 /** Mediana de días factura→pago del cliente (necesita ≥3 pagos vinculados). */
 export function diasPagoTipicos(
   cobros: DatosVentasProbable['cobros'],
-  emisionPorFactura: DatosVentasProbable['emisionPorFactura'],
+  emisiones: EmisionFactura[] | Map<string, { issue_date: string; responsible_id: string | null }>,
   responsibleId: string,
 ): number | null {
+  const porId = emisiones instanceof Map
+    ? emisiones
+    : new Map(emisiones.map((e) => [e.id, { issue_date: e.issue_date, responsible_id: e.responsible_id }]));
   const dias: number[] = [];
   for (const c of cobros) {
     if (!c.invoice_id) continue;
-    const inv = emisionPorFactura.get(c.invoice_id);
+    const inv = porId.get(c.invoice_id);
     if (!inv) continue;
     const respDelPago = c.responsible_id ?? inv.responsible_id;
     if (respDelPago !== responsibleId) continue;
@@ -155,7 +171,9 @@ export function sugerirClienteParaPago(
   const descNorm = normalizeCompanyName(pago.description ?? '');
   if (!datos.facturasAbiertas.length && !descNorm) return null;
 
+  // Índices en memoria (nunca se guardan: ver DatosVentasProbable).
   const nombrePorId = new Map(datos.clientes.map((c) => [c.id, c.name]));
+  const emisiones = datos.emisiones ?? [];
   const abiertasPorCliente = new Map<string, FacturaAbierta[]>();
   for (const f of datos.facturasAbiertas) {
     if (!f.responsible_id || f.balance_pending <= 0) continue;
@@ -213,7 +231,7 @@ export function sugerirClienteParaPago(
 
     // 5. Tiempos de pago: ¿alguna factura abierta "vence" justo ahora según
     //    su ritmo histórico?
-    const diasTipicos = diasPagoTipicos(datos.cobros, datos.emisionPorFactura, clienteId);
+    const diasTipicos = diasPagoTipicos(datos.cobros, emisiones, clienteId);
     if (diasTipicos != null) {
       const enVentana = abiertas.find((f) => {
         const esperado = diasEntre(pago.date, f.issue_date);
@@ -279,9 +297,6 @@ export async function fetchDatosVentasProbable(): Promise<DatosVentasProbable> {
     cobros: ((cobrosRes.data ?? []) as DatosVentasProbable['cobros']).map((c) => ({
       ...c, amount: Number(c.amount ?? 0),
     })),
-    emisionPorFactura: new Map(
-      ((emisionRes.data ?? []) as { id: string; issue_date: string; responsible_id: string | null }[])
-        .map((f) => [f.id, { issue_date: f.issue_date, responsible_id: f.responsible_id }]),
-    ),
+    emisiones: (emisionRes.data ?? []) as EmisionFactura[],
   };
 }

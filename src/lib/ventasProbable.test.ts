@@ -23,7 +23,7 @@ const base: DatosVentasProbable = {
   aliases: [],
   facturasAbiertas: [],
   cobros: [],
-  emisionPorFactura: new Map(),
+  emisiones: [],
 };
 
 describe('buscarCombo — fase 5', () => {
@@ -58,21 +58,21 @@ describe('buscarCombo — fase 5', () => {
 
 describe('diasPagoTipicos', () => {
   it('mediana de los días factura→pago del cliente', () => {
-    const emision = new Map([
-      ['a', { issue_date: '2026-05-01', responsible_id: JH }],
-      ['b', { issue_date: '2026-06-01', responsible_id: JH }],
-      ['c', { issue_date: '2026-07-01', responsible_id: JH }],
-    ]);
+    const emisiones = [
+      { id: 'a', issue_date: '2026-05-01', responsible_id: JH },
+      { id: 'b', issue_date: '2026-06-01', responsible_id: JH },
+      { id: 'c', issue_date: '2026-07-01', responsible_id: JH },
+    ];
     const cobros = [
       { responsible_id: JH, invoice_id: 'a', amount: 1, date: '2026-05-16' },  // 15 días
       { responsible_id: JH, invoice_id: 'b', amount: 1, date: '2026-06-21' },  // 20 días
       { responsible_id: JH, invoice_id: 'c', amount: 1, date: '2026-07-31' },  // 30 días
     ];
-    expect(diasPagoTipicos(cobros, emision, JH)).toBe(20);
+    expect(diasPagoTipicos(cobros, emisiones, JH)).toBe(20);
   });
 
   it('con menos de 3 pagos no opina', () => {
-    expect(diasPagoTipicos([], new Map(), JH)).toBeNull();
+    expect(diasPagoTipicos([], [], JH)).toBeNull();
   });
 });
 
@@ -121,14 +121,13 @@ describe('sugerirClienteParaPago — fase 4', () => {
   });
 
   it('tiempos de pago: la ventana histórica del cliente suma señal', () => {
-    const emision = new Map([
-      ['h1', { issue_date: '2026-04-01', responsible_id: JH }],
-      ['h2', { issue_date: '2026-05-01', responsible_id: JH }],
-      ['h3', { issue_date: '2026-06-01', responsible_id: JH }],
-    ]);
     const datos: DatosVentasProbable = {
       ...base,
-      emisionPorFactura: emision,
+      emisiones: [
+        { id: 'h1', issue_date: '2026-04-01', responsible_id: JH },
+        { id: 'h2', issue_date: '2026-05-01', responsible_id: JH },
+        { id: 'h3', issue_date: '2026-06-01', responsible_id: JH },
+      ],
       // Paga siempre a ~30 días, y $2.000.000 es un monto que ya pagó antes
       // (las señales débiles SE COMBINAN para cruzar el piso de 45 —
       // ninguna sola alcanza, que es la gracia del diseño probabilístico).
@@ -165,5 +164,51 @@ describe('sugerirClienteParaPago — fase 4', () => {
     };
     const s = sugerirClienteParaPago(datos, { amount: 5_000_000, date: '2026-08-01', description: 'PAGO ALUMINIOS JH' })!;
     expect(s.confianza).toBeLessThanOrEqual(95);
+  });
+});
+
+describe('datos planos: sobreviven al cache persistente', () => {
+  it('diasPagoTipicos acepta el array plano de emisiones (sin Maps)', () => {
+    const emisiones = [
+      { id: 'a', issue_date: '2026-05-01', responsible_id: JH },
+      { id: 'b', issue_date: '2026-06-01', responsible_id: JH },
+      { id: 'c', issue_date: '2026-07-01', responsible_id: JH },
+    ];
+    const cobros = [
+      { responsible_id: JH, invoice_id: 'a', amount: 1, date: '2026-05-16' },
+      { responsible_id: JH, invoice_id: 'b', amount: 1, date: '2026-06-21' },
+      { responsible_id: JH, invoice_id: 'c', amount: 1, date: '2026-07-31' },
+    ];
+    expect(diasPagoTipicos(cobros, emisiones, JH)).toBe(20);
+  });
+
+  it('sugerirClienteParaPago no explota si emisiones viene vacío o ausente', () => {
+    const datos = {
+      ...base,
+      facturasAbiertas: [fv({ invoice_number: 'FV-1', balance_pending: 4_000_000 })],
+      emisiones: undefined as unknown as typeof base.emisiones,
+    };
+    expect(() => sugerirClienteParaPago(datos, { amount: 4_000_000, date: '2026-08-01', description: 'X' })).not.toThrow();
+  });
+});
+
+// GUARDARRAÍL: react-query persiste el cache como JSON. Un Map/Set en la
+// data de una query NO sobrevive la rehidratación y rompe la app al
+// recargar ("t.get is not a function" — pasó dos veces: 2026-08-06 con el
+// historial de conciliación y 2026-08-08 con este módulo).
+describe('los datos cacheados deben sobrevivir un round-trip JSON', () => {
+  it('DatosVentasProbable sigue funcionando después de serializar', () => {
+    const datos: DatosVentasProbable = {
+      ...base,
+      facturasAbiertas: [
+        fv({ invoice_number: 'FV-10', issue_date: '2026-06-01', balance_pending: 3_000_000 }),
+        fv({ invoice_number: 'FV-12', issue_date: '2026-06-20', balance_pending: 2_000_000 }),
+      ],
+      emisiones: [{ id: 'h1', issue_date: '2026-04-01', responsible_id: JH }],
+      cobros: [{ responsible_id: JH, invoice_id: 'h1', amount: 5_000_000, date: '2026-05-01' }],
+    };
+    const rehidratado: DatosVentasProbable = JSON.parse(JSON.stringify(datos));
+    const pago = { amount: 5_000_000, date: '2026-08-01', description: 'TRANSFERENCIA' };
+    expect(sugerirClienteParaPago(rehidratado, pago)).toEqual(sugerirClienteParaPago(datos, pago));
   });
 });

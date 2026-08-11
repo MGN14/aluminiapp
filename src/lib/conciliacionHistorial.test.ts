@@ -205,3 +205,37 @@ describe('auditoría — agrupar y detectar inconsistencias', () => {
     expect(detectarAlertasAuditoria(unanime)).toHaveLength(0);
   });
 });
+
+describe('signo: ingresos y egresos son mundos separados', () => {
+  // Caso real de Nico (2026-08-08): a Ferromendez le paga ~$950.000 de
+  // gastos Y le vende $20.000.000. La venta NO es rara solo porque no se
+  // parezca a los pagos.
+  const FERRO = 'resp-ferro';
+  const VENTAS = 'cat-ventas';
+  const pagos = Array.from({ length: 5 }, (_, i) =>
+    tx({ id: `p${i}`, amount: -950_000, category_id: OTROS, responsible_id: FERRO }));
+  const ventas = Array.from({ length: 4 }, (_, i) =>
+    tx({ id: `v${i}`, amount: 18_000_000, category_id: VENTAS, responsible_id: FERRO }));
+  const h = indexarHistorial([...pagos, ...ventas]);
+
+  it('una venta de 20M NO alerta contra el histórico de pagos de 950k', () => {
+    expect(alertaMontoInusual(h, OTROS, FERRO, 20_000_000)).toBeNull();
+  });
+
+  it('una venta de 20M tampoco alerta contra sus ventas de 18M (está en rango)', () => {
+    expect(alertaMontoInusual(h, VENTAS, FERRO, 20_000_000)).toBeNull();
+  });
+
+  it('un PAGO de 20M sí alerta: contra pagos de 950k está fuerísima de rango', () => {
+    const a = alertaMontoInusual(h, OTROS, FERRO, -20_000_000);
+    expect(a).not.toBeNull();
+    expect(a!.n).toBe(5);
+  });
+
+  it('sugerirBeneficiario compara contra el histórico del mismo signo', () => {
+    // Con un INGRESO de 18M, Ferromendez calza (sus ventas), no por sus pagos.
+    const s = sugerirBeneficiario(h, VENTAS, 18_000_000);
+    expect(s[0]?.responsibleId).toBe(FERRO);
+    expect(s[0]?.calzaMonto).toBe(true);
+  });
+});

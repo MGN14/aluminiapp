@@ -160,7 +160,9 @@ export default function TransactionRow({
       if (a && selectedResp) {
         toast({
           title: 'Monto fuera de lo habitual',
-          description: `A ${selectedResp.name} le venías pagando ${a.texto} (${a.n} pagos). Este movimiento es distinto — revisá que no sea otro beneficiario.`,
+          description: Number(localTransaction.amount ?? 0) > 0
+            ? `De ${selectedResp.name} venías recibiendo ${a.texto} (${a.n} ingresos). Este es distinto — revisá que no sea otro cliente.`
+            : `A ${selectedResp.name} le venías pagando ${a.texto} (${a.n} pagos). Este movimiento es distinto — revisá que no sea otro beneficiario.`,
           duration: 9000,
         });
       }

@@ -55,6 +55,18 @@ export interface HistorialConciliacion {
 
 const inc = <K,>(m: Map<K, number>, k: K) => m.set(k, (m.get(k) ?? 0) + 1);
 
+/**
+ * Los ingresos y los egresos de un mismo tercero son mundos distintos:
+ * a Ferromendez le pagás ~$950.000 de gastos Y le vendés $20.000.000. Sin
+ * separar por signo, la venta salía marcada como "monto fuera de lo
+ * habitual" contra el promedio de los pagos (reporte de Nico 2026-08-08).
+ */
+export type SignoTx = 'ingreso' | 'egreso';
+export const signoDe = (amount: number | null | undefined): SignoTx =>
+  Number(amount ?? 0) > 0 ? 'ingreso' : 'egreso';
+const claveCatResp = (categoryId: string, responsibleId: string, signo: SignoTx) =>
+  `${categoryId}|${responsibleId}|${signo}`;
+
 /** Puro y testeable: arma los índices desde las transacciones ya conciliadas. */
 export function indexarHistorial(txs: TxHistorial[]): HistorialConciliacion {
   const porDesc = new Map<string, StatsDesc>();
@@ -75,7 +87,7 @@ export function indexarHistorial(txs: TxHistorial[]): HistorialConciliacion {
     }
 
     if (t.category_id && t.responsible_id && monto > 0) {
-      const key = `${t.category_id}|${t.responsible_id}`;
+      const key = claveCatResp(t.category_id, t.responsible_id, signoDe(t.amount));
       const s = porCatResp.get(key) ?? { n: 0, montos: [], descs: new Map() };
       s.n++;
       s.montos.push(monto);
@@ -152,11 +164,14 @@ export function sugerirBeneficiario(
   const porResp = h.porCategoria.get(categoryId);
   if (!porResp) return [];
   const monto = Math.abs(Number(amount ?? 0));
+  // Se compara contra el histórico del MISMO signo: lo que le pagás a un
+  // tercero no dice nada de lo que te compra.
+  const signo = signoDe(amount);
 
   const out: SugerenciaBeneficiario[] = [];
   for (const [responsibleId, veces] of porResp) {
     if (veces < 2) continue; // 1 sola vez no es patrón
-    const stats = h.porCatResp.get(`${categoryId}|${responsibleId}`);
+    const stats = h.porCatResp.get(claveCatResp(categoryId, responsibleId, signo));
     const montos = stats?.montos ?? [];
     out.push({
       responsibleId,
@@ -237,7 +252,11 @@ export interface AlertaMonto {
 
 /**
  * El monto se sale del rango histórico de ese beneficiario en esa categoría
- * (≥4 pagos previos, y el monto queda 30% fuera del rango).
+ * (≥4 movimientos previos DEL MISMO SIGNO, y el monto queda 30% fuera).
+ *
+ * El signo importa: a Ferromendez le pagás ~$950.000 y le vendés
+ * $20.000.000 — la venta no es "rara" solo porque no se parezca a los
+ * pagos (reporte de Nico 2026-08-08).
  */
 export function alertaMontoInusual(
   h: HistorialConciliacion,
@@ -246,7 +265,7 @@ export function alertaMontoInusual(
   amount: number | null | undefined,
 ): AlertaMonto | null {
   if (!categoryId || !responsibleId) return null;
-  const stats = h.porCatResp.get(`${categoryId}|${responsibleId}`);
+  const stats = h.porCatResp.get(claveCatResp(categoryId, responsibleId, signoDe(amount)));
   if (!stats || stats.n < 4) return null;
   const monto = Math.abs(Number(amount ?? 0));
   if (monto <= 0) return null;
