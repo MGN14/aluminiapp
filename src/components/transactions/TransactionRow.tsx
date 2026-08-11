@@ -31,6 +31,8 @@ import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { useConciliacionHistorial } from '@/hooks/useConciliacionHistorial';
 import { useBankInvoiceMatches } from '@/hooks/useBankInvoiceMatches';
+import { useQuery } from '@tanstack/react-query';
+import { fetchDatosVentasProbable, sugerirClienteParaPago } from '@/lib/ventasProbable';
 import {
   sugerirBeneficiario, sugerirCategoria, alertaCategoriaInusual, alertaMontoInusual,
 } from '@/lib/conciliacionHistorial';
@@ -308,6 +310,49 @@ export default function TransactionRow({
     return matchesPendientes.find((s) => s.transaction_id === localTransaction.id) ?? null;
   }, [matchesPendientes, localTransaction.invoice_id, localTransaction.amount, localTransaction.id]);
 
+  // Fases 4+5: cuando NINGUNA factura calza sola, sugerir el CLIENTE por
+  // cartera + combos de facturas + montos habituales + tiempos de pago.
+  // Query compartida entre todas las filas (una sola carga, cacheada).
+  const esIngresoSinDuenio = Number(localTransaction.amount ?? 0) > 0
+    && !localTransaction.responsible_id && !localTransaction.invoice_id;
+  const { data: datosVentas } = useQuery({
+    queryKey: ['conciliacion', 'ventas-probable'],
+    queryFn: fetchDatosVentasProbable,
+    enabled: esIngresoSinDuenio,
+    staleTime: 5 * 60_000,
+  });
+  const sugerenciaCliente = useMemo(() => {
+    // El motor por factura tiene prioridad: si hay sugerencia puntual, esa manda.
+    if (!esIngresoSinDuenio || !datosVentas || sugerenciaFactura) return null;
+    return sugerirClienteParaPago(datosVentas, {
+      amount: Number(localTransaction.amount ?? 0),
+      date: localTransaction.date,
+      description: localTransaction.description,
+    });
+  }, [esIngresoSinDuenio, datosVentas, sugerenciaFactura, localTransaction.amount, localTransaction.date, localTransaction.description]);
+
+  /** Acepta la sugerencia de cliente: beneficiario + Ventas; si trae combo
+   *  de facturas (Fase 5), las vincula todas (la primera en invoice_id, el
+   *  resto por invoice_transaction_matches, mismo camino que el selector). */
+  async function aceptarSugerenciaCliente() {
+    if (!sugerenciaCliente) return;
+    const ventas = categories.find((c) => c.name.toLowerCase().includes('venta'))?.id;
+    updateField(withCardDescription({
+      responsible_id: sugerenciaCliente.responsibleId,
+      ...(localTransaction.category_id ? {} : ventas ? { category_id: ventas } : {}),
+    }));
+    if (sugerenciaCliente.combo) {
+      const [primera, ...resto] = sugerenciaCliente.combo.facturas;
+      await handleInvoiceChange(
+        primera.id,
+        derivedTags,
+        resto.map((f) => ({ invoiceId: f.id, invoiceNumber: f.invoice_number, matchedAmount: f.balance_pending })),
+      );
+    } else if (sugerenciaCliente.abonoA) {
+      await handleInvoiceChange(sugerenciaCliente.abonoA.id, derivedTags);
+    }
+  }
+
   async function aceptarSugerenciaFactura() {
     if (!sugerenciaFactura) return;
     await confirmarMatch.mutateAsync(sugerenciaFactura);
@@ -510,9 +555,21 @@ export default function TransactionRow({
             </a>
           )}
         </div>
+        {/* Fases 4+5: "¿de quién es este pago?" — cartera + combos de
+            facturas + montos habituales + tiempos de pago. Con evidencia. */}
+        {!localTransaction.responsible_id && sugerenciaCliente && (
+          <button
+            className="mt-0.5 block max-w-full truncate text-[10px] text-primary hover:underline text-left"
+            title={`${sugerenciaCliente.confianza}% · ${sugerenciaCliente.señales.join(' · ')}. Clic para asignar${sugerenciaCliente.combo ? ' y vincular las facturas' : sugerenciaCliente.abonoA ? ' y vincular la factura' : ''}.`}
+            onClick={aceptarSugerenciaCliente}
+          >
+            ¿{sugerenciaCliente.nombre}? · {sugerenciaCliente.confianza}%
+            {sugerenciaCliente.combo ? ` · ${sugerenciaCliente.combo.facturas.map((f) => f.invoice_number).join('+')}` : ''}
+          </button>
+        )}
         {/* Sugerencia de un clic: beneficiario por categoría + monto
             ("Nómina de $1.250.000 → Rocío Gaitán, 7 veces"). */}
-        {!localTransaction.responsible_id && sugerenciasResp[0] && (
+        {!localTransaction.responsible_id && !sugerenciaCliente && sugerenciasResp[0] && (
           <button
             className="mt-0.5 block max-w-full truncate text-[10px] text-primary hover:underline text-left"
             title={`${sugerenciasResp[0].veces} pagos en esta categoría${sugerenciasResp[0].evidenciaMonto ? ` · ${sugerenciasResp[0].evidenciaMonto}` : ''}${sugerenciasResp[0].calzaMonto ? ' · el monto calza' : ''}. Clic para aplicar.`}
