@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { extraerAliasAprendible } from '@/lib/matchLearning';
 
 export interface BankMatchSuggestion {
   id: string;
@@ -121,13 +122,45 @@ export function useBankInvoiceMatches() {
         .eq('transaction_id', suggestion.transaction_id)
         .eq('status', 'pending')
         .neq('id', suggestion.id);
+
+      // 4. FASE 3 — aprender: si la descripción trae un fragmento
+      //    identificable que la app aún no conoce, se guarda como alias del
+      //    cliente ('auto-detected'). El scorer SQL lo reconoce la próxima
+      //    vez (+25). Best-effort: un fallo acá no rompe la confirmación.
+      let aprendido: { alias: string; cliente: string } | null = null;
+      try {
+        const respId = (inv ?? [])[0]?.responsible_id as string | null | undefined;
+        const desc = suggestion.tx_description ?? '';
+        if (respId && desc && user) {
+          const [{ data: resp }, { data: aliasRows }] = await Promise.all([
+            supabase.from('responsibles').select('name').eq('id', respId).limit(1),
+            (supabase as any).from('responsible_aliases').select('alias').eq('responsible_id', respId),
+          ]);
+          const nombre = (resp ?? [])[0]?.name ?? suggestion.signals.counterparty_name ?? '';
+          const existentes = ((aliasRows ?? []) as { alias: string }[]).map((a) => a.alias);
+          const alias = extraerAliasAprendible(desc, nombre, existentes);
+          if (alias) {
+            const { error: aliasErr } = await (supabase as any)
+              .from('responsible_aliases')
+              .insert({ user_id: user.id, responsible_id: respId, alias, source: 'auto-detected' });
+            if (!aliasErr) aprendido = { alias, cliente: nombre };
+          }
+        }
+      } catch { /* aprender es un plus, nunca un bloqueo */ }
+      return aprendido;
     },
-    onSuccess: () => {
+    onSuccess: (aprendido) => {
       qc.invalidateQueries({ queryKey: ['bank-match-suggestions'] });
       qc.invalidateQueries({ queryKey: ['accounts-receivable-by-client'] });
       qc.invalidateQueries({ queryKey: ['collection-data'] });
       qc.invalidateQueries({ queryKey: ['conciliacion'] });
       toast.success('Pago vinculado a la factura y conciliado');
+      if (aprendido) {
+        toast.info(
+          `🧠 Aprendí: «${aprendido.alias}» = ${aprendido.cliente}. Los próximos pagos con esa descripción suben de confianza.`,
+          { duration: 8000 },
+        );
+      }
     },
     onError: (err: Error) => {
       toast.error('Error: ' + err.message);
