@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   indexarHistorial, sugerirBeneficiario, sugerirCategoria,
   alertaCategoriaInusual, alertaMontoInusual, sugerirReglas,
+  agruparPorDescripcion, detectarAlertasAuditoria,
   type TxHistorial,
 } from './conciliacionHistorial';
 import type { ReconciliationRule } from '@/hooks/useReconciliationRules';
@@ -163,5 +164,44 @@ describe('sugerirReglas — cierra el ciclo', () => {
     ]);
     const porKeyword = sugerirReglas(h, [], nombres).filter((s) => s.regla.amount_min == null);
     expect(porKeyword).toHaveLength(0);
+  });
+});
+
+describe('auditoría — agrupar y detectar inconsistencias', () => {
+  const compensar = [
+    ...Array.from({ length: 4 }, (_, i) =>
+      tx({ id: `c${i}`, description: 'PAGO PSE COMPENSAR-OI', category_id: NOMINA, responsible_id: ROCIO, amount: -800_000 })),
+    tx({ id: 'c-err', description: 'PAGO PSE COMPENSAR-OI', category_id: OTROS, responsible_id: ROCIO, amount: -800_000 }),
+  ];
+  // Transferencias genuinamente mixtas: sin dominante ≥75% → NO alertan.
+  const transferencias = [
+    ...Array.from({ length: 3 }, (_, i) => tx({ id: `t${i}`, category_id: NOMINA, responsible_id: ROCIO })),
+    ...Array.from({ length: 3 }, (_, i) => tx({ id: `u${i}`, category_id: SERVICIOS, responsible_id: CAMILO })),
+  ];
+  const grupos = agruparPorDescripcion(indexarHistorial([...compensar, ...transferencias]));
+
+  it('agrupa por descripción normalizada con conteos y rango de monto', () => {
+    const g = grupos.find((x) => x.desc === 'pago pse compensar-oi')!;
+    expect(g.txs).toHaveLength(5);
+    expect(g.categorias.get(NOMINA)).toBe(4);
+    expect(g.montoMin).toBe(800_000);
+  });
+
+  it('detecta el desviado de Compensar (Nómina 4 de 5) con sus ids', () => {
+    const alertas = detectarAlertasAuditoria(grupos);
+    const a = alertas.find((x) => x.grupo.desc === 'pago pse compensar-oi' && x.campo === 'categoria')!;
+    expect(a.dominanteId).toBe(NOMINA);
+    expect(a.outliers.map((t) => t.id)).toEqual(['c-err']);
+  });
+
+  it('las descripciones mixtas sin dominante NO alertan (van al listado)', () => {
+    const alertas = detectarAlertasAuditoria(grupos);
+    expect(alertas.find((x) => x.grupo.desc === 'transferencia cta suc virtual')).toBeUndefined();
+  });
+
+  it('unánime (100%) no alerta: no hay nada que corregir', () => {
+    const unanime = agruparPorDescripcion(indexarHistorial(
+      Array.from({ length: 6 }, (_, i) => tx({ id: `x${i}`, category_id: NOMINA, responsible_id: ROCIO }))));
+    expect(detectarAlertasAuditoria(unanime)).toHaveLength(0);
   });
 });

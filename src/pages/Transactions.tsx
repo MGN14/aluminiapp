@@ -8,6 +8,7 @@ import { parseLocalDate } from '@/lib/dateUtils';
 import TransactionRow from '@/components/transactions/TransactionRow';
 import TransactionDetailModal from '@/components/transactions/TransactionDetailModal';
 import ReglasSugeridasCard from '@/components/transactions/ReglasSugeridasCard';
+import AuditoriaConciliacion from '@/components/transactions/AuditoriaConciliacion';
 import { useReconciliationRules } from '@/hooks/useReconciliationRules';
 import ResponsibleManagement from '@/components/management/ResponsibleManagement';
 import CategoryManagement from '@/components/management/CategoryManagement';
@@ -420,6 +421,8 @@ export default function Transactions() {
   // de Nico 2026-08-06: "no me está llenando categoría ni beneficiario").
   // quiet: si no matchea nada, ni un toast.
   const { rules, applyPendingRulesViaRPC } = useReconciliationRules();
+  // Pestaña: conciliar (Movimientos) vs auditar cómo se viene conciliando.
+  const [vista, setVista] = useState<'movimientos' | 'auditoria'>('movimientos');
   const reglasBarridas = useRef(false);
   useEffect(() => {
     if (reglasBarridas.current || !rules.length) return;
@@ -854,6 +857,23 @@ export default function Transactions() {
             </div>
           </div>
 
+          {/* Pestañas del módulo: conciliar vs auditar (pedido de Nico
+              2026-08-06: "darme cuenta de esos detalles más rápido"). */}
+          <div className="inline-flex rounded-lg bg-muted p-1 gap-1">
+            {([['movimientos', 'Movimientos'], ['auditoria', 'Auditoría']] as const).map(([k, label]) => (
+              <button key={k} onClick={() => setVista(k)}
+                className={cn('px-4 py-2 rounded-md text-sm font-medium transition-all',
+                  vista === k ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {vista === 'auditoria' && (
+            <AuditoriaConciliacion categories={categories} responsibles={responsibles} />
+          )}
+
+          <div className={vista === 'auditoria' ? 'hidden' : 'space-y-4'}>
           {/* Reglas sugeridas por el historial: un clic las crea y barre
               los pendientes — cada mes conciliado enseña a la app. */}
           <ReglasSugeridasCard categories={categories} responsibles={responsibles} />
@@ -1008,6 +1028,7 @@ export default function Transactions() {
               )}
             </CardContent>
           </Card>
+          </div>
 
           <TransactionDetailModal
             transaction={selectedTransaction}

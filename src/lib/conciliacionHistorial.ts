@@ -20,6 +20,8 @@ import { normalizeForMatch } from '@/lib/stringUtils';
 import type { ReconciliationRule, NewReconciliationRule } from '@/hooks/useReconciliationRules';
 
 export interface TxHistorial {
+  /** Presente cuando viene de la base (la auditoría corrige por id). */
+  id?: string;
   description: string | null;
   amount: number | null;
   date: string;
@@ -93,7 +95,7 @@ export function indexarHistorial(txs: TxHistorial[]): HistorialConciliacion {
 export async function fetchHistorialConciliacion(): Promise<HistorialConciliacion> {
   const { data, error } = await supabase
     .from('transactions')
-    .select('description, amount, date, category_id, responsible_id')
+    .select('id, description, amount, date, category_id, responsible_id')
     .is('deleted_at', null)
     .or('category_id.not.is.null,responsible_id.not.is.null')
     .order('date', { ascending: false })
@@ -369,6 +371,86 @@ export function sugerirReglas(
   }
 
   return out.sort((a, b) => b.veces - a.veces).slice(0, max);
+}
+
+// ── 4. Auditoría: cómo se está conciliando cada descripción ─────────────────
+
+export interface GrupoDescripcion {
+  /** Descripción normalizada (llave del grupo). */
+  desc: string;
+  /** La escritura original más frecuente, para mostrar. */
+  muestra: string;
+  txs: TxHistorial[];
+  categorias: Map<string, number>;
+  responsables: Map<string, number>;
+  /** Cuántas tienen categoría asignada (base de los porcentajes). */
+  clasificadas: number;
+  montoMin: number;
+  montoMax: number;
+}
+
+/** Agrupa el historial por descripción normalizada, ordenado por volumen. */
+export function agruparPorDescripcion(h: HistorialConciliacion): GrupoDescripcion[] {
+  const grupos = new Map<string, GrupoDescripcion>();
+  const escrituras = new Map<string, Map<string, number>>();
+  for (const t of h.txs) {
+    const desc = normalizeForMatch(t.description ?? '');
+    if (!desc) continue;
+    const g = grupos.get(desc) ?? {
+      desc, muestra: t.description ?? desc, txs: [], categorias: new Map(),
+      responsables: new Map(), clasificadas: 0, montoMin: Infinity, montoMax: 0,
+    };
+    g.txs.push(t);
+    if (t.category_id) { inc(g.categorias, t.category_id); g.clasificadas++; }
+    if (t.responsible_id) inc(g.responsables, t.responsible_id);
+    const m = Math.abs(Number(t.amount ?? 0));
+    if (m > 0) { g.montoMin = Math.min(g.montoMin, m); g.montoMax = Math.max(g.montoMax, m); }
+    grupos.set(desc, g);
+    const esc = escrituras.get(desc) ?? new Map<string, number>();
+    inc(esc, t.description ?? desc);
+    escrituras.set(desc, esc);
+  }
+  for (const [desc, g] of grupos) {
+    let top = ''; let topN = 0;
+    for (const [e, n] of escrituras.get(desc) ?? []) if (n > topN) { top = e; topN = n; }
+    if (top) g.muestra = top;
+    if (g.montoMin === Infinity) g.montoMin = 0;
+  }
+  return [...grupos.values()].sort((a, b) => b.txs.length - a.txs.length);
+}
+
+export interface AlertaAuditoria {
+  grupo: GrupoDescripcion;
+  campo: 'categoria' | 'beneficiario';
+  dominanteId: string;
+  dominanteVeces: number;
+  total: number;
+  /** Las que se salen de la dominante — los errores probables. */
+  outliers: TxHistorial[];
+}
+
+/**
+ * Inconsistencias con mayoría clara: ≥4 clasificadas, una dominante con ≥75%
+ * y al menos una que se sale. Las descripciones genuinamente mixtas (las
+ * transferencias genéricas, sin dominante) NO alertan — van en el listado
+ * general, que para eso está.
+ */
+export function detectarAlertasAuditoria(grupos: GrupoDescripcion[]): AlertaAuditoria[] {
+  const out: AlertaAuditoria[] = [];
+  for (const g of grupos) {
+    for (const campo of ['categoria', 'beneficiario'] as const) {
+      const conteos = campo === 'categoria' ? g.categorias : g.responsables;
+      const valorDe = (t: TxHistorial) => (campo === 'categoria' ? t.category_id : t.responsible_id);
+      let domId = ''; let domVeces = 0; let total = 0;
+      for (const [id, n] of conteos) { total += n; if (n > domVeces) { domId = id; domVeces = n; } }
+      if (total < 4 || domVeces === total || domVeces / total < 0.75) continue;
+      out.push({
+        grupo: g, campo, dominanteId: domId, dominanteVeces: domVeces, total,
+        outliers: g.txs.filter((t) => valorDe(t) && valorDe(t) !== domId),
+      });
+    }
+  }
+  return out.sort((a, b) => b.outliers.length - a.outliers.length || b.total - a.total);
 }
 
 /** Tipo de la regla según el signo histórico de esa descripción. */
