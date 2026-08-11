@@ -122,7 +122,7 @@ export default function TransactionRow({
     updateField(withCardDescription({ category_id: categoryId, category: null }));
     // Aviso (sin bloquear) si contradice el histórico de esta descripción:
     // ≥4 casos previos y ≥75% en otra categoría. Un clic lo corrige.
-    if (historial && categoryId) {
+    if (historial && categoryId && !descExcluida) {
       const a = alertaCategoriaInusual(historial, localTransaction.description, categoryId);
       if (a) {
         const dominante = categories.find(c => c.id === a.dominanteId);
@@ -296,7 +296,10 @@ export default function TransactionRow({
 
   // Historial de conciliación (cacheado, compartido entre todas las filas):
   // alimenta las sugerencias de beneficiario/categoría y las alertas.
-  const { historial } = useConciliacionHistorial(true);
+  const { historial, esExcluida } = useConciliacionHistorial(true);
+  // Descripciones "no auditar" (pagos de clientes por transferencia/Nequi):
+  // ni chips por descripción ni alertas — el beneficiario varía legítimamente.
+  const descExcluida = esExcluida(localTransaction.description);
 
   // Beneficiarios sugeridos para ESTA fila: por categoría + monto. El que
   // calza en monto va primero ("Nómina de $1.250.000 → Rocío, 7 veces").
@@ -307,10 +310,10 @@ export default function TransactionRow({
     [historial, localTransaction.category_id, localTransaction.amount],
   );
   const sugerenciaCat = useMemo(
-    () => (historial && !localTransaction.category_id
+    () => (historial && !localTransaction.category_id && !descExcluida
       ? sugerirCategoria(historial, localTransaction.description)
       : null),
-    [historial, localTransaction.category_id, localTransaction.description],
+    [historial, localTransaction.category_id, localTransaction.description, descExcluida],
   );
 
   // Prepare options for searchable selects

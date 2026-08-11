@@ -92,7 +92,13 @@ export function indexarHistorial(txs: TxHistorial[]): HistorialConciliacion {
   return { txs, porDesc, porCatResp, porCategoria };
 }
 
-export async function fetchHistorialConciliacion(): Promise<HistorialConciliacion> {
+/**
+ * Devuelve las TRANSACCIONES planas, no el índice: el cache persistente de
+ * react-query serializa a JSON y los Map del índice no sobreviven (al
+ * recargar quedaba `porDesc.get is not a function`). El índice se arma en
+ * memoria con useMemo en useConciliacionHistorial.
+ */
+export async function fetchHistorialConciliacion(): Promise<TxHistorial[]> {
   const { data, error } = await supabase
     .from('transactions')
     .select('id, description, amount, date, category_id, responsible_id')
@@ -101,7 +107,7 @@ export async function fetchHistorialConciliacion(): Promise<HistorialConciliacio
     .order('date', { ascending: false })
     .limit(10000);
   if (error) throw error;
-  return indexarHistorial((data ?? []) as TxHistorial[]);
+  return (data ?? []) as TxHistorial[];
 }
 
 // ── 1. Beneficiario sugerido por categoría + monto ──────────────────────────

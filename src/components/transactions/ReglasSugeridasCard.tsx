@@ -30,7 +30,7 @@ interface Props {
 export default function ReglasSugeridasCard({ categories, responsibles }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { historial } = useConciliacionHistorial(true);
+  const { historial, excluidas } = useConciliacionHistorial(true);
   const { rules, createRule, applyPendingRulesViaRPC } = useReconciliationRules();
   const [abierto, setAbierto] = useState(false);
   const [creando, setCreando] = useState<string | null>(null);
@@ -43,13 +43,19 @@ export default function ReglasSugeridasCard({ categories, responsibles }: Props)
     return sugerirReglas(historial, rules, {
       categoria: (id) => catName.get(id) ?? '¿?',
       responsable: (id) => respName.get(id) ?? '¿?',
-    }).filter((s) => !descartadas.has(s.titulo));
-  }, [historial, rules, categories, responsibles, descartadas]);
+    })
+      // Descripciones "no auditar" (pagos de clientes): jamás una regla ahí.
+      .filter((s) => !excluidas.has(s.regla.keyword ?? ''))
+      .filter((s) => !descartadas.has(s.titulo));
+  }, [historial, rules, categories, responsibles, descartadas, excluidas]);
 
   async function crear(s: ReglaSugerida) {
     setCreando(s.titulo);
     try {
-      await createRule.mutateAsync(s.regla);
+      // Queda ATADA a las reglas de Nico: misma tabla, visible y editable en
+      // Nico → Reglas, con su origen marcado. kwCubierto() evita que la
+      // tarjeta la vuelva a sugerir y que se dupliquen entre sí.
+      await createRule.mutateAsync({ ...s.regla, description: `Sugerida por el historial de conciliación (${s.evidencia})` });
       // Cierra el ciclo: la regla recién creada barre los pendientes ya
       // (misma pasada server-side que usa Nico → Reglas).
       await applyPendingRulesViaRPC(5000, { quiet: true });

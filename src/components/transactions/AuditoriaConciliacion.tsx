@@ -42,7 +42,7 @@ interface Props {
 export default function AuditoriaConciliacion({ categories, responsibles }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { historial, isLoading } = useConciliacionHistorial(true);
+  const { historial, isLoading, excluidas, excluir, reactivar } = useConciliacionHistorial(true);
   const [q, setQ] = useState('');
   const [abierta, setAbierta] = useState<string | null>(null);
   const [bulkCat, setBulkCat] = useState<string | null>(null);
@@ -54,7 +54,12 @@ export default function AuditoriaConciliacion({ categories, responsibles }: Prop
     (campo === 'categoria' ? catName.get(id) : respName.get(id)) ?? '¿?';
 
   const grupos = useMemo(() => (historial ? agruparPorDescripcion(historial) : []), [historial]);
-  const alertas = useMemo(() => detectarAlertasAuditoria(grupos), [grupos]);
+  // Las "no auditar" (pagos de clientes por transferencia/Nequi: beneficiario
+  // varía legítimamente) no alertan; en el listado quedan marcadas.
+  const alertas = useMemo(
+    () => detectarAlertasAuditoria(grupos).filter((a) => !excluidas.has(a.grupo.desc)),
+    [grupos, excluidas],
+  );
 
   const corregir = useMutation({
     mutationFn: async ({ ids, patch }: { ids: string[]; patch: { category_id?: string; responsible_id?: string } }) => {
@@ -107,9 +112,35 @@ export default function AuditoriaConciliacion({ categories, responsibles }: Prop
               onCorregir={(ids) => corregir.mutate({
                 ids,
                 patch: a.campo === 'categoria' ? { category_id: a.dominanteId } : { responsible_id: a.dominanteId },
-              })} />
+              })}
+              onExcluir={() => {
+                excluir.mutate(a.grupo.desc);
+                toast({
+                  title: `«${a.grupo.muestra}» ya no se audita`,
+                  description: 'Puede venir de cualquier cliente: sin alertas, sin sugerencias por descripción y sin reglas sugeridas. Se reactiva abajo.',
+                  duration: 8000,
+                });
+              }} />
           ))}
         </div>
+      )}
+
+      {excluidas.size > 0 && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer select-none">
+            {excluidas.size} descripción(es) marcadas «no auditar» (pagos de clientes, etc.)
+          </summary>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {[...excluidas].map((d) => (
+              <span key={d} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5">
+                <span className="font-mono">{d}</span>
+                <button className="text-primary hover:underline" onClick={() => reactivar.mutate(d)}>
+                  reactivar
+                </button>
+              </span>
+            ))}
+          </div>
+        </details>
       )}
 
       {/* ── 2. Cómo se está conciliando cada descripción ── */}
@@ -236,11 +267,12 @@ function GrupoRow({ g, abierto, nombre, onToggle, bulk }: {
   );
 }
 
-function AlertaCard({ alerta: a, nombre, corrigiendo, onCorregir }: {
+function AlertaCard({ alerta: a, nombre, corrigiendo, onCorregir, onExcluir }: {
   alerta: AlertaAuditoria;
   nombre: (campo: 'categoria' | 'beneficiario', id: string) => string;
   corrigiendo: boolean;
   onCorregir: (ids: string[]) => void;
+  onExcluir: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
   const dominante = nombre(a.campo, a.dominanteId);
@@ -256,15 +288,22 @@ function AlertaCard({ alerta: a, nombre, corrigiendo, onCorregir }: {
           <span className="text-amber-700 dark:text-amber-500 font-semibold">{a.outliers.length} distinto(s)</span>
           {abierto ? <ChevronDown className="h-3 w-3 inline ml-1" /> : <ChevronRight className="h-3 w-3 inline ml-1" />}
         </button>
-        <Button size="sm" variant="outline" className="h-7 text-xs shrink-0"
-          disabled={corrigiendo || !idsOutliers.length}
-          onClick={() => {
-            if (window.confirm(`Pasar ${idsOutliers.length} movimiento(s) de «${a.grupo.muestra}» a ${a.campo} = ${dominante}?`)) {
-              onCorregir(idsOutliers);
-            }
-          }}>
-          {corrigiendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `Corregir → ${dominante}`}
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button size="sm" variant="outline" className="h-7 text-xs"
+            disabled={corrigiendo || !idsOutliers.length}
+            onClick={() => {
+              if (window.confirm(`Pasar ${idsOutliers.length} movimiento(s) de «${a.grupo.muestra}» a ${a.campo} = ${dominante}?`)) {
+                onCorregir(idsOutliers);
+              }
+            }}>
+            {corrigiendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `Corregir → ${dominante}`}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+            title="Esta descripción varía legítimamente (pagos de clientes): no alertar, no sugerir, no proponer reglas."
+            onClick={onExcluir}>
+            No auditar
+          </Button>
+        </div>
       </div>
       {abierto && (
         <table className="mt-1.5 w-full">
