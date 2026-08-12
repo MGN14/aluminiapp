@@ -150,12 +150,17 @@ serve(async (req) => {
         .eq("user_id", user.id),
       supabase
         .from("invoices")
-        .select("id, type, invoice_number, issue_date, due_date, subtotal_base, iva_amount, total_amount, counterparty_name, counterparty_nit, status, autoretefuente_amount, reteica_amount, retefuente_cliente_amount, retefuente_cliente_rate, seller_name, buyer_name, payment_method")
+        // void_type: excluir anuladas (igual que el Dashboard) — contarlas
+        // inflaba el IVA de ventas y Nico y el Dashboard daban números
+        // distintos (reporte 2026-08-11). limit 2000: con 500 y orden DESC
+        // se cortaban las facturas viejas y el arrastre del cuatrimestre
+        // anterior quedaba incompleto.
+        .select("id, type, invoice_number, issue_date, due_date, subtotal_base, iva_amount, total_amount, counterparty_name, counterparty_nit, status, void_type, autoretefuente_amount, reteica_amount, retefuente_cliente_amount, retefuente_cliente_rate, seller_name, buyer_name, payment_method")
         .eq("user_id", user.id)
         .eq("status", "confirmed")
         .gte("issue_date", since)
         .order("issue_date", { ascending: false })
-        .limit(500),
+        .limit(2000),
       supabase
         .from("tax_settings")
         .select("*")
@@ -413,6 +418,8 @@ serve(async (req) => {
     const invByMonth: Record<string, MonthInvoice> = {};
 
     for (const inv of (invoices ?? [])) {
+      // Anuladas por nota crédito total: fuera — misma regla del Dashboard.
+      if ((inv as { void_type?: string | null }).void_type === "total") continue;
       const d = new Date(inv.issue_date + "T00:00:00");
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       if (!invByMonth[key]) {
