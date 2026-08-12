@@ -184,14 +184,14 @@ export default function InformeBancoView() {
         <Card className="border-0 shadow-sm">
           <CardContent className="p-4">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Ingresos {data.thisYear}</p>
-            <p className="text-xl font-bold text-success mt-1">{formatCurrency(data.ingresosBancoAno)}</p>
+            <p className="text-xl font-bold text-success mt-1">{formatCurrency(data.ingresosAno)}</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Promedio mensual: {formatCurrency(data.promedioVentasMensual)}</p>
           </CardContent>
         </Card>
         <Card className="border-0 shadow-sm">
           <CardContent className="p-4">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Egresos {data.thisYear}</p>
-            <p className="text-xl font-bold text-destructive mt-1">{formatCurrency(data.egresosBancoAno)}</p>
+            <p className="text-xl font-bold text-destructive mt-1">{formatCurrency(data.egresosAno)}</p>
           </CardContent>
         </Card>
         <Card className="border-0 shadow-sm">

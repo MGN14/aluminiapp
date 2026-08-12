@@ -187,7 +187,7 @@ export function generateInformeBancoPdf(data: InformeBancoData): jsPDF {
     : data.crecimientoYoYPct >= 0
       ? `con un crecimiento de +${data.crecimientoYoYPct.toFixed(1)}% respecto a ${data.thisYear - 1}`
       : `con una contracción de ${data.crecimientoYoYPct.toFixed(1)}% respecto a ${data.thisYear - 1}`;
-  const summary = `${data.empresa.nombre} es una empresa donde ${antiguedadStr}. En ${data.thisYear} registra ingresos bancarios por ${fmt(data.ingresosBancoAno)} y egresos por ${fmt(data.egresosBancoAno)}, dejando una utilidad estimada de ${fmt(data.utilidadEstimada)} (margen operativo ${data.margenOperativoPct.toFixed(1)}%), ${crecStr}. El valor de inventario activo es ${fmt(data.valorInventario)}.`;
+  const summary = `${data.empresa.nombre} es una empresa donde ${antiguedadStr}. En ${data.thisYear} registra ingresos operativos por ${fmt(data.ingresosAno)} y egresos por ${fmt(data.egresosAno)}, dejando una utilidad estimada de ${fmt(data.utilidadEstimada)} (margen operativo ${data.margenOperativoPct.toFixed(1)}%), ${crecStr}. El valor de inventario activo es ${fmt(data.valorInventario)}.`;
   const lines = doc.splitTextToSize(summary, pageW - 2 * marginX);
   doc.text(lines, marginX, y);
   y += lines.length * 5.5 + 5;
@@ -196,8 +196,8 @@ export function generateInformeBancoPdf(data: InformeBancoData): jsPDF {
   const kpiW = (pageW - 2 * marginX - 6) / 2;
   const kpiH = 22;
   const kpis = [
-    { label: 'INGRESOS BANCARIOS', value: fmt(data.ingresosBancoAno), sub: `Promedio mensual ${fmt(data.promedioVentasMensual)}` },
-    { label: 'EGRESOS BANCARIOS', value: fmt(data.egresosBancoAno), sub: '' },
+    { label: 'INGRESOS OPERATIVOS', value: fmt(data.ingresosAno), sub: `Promedio mensual ${fmt(data.promedioVentasMensual)}` },
+    { label: 'EGRESOS OPERATIVOS', value: fmt(data.egresosAno), sub: '' },
     { label: 'UTILIDAD ESTIMADA', value: fmt(data.utilidadEstimada), sub: `Margen ${data.margenOperativoPct.toFixed(1)}%` },
     { label: 'VALOR INVENTARIO', value: fmt(data.valorInventario), sub: '' },
   ];

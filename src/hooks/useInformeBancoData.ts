@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { getYearRange } from '@/lib/dateUtils';
 import { normalizeCompanyName } from '@/lib/stringUtils';
+import { isOperativo } from '@/types/transaction';
 
 export type SemaforoColor = 'green' | 'yellow' | 'red';
 
@@ -29,15 +30,25 @@ export interface InformeBancoData {
     logistica: string | null;
     proveedoresPrincipales: string | null;
   };
-  // Resumen del año actual
+  // Resumen del año actual.
+  //
+  // BASE DE CÁLCULO (idéntica a Dashboard.tsx:379 y PYGReport): solo movimientos
+  // OPERATIVOS (isOperativo(movement_nature)) y sobre `transactions.amount`, no
+  // sobre credit/debit — esas dos columnas solo las escribe el parser CSV de
+  // Bancolombia (bancolombiaCsvParser.ts:219), así que toda transacción creada
+  // por otra vía quedaba invisible y el margen daba negativo contra un Resultado
+  // del periodo positivo. Incluye efectivo (caja + caja menor) igual que el
+  // Dashboard en modo gerencial, que es donde vive este strip de KPIs.
   thisYear: number;
-  ingresosBancoAno: number;       // suma de transactions.credit > 0
-  egresosBancoAno: number;        // suma de transactions.debit > 0
+  ingresosAno: number;            // banco operativo + efectivo — mismo número que la tarjeta "Ingresos" del Dashboard
+  egresosAno: number;             // banco operativo + efectivo — mismo número que "Egresos"
+  ingresosBancoAno: number;       // solo banco (operativo). Para el mix de cobro y la narrativa del informe
+  egresosBancoAno: number;        // solo banco (operativo)
   facturadoVentaAno: number;      // invoices type=venta confirmed
   facturadoCompraAno: number;     // invoices type=compra confirmed
-  utilidadEstimada: number;       // ingresos - egresos
-  margenOperativoPct: number;     // utilidad / ingresos
-  // Año previo
+  utilidadEstimada: number;       // ingresosAno - egresosAno = "Resultado del periodo" del Dashboard
+  margenOperativoPct: number;     // utilidadEstimada / ingresosAno
+  // Año previo (misma base: operativo + efectivo)
   ingresosBancoAnoPrev: number;
   crecimientoYoYPct: number | null;
   // Cartera y cobro
@@ -107,7 +118,7 @@ export function useInformeBancoData() {
       const { start: yearStart, end: yearEnd } = getYearRange(thisYear);
       const { start: lastYearStart, end: lastYearEnd } = getYearRange(thisYear - 1);
 
-      const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes, invoiceItemsRes, aliasRes] = await Promise.all([
+      const [profileRes, txRes, invRes, txPrevRes, productsRes, cashRes, respRes, lastTxRes, invoiceItemsRes, aliasRes, pettyRes, cashPrevRes, pettyPrevRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('company_name, company_nit, company_city, company_address, company_phone, business_description, business_warehouse_location, business_employees_count, business_operation_days, business_logistics, business_main_suppliers')
@@ -115,7 +126,7 @@ export function useInformeBancoData() {
           .maybeSingle(),
         supabase
           .from('transactions')
-          .select('credit, debit, date, responsible_id, balance')
+          .select('amount, movement_nature, date, responsible_id, balance')
           .eq('user_id', user!.id)
           .is('deleted_at', null)
           .gte('date', yearStart)
@@ -127,7 +138,7 @@ export function useInformeBancoData() {
           .eq('status', 'confirmed'),
         supabase
           .from('transactions')
-          .select('credit')
+          .select('amount, movement_nature')
           .eq('user_id', user!.id)
           .is('deleted_at', null)
           .gte('date', lastYearStart)
@@ -137,10 +148,13 @@ export function useInformeBancoData() {
           .select('reference, stock_system, cost_per_unit')
           .eq('user_id', user!.id)
           .eq('active', true),
-        supabase
-          .from('cash_movements')
+        // Efectivo: se excluyen los cash_movements promovidos desde Caja Menor
+        // (petty_cash_movement_id != null) porque ya vienen contados en
+        // petty_cash_movements. Mismo filtro que Dashboard.tsx:225 y PYGReport.
+        (supabase.from('cash_movements') as any)
           .select('amount, type, date')
           .eq('user_id', user!.id)
+          .is('petty_cash_movement_id', null)
           .gte('date', yearStart)
           .lte('date', yearEnd),
         supabase
@@ -171,6 +185,28 @@ export function useInformeBancoData() {
           .from('responsible_aliases' as never)
           .select('responsible_id, alias')
           .eq('user_id', user!.id),
+        // Caja menor del año (kind='ingreso_efectivo' suma a ingresos, el resto
+        // a egresos). Mismo criterio que Dashboard.tsx:398.
+        supabase
+          .from('petty_cash_movements')
+          .select('kind, amount, date')
+          .eq('user_id', user!.id)
+          .gte('date', yearStart)
+          .lte('date', yearEnd),
+        // Año previo: mismo set de efectivo, para que el YoY compare peras con
+        // peras (antes el año actual sumaba efectivo y el previo no).
+        (supabase.from('cash_movements') as any)
+          .select('amount, type')
+          .eq('user_id', user!.id)
+          .is('petty_cash_movement_id', null)
+          .gte('date', lastYearStart)
+          .lte('date', lastYearEnd),
+        supabase
+          .from('petty_cash_movements')
+          .select('kind, amount')
+          .eq('user_id', user!.id)
+          .gte('date', lastYearStart)
+          .lte('date', lastYearEnd),
       ]);
 
       if (profileRes.error) throw profileRes.error;
@@ -184,9 +220,13 @@ export function useInformeBancoData() {
       if (invoiceItemsRes.error) throw invoiceItemsRes.error;
 
       const profile = profileRes.data ?? {};
-      const txs = txRes.data ?? [];
+      // `movement_nature` existe en DB (migración) pero no en los tipos generados
+      // — mismo patrón de cast que useFinancialHealthScore/useBreakeven.
+      const txs = (txRes.data ?? []) as unknown as Array<{
+        amount: number | null; movement_nature?: string | null; responsible_id: string | null; balance: number | null;
+      }>;
       const invs = (invRes.data ?? []) as Array<{ id: string; type: string; total_amount: number; issue_date: string; counterparty_name: string | null; responsible_id: string | null }>;
-      const txsPrev = txPrevRes.data ?? [];
+      const txsPrev = (txPrevRes.data ?? []) as unknown as Array<{ amount: number | null; movement_nature?: string | null }>;
 
       // Resolver de Beneficiarios (Conciliación Bancaria) — fuente única de
       // verdad para nombres canónicos de cliente/proveedor.
@@ -212,26 +252,56 @@ export function useInformeBancoData() {
       const products = (productsRes.data ?? []) as Array<{ reference: string | null; stock_system: number; cost_per_unit: number }>;
       const invoiceItems = (invoiceItemsRes.data ?? []) as Array<{ reference: string | null; quantity: number | null }>;
 
-      // Ingresos / egresos del año (banco)
-      const ingresosBancoAno = txs.reduce((s, t: { credit: number | null }) => s + (Number(t.credit) || 0), 0);
-      const egresosBancoAno = txs.reduce((s, t: { debit: number | null }) => s + (Number(t.debit) || 0), 0);
+      // Ingresos / egresos del año — MISMA BASE que el Dashboard (ver comentario
+      // en la interface): `amount`, solo operativos, banco + efectivo.
+      type TxMonto = { amount: number | null; movement_nature?: string | null };
+      const sumaOperativa = (rows: TxMonto[], signo: 1 | -1) => rows
+        .filter(t => isOperativo(t.movement_nature) && signo * (Number(t.amount) || 0) > 0)
+        .reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+
+      const ingresosBancoAno = sumaOperativa(txs as TxMonto[], 1);
+      const egresosBancoAno = sumaOperativa(txs as TxMonto[], -1);
+
+      // Efectivo: caja + caja menor (los promovidos ya vienen excluidos del query).
+      const cashMovs = (cashRes.data ?? []) as Array<{ amount: number; type: string; date: string }>;
+      const pettyMovs = (pettyRes.data ?? []) as Array<{ kind: string; amount: number }>;
+      const sumaEfectivo = (
+        cash: Array<{ amount: number; type: string }>,
+        petty: Array<{ kind: string; amount: number }>,
+        dir: 'ingreso' | 'egreso',
+      ) =>
+        cash.filter(c => c.type === dir).reduce((s, c) => s + Math.abs(Number(c.amount) || 0), 0)
+        + petty
+          .filter(p => (dir === 'ingreso' ? p.kind === 'ingreso_efectivo' : p.kind !== 'ingreso_efectivo'))
+          .reduce((s, p) => s + Math.abs(Number(p.amount) || 0), 0);
+
+      const efectivoIngresoAno = sumaEfectivo(cashMovs, pettyMovs, 'ingreso');
+      const efectivoEgresoAno = sumaEfectivo(cashMovs, pettyMovs, 'egreso');
+
+      const ingresosAno = ingresosBancoAno + efectivoIngresoAno;
+      const egresosAno = egresosBancoAno + efectivoEgresoAno;
 
       // Facturado del año
       const invThisYear = invs.filter(i => i.issue_date >= yearStart && i.issue_date <= yearEnd);
       const facturadoVentaAno = invThisYear.filter(i => i.type === 'venta').reduce((s, i) => s + Number(i.total_amount || 0), 0);
       const facturadoCompraAno = invThisYear.filter(i => i.type === 'compra').reduce((s, i) => s + Number(i.total_amount || 0), 0);
 
-      const utilidadEstimada = ingresosBancoAno - egresosBancoAno;
-      const margenOperativoPct = ingresosBancoAno > 0 ? (utilidadEstimada / ingresosBancoAno) * 100 : 0;
+      const utilidadEstimada = ingresosAno - egresosAno;
+      const margenOperativoPct = ingresosAno > 0 ? (utilidadEstimada / ingresosAno) * 100 : 0;
 
-      // Crecimiento YoY (banco)
-      const ingresosBancoAnoPrev = txsPrev.reduce((s, t: { credit: number | null }) => s + (Number(t.credit) || 0), 0);
+      // Crecimiento YoY — misma base que el año actual (operativo + efectivo).
+      const ingresosBancoAnoPrev = sumaOperativa(txsPrev as TxMonto[], 1)
+        + sumaEfectivo(
+          ((cashPrevRes.data ?? []) as Array<{ amount: number; type: string }>),
+          ((pettyPrevRes.data ?? []) as Array<{ kind: string; amount: number }>),
+          'ingreso',
+        );
       const crecimientoYoYPct = ingresosBancoAnoPrev > 0
-        ? ((ingresosBancoAno - ingresosBancoAnoPrev) / ingresosBancoAnoPrev) * 100
+        ? ((ingresosAno - ingresosBancoAnoPrev) / ingresosBancoAnoPrev) * 100
         : null;
 
-      // Cartera pendiente: simplificada (facturado venta - ingreso banco)
-      const carteraPendiente = Math.max(0, facturadoVentaAno - ingresosBancoAno);
+      // Cartera pendiente: simplificada (facturado venta - cobrado del año)
+      const carteraPendiente = Math.max(0, facturadoVentaAno - ingresosAno);
       const dsoDays = facturadoVentaAno > 0
         ? Math.round((carteraPendiente / facturadoVentaAno) * 365)
         : null;
@@ -291,20 +361,17 @@ export function useInformeBancoData() {
         ? Math.floor((Date.now() - new Date(fechaMasAntigua).getTime()) / (30 * 86400 * 1000))
         : 0;
 
-      const promedioVentasMensual = ingresosBancoAno / 12;
-      const promedioEgresosMensual = egresosBancoAno / 12;
+      const promedioVentasMensual = ingresosAno / 12;
+      const promedioEgresosMensual = egresosAno / 12;
       // Punto de equilibrio mensual = egresos mensuales / margen operativo
       // Si margen <= 0, el punto de equilibrio no se puede calcular (negocio en pérdida)
       const puntoEquilibrioMensual = margenOperativoPct > 0
         ? promedioEgresosMensual / (margenOperativoPct / 100)
         : 0;
 
-      // Mix de cobro
-      const cashMovs = (cashRes.data ?? []) as Array<{ amount: number; type: string; date: string }>;
-      const cashIngresoAno = cashMovs.filter(c => c.type === 'ingreso').reduce((s, c) => s + Number(c.amount || 0), 0);
-      const totalIngresoMix = ingresosBancoAno + cashIngresoAno;
-      const pctIngresoBanco = totalIngresoMix > 0 ? (ingresosBancoAno / totalIngresoMix) * 100 : 0;
-      const pctIngresoEfectivo = totalIngresoMix > 0 ? (cashIngresoAno / totalIngresoMix) * 100 : 0;
+      // Mix de cobro: qué parte del ingreso entró por banco y qué parte en efectivo.
+      const pctIngresoBanco = ingresosAno > 0 ? (ingresosBancoAno / ingresosAno) * 100 : 0;
+      const pctIngresoEfectivo = ingresosAno > 0 ? (efectivoIngresoAno / ingresosAno) * 100 : 0;
 
       // Top ciudades (responsibles vinculados a transactions del año por monto)
       const respCiudad = new Map<string, string>();
@@ -312,12 +379,12 @@ export function useInformeBancoData() {
         if (r.ciudad) respCiudad.set(r.id, r.ciudad);
       }
       const ciudadAcc = new Map<string, number>();
-      for (const t of txs as Array<{ credit: number | null; responsible_id: string | null }>) {
-        const credit = Number(t.credit || 0);
-        if (credit <= 0 || !t.responsible_id) continue;
+      for (const t of txs as Array<{ amount: number | null; movement_nature?: string | null; responsible_id: string | null }>) {
+        const ingreso = Number(t.amount || 0);
+        if (ingreso <= 0 || !t.responsible_id || !isOperativo(t.movement_nature)) continue;
         const ciudad = respCiudad.get(t.responsible_id);
         if (!ciudad) continue;
-        ciudadAcc.set(ciudad, (ciudadAcc.get(ciudad) ?? 0) + credit);
+        ciudadAcc.set(ciudad, (ciudadAcc.get(ciudad) ?? 0) + ingreso);
       }
       const totalCiudadesIdent = Array.from(ciudadAcc.values()).reduce((s, v) => s + v, 0);
       const topCiudades = Array.from(ciudadAcc.entries())
@@ -425,7 +492,7 @@ export function useInformeBancoData() {
         },
         {
           pregunta: '¿Tu negocio es formal o opera mucho con efectivo?',
-          respuesta: totalIngresoMix > 0
+          respuesta: ingresosAno > 0
             ? `${pctIngresoBanco.toFixed(0)}% banco · ${pctIngresoEfectivo.toFixed(0)}% efectivo`
             : 'Sin ingresos registrados',
           detalle: pctIngresoEfectivo > 30
@@ -474,6 +541,8 @@ export function useInformeBancoData() {
           proveedoresPrincipales: (profile as { business_main_suppliers?: string | null }).business_main_suppliers ?? null,
         },
         thisYear,
+        ingresosAno,
+        egresosAno,
         ingresosBancoAno,
         egresosBancoAno,
         facturadoVentaAno,

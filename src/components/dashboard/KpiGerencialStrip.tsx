@@ -69,7 +69,7 @@ function StripContent() {
       icon: Gauge,
       label: 'Margen operativo',
       value: `${data.margenOperativoPct.toFixed(1)}%`,
-      hint: `Año ${data.thisYear} (banco)`,
+      hint: `Año ${data.thisYear} · operativo`,
       semaforo: semaforoMargen(data.margenOperativoPct),
     },
     {
