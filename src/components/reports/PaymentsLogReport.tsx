@@ -366,7 +366,7 @@ export default function PaymentsLogReport() {
       // todos los clientes (bug reportado por Nico).
       const { data: allYearInvs, error: allYearInvsError } = await supabase
         .from('invoices')
-        .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount' as never)
+        .select('id, type, total_amount, counterparty_name, responsible_id, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, void_type, voided_amount' as never)
         // Excluir facturas anuladas totalmente por nota crédito.
         .or('void_type.is.null,void_type.eq.partial')
         .gte('issue_date', `${year}-01-01`)
@@ -401,8 +401,12 @@ export default function PaymentsLogReport() {
       const invs = Array.from(invsCollected.values());
       const invsVenta = invs.filter((i: any) => i.type === 'venta');
       const invsCompra = invs.filter((i: any) => i.type === 'compra');
-      const facturadoVenta = invsVenta.reduce((s: number, i: any) => s + Number(i.total_amount ?? 0), 0);
-      const facturadoCompra = invsCompra.reduce((s: number, i: any) => s + Number(i.total_amount ?? 0), 0);
+      // NC parciales: voided_amount ya no es exigible → facturado NETO.
+      // Mismo criterio que lib/clientReceivables (auditoría H10).
+      const totalNeto = (i: any) =>
+        Math.max(0, Number(i.total_amount ?? 0) - (i.void_type === 'partial' ? Math.abs(Number(i.voided_amount ?? 0)) : 0));
+      const facturadoVenta = invsVenta.reduce((s: number, i: any) => s + totalNeto(i), 0);
+      const facturadoCompra = invsCompra.reduce((s: number, i: any) => s + totalNeto(i), 0);
       const facturado = facturadoVenta + facturadoCompra;
       const invIds = invs.map((i: any) => i.id);
 
@@ -469,17 +473,36 @@ export default function PaymentsLogReport() {
       if (txIdsForClient.size > 0) {
         const { data: clientTxs } = await supabase
           .from('transactions')
-          .select('amount, type, date')
+          .select('amount, type, date, movement_nature' as never)
           .is('deleted_at', null)
           .in('id', Array.from(txIdsForClient))
           .gte('date', `${year}-01-01`)
           .lte('date', `${year}-12-31`);
-        (clientTxs ?? []).forEach((t: any) => {
+        ((clientTxs ?? []) as any[]).forEach((t: any) => {
+          // Solo operativos: un traspaso/préstamo/aporte con este beneficiario
+          // no es un cobro de venta (auditoría H6, mismo criterio que la
+          // pantalla de Cobranza y el PyG).
+          if (t.movement_nature && t.movement_nature !== 'operativo') return;
           const amt = Math.abs(Number(t.amount ?? 0));
           if (t.type === 'ingreso') movIngresos += amt;
           else if (t.type === 'egreso') movEgresos += amt;
           movCount++;
         });
+      }
+
+      // Efectivo del cliente (cash_movements con beneficiario) — plata real
+      // que entró por caja y no por banco. Auditoría H7: Ronal pagó $24.85M
+      // en efectivo y la Relación de Pagos decía que seguía debiendo.
+      let efectivoCliente = 0;
+      if (allRespIdsForClient.length > 0) {
+        const { data: cashRows } = await supabase
+          .from('cash_movements')
+          .select('amount, responsible_id')
+          .eq('type', 'ingreso')
+          .in('responsible_id', allRespIdsForClient)
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`);
+        efectivoCliente = ((cashRows ?? []) as any[]).reduce((s, r) => s + Math.abs(Number(r.amount ?? 0)), 0);
       }
 
       // 3. cobrado vinculado por factura (subset de movIngresos, sirve para mostrar
@@ -589,7 +612,7 @@ export default function PaymentsLogReport() {
       // Permitimos saldo negativo: significa que recibiste más plata de lo
       // que facturaste — les tenés que emitir facturas (anticipos vivos).
       const totalACobrar = facturadoVenta + cxcInicial;
-      const totalRecibidoVenta = movIngresos + anticiposClienteTotal;
+      const totalRecibidoVenta = movIngresos + efectivoCliente + anticiposClienteTotal;
       // Retenciones (retefuente + reteica + autoretefuente) descuentan del
       // saldo: son plata que el cliente retuvo y pagó al estado, no a vos.
       const saldoNetoVenta = totalACobrar - totalRecibidoVenta - retencionesVenta;
@@ -637,6 +660,7 @@ export default function PaymentsLogReport() {
         invoiceCountVenta: invsVenta.length,
         invoiceCountCompra: invsCompra.length,
         movIngresos,
+        efectivoCliente,
         movEgresos,
         movCount,
         hasInvoices: invIds.length > 0 || cxcInicial > 0 || cxpInicial > 0,
@@ -1090,7 +1114,7 @@ export default function PaymentsLogReport() {
       periodoLabel,
       counterparty: counterparty !== 'all' ? counterparty : null,
       tePagaron: counterparty !== 'all' && counterpartySummary
-        ? counterpartySummary.movIngresos
+        ? counterpartySummary.movIngresos + counterpartySummary.efectivoCliente
         : totals.ingresos,
       lePagaste: counterparty !== 'all' && counterpartySummary
         ? counterpartySummary.movEgresos
@@ -1100,7 +1124,7 @@ export default function PaymentsLogReport() {
         ? {
             facturado: counterpartySummary.facturado,
             saldoInicial: counterpartySummary.anticiposClienteTotal,
-            pagosIdentificados: counterpartySummary.movIngresos,
+            pagosIdentificados: counterpartySummary.movIngresos + counterpartySummary.efectivoCliente,
             retenciones: counterpartySummary.retencionesVenta,
             saldoPendiente: counterpartySummary.pendienteVenta,
           }
@@ -1143,7 +1167,7 @@ export default function PaymentsLogReport() {
         ];
         if (counterpartySummary.hasInvoices) {
           lines.push(`Facturado: ${formatCurrency(counterpartySummary.facturado)}`);
-          lines.push(`Pagos identificados: ${formatCurrency(counterpartySummary.movIngresos)}`);
+          lines.push(`Pagos identificados: ${formatCurrency(counterpartySummary.movIngresos + counterpartySummary.efectivoCliente)}`);
           if (counterpartySummary.anticiposClienteTotal > 0) {
             lines.push(`Anticipos del cliente: ${formatCurrency(counterpartySummary.anticiposClienteTotal)}`);
           }
@@ -1334,9 +1358,11 @@ export default function PaymentsLogReport() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-success">{formatCurrency(counterpartySummary!.movIngresos)}</div>
+                  <div className="text-2xl font-bold text-success">{formatCurrency(counterpartySummary!.movIngresos + counterpartySummary!.efectivoCliente)}</div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Ingresos bancarios de {counterparty}
+                    {counterpartySummary!.efectivoCliente > 0
+                      ? `Banco ${formatCurrency(counterpartySummary!.movIngresos)} + efectivo ${formatCurrency(counterpartySummary!.efectivoCliente)}`
+                      : `Ingresos bancarios de ${counterparty}`}
                   </p>
                 </CardContent>
               </Card>
@@ -1425,9 +1451,11 @@ export default function PaymentsLogReport() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-success">{formatCurrency(counterpartySummary!.movIngresos)}</div>
+                  <div className="text-2xl font-bold text-success">{formatCurrency(counterpartySummary!.movIngresos + counterpartySummary!.efectivoCliente)}</div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Ingresos bancarios de {counterparty}
+                    {counterpartySummary!.efectivoCliente > 0
+                      ? `Banco ${formatCurrency(counterpartySummary!.movIngresos)} + efectivo ${formatCurrency(counterpartySummary!.efectivoCliente)}`
+                      : `Ingresos bancarios de ${counterparty}`}
                   </p>
                 </CardContent>
               </Card>

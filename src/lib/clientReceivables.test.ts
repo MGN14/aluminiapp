@@ -6,6 +6,8 @@ import { applyClientCreditFIFO, type InvoiceLine } from './clientReceivables';
 function line(partial: Partial<InvoiceLine> & { id: string; issue_date: string; total_amount: number }): InvoiceLine {
   return {
     invoice_number: partial.id,
+    due_date: null,
+    dias_credito: null,
     retefuente: 0,
     reteica: 0,
     autoretefuente: 0,

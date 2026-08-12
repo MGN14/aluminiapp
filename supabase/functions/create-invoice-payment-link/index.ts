@@ -12,6 +12,7 @@
 // factura específica sin que el cliente pueda manipularlo.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { computeReceivables } from "../_shared/receivables.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -88,13 +89,24 @@ Deno.serve(async (req) => {
       return json({ error: "Solo facturas de venta pueden generar link de pago" }, 400);
     }
 
-    const balancePending = Number(invoice.balance_pending) || 0;
-    const requestedAmount = amountOverride ?? balancePending;
+    // Saldo REAL de la factura (misma fórmula que la pantalla, post-FIFO del
+    // crédito del cliente). CRÍTICO: este monto se le COBRA al cliente. Con
+    // balance_pending crudo, el link podía pedirle una factura ya pagada
+    // (caso real: FV-2-300 pedía $156.9M cuando el saldo era $56.2M).
+    const receivables = await computeReceivables(
+      userClient,
+      user.id,
+      new Date(String(invoice.issue_date)).getFullYear(),
+    );
+    const invLine = receivables.invoiceById.get(invoiceId);
+    const saldoReal = invLine ? Math.round(invLine.effective_pending) : 0;
+
+    const requestedAmount = amountOverride ?? saldoReal;
     if (requestedAmount <= 0) {
-      return json({ error: "Esta factura no tiene saldo pendiente" }, 400);
+      return json({ error: "Esta factura no tiene saldo pendiente real (ya está cubierta por pagos o anticipos del cliente)" }, 400);
     }
-    if (amountOverride && amountOverride > balancePending) {
-      return json({ error: `El monto excede el saldo pendiente (${balancePending})` }, 400);
+    if (amountOverride && amountOverride > saldoReal) {
+      return json({ error: `El monto excede el saldo real pendiente (${saldoReal})` }, 400);
     }
 
     const amountInCents = Math.round(requestedAmount * 100);

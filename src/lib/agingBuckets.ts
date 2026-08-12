@@ -82,15 +82,17 @@ function bucketOf(daysOverdue: number): keyof AgingBuckets {
 }
 
 /**
- * Recibe el resultado de calculateAllClientReceivables enriquecido con info
- * de due_date/dias_credito por factura. Devuelve el aging report.
+ * Recibe el resultado de calculateAllClientReceivables. Las facturas ya traen
+ * due_date/dias_credito (desde auditoría 2026-08-12 vienen en InvoiceLine —
+ * ya no hace falta hidratarlas con una segunda query).
  *
- * NOTE: para no romper la firma de InvoiceLine, este helper espera que las
- * facturas vengan con due_date y dias_credito ya hidratados desde otra query.
+ * INVARIANTE (H4): Σ buckets de un cliente == su saldo_neto. Lo que el saldo
+ * tenga por encima de las facturas pendientes (saldo inicial sin factura,
+ * arrastre) cae en +90: es por definición la deuda más vieja. Antes ese
+ * residuo desaparecía del aging y la fila TOTAL no cuadraba con el KPI.
  */
 export function calculateAgingFromClients(
   clients: (ClientReceivable & { responsible_id?: string | null })[],
-  invoiceMeta: Map<string, { due_date: string | null; dias_credito: number | null }>,
   today: Date = new Date(),
 ): AgingReport {
   const result: ClientAging[] = [];
@@ -104,20 +106,19 @@ export function calculateAgingFromClients(
 
     for (const inv of c.invoices_pendientes) {
       if (inv.effective_pending <= 0) continue;
-      const meta = invoiceMeta.get(inv.id) || { due_date: null, dias_credito: null };
-      const enriched = { ...inv, due_date: meta.due_date, dias_credito: meta.dias_credito };
-      const daysOverdue = calcDaysOverdue(enriched, today);
+      const daysOverdue = calcDaysOverdue(inv, today);
       const bucket = bucketOf(daysOverdue);
       buckets[bucket] += inv.effective_pending;
       buckets.total += inv.effective_pending;
       if (daysOverdue > oldestOverdue) oldestOverdue = daysOverdue;
     }
 
-    // Si el cliente tiene saldo_neto positivo pero ninguna factura vencida
-    // (puede pasar con saldos legacy), todo va a corriente.
-    if (buckets.total === 0 && c.saldo_neto > 0) {
-      buckets.corriente = c.saldo_neto;
-      buckets.total = c.saldo_neto;
+    // Residuo sin factura (cxc_inicial no cubierto, redondeos) → +90.
+    const residuo = c.saldo_neto - buckets.total;
+    if (residuo > 1) {
+      buckets.d90_plus += residuo;
+      buckets.total += residuo;
+      if (oldestOverdue < 91) oldestOverdue = 91;
     }
 
     result.push({

@@ -1,5 +1,15 @@
 # Auditoría — Módulo de Cobranza (2026-08-12)
 
+> **ADDENDUM 2026-08-12 (cierre):** Las 6 fases se construyeron el mismo día.
+> La Fase 0 con datos reales **reordenó el diagnóstico**: los hallazgos H2/H3/H5
+> tenían impacto ~$0 hoy, y aparecieron dos causas dominantes que no estaban en
+> la lista original: **(a)** el motor de matching vinculó $169M de pagos ene-mar
+> a facturas emitidas en abr-may (sin guard de fecha, Aluminios del Eje quedó
+> con saldo a favor de $30M), y **(b)** $106.85M cobrados en efectivo no bajaban
+> la cartera de nadie, con $52.77M contados doble vía consignaciones sin egreso
+> de caja espejo. Ver `docs/cobranza-datos-fix-2026-08-12.sql` para la
+> corrección de datos y el resumen de implementación al final de este archivo.
+
 Ruta: `/reportes/cuentas-por-cobrar` → `src/components/reports/AccountsReceivableReport.tsx`
 
 ## Diagnóstico en una línea
@@ -295,3 +305,30 @@ número equivocado.
 
 Dentro de la Fase 1, `create-invoice-payment-link` va primero y suelto: hoy puede generarle a un
 cliente un link de pago por una plata que ya te pagó.
+
+---
+
+## Implementación (2026-08-12, mismo día)
+
+| Pieza | Qué quedó |
+|---|---|
+| `supabase/functions/_shared/receivables.ts` | Fuente ÚNICA de cartera en Deno (espejo de `lib/clientReceivables`): FIFO, aliases, NC parciales, isOperativo, efectivo, paginación. |
+| Score IA / email lunes / mensaje de cobro / link Wompi / MCP | Los 5 consumen la fuente única. `balance_pending` quedó solo como referencia de cuadre. |
+| Migración `20260812150000` | Guard de fecha en el matching (`issue_date <= tx.date + 3d`), traspasos nunca matchean, RLS de colaboradores para touchpoints y scores, comment de advertencia en `balance_pending`. |
+| `lib/clientReceivables.ts` | + efectivo con beneficiario (H7), + isOperativo (H6), + NC parciales netas (H10), + paginación (H5), + `sin_conciliar`, + `saldo_siigo`, facturas traen due_date/dias_credito. |
+| `lib/agingBuckets.ts` | Invariante Σ buckets == saldo_neto: el residuo sin factura cae en +90 (H4). |
+| `useCollectionData` | Única query de la pantalla (H8) + promesas de pago; `useInvalidateCollection` para todas las mutaciones. |
+| Pantalla | KPI "Sin conciliar" (confianza), card "Cuadre app vs Siigo", efectivo visible por cliente, hack "cartera real estimada" eliminado. |
+| PaymentsLogReport | Mismos 3 cambios gemelos (efectivo + isOperativo + NC) para que Relación de Pagos siga cuadrando con Cobranza. |
+| Touchpoint "prometió pagar" | Crea `expected_payment` con monto+fecha; badge en el Aging (rojo si venció sin pago) (H9). |
+| Scorer | Upsert roto reemplazado por delete+insert por lote (H12); agrupa por cliente canónico (H11). |
+
+### Pendiente que quedó FUERA (decisión consciente)
+- **Cartera multi-año (H2 original):** con cero facturas pre-2026 el cambio de
+  ventana hoy no mueve nada y chocaría con los anticipos de migración (que ya
+  capturan pagos pre-cutover). Se hace como parte de **Cierre de Año Fase 2**
+  antes de enero 2027.
+- **Aluminios del Eje / La Bodega / Todoalum:** los anticipos de migración de
+  mayo probablemente duplican transferencias ya conciliadas, pero Siigo dice
+  que Eje debe $0 — es pregunta para el contador, no un UPDATE a ciegas. La
+  card "Cuadre app vs Siigo" los deja visibles hasta resolverlos.

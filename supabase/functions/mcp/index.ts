@@ -25,6 +25,7 @@
 //   - list_pending_payments(limit?)
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { computeReceivables } from "../_shared/receivables.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -470,57 +471,44 @@ async function loadReceivables(
   userId: string,
   opts: { from?: string; to?: string; clientName?: string } = {},
 ): Promise<ReceivableInvoice[]> {
-  let q = db.from("invoices")
-    .select("id, counterparty_name, responsible_id, issue_date, due_date, dias_credito, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, void_type, type")
-    .eq("user_id", userId)
-    .eq("type", "venta")
-    // Excluir facturas anuladas TOTALMENTE por nota crédito (mismo criterio que la app).
-    .or("void_type.is.null,void_type.eq.partial");
-  if (opts.from) q = q.gte("issue_date", opts.from);
-  if (opts.to) q = q.lte("issue_date", opts.to);
-  if (opts.clientName) q = q.ilike("counterparty_name", `%${opts.clientName}%`);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  const invoices = (data ?? []) as Record<string, unknown>[];
-  if (invoices.length === 0) return [];
-  const ids = invoices.map((i) => i.id as string);
+  // Adaptador sobre computeReceivables (_shared/receivables) — la MISMA fuente
+  // que la pantalla de Cobranza, el scorer, el reporte semanal y el link Wompi.
+  // `saldo` acá es effective_pending post-FIFO: neto de pagos del banco
+  // OPERATIVOS, efectivo con beneficiario, anticipos, retenciones y NC.
+  const thisYear = new Date().getFullYear();
+  const fromYear = opts.from ? new Date(opts.from).getFullYear() : thisYear - 1;
+  const toYear = opts.to ? new Date(opts.to).getFullYear() : thisYear;
+  const years: number[] = [];
+  for (let y = Math.max(fromYear, toYear - 2); y <= toYear; y++) years.push(y);
 
-  // Pagos: directos + matches + anticipos vinculados. Todo scopeado a las
-  // facturas del usuario (ids ya son del user) — service_role ignora RLS.
-  const [directRes, matchRes, antRes] = await Promise.all([
-    db.from("transactions").select("invoice_id, amount").eq("user_id", userId).is("deleted_at", null).in("invoice_id", ids),
-    db.from("invoice_transaction_matches").select("invoice_id, matched_amount").in("invoice_id", ids),
-    db.from("initial_state_details").select("invoice_id, amount").eq("field_type", "anticipos_de_clientes").in("invoice_id", ids),
-  ]);
-  const paidById = new Map<string, number>();
-  const addPaid = (id: unknown, amt: unknown) => {
-    if (!id) return;
-    const k = id as string;
-    paidById.set(k, (paidById.get(k) ?? 0) + Math.abs(Number(amt ?? 0)));
-  };
-  for (const r of (directRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.amount);
-  for (const r of (matchRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.matched_amount);
-  for (const r of (antRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.amount);
+  const lines: ReceivableInvoice[] = [];
+  for (const year of years) {
+    const result = await computeReceivables(db, userId, year);
+    for (const inv of result.invoiceById.values()) {
+      lines.push({
+        id: inv.id,
+        counterparty_name: inv.client_name || "(sin nombre)",
+        responsible_id: inv.responsible_id,
+        issue_date: inv.issue_date,
+        due_date: inv.due_date,
+        dias_credito: inv.dias_credito,
+        total_amount: round2(inv.total_neto),
+        paid: round2(inv.paid_direct),
+        retenciones: round2(inv.retenciones_total),
+        saldo: round2(inv.effective_pending),
+        void_type: null,
+      });
+    }
+  }
 
-  return invoices.map((i) => {
-    const total = Number(i.total_amount ?? 0);
-    const paid = paidById.get(i.id as string) ?? 0;
-    const retenciones = invoiceRetenciones(i);
-    const saldo = Math.max(0, total - paid - retenciones);
-    return {
-      id: i.id as string,
-      counterparty_name: (i.counterparty_name as string) ?? "(sin nombre)",
-      responsible_id: (i.responsible_id as string | null) ?? null,
-      issue_date: i.issue_date as string,
-      due_date: (i.due_date as string | null) ?? null,
-      dias_credito: (i.dias_credito as number | null) ?? null,
-      total_amount: round2(total),
-      paid: round2(paid),
-      retenciones: round2(retenciones),
-      saldo: round2(saldo),
-      void_type: (i.void_type as string | null) ?? null,
-    };
-  });
+  let out = lines;
+  if (opts.from) out = out.filter((i) => i.issue_date >= opts.from!);
+  if (opts.to) out = out.filter((i) => i.issue_date <= opts.to!);
+  if (opts.clientName) {
+    const n = opts.clientName.toLowerCase().trim();
+    out = out.filter((i) => i.counterparty_name.toLowerCase().includes(n));
+  }
+  return out;
 }
 
 // CxP: saldo real de facturas de COMPRA (lo que le debés a proveedores).

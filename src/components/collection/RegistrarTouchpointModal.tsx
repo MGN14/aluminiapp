@@ -44,7 +44,14 @@ export default function RegistrarTouchpointModal({ open, onOpenChange, client, o
   const [outcome, setOutcome] = useState('contactado');
   const [notes, setNotes] = useState('');
   const [contactedAt, setContactedAt] = useState(() => new Date().toISOString().slice(0, 16));
+  // Promesa de pago (solo cuando outcome = prometio_pago / compromiso_parcial):
+  // se crea el expected_payment en el mismo guardado — antes quedaba anotado
+  // "prometió pagar" en la bitácora y la promesa no existía en ningún lado.
+  const [promesaMonto, setPromesaMonto] = useState('');
+  const [promesaFecha, setPromesaFecha] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const esPromesa = outcome === 'prometio_pago' || outcome === 'compromiso_parcial';
 
   useEffect(() => {
     if (open) {
@@ -52,11 +59,19 @@ export default function RegistrarTouchpointModal({ open, onOpenChange, client, o
       setOutcome('contactado');
       setNotes('');
       setContactedAt(new Date().toISOString().slice(0, 16));
+      setPromesaMonto('');
+      const d = new Date();
+      d.setDate(d.getDate() + 7);
+      setPromesaFecha(d.toISOString().slice(0, 10));
     }
   }, [open]);
 
   const handleSave = async () => {
     if (!user || !client) return;
+    if (esPromesa && (!promesaFecha || Number(promesaMonto) <= 0)) {
+      toast({ title: 'Completá la promesa', description: 'Monto y fecha del pago prometido.', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     try {
       const { error } = await supabase.from('collection_touchpoints' as never).insert({
@@ -69,7 +84,24 @@ export default function RegistrarTouchpointModal({ open, onOpenChange, client, o
         contacted_at: new Date(contactedAt).toISOString(),
       } as never);
       if (error) throw error;
-      toast({ title: 'Contacto registrado' });
+
+      // Promesa → expected_payment (aparece en el Aging y en el forecast de caja)
+      if (esPromesa) {
+        const { error: epError } = await supabase.from('expected_payments' as never).insert({
+          user_id: user.id,
+          responsible_id: client.responsible_id,
+          invoice_id: null,
+          due_date: promesaFecha,
+          amount: Number(promesaMonto),
+          notes: `Promesa registrada en contacto (${channel}): ${notes.trim() || client.name}`,
+        } as never);
+        if (epError) throw epError;
+      }
+
+      toast({
+        title: 'Contacto registrado',
+        description: esPromesa ? `Promesa de ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(promesaMonto))} para el ${promesaFecha} creada.` : undefined,
+      });
       onOpenChange(false);
       onSaved?.();
     } catch (err) {
@@ -120,6 +152,32 @@ export default function RegistrarTouchpointModal({ open, onOpenChange, client, o
             <Label className="text-xs">¿Cuándo fue?</Label>
             <Input type="datetime-local" value={contactedAt} onChange={(e) => setContactedAt(e.target.value)} />
           </div>
+
+          {esPromesa && (
+            <div className="p-3 rounded-lg border border-primary/20 bg-primary/5 space-y-2">
+              <p className="text-xs font-semibold text-primary">Promesa de pago</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">¿Cuánto prometió?</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={promesaMonto}
+                    onChange={(e) => setPromesaMonto(e.target.value)}
+                    placeholder="5000000"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">¿Para cuándo?</Label>
+                  <Input type="date" value={promesaFecha} onChange={(e) => setPromesaFecha(e.target.value)} />
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Se crea el cobro esperado: aparece en el Aging y en el forecast de caja.
+                Si no paga a la fecha, el cliente queda marcado en rojo.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-1">
             <Label className="text-xs">Notas (opcional pero recomendado)</Label>

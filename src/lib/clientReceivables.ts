@@ -4,11 +4,14 @@
 // Pagos" para cualquier cliente — por construcción, no por aritmética que
 // coincide.
 //
-// Fórmula por cliente:
+// Fórmula por cliente (auditoría 2026-08-12):
 //
-//   total_a_cobrar    = facturado_venta (excluyendo void_type='full') + cxc_inicial
-//   total_recibido    = movIngresos (todos los pagos del banco del cliente,
-//                                    estén o no vinculados a factura específica)
+//   total_a_cobrar    = facturado_venta NETO de NC parciales (total − voided_amount;
+//                       void_type='total' excluida) + cxc_inicial
+//   total_recibido    = ingresos del banco OPERATIVOS del cliente (traspasos,
+//                       préstamos y aportes con beneficiario NO bajan cartera)
+//                     + efectivo con beneficiario (cash_movements type=ingreso —
+//                       Ronal pagó $24.85M en caja y la app decía que debía)
 //                     + anticipos_de_clientes (linked + unlinked)
 //                     + retenciones (retefuente + reteica + autoretefuente —
 //                                    plata que el cliente retuvo y pagó a DIAN/
@@ -16,14 +19,15 @@
 //   saldo_neto        = total_a_cobrar − total_recibido
 //
 // Las retenciones se descuentan solo cuando están explícitamente cargadas en
-// la factura (reteica_amount > 0, autoretefuente_amount > 0). retefuente
-// mantiene el comportamiento legacy (default 2.5% si rate=null en facturas
-// viejas), para no inflar saldos de facturas pre-existentes.
+// la factura. saldo_neto < 0 → saldo a favor del cliente (anticipo vivo).
 //
-// saldo_neto < 0 → saldo a favor del cliente (le debemos / hay anticipo vivo).
+// GEMELO Deno: supabase/functions/_shared/receivables.ts — score IA, reporte
+// semanal, mensajes de cobro, link Wompi y MCP leen ESA copia. Cualquier
+// cambio acá se replica allá (mismo patrón que ublInvoiceParser).
 
 import { supabase } from '@/integrations/supabase/client';
 import { invoiceRetenciones } from './invoiceBalance';
+import { isOperativo } from '@/types/transaction';
 
 // Normalización fuerte de nombres (copiada de PaymentsLogReport para mantener
 // criterio idéntico de matching).
@@ -43,6 +47,9 @@ export interface InvoiceLine {
   id: string;
   invoice_number: string;
   issue_date: string;
+  due_date: string | null;
+  dias_credito: number | null;
+  /** total_amount − voided_amount de NC parciales. Lo realmente exigible. */
   total_amount: number;
   retefuente: number;
   reteica: number;
@@ -108,14 +115,18 @@ export interface ClientReceivable {
   client_name: string;
   facturado_venta: number;
   cxc_inicial: number;
-  /** Suma de ingresos del banco atribuidos a este cliente vía responsible_id, invoice_id o invoice_transaction_matches. */
+  /** Suma de ingresos del banco OPERATIVOS atribuidos a este cliente vía responsible_id, invoice_id o invoice_transaction_matches. */
   cobrado_banco: number;
+  /** Efectivo recibido del cliente (cash_movements type=ingreso con responsible_id). */
+  cobrado_efectivo: number;
+  /** Σ balance_pending crudo de Siigo — SOLO para el cuadre app vs Siigo. */
+  saldo_siigo: number;
   /** Anticipos del estado inicial (linked + unlinked) — restan del saldo. */
   anticipos_total: number;
   /** Suma de retenciones (retefuente + reteica + autoretefuente) en todas las
    *  facturas del cliente. Resta del saldo porque ya están pagadas a DIAN/municipio. */
   retenciones_total: number;
-  /** (facturado + cxc_inicial) − (cobrado_banco + anticipos_total + retenciones_total). Negativo = saldo a favor del cliente. */
+  /** (facturado + cxc_inicial) − (cobrado_banco + cobrado_efectivo + anticipos_total + retenciones_total). Negativo = saldo a favor del cliente. */
   saldo_neto: number;
   invoices_pendientes: InvoiceLine[];
   invoices_pagadas: InvoiceLine[];
@@ -130,6 +141,25 @@ export interface ClientReceivablesResult {
   /** Suma de saldos negativos en valor absoluto = anticipos vivos / lo que le debés a clientes. */
   total_saldo_a_favor: number;
   clientes_con_deuda: number;
+  /** Ingresos operativos del año sin cliente atribuible — KPI de confianza:
+   *  la cartera puede estar sobrestimada hasta por este monto. */
+  sin_conciliar: { count: number; monto: number };
+}
+
+/** Trae TODAS las filas paginando de a 1000. PostgREST corta en 1000 en
+ *  silencio (auditoría H5) — mismo patrón que useProfitability. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAll<T>(build: (from: number, to: number) => any): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
 }
 
 /**
@@ -142,56 +172,62 @@ export async function calculateAllClientReceivables(
   const startDate = `${year}-01-01`;
   const endDate = `${year}-12-31`;
 
-  // Bulk loads — todo el dataset que necesita el cálculo, en paralelo.
+  // Bulk loads — todo el dataset que necesita el cálculo, en paralelo y
+  // paginado (H5: PostgREST corta en 1000 filas sin avisar).
   const [
-    responsiblesRes,
-    aliasesRes,
-    invoicesRes,
-    transactionsRes,
-    matchesRes,
-    initialDetailsRes,
-    initialMatchesRes,
+    responsibles,
+    aliases,
+    invoices,
+    transactions,
+    matches,
+    initialDetails,
+    initialMatches,
+    cashIngresos,
   ] = await Promise.all([
-    supabase.from('responsibles').select('id, name'),
-    supabase.from('responsible_aliases' as never).select('responsible_id, alias'),
-    supabase
-      .from('invoices')
-      // `void_type` se añadió en migración 20260514120000 pero todavía no está
-      // en types generados; usamos `as never` para que TS no se queje del
-      // select. El filtro `.or('void_type...')` funciona igual a nivel DB.
-      .select('id, invoice_number, counterparty_name, responsible_id, issue_date, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, void_type' as never)
-      .eq('type', 'venta')
-      .gte('issue_date', startDate)
-      .lte('issue_date', endDate)
-      // Excluir facturas totalmente anuladas por nota crédito — mismo criterio
-      // que PaymentsLogReport. Antes, "Lo que me deben" las contaba como
-      // pendientes y por eso aparecían deudas de 100M+ que ya estaban anuladas.
-      .or('void_type.is.null,void_type.eq.partial'),
-    supabase
-      .from('transactions')
-      .select('id, invoice_id, responsible_id, amount, type, date, description')
-      .eq('type', 'ingreso')
-      .is('deleted_at', null)
-      .gte('date', startDate)
-      .lte('date', endDate),
-    supabase.from('invoice_transaction_matches').select('invoice_id, transaction_id, matched_amount'),
-    supabase.from('initial_state_details').select('id, field_type, amount, invoice_id, responsible_id, responsible_name'),
-    supabase.from('initial_balance_matches' as never).select('initial_state_detail_id, transaction_id, matched_amount'),
+    fetchAll<{ id: string; name: string }>((a, b) =>
+      supabase.from('responsibles').select('id, name').range(a, b)),
+    fetchAll<{ responsible_id: string; alias: string }>((a, b) =>
+      supabase.from('responsible_aliases' as never).select('responsible_id, alias').range(a, b)),
+    fetchAll<Record<string, unknown>>((a, b) =>
+      supabase
+        .from('invoices')
+        // `void_type`/`voided_amount`/`balance_pending` no están en los types
+        // generados; `as never` para que TS no se queje del select.
+        .select('id, invoice_number, counterparty_name, responsible_id, issue_date, due_date, dias_credito, total_amount, subtotal_base, retefuente_cliente_amount, retefuente_cliente_rate, reteica_amount, autoretefuente_amount, void_type, voided_amount, balance_pending' as never)
+        .eq('type', 'venta')
+        .gte('issue_date', startDate)
+        .lte('issue_date', endDate)
+        // Excluir facturas totalmente anuladas por nota crédito — mismo criterio
+        // que PaymentsLogReport.
+        .or('void_type.is.null,void_type.eq.partial')
+        .range(a, b)),
+    fetchAll<Record<string, unknown>>((a, b) =>
+      supabase
+        .from('transactions')
+        .select('id, invoice_id, responsible_id, amount, type, date, description, movement_nature' as never)
+        .eq('type', 'ingreso')
+        .is('deleted_at', null)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .range(a, b)),
+    fetchAll<{ invoice_id: string; transaction_id: string; matched_amount: number }>((a, b) =>
+      supabase.from('invoice_transaction_matches').select('invoice_id, transaction_id, matched_amount').range(a, b)),
+    fetchAll<Record<string, unknown>>((a, b) =>
+      supabase.from('initial_state_details').select('id, field_type, amount, invoice_id, responsible_id, responsible_name').range(a, b)),
+    fetchAll<{ initial_state_detail_id: string; transaction_id: string }>((a, b) =>
+      supabase.from('initial_balance_matches' as never).select('initial_state_detail_id, transaction_id').range(a, b)),
+    // H7: efectivo con beneficiario. NO se lee petty_cash acá, así que los
+    // promovidos no se cuentan doble.
+    fetchAll<{ responsible_id: string | null; amount: number }>((a, b) =>
+      supabase
+        .from('cash_movements')
+        .select('responsible_id, amount')
+        .eq('type', 'ingreso')
+        .not('responsible_id', 'is', null)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .range(a, b)),
   ]);
-
-  if (responsiblesRes.error) throw responsiblesRes.error;
-  if (invoicesRes.error) throw invoicesRes.error;
-  if (transactionsRes.error) throw transactionsRes.error;
-  if (matchesRes.error) throw matchesRes.error;
-  if (initialDetailsRes.error) throw initialDetailsRes.error;
-
-  const responsibles = (responsiblesRes.data ?? []) as Array<{ id: string; name: string }>;
-  const aliases = ((aliasesRes.data as unknown) as Array<{ responsible_id: string; alias: string }> | null) ?? [];
-  const invoices = ((invoicesRes.data as unknown) ?? []) as Array<Record<string, unknown>>;
-  const transactions = (transactionsRes.data ?? []) as Array<Record<string, unknown>>;
-  const matches = (matchesRes.data ?? []) as Array<{ invoice_id: string; transaction_id: string; matched_amount: number }>;
-  const initialDetails = (initialDetailsRes.data ?? []) as Array<Record<string, unknown>>;
-  const initialMatches = ((initialMatchesRes.data as unknown) as Array<{ initial_state_detail_id: string; transaction_id: string; matched_amount: number }> | null) ?? [];
 
   // ===========================================================================
   // 1. Map "alias responsible → canonical responsible". Si un responsible "Aluminios JH"
@@ -257,11 +293,19 @@ export async function calculateAllClientReceivables(
     const issueDate = inv.issue_date as string;
     const daysSince = Math.max(0, Math.floor((today.getTime() - new Date(issueDate).getTime()) / 86400000));
 
+    // H10: una NC parcial baja lo exigible. Antes la factura seguía pidiendo
+    // el total bruto aunque la nota crédito ya había anulado una parte.
+    const voidType = (inv.void_type as 'partial' | null) ?? null;
+    const totalNeto = Math.max(0,
+      Number(inv.total_amount ?? 0) - (voidType === 'partial' ? Math.abs(Number(inv.voided_amount ?? 0)) : 0));
+
     invoiceMap.set(invoiceId, {
       id: invoiceId,
       invoice_number: (inv.invoice_number as string) ?? '',
       issue_date: issueDate,
-      total_amount: Number(inv.total_amount ?? 0),
+      due_date: (inv.due_date as string | null) ?? null,
+      dias_credito: (inv.dias_credito as number | null) ?? null,
+      total_amount: totalNeto,
       retefuente,
       reteica,
       autoretefuente,
@@ -270,14 +314,16 @@ export async function calculateAllClientReceivables(
       pending_invoice: 0,
       effective_pending: 0, // se recalcula por FIFO al agregar por cliente
 
-      void_type: (inv.void_type as 'partial' | null) ?? null,
+      void_type: voidType,
       days_since: daysSince,
       client_id: clientId,
     });
   }
 
-  // Pagos directos por factura (transactions.invoice_id)
+  // Pagos directos por factura (transactions.invoice_id) — solo operativos
+  // (H6: un traspaso vinculado por error a una factura no es un pago).
   for (const tx of transactions) {
+    if (!isOperativo(tx.movement_nature as string | null)) continue;
     const invId = tx.invoice_id as string | null;
     if (invId && invoiceMap.has(invId)) {
       invoiceMap.get(invId)!.paid_direct += Math.abs(Number(tx.amount ?? 0));
@@ -320,7 +366,12 @@ export async function calculateAllClientReceivables(
   for (const im of initialMatches) initialMatchTxToDetail.set(im.transaction_id, im.initial_state_detail_id);
 
   const txClient = new Map<string, string>(); // tx_id → client_id
+  let sinConciliarCount = 0;
+  let sinConciliarMonto = 0;
   for (const tx of transactions) {
+    // H6: traspasos, préstamos, devoluciones y aportes NO son cobros de venta
+    // aunque tengan beneficiario — mismo criterio que PyG y Punto de Equilibrio.
+    if (!isOperativo(tx.movement_nature as string | null)) continue;
     const txId = tx.id as string;
     let clientId: string | null = null;
 
@@ -357,6 +408,10 @@ export async function calculateAllClientReceivables(
     }
 
     if (clientId) txClient.set(txId, clientId);
+    else {
+      sinConciliarCount += 1;
+      sinConciliarMonto += Math.abs(Number(tx.amount ?? 0));
+    }
   }
 
   // ===========================================================================
@@ -379,6 +434,8 @@ export async function calculateAllClientReceivables(
         facturado_venta: 0,
         cxc_inicial: 0,
         cobrado_banco: 0,
+        cobrado_efectivo: 0,
+        saldo_siigo: 0,
         anticipos_total: 0,
         retenciones_total: 0,
         saldo_neto: 0,
@@ -400,6 +457,8 @@ export async function calculateAllClientReceivables(
       id: inv.id,
       invoice_number: inv.invoice_number,
       issue_date: inv.issue_date,
+      due_date: inv.due_date,
+      dias_credito: inv.dias_credito,
       total_amount: inv.total_amount,
       retefuente: inv.retefuente,
       reteica: inv.reteica,
@@ -421,6 +480,18 @@ export async function calculateAllClientReceivables(
     if (!tx) continue;
     const a = getAcc(clientId);
     a.cobrado_banco += Math.abs(Number(tx.amount ?? 0));
+  }
+  // Efectivo con beneficiario (H7)
+  for (const cm of cashIngresos) {
+    if (!cm.responsible_id) continue;
+    const clientId = canonicalOf.get(cm.responsible_id) ?? cm.responsible_id;
+    getAcc(clientId).cobrado_efectivo += Math.abs(Number(cm.amount ?? 0));
+  }
+  // Saldo según Siigo por cliente (solo referencia de cuadre)
+  for (const inv of invoices) {
+    const line = invoiceMap.get(inv.id as string);
+    if (!line) continue;
+    getAcc(line.client_id).saldo_siigo += Math.max(0, Number((inv as Record<string, unknown>).balance_pending ?? 0));
   }
   // Saldos iniciales + anticipos
   for (const d of initialDetails) {
@@ -447,15 +518,15 @@ export async function calculateAllClientReceivables(
   // Saldo neto + ordenar invoices
   const clients: ClientReceivable[] = [];
   for (const a of acc.values()) {
-    a.saldo_neto = (a.facturado_venta + a.cxc_inicial) - (a.cobrado_banco + a.anticipos_total + a.retenciones_total);
+    a.saldo_neto = (a.facturado_venta + a.cxc_inicial) - (a.cobrado_banco + a.cobrado_efectivo + a.anticipos_total + a.retenciones_total);
     // Imputación FIFO: reparte el crédito recibido del cliente (banco +
-    // anticipos) sobre sus facturas, de la más vieja a la más nueva. Recién
-    // acá `effective_pending` queda con el saldo real por factura.
+    // efectivo + anticipos) sobre sus facturas, de la más vieja a la más nueva.
+    // Recién acá `effective_pending` queda con el saldo real por factura.
     // El saldo inicial (cxc_inicial) es la deuda MÁS vieja (anterior al sistema,
     // sin factura), así que por imputación se cubre primero: lo reservamos del
     // pool. Sin esto, el crédito "pagaría" facturas nuevas dejando viva la deuda
     // vieja → factura marcada Cubierta de más y plata desaparecida del aging.
-    const creditParaFacturas = Math.max(0, a.cobrado_banco + a.anticipos_total - a.cxc_inicial);
+    const creditParaFacturas = Math.max(0, a.cobrado_banco + a.cobrado_efectivo + a.anticipos_total - a.cxc_inicial);
     applyClientCreditFIFO(a._lines, creditParaFacturas);
     a.invoices_pendientes = a._lines
       .filter(l => l.effective_pending > PAID_EPSILON)
@@ -468,12 +539,12 @@ export async function calculateAllClientReceivables(
   }
   // Mostrar solo clientes con actividad
   const visible = clients.filter(c =>
-    c.facturado_venta > 0 || c.cxc_inicial > 0 || c.cobrado_banco > 0 || c.anticipos_total > 0,
+    c.facturado_venta > 0 || c.cxc_inicial > 0 || c.cobrado_banco > 0 || c.cobrado_efectivo > 0 || c.anticipos_total > 0,
   );
   visible.sort((a, b) => b.saldo_neto - a.saldo_neto);
 
   const total_facturado = visible.reduce((s, c) => s + c.facturado_venta + c.cxc_inicial, 0);
-  const total_cobrado = visible.reduce((s, c) => s + c.cobrado_banco + c.anticipos_total, 0);
+  const total_cobrado = visible.reduce((s, c) => s + c.cobrado_banco + c.cobrado_efectivo + c.anticipos_total, 0);
   const total_saldo_pendiente = visible
     .filter(c => c.saldo_neto > 0)
     .reduce((s, c) => s + c.saldo_neto, 0);
@@ -489,5 +560,6 @@ export async function calculateAllClientReceivables(
     total_saldo_pendiente,
     total_saldo_a_favor,
     clientes_con_deuda,
+    sin_conciliar: { count: sinConciliarCount, monto: sinConciliarMonto },
   };
 }

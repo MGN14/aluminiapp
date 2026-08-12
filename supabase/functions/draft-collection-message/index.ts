@@ -10,6 +10,7 @@
 // Responde: { message: string, tokens_used: number, model: string }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { computeReceivables } from "../_shared/receivables.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -57,38 +58,29 @@ Deno.serve(async (req) => {
     const empresaName = profile?.company_name ?? "Nuestra empresa";
     const senderName = profile?.full_name ?? "el equipo de cobranza";
 
-    // 2) Traer facturas pendientes del cliente
-    let invQ = admin.from("invoices")
-      .select("id, invoice_number, issue_date, due_date, dias_credito, total_amount, balance_pending")
-      .eq("user_id", user.id)
-      .eq("type", "venta")
-      .gt("balance_pending", 0)
-      .is("voided_at", null);
-    if (responsibleId) invQ = invQ.eq("responsible_id", responsibleId);
-    else invQ = invQ.ilike("counterparty_name", clientName);
-    const { data: invs } = await invQ.order("issue_date", { ascending: true });
+    // 2) Cartera REAL del cliente — misma fórmula que la pantalla
+    //    (_shared/receivables). CRÍTICO: este mensaje SALE hacia el cliente;
+    //    con balance_pending crudo le estábamos cobrando facturas ya pagadas.
+    const receivables = await computeReceivables(admin, user.id, new Date().getFullYear());
+    const nameNorm = clientName.toLowerCase().trim();
+    const clientRec = receivables.clients.find((c) =>
+      (responsibleId && c.responsible_id === responsibleId)
+      || c.client_name.toLowerCase().trim() === nameNorm,
+    ) ?? receivables.clients.find((c) => c.client_name.toLowerCase().includes(nameNorm));
 
-    const today = new Date();
-    const invoices = ((invs ?? []) as any[]).map(i => {
-      const issue = new Date(i.issue_date);
-      let venc = issue;
-      if (i.due_date) venc = new Date(i.due_date);
-      else if (i.dias_credito) { venc = new Date(issue); venc.setDate(venc.getDate() + i.dias_credito); }
-      return {
-        number: i.invoice_number,
-        issue_date: i.issue_date,
-        total: Number(i.total_amount) || 0,
-        pending: Number(i.balance_pending) || 0,
-        days_overdue: Math.floor((today.getTime() - venc.getTime()) / 86400000),
-      };
-    });
-
-    if (invoices.length === 0) {
-      return json({ error: "Este cliente no tiene facturas vivas" }, 400);
+    if (!clientRec || clientRec.saldo_neto <= 0 || clientRec.invoices_pendientes.length === 0) {
+      return json({ error: "Este cliente no tiene saldo pendiente real — nada que cobrar" }, 400);
     }
 
-    const totalOwed = invoices.reduce((s, i) => s + i.pending, 0);
-    const oldestOverdue = Math.max(...invoices.map(i => i.days_overdue));
+    const invoices = clientRec.invoices_pendientes.map((i) => ({
+      number: i.invoice_number || null,
+      issue_date: i.issue_date,
+      total: i.total_neto,
+      pending: Math.round(i.effective_pending),
+      days_overdue: i.days_overdue,
+    }));
+    const totalOwed = Math.round(clientRec.saldo_neto);
+    const oldestOverdue = clientRec.oldest_overdue_days;
 
     // 3) Traer touchpoints recientes
     let tpQ = admin.from("collection_touchpoints")

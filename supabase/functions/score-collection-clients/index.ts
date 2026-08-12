@@ -9,6 +9,7 @@
 // Body opcional: { dry_run?: boolean } para testing sin escribir DB.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { computeReceivables } from "../_shared/receivables.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,12 +39,15 @@ Deno.serve(async (req) => {
     let targetUserIds: string[] = [];
 
     if (isCron) {
-      // Identificar usuarios con deuda viva
+      // Identificar usuarios con facturas de venta vivas este año. balance_pending
+      // acá es solo un PRE-FILTRO barato de candidatos — el saldo real por
+      // cliente lo decide computeReceivables adentro de scoreUser (un usuario
+      // con todo cobrado sale con 0 clientes y no gasta tokens).
       const { data: users } = await admin
         .from("invoices")
         .select("user_id")
         .eq("type", "venta")
-        .gt("balance_pending", 0)
+        .gte("issue_date", `${new Date().getFullYear()}-01-01`)
         .is("voided_at", null);
       const set = new Set<string>();
       for (const u of (users ?? []) as { user_id: string }[]) set.add(u.user_id);
@@ -84,31 +88,12 @@ Deno.serve(async (req) => {
   }
 });
 
-interface InvoiceForScore {
-  id: string;
-  invoice_number: string | null;
-  counterparty_name: string | null;
-  issue_date: string;
-  due_date: string | null;
-  dias_credito: number | null;
-  total_amount: number | null;
-  balance_pending: number | null;
-}
-
 async function scoreUser(admin: ReturnType<typeof createClient>, anthropicKey: string, userId: string, dryRun: boolean): Promise<number> {
-  // 1) Traer facturas vivas
-  const { data: invs } = await admin
-    .from("invoices")
-    .select("id, invoice_number, counterparty_name, issue_date, due_date, dias_credito, total_amount, balance_pending, responsible_id")
-    .eq("user_id", userId)
-    .eq("type", "venta")
-    .gt("balance_pending", 0)
-    .is("voided_at", null);
-  const invoices = ((invs ?? []) as (InvoiceForScore & { responsible_id: string | null })[]);
+  // 1) Cartera REAL por cliente — misma fórmula que la pantalla de Cobranza
+  //    (_shared/receivables). Antes se usaba balance_pending crudo de Siigo,
+  //    que no baja al conciliar: el score evaluaba deuda ya cobrada.
+  const receivables = await computeReceivables(admin, userId, new Date().getFullYear());
 
-  if (invoices.length === 0) return 0;
-
-  // 2) Agrupar por cliente
   type Bucket = {
     name: string;
     responsible_id: string | null;
@@ -117,42 +102,21 @@ async function scoreUser(admin: ReturnType<typeof createClient>, anthropicKey: s
     invoices_count: number;
     invoices_detail: { number: string | null; total: number; pending: number; days_overdue: number }[];
   };
-  const today = new Date();
-  const groups = new Map<string, Bucket>();
-
-  for (const inv of invoices) {
-    const name = inv.counterparty_name?.trim() || "(sin nombre)";
-    const key = inv.responsible_id ?? `__name:${name.toLowerCase()}`;
-    // Días vencidos
-    const issue = new Date(inv.issue_date);
-    let venc = issue;
-    if (inv.due_date) venc = new Date(inv.due_date);
-    else if (inv.dias_credito && inv.dias_credito > 0) {
-      venc = new Date(issue);
-      venc.setDate(venc.getDate() + inv.dias_credito);
-    }
-    const daysOverdue = Math.floor((today.getTime() - venc.getTime()) / 86400000);
-    const bucket = groups.get(key) ?? {
-      name,
-      responsible_id: inv.responsible_id ?? null,
-      total_owed: 0,
-      oldest_overdue_days: 0,
-      invoices_count: 0,
-      invoices_detail: [],
-    };
-    bucket.total_owed += Number(inv.balance_pending) || 0;
-    bucket.invoices_count += 1;
-    if (daysOverdue > bucket.oldest_overdue_days) bucket.oldest_overdue_days = daysOverdue;
-    bucket.invoices_detail.push({
-      number: inv.invoice_number,
-      total: Number(inv.total_amount) || 0,
-      pending: Number(inv.balance_pending) || 0,
-      days_overdue: daysOverdue,
-    });
-    groups.set(key, bucket);
-  }
-
-  const clientList = [...groups.values()]
+  const clientList: Bucket[] = receivables.clients
+    .filter((c) => c.saldo_neto > 0)
+    .map((c) => ({
+      name: c.client_name,
+      responsible_id: c.responsible_id,
+      total_owed: Math.round(c.saldo_neto),
+      oldest_overdue_days: c.oldest_overdue_days,
+      invoices_count: c.invoices_pendientes.length,
+      invoices_detail: c.invoices_pendientes.map((i) => ({
+        number: i.invoice_number || null,
+        total: i.total_neto,
+        pending: Math.round(i.effective_pending),
+        days_overdue: i.days_overdue,
+      })),
+    }))
     .sort((a, b) => b.oldest_overdue_days - a.oldest_overdue_days || b.total_owed - a.total_owed)
     .slice(0, MAX_CLIENTS_PER_USER);
 
@@ -211,38 +175,16 @@ async function scoreUser(admin: ReturnType<typeof createClient>, anthropicKey: s
     return parsed.length;
   }
 
-  // 6) Upsert scores (por user_id + responsible_id-or-name)
-  let written = 0;
-  for (const p of parsed) {
-    const matchingClient = clientList.find(c =>
-      c.name.toLowerCase() === p.client_name.toLowerCase()
-    );
-    if (!matchingClient) continue;
-
-    const { error } = await admin.from("client_collection_scores").upsert({
-      user_id: userId,
-      responsible_id: matchingClient.responsible_id,
-      client_name: matchingClient.name,
-      score: clampScore(p.score),
-      category: validCategory(p.category),
-      reasoning: p.reasoning ?? null,
-      recommended_action: p.recommended_action ?? null,
-      total_owed: matchingClient.total_owed,
-      oldest_overdue_days: matchingClient.oldest_overdue_days,
-      invoices_count: matchingClient.invoices_count,
-      scored_at: new Date().toISOString(),
-    }, {
-      onConflict: "user_id",
-      ignoreDuplicates: false,
-    });
-    if (error) {
-      // Si falla por conflict (responsible_id null), intentamos delete+insert
-      console.warn("upsert error, fallback:", error.message);
-      await admin.from("client_collection_scores")
-        .delete()
-        .eq("user_id", userId)
-        .eq("client_name", matchingClient.name);
-      const { error: e2 } = await admin.from("client_collection_scores").insert({
+  // 6) Persistir scores. El índice único de la tabla es sobre una EXPRESIÓN
+  //    (user_id + COALESCE(responsible_id, '__name:'||nombre)) que supabase-js
+  //    no puede referenciar en onConflict — el upsert fallaba SIEMPRE y caía a
+  //    un fallback por cliente (auditoría H12). Camino único: borrar el score
+  //    viejo de cada cliente del lote e insertar el nuevo.
+  const rows = parsed
+    .map((p) => {
+      const matchingClient = clientList.find((c) => c.name.toLowerCase() === p.client_name.toLowerCase());
+      if (!matchingClient) return null;
+      return {
         user_id: userId,
         responsible_id: matchingClient.responsible_id,
         client_name: matchingClient.name,
@@ -254,14 +196,23 @@ async function scoreUser(admin: ReturnType<typeof createClient>, anthropicKey: s
         oldest_overdue_days: matchingClient.oldest_overdue_days,
         invoices_count: matchingClient.invoices_count,
         scored_at: new Date().toISOString(),
-      });
-      if (!e2) written++;
-    } else {
-      written++;
-    }
-  }
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+  if (rows.length === 0) return 0;
 
-  return written;
+  const names = rows.map((r) => r.client_name);
+  const { error: delErr } = await admin.from("client_collection_scores")
+    .delete()
+    .eq("user_id", userId)
+    .in("client_name", names);
+  if (delErr) console.warn("delete old scores:", delErr.message);
+  const { error: insErr } = await admin.from("client_collection_scores").insert(rows);
+  if (insErr) {
+    console.error("insert scores failed:", insErr.message);
+    return 0;
+  }
+  return rows.length;
 }
 
 function buildPrompt(clients: any[], tpsByKey: Map<string, any>): string {

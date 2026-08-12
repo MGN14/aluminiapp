@@ -1,6 +1,4 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -8,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Receipt, AlertCircle, Info, CheckCircle2, ChevronDown, ChevronRight, Wallet, Link2, ArrowDownCircle, Users, TrendingDown, CalendarClock } from 'lucide-react';
+import { Receipt, AlertCircle, Info, ChevronDown, ChevronRight, Wallet, Link2, ArrowDownCircle, Users, TrendingDown, CalendarClock, Scale, ShieldQuestion } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
@@ -20,8 +18,8 @@ import AgingReportTable from '@/components/collection/AgingReportTable';
 import PaymentLinkModal from '@/components/collection/PaymentLinkModal';
 import BankMatchSuggestionsCard from '@/components/collection/BankMatchSuggestionsCard';
 import MatchLearningCard from '@/components/collection/MatchLearningCard';
+import { useCollectionData, useInvalidateCollection } from '@/hooks/useCollectionData';
 import {
-  calculateAllClientReceivables,
   type ClientReceivable,
   type InvoiceLine,
 } from '@/lib/clientReceivables';
@@ -59,41 +57,38 @@ export default function AccountsReceivableReport() {
     responsible?: { id: string; name: string };
   } | null>(null);
   const [showSaldoAFavor, setShowSaldoAFavor] = useState(false);
+  const [showCuadre, setShowCuadre] = useState(false);
 
-  // Cartera por cliente — alineada con la lógica de PaymentsLogReport vía util
-  // compartido `calculateAllClientReceivables`. Garantiza que el saldo de un
-  // cliente sea idéntico al que muestra Relación de Pagos.
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ['accounts-receivable-by-client', user?.id, year],
-    queryFn: async () => {
-      if (!user) return null;
-      return await calculateAllClientReceivables(year);
-    },
-    enabled: !!user,
-  });
+  // UNA sola pasada para toda la pantalla (H8): la misma query que usa el
+  // Aging Report. El saldo por cliente ya incluye el efectivo con beneficiario
+  // (H7) — se acabó el hack "cartera real = total − todo el efectivo del año",
+  // que restaba plata que no era de clientes y no le bajaba el saldo a nadie.
+  const { data: cd, isLoading, refetch } = useCollectionData(year);
+  const invalidateCollection = useInvalidateCollection();
+  const data = cd?.receivables ?? null;
+  const onMutated = () => { invalidateCollection(); refetch(); };
 
-  // KPI Gerencial: cobros en efectivo del año (heurística de cartera real).
-  const { data: cashIncomeYear } = useQuery({
-    queryKey: ['ar-cash-income', user?.id, year, isGerencial],
-    queryFn: async () => {
-      if (!user || !isGerencial) return 0;
-      const { data, error } = await supabase
-        .from('cash_movements')
-        .select('amount')
-        .eq('type', 'ingreso')
-        .gte('date', `${year}-01-01`)
-        .lte('date', `${year}-12-31`);
-      if (error) return 0;
-      return (data ?? []).reduce((s, r: { amount: number | null }) => s + Number(r.amount ?? 0), 0);
-    },
-    enabled: !!user && isGerencial,
-  });
-
-  const cobrosEfectivo = cashIncomeYear ?? 0;
   const totalPending = data?.total_saldo_pendiente ?? 0;
-  const carteraReal = isGerencial
-    ? Math.max(0, totalPending - cobrosEfectivo)
-    : totalPending;
+  const efectivoClientes = useMemo(
+    () => (data?.clients ?? []).reduce((s, c) => s + c.cobrado_efectivo, 0),
+    [data],
+  );
+  const sinConciliar = data?.sin_conciliar ?? { count: 0, monto: 0 };
+
+  // Cuadre app vs Siigo: clientes donde el saldo calculado difiere del crudo
+  // balance_pending. No dice quién tiene razón — dice DÓNDE mirar.
+  const cuadreSiigo = useMemo(() => {
+    return (data?.clients ?? [])
+      .map(c => ({
+        client_id: c.client_id,
+        client_name: c.client_name,
+        app: c.saldo_neto,
+        siigo: c.saldo_siigo,
+        delta: c.saldo_neto - c.saldo_siigo,
+      }))
+      .filter(r => Math.abs(r.delta) > 50_000)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  }, [data]);
 
   const clientsConDeuda = useMemo(
     () => (data?.clients ?? []).filter(c => c.saldo_neto > 0),
@@ -137,8 +132,9 @@ export default function AccountsReceivableReport() {
                   <TooltipContent className="max-w-sm">
                     <p className="text-xs leading-snug">
                       Saldo por cliente alineado con Relación de Pagos:
-                      facturado + saldo inicial − ingresos del banco del cliente − anticipos.
-                      Excluye facturas anuladas con nota crédito.
+                      facturado (neto de notas crédito) + saldo inicial − ingresos
+                      operativos del banco − efectivo con beneficiario − anticipos
+                      − retenciones. Traspasos y préstamos no cuentan como cobro.
                     </p>
                   </TooltipContent>
                 </Tooltip>
@@ -158,12 +154,10 @@ export default function AccountsReceivableReport() {
         </Card>
 
         {/* KPIs */}
-        <div className={isGerencial ? "grid grid-cols-1 md:grid-cols-4 gap-3" : "grid grid-cols-1 md:grid-cols-2 gap-3"}>
+        <div className={isGerencial ? "grid grid-cols-1 md:grid-cols-4 gap-3" : "grid grid-cols-1 md:grid-cols-3 gap-3"}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {isGerencial ? 'Cartera oficial (DIAN)' : 'Total cartera'}
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total cartera</CardTitle>
               <div className="p-2 rounded-lg bg-destructive/10">
                 <Receipt className="h-4 w-4 text-destructive" />
               </div>
@@ -172,6 +166,7 @@ export default function AccountsReceivableReport() {
               <div className="text-2xl font-bold text-destructive">{formatCurrency(totalPending)}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 {clientsConDeuda.length} cliente{clientsConDeuda.length !== 1 ? 's' : ''} con saldo • {year}
+                {isGerencial && efectivoClientes > 0 ? ' • efectivo ya descontado' : ''}
               </p>
             </CardContent>
           </Card>
@@ -192,38 +187,41 @@ export default function AccountsReceivableReport() {
           </Card>
 
           {isGerencial && (
-            <>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Cobrado en efectivo</CardTitle>
-                  <div className="p-2 rounded-lg bg-warning/10">
-                    <Wallet className="h-4 w-4 text-warning" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-warning">{formatCurrency(cobrosEfectivo)}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Ingresos en efectivo • {year}
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-success/30 bg-success/[0.02]">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Cartera real estimada</CardTitle>
-                  <div className="p-2 rounded-lg bg-success/10">
-                    <CheckCircle2 className="h-4 w-4 text-success" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-success">{formatCurrency(carteraReal)}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Oficial − cobros en efectivo
-                  </p>
-                </CardContent>
-              </Card>
-            </>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Efectivo de clientes</CardTitle>
+                <div className="p-2 rounded-lg bg-warning/10">
+                  <Wallet className="h-4 w-4 text-warning" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-warning">{formatCurrency(efectivoClientes)}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Con beneficiario • ya baja el saldo de cada cliente
+                </p>
+              </CardContent>
+            </Card>
           )}
+
+          {/* KPI de confianza: cuánto del número de arriba es incierto */}
+          <Card className={sinConciliar.monto > 0 ? 'border-warning/40 bg-warning/[0.03]' : 'border-success/30 bg-success/[0.02]'}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Sin conciliar</CardTitle>
+              <div className={cn('p-2 rounded-lg', sinConciliar.monto > 0 ? 'bg-warning/10' : 'bg-success/10')}>
+                <ShieldQuestion className={cn('h-4 w-4', sinConciliar.monto > 0 ? 'text-warning' : 'text-success')} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className={cn('text-2xl font-bold', sinConciliar.monto > 0 ? 'text-warning' : 'text-success')}>
+                {formatCurrency(sinConciliar.monto)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {sinConciliar.monto > 0
+                  ? `${sinConciliar.count} ingreso${sinConciliar.count !== 1 ? 's' : ''} sin cliente — la cartera puede estar sobrestimada hasta por este monto`
+                  : 'Todos los ingresos del año tienen cliente ✓'}
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Auto-matching banco → factura (sugerencias pendientes) */}
@@ -234,6 +232,68 @@ export default function AccountsReceivableReport() {
 
         {/* Aging report + scores IA + touchpoints (módulo de cobranza nuevo) */}
         <AgingReportTable year={year} />
+
+        {/* Cuadre app vs Siigo: dónde difieren los dos mundos. No dice quién
+            tiene razón — dice dónde mirar (caso Aluminios del Eje: app −30M
+            vs Siigo 0 por pagos de ene-mar vinculados a facturas de abr-may). */}
+        {cuadreSiigo.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowCuadre(s => !s)}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Scale className="h-4 w-4 text-warning" />
+                  <CardTitle className="text-sm font-medium">
+                    Cuadre app vs Siigo — {cuadreSiigo.length} cliente{cuadreSiigo.length !== 1 ? 's' : ''} difieren
+                  </CardTitle>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm">
+                      <p className="text-xs leading-snug">
+                        App = saldo calculado con tus pagos conciliados.
+                        Siigo = balance_pending del último sync. Una diferencia
+                        grande = pagos sin conciliar acá, o cobros que el contador
+                        registró en Siigo y la app no conoce (o al revés).
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                {showCuadre
+                  ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+              </div>
+            </CardHeader>
+            {showCuadre && (
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table className="text-xs">
+                    <TableHeader>
+                      <TableRow className="bg-muted/80">
+                        <TableHead className="font-semibold">Cliente</TableHead>
+                        <TableHead className="font-semibold text-right">Saldo según app</TableHead>
+                        <TableHead className="font-semibold text-right">Saldo según Siigo</TableHead>
+                        <TableHead className="font-semibold text-right">Diferencia</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {cuadreSiigo.map(r => (
+                        <TableRow key={r.client_id}>
+                          <TableCell className="font-medium">{r.client_name}</TableCell>
+                          <TableCell className="text-right font-mono">{formatCurrency(r.app)}</TableCell>
+                          <TableCell className="text-right font-mono">{formatCurrency(r.siigo)}</TableCell>
+                          <TableCell className={cn('text-right font-mono font-bold', r.delta > 0 ? 'text-destructive' : 'text-warning')}>
+                            {r.delta > 0 ? '+' : ''}{formatCurrency(r.delta)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        )}
 
         {/* Tabla por cliente (vista clásica con detalle de facturas) */}
         <Card>
@@ -366,7 +426,7 @@ export default function AccountsReceivableReport() {
           open={!!vincularInvoice}
           onOpenChange={(v) => { if (!v) setVincularInvoice(null); }}
           invoice={vincularInvoice}
-          onSuccess={() => { refetch(); }}
+          onSuccess={onMutated}
         />
 
         <AcordarPagoModal
@@ -374,7 +434,7 @@ export default function AccountsReceivableReport() {
           onOpenChange={(v) => { if (!v) setAcordarTarget(null); }}
           invoice={acordarTarget?.invoice ?? null}
           responsible={acordarTarget?.responsible ?? null}
-          onSuccess={() => { refetch(); }}
+          onSuccess={onMutated}
         />
 
         <PaymentLinkModal
@@ -405,7 +465,7 @@ interface ClientRowProps {
 
 function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas, onVincularInvoice, onAcordarInvoice, onLinkPagoInvoice, onAcordarCliente }: ClientRowProps) {
   const facturado = client.facturado_venta;
-  const cobrado = client.cobrado_banco;
+  const cobrado = client.cobrado_banco + client.cobrado_efectivo;
   const anticipos = client.anticipos_total;
   const cxcInicial = client.cxc_inicial;
   const saldo = client.saldo_neto;
@@ -500,8 +560,14 @@ function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas,
                 )}
                 <div className="flex items-center justify-between text-success">
                   <span>− Cobrado en banco</span>
-                  <span className="font-mono">{formatCurrency(cobrado)}</span>
+                  <span className="font-mono">{formatCurrency(client.cobrado_banco)}</span>
                 </div>
+                {client.cobrado_efectivo > 0 && (
+                  <div className="flex items-center justify-between text-success">
+                    <span>− Cobrado en efectivo</span>
+                    <span className="font-mono">{formatCurrency(client.cobrado_efectivo)}</span>
+                  </div>
+                )}
                 {anticipos > 0 && (
                   <div className="flex items-center justify-between text-success">
                     <span>− Anticipos del cliente</span>

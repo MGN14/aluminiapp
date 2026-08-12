@@ -12,6 +12,7 @@
 //   Body opcional: { dry_run?: boolean, only_user_id?: string }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { computeReceivables } from "../_shared/receivables.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,7 +49,9 @@ Deno.serve(async (req) => {
     const dryRun = !!body?.dry_run;
     const onlyUserId = body?.only_user_id as string | undefined;
 
-    // Identificar users con deuda
+    // Candidatos: users con facturas de venta del año (pre-filtro barato;
+    // el saldo real lo decide computeReceivables adentro de buildReport —
+    // sin deuda viva no se manda email).
     let userIds: string[] = [];
     if (onlyUserId) {
       userIds = [onlyUserId];
@@ -57,7 +60,7 @@ Deno.serve(async (req) => {
         .from("invoices")
         .select("user_id")
         .eq("type", "venta")
-        .gt("balance_pending", 0)
+        .gte("issue_date", `${new Date().getFullYear()}-01-01`)
         .is("voided_at", null);
       const set = new Set<string>();
       for (const r of (data ?? []) as { user_id: string }[]) set.add(r.user_id);
@@ -120,45 +123,42 @@ async function buildReport(admin: any, userId: string): Promise<string | null> {
     .maybeSingle();
   const empresa = profile?.company_name ?? "Tu empresa";
 
-  // Facturas vivas
+  // Cartera REAL — misma fórmula que la pantalla (_shared/receivables).
+  // Antes: balance_pending crudo de Siigo → el email del lunes reportaba
+  // deuda ya cobrada y no cuadraba con la app (auditoría H1).
   const today = new Date();
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const twoWeeksAgo = new Date(); twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
 
-  const { data: invs } = await admin
-    .from("invoices")
-    .select("counterparty_name, issue_date, due_date, dias_credito, total_amount, balance_pending")
-    .eq("user_id", userId)
-    .eq("type", "venta")
-    .is("voided_at", null)
-    .gt("balance_pending", 0);
-  const invoices = (invs ?? []) as any[];
-  if (invoices.length === 0) return null; // sin deuda, no email
+  const receivables = await computeReceivables(admin, userId, today.getFullYear());
+  const deudores = receivables.clients.filter((c) => c.saldo_neto > 0);
+  if (deudores.length === 0) return null; // sin deuda, no email
 
-  // Aging
-  let corriente = 0, d30 = 0, d60 = 0, d90 = 0, d90plus = 0, totalDeuda = 0;
+  // Aging sobre effective_pending por factura + residuo sin factura a +90
+  // (saldo inicial / arrastre: la deuda más vieja que existe).
+  let corriente = 0, d30 = 0, d60 = 0, d90 = 0, d90plus = 0;
   const overdueByName = new Map<string, { total: number; oldest: number; count: number }>();
-  for (const i of invoices) {
-    const pending = Number(i.balance_pending) || 0;
-    if (pending <= 0) continue;
-    const issue = new Date(i.issue_date);
-    let venc = issue;
-    if (i.due_date) venc = new Date(i.due_date);
-    else if (i.dias_credito) { venc = new Date(issue); venc.setDate(venc.getDate() + i.dias_credito); }
-    const overdue = Math.floor((today.getTime() - venc.getTime()) / 86400000);
-    if (overdue <= 0) corriente += pending;
-    else if (overdue <= 30) d30 += pending;
-    else if (overdue <= 60) d60 += pending;
-    else if (overdue <= 90) d90 += pending;
-    else d90plus += pending;
-    totalDeuda += pending;
-    const name = i.counterparty_name ?? "(sin nombre)";
-    const c = overdueByName.get(name) ?? { total: 0, oldest: 0, count: 0 };
-    c.total += pending;
-    c.count += 1;
-    if (overdue > c.oldest) c.oldest = overdue;
-    overdueByName.set(name, c);
+  for (const c of deudores) {
+    let sumFacturas = 0;
+    for (const i of c.invoices_pendientes) {
+      const pending = i.effective_pending;
+      sumFacturas += pending;
+      const overdue = i.days_overdue;
+      if (overdue <= 0) corriente += pending;
+      else if (overdue <= 30) d30 += pending;
+      else if (overdue <= 60) d60 += pending;
+      else if (overdue <= 90) d90 += pending;
+      else d90plus += pending;
+    }
+    const residuo = c.saldo_neto - sumFacturas;
+    if (residuo > 1) d90plus += residuo;
+    overdueByName.set(c.client_name, {
+      total: c.saldo_neto,
+      oldest: c.oldest_overdue_days,
+      count: c.invoices_pendientes.length,
+    });
   }
+  const totalDeuda = receivables.total_saldo_pendiente;
 
   // Top 5 priorities (más vencidos + más monto)
   const top5 = [...overdueByName.entries()]

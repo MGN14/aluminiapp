@@ -1,14 +1,14 @@
 // Tabla de aging report colombiano: por cliente, distribuye saldo en buckets
 // (Corriente / 1-30 / 31-60 / 61-90 / >90) y muestra score IA si existe.
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { AlertCircle, BarChart3, Sparkles, MessageSquarePlus, Brain, Loader2, RefreshCw } from 'lucide-react';
-import { useCollectionData, type ClientScore, type ScoreCategory } from '@/hooks/useCollectionData';
+import { AlertCircle, BarChart3, Sparkles, MessageSquarePlus, Brain, Loader2, RefreshCw, CalendarClock } from 'lucide-react';
+import { useCollectionData, type ScoreCategory } from '@/hooks/useCollectionData';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import RegistrarTouchpointModal from './RegistrarTouchpointModal';
@@ -90,7 +90,8 @@ export default function AgingReportTable({ year }: Props) {
     );
   }
 
-  const { aging, scoresByClient, touchpointsByClient, lastScoredAt } = data;
+  const { aging, scoresByClient, touchpointsByClient, promesasByClient, lastScoredAt } = data;
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   if (aging.clients.length === 0) {
     return (
@@ -187,11 +188,13 @@ export default function AgingReportTable({ year }: Props) {
                   const scoreKey = c.responsible_id ?? `__name:${c.client_name.toLowerCase().trim()}`;
                   const score = scoresByClient.get(scoreKey);
                   const touchpoints = touchpointsByClient.get(scoreKey) ?? [];
+                  const promesas = c.responsible_id ? (promesasByClient.get(c.responsible_id) ?? []) : [];
+                  const proximaPromesa = promesas[0] ?? null;
+                  const promesaVencida = proximaPromesa ? proximaPromesa.due_date < todayIso : false;
                   const isExpanded = expandedClient === scoreKey;
                   return (
-                    <>
+                    <React.Fragment key={c.client_id}>
                       <TableRow
-                        key={`${c.client_id}-row`}
                         className={c.oldest_overdue_days > 60 ? 'bg-destructive/5' : ''}
                       >
                         <TableCell className="font-medium">
@@ -210,6 +213,27 @@ export default function AgingReportTable({ year }: Props) {
                               </span>
                             )}
                           </div>
+                          {proximaPromesa && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className={`mt-0.5 text-[10px] gap-1 ${promesaVencida
+                                    ? 'bg-destructive/10 text-destructive border-destructive/30'
+                                    : 'bg-primary/5 text-primary border-primary/20'}`}
+                                >
+                                  <CalendarClock className="h-2.5 w-2.5" />
+                                  {promesaVencida ? 'Prometió y no pagó' : 'Prometió'} {fmtMoney(proximaPromesa.amount)} · {proximaPromesa.due_date.slice(5)}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs text-xs">
+                                {promesaVencida
+                                  ? `La promesa venció el ${proximaPromesa.due_date} sin registrarse el pago — contactar ya.`
+                                  : `Promesa de pago para el ${proximaPromesa.due_date}.`}
+                                {proximaPromesa.notes && <p className="mt-1 italic">{proximaPromesa.notes}</p>}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                         </TableCell>
                         <TableCell className="text-center">
                           {score ? (
@@ -285,7 +309,7 @@ export default function AgingReportTable({ year }: Props) {
                         </TableCell>
                       </TableRow>
                       {isExpanded && (
-                        <TableRow key={`${c.client_id}-expanded`}>
+                        <TableRow>
                           <TableCell colSpan={9} className="bg-muted/30">
                             <TouchpointsTimeline
                               touchpoints={touchpoints}
@@ -294,7 +318,7 @@ export default function AgingReportTable({ year }: Props) {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </React.Fragment>
                   );
                 })}
                 {/* Fila TOTAL */}
