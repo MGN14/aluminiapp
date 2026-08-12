@@ -701,27 +701,35 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   },
 
   async cash_position(db, userId) {
+    // Los valores reales de las columnas son:
+    //   cash_movements.type      → 'ingreso' | 'egreso'
+    //   petty_cash_movements.kind → 'ingreso_efectivo' | 'gasto_efectivo' | 'cuenta_de_cobro'
+    // Antes se comparaba contra 'entrada'/'ingreso', que NUNCA matchean: TODOS
+    // los movimientos caían en la rama negativa y la función devolvía menos el
+    // volumen total (p. ej. −203M cuando el neto real era +65,7M). Mismo
+    // criterio que Dashboard.tsx:389 y PYGReport.
     const [cash, petty] = await Promise.all([
-      db.from("cash_movements").select("type, amount").eq("user_id", userId),
+      // Los cash_movements promovidos desde Caja Menor ya vienen contados en
+      // petty_cash_movements — sumarlos sería doble conteo.
+      db.from("cash_movements").select("type, amount")
+        .eq("user_id", userId).is("petty_cash_movement_id", null),
       db.from("petty_cash_movements").select("kind, amount").eq("user_id", userId),
     ]);
     let cashBalance = 0;
     for (const m of cash.data ?? []) {
-      const amt = Number(m.amount ?? 0);
-      cashBalance += String(m.type).toLowerCase() === "entrada" ? amt : -amt;
+      const amt = Math.abs(Number(m.amount ?? 0));
+      cashBalance += String(m.type).toLowerCase() === "ingreso" ? amt : -amt;
     }
     let pettyBalance = 0;
     for (const m of petty.data ?? []) {
-      const amt = Number(m.amount ?? 0);
-      // En petty_cash, 'kind' generalmente es 'ingreso'/'egreso' o similar.
-      const kind = String(m.kind).toLowerCase();
-      pettyBalance += (kind === "ingreso" || kind === "entrada") ? amt : -amt;
+      const amt = Math.abs(Number(m.amount ?? 0));
+      pettyBalance += String(m.kind).toLowerCase() === "ingreso_efectivo" ? amt : -amt;
     }
     return {
       cash_movements_balance: round2(cashBalance),
       petty_cash_balance: round2(pettyBalance),
       total: round2(cashBalance + pettyBalance),
-      note: "Suma de todo el histórico (entradas - salidas). No incluye saldos bancarios.",
+      note: "Movimientos registrados (entradas − salidas), todo el histórico. NO incluye saldo inicial de caja (la app todavía no lo modela), así que es un FLUJO, no el efectivo que hay hoy en la mano. No incluye bancos.",
     };
   },
 
