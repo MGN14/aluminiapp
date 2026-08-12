@@ -100,6 +100,8 @@ serve(async (req) => {
 
     // --- Dates ---
     const now = new Date();
+    /** Hora del request: es el created_at de la PREGUNTA al persistir. */
+    const requestStartIso = now.toISOString();
     const thisYear = now.getFullYear();
     const thisMonth = now.getMonth() + 1;
     const lastMonth = thisMonth === 1 ? 12 : thisMonth - 1;
@@ -126,6 +128,13 @@ serve(async (req) => {
       { data: businessPatterns },
       { data: cashMovements },
       { data: businessObligations },
+      { data: importIvaCosts },
+      { data: creditsRows },
+      { data: creditPaymentsRows },
+      { data: importsRows },
+      { data: remisionesRows },
+      { data: variantsRows },
+      { data: quotationsRows },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -222,6 +231,48 @@ serve(async (req) => {
         .gte("fecha", yearStart)
         .order("fecha", { ascending: true })
         .limit(120),
+      // IVA pagado en la nacionalización de contenedores: es DESCONTABLE y
+      // no está en facturas de compra — sin esto el IVA descontable salía
+      // ridículo ($1.5M vs $170M de ventas) y todo consejo de IVA quedaba
+      // mal (reporte de Nico 2026-08-10). Se cruza con la fecha de arribo.
+      supabase
+        .from("import_costs" as never)
+        .select("monto, moneda, trm, imports(fecha_arribo_real, trm_causacion)")
+        .eq("user_id", user.id)
+        .eq("tipo", "iva_importacion")
+        .limit(500),
+      // Módulos que faltaban en el contexto (auditoría 2026-08-10): créditos,
+      // importaciones, remisiones, inventario por variante y cotizaciones.
+      supabase
+        .from("credits" as never)
+        .select("id, name, bank_name, principal, interest_rate_monthly, term_months, amortization_type, status, first_payment_date")
+        .eq("user_id", user.id),
+      supabase
+        .from("credit_payments" as never)
+        .select("credit_id, principal_paid, interest_paid, payment_date")
+        .eq("user_id", user.id)
+        .limit(1000),
+      supabase
+        .from("imports" as never)
+        .select("proveedor_nombre, estado, monto_total_usd, anticipo_pagado_usd, fecha_estimada_llegada, fecha_arribo_real, ref_pedido")
+        .eq("user_id", user.id)
+        .neq("estado", "cancelado")
+        .limit(60),
+      supabase
+        .from("remisiones" as never)
+        .select("date, remision_type, status, total_manual")
+        .gte("date", yearStart)
+        .limit(1000),
+      supabase
+        .from("inventory_variants" as never)
+        .select("stock, avg_cost")
+        .eq("active", true)
+        .limit(2000),
+      supabase
+        .from("quotations" as never)
+        .select("status, created_at")
+        .gte("created_at", yearStart)
+        .limit(500),
     ]);
 
     // Indicadores macro (TRM + futuros). Tabla compartida read-only.
@@ -417,7 +468,7 @@ serve(async (req) => {
       const name = monthNames[parseInt(mo) - 1];
       const retefuenteCompras = (data.compras_base) * retefuenteCompraRate;
       const ivaBalance = data.ventas_iva - data.compras_iva;
-      return `${name} ${yr}: Ventas facturadas=${fmt(data.ventas_total)} (${data.ventas_count} facturas, Base=${fmt(data.ventas_base)}, IVA=${fmt(data.ventas_iva)}), Compras facturadas=${fmt(data.compras_total)} (${data.compras_count} facturas, Base=${fmt(data.compras_base)}, IVA descontable=${fmt(data.compras_iva)}), IVA neto (a pagar/favor)=${fmt(ivaBalance)}, Autorretefuente=${fmt(data.autoretefuente)}, ReteICA=${fmt(data.reteica)}, Retefuente compras estimada=${fmt(retefuenteCompras)}`;
+      return `${name} ${yr}: Ventas facturadas=${fmt(data.ventas_total)} (${data.ventas_count} facturas, Base=${fmt(data.ventas_base)}, IVA=${fmt(data.ventas_iva)}), Compras facturadas=${fmt(data.compras_total)} (${data.compras_count} facturas, Base=${fmt(data.compras_base)}, IVA descontable=${fmt(data.compras_iva)}), IVA neto facturas=${ivaBalance > 0 ? `${fmt(ivaBalance)} a pagar` : ivaBalance < 0 ? `${fmt(Math.abs(ivaBalance))} a favor` : "$0"} (sin IVA de importaciones), Autorretefuente=${fmt(data.autoretefuente)}, ReteICA=${fmt(data.reteica)}, Retefuente compras estimada=${fmt(retefuenteCompras)}`;
     };
 
     // Top clients & providers across all invoices
@@ -614,11 +665,34 @@ serve(async (req) => {
       inconsistencias.push(`Hay ${fmt(totalAnticipos)} en anticipos recibidos sin factura asociada. Si no se facturan puede generar inconsistencias fiscales.`);
     }
 
-    // IVA analysis
+    // IVA analysis — incluye el IVA pagado en importaciones (descontable),
+    // que vive en import_costs y NO en facturas de compra.
+    const ivaImportPorMes = (() => {
+      const porMes: Record<string, number> = {};
+      for (const c of ((importIvaCosts ?? []) as Array<{
+        monto: number; moneda: string; trm: number | null;
+        imports: { fecha_arribo_real: string | null; trm_causacion: number | null } | null;
+      }>)) {
+        const fecha = c.imports?.fecha_arribo_real;
+        if (!fecha) continue;
+        const k = fecha.slice(0, 7);
+        const cop = c.moneda === "COP"
+          ? Number(c.monto ?? 0)
+          : Number(c.monto ?? 0) * Number(c.trm ?? c.imports?.trm_causacion ?? 0);
+        if (cop > 0) porMes[k] = (porMes[k] ?? 0) + cop;
+      }
+      return porMes;
+    })();
+    const sumIvaImport = (year: number, mStart: number, mEnd: number) => {
+      let s = 0;
+      for (let m = mStart; m <= mEnd; m++) s += ivaImportPorMes[`${year}-${String(m).padStart(2, "0")}`] ?? 0;
+      return s;
+    };
+
+    const cuatStartMes = thisMonth <= 4 ? 1 : thisMonth <= 8 ? 5 : 9;
     const ivaNetoCuatrimestre = (() => {
-      const cuatStart = thisMonth <= 4 ? 1 : thisMonth <= 8 ? 5 : 9;
       let ivaVentas = 0, ivaCompras = 0;
-      for (let m = cuatStart; m <= thisMonth; m++) {
+      for (let m = cuatStartMes; m <= thisMonth; m++) {
         const k = `${thisYear}-${String(m).padStart(2, "0")}`;
         const inv = invByMonth[k];
         if (inv) {
@@ -626,15 +700,15 @@ serve(async (req) => {
           ivaCompras += inv.compras_iva;
         }
       }
-      return { ivaVentas, ivaCompras, neto: ivaVentas - ivaCompras };
+      const ivaImportaciones = sumIvaImport(thisYear, cuatStartMes, thisMonth);
+      return { ivaVentas, ivaCompras, ivaImportaciones, neto: ivaVentas - ivaCompras - ivaImportaciones };
     })();
 
-    // Saldo a favor from previous cuatrimestre
+    // Saldo a favor from previous cuatrimestre (también con IVA de importaciones)
     const ivaSaldoFavorAnterior = (() => {
-      const cuatStart = thisMonth <= 4 ? 1 : thisMonth <= 8 ? 5 : 9;
       let prevStart: number, prevEnd: number, prevYear: number;
-      if (cuatStart === 1) { prevStart = 9; prevEnd = 12; prevYear = thisYear - 1; }
-      else if (cuatStart === 5) { prevStart = 1; prevEnd = 4; prevYear = thisYear; }
+      if (cuatStartMes === 1) { prevStart = 9; prevEnd = 12; prevYear = thisYear - 1; }
+      else if (cuatStartMes === 5) { prevStart = 1; prevEnd = 4; prevYear = thisYear; }
       else { prevStart = 5; prevEnd = 8; prevYear = thisYear; }
       let ivaV = 0, ivaC = 0;
       for (let m = prevStart; m <= prevEnd; m++) {
@@ -642,11 +716,14 @@ serve(async (req) => {
         const inv = invByMonth[k];
         if (inv) { ivaV += inv.ventas_iva; ivaC += inv.compras_iva; }
       }
-      const neto = ivaV - ivaC;
+      const neto = ivaV - ivaC - sumIvaImport(prevYear, prevStart, prevEnd);
       return neto < 0 ? Math.abs(neto) : 0;
     })();
 
     const ivaNeto = ivaNetoCuatrimestre.neto - ivaSaldoFavorAnterior;
+    /** Etiqueta SIN ambigüedad: el modelo nunca debe interpretar signos. */
+    const ivaLabel = (v: number) =>
+      v > 0 ? `${fmt(v)} A PAGAR` : v < 0 ? `${fmt(Math.abs(v))} A FAVOR` : `$0 (en cero)`;
 
     if (ivaNetoCuatrimestre.neto > 5000000) {
       inconsistencias.push(`Tienes ${fmt(ivaNetoCuatrimestre.neto)} de IVA neto acumulado por pagar en este cuatrimestre. Conviene provisionar.`);
@@ -930,15 +1007,17 @@ MÓDULO 3 — CONFIGURACIÓN FISCAL
 
 ${taxCtx}
 
-IVA CUATRIMESTRE ACTUAL:
-IVA generado (ventas): ${fmt(ivaNetoCuatrimestre.ivaVentas)}
-IVA descontable (compras): ${fmt(ivaNetoCuatrimestre.ivaCompras)}
-Saldo al corte del cuatrimestre actual (neto = compras - ventas): ${fmt(-ivaNetoCuatrimestre.neto)}
-  → Si es positivo: saldo a favor (compras > ventas). Si es negativo: IVA por pagar (ventas > compras).
-  → IMPORTANTE: Este saldo AL CORTE ya incluye TODA la facturación del periodo actual. NO restes nuevamente IVA ya facturado.
-Saldo a favor ARRASTRADO del cuatrimestre anterior: ${fmt(ivaSaldoFavorAnterior)}
-IVA neto a pagar (después de aplicar saldo arrastrado): ${fmt(ivaNeto)}
-${ivaSaldoFavorAnterior > 0 ? `NOTA: El saldo arrastrado de ${fmt(ivaSaldoFavorAnterior)} proviene del cuatrimestre anterior donde las compras generaron más IVA descontable que el IVA de ventas.` : ""}
+IVA CUATRIMESTRE ACTUAL (las etiquetas A PAGAR / A FAVOR ya vienen calculadas — úsalas tal cual, NUNCA reinterpretes signos):
+IVA generado por ventas: ${fmt(ivaNetoCuatrimestre.ivaVentas)}
+IVA descontable de facturas de compra: ${fmt(ivaNetoCuatrimestre.ivaCompras)}
+IVA descontable pagado en IMPORTACIONES (nacionalización de contenedores): ${fmt(ivaNetoCuatrimestre.ivaImportaciones)}
+Posición del cuatrimestre actual al corte: ${ivaLabel(ivaNetoCuatrimestre.neto)}
+Saldo A FAVOR arrastrado del cuatrimestre anterior: ${ivaSaldoFavorAnterior > 0 ? fmt(ivaSaldoFavorAnterior) : "$0 (no hay saldo a favor arrastrado)"}
+▶ POSICIÓN NETA DE IVA HOY (cuatrimestre actual menos arrastre): ${ivaLabel(ivaNeto)} — ESTE es el número que respondes cuando pregunten por IVA.
+REGLAS AL HABLAR DE IVA:
+  · "Saldo a favor" existe SOLO si la posición neta es A FAVOR. Si es A PAGAR y el usuario pregunta "¿cuál es mi saldo a favor?", corrige la premisa: no hay saldo a favor, hay IVA por pagar de ese monto.
+  · Nunca llames "saldo a favor" a un monto A PAGAR ni mezcles los términos en la misma respuesta.
+  · Estas cifras salen de lo CARGADO EN LA APP (facturas + costos de importación). La liquidación oficial la hace el contador: si hay compras sin causar o soportes por fuera, el número real puede diferir — dilo cuando des un consejo de pago.
 
 OBLIGACIONES PRÓXIMAS (con monto estimado cuando el negocio lo configuró):
 ${(() => {
@@ -991,6 +1070,65 @@ ANTICIPOS DE PERIODOS ANTERIORES (saldo inicial, sin factura vinculada):
 ${unlinkedInitialAnticipos.length > 0
   ? unlinkedInitialAnticipos.slice(0, 10).map((d: any, i: number) => `${i + 1}. ${d.responsible_name || 'Sin nombre'}: ${fmt(Math.abs(d.amount ?? 0))}`).join("\n")
   : "Sin anticipos de periodos anteriores"}
+
+═══════════════════════════════════════════
+MÓDULO 4B — CRÉDITOS, IMPORTACIONES Y OPERACIÓN
+═══════════════════════════════════════════
+
+CRÉDITOS BANCARIOS:
+${(() => {
+  const creds = (creditsRows ?? []) as Array<{ id: string; name: string; bank_name: string | null; principal: number; interest_rate_monthly: number; term_months: number; amortization_type: string; status: string; first_payment_date: string }>;
+  if (!creds.length) return "Sin créditos registrados.";
+  const pagosPorCredito = new Map<string, { cap: number; int: number; n: number }>();
+  for (const p of ((creditPaymentsRows ?? []) as Array<{ credit_id: string; principal_paid: number; interest_paid: number }>)) {
+    const a = pagosPorCredito.get(p.credit_id) ?? { cap: 0, int: 0, n: 0 };
+    a.cap += Number(p.principal_paid ?? 0); a.int += Number(p.interest_paid ?? 0); a.n++;
+    pagosPorCredito.set(p.credit_id, a);
+  }
+  return creds.map((c) => {
+    const pg = pagosPorCredito.get(c.id) ?? { cap: 0, int: 0, n: 0 };
+    const saldo = Math.max(0, Number(c.principal) - pg.cap);
+    return `· ${c.name} (${c.bank_name ?? "sin banco"}): principal ${fmt(Number(c.principal))}, SALDO ACTUAL ${fmt(saldo)}, tasa ${c.interest_rate_monthly}% MV, ${c.term_months} meses, amortización ${c.amortization_type}, estado ${c.status}, intereses pagados ${fmt(pg.int)} (${pg.n} pagos)`;
+  }).join("\n");
+})()}
+
+IMPORTACIONES (pedidos a proveedores del exterior):
+${(() => {
+  const imps = (importsRows ?? []) as Array<{ proveedor_nombre: string; estado: string; monto_total_usd: number | null; anticipo_pagado_usd: number | null; fecha_estimada_llegada: string | null; fecha_arribo_real: string | null; ref_pedido: string | null }>;
+  if (!imps.length) return "Sin importaciones registradas.";
+  const activos = imps.filter((i) => !["entregado", "cerrado"].includes(i.estado));
+  const entregados = imps.length - activos.length;
+  const lineas = activos.map((i) => `· ${i.ref_pedido ?? "(sin ref)"} ${i.proveedor_nombre}: estado ${i.estado}, USD ${Number(i.monto_total_usd ?? 0).toLocaleString()}, anticipo USD ${Number(i.anticipo_pagado_usd ?? 0).toLocaleString()}${i.fecha_estimada_llegada ? `, ETA ${i.fecha_estimada_llegada}` : ""}`);
+  return `${activos.length} pedido(s) en curso, ${entregados} entregado(s)/cerrado(s).\n${lineas.join("\n") || "Ninguno en curso."}\nNOTA: el IVA pagado al nacionalizar ya está incluido como descontable en el MÓDULO 3.`;
+})()}
+
+INVENTARIO POR VARIANTE (control interno real, fuente del módulo de Importaciones):
+${(() => {
+  const vs = (variantsRows ?? []) as Array<{ stock: number; avg_cost: number }>;
+  if (!vs.length) return "Sin inventario por variante cargado.";
+  const unds = vs.reduce((s, v) => s + Number(v.stock ?? 0), 0);
+  const valor = vs.reduce((s, v) => s + Number(v.stock ?? 0) * Number(v.avg_cost ?? 0), 0);
+  return `${vs.length} referencias activas, ${Math.round(unds).toLocaleString()} unidades, valor a costo landed ${fmt(valor)}. (El "INVENTARIO OPERATIVO" del módulo 8 es el mundo Siigo «-5»; este es el control interno por color.)`;
+})()}
+
+REMISIONES DEL AÑO:
+${(() => {
+  const rems = (remisionesRows ?? []) as Array<{ date: string; remision_type: string; status: string; total_manual: number | null }>;
+  const vivas = rems.filter((r) => r.status !== "cancelado");
+  if (!vivas.length) return "Sin remisiones este año.";
+  const mesActual = vivas.filter((r) => r.date.slice(0, 7) === `${thisYear}-${String(thisMonth).padStart(2, "0")}`);
+  const conValor = vivas.filter((r) => Number(r.total_manual ?? 0) > 0);
+  return `${vivas.length} remisiones en el año (${mesActual.length} este mes). ${conValor.length} tienen valor declarado por ${fmt(conValor.reduce((s, r) => s + Number(r.total_manual ?? 0), 0))}. La remisión despacha mercancía; la venta LEGAL es la factura DIAN.`;
+})()}
+
+COTIZACIONES DEL AÑO:
+${(() => {
+  const qs = (quotationsRows ?? []) as Array<{ status: string }>;
+  if (!qs.length) return "Sin cotizaciones este año.";
+  const porEstado = new Map<string, number>();
+  for (const q of qs) porEstado.set(q.status, (porEstado.get(q.status) ?? 0) + 1);
+  return [...porEstado.entries()].map(([e, n]) => `${e}: ${n}`).join(" · ");
+})()}
 
 ═══════════════════════════════════════════
 MÓDULO 5 — ALERTAS E INCONSISTENCIAS DETECTADAS
@@ -2136,9 +2274,14 @@ ${chunks.map((c, i) => `[Ref ${i + 1}] ${c.content}`).join("\n\n")}
       try {
         if (!userMessageContent || !assistantText) return;
         const pageContextNote2 = pageContext ? `${pageContext.page ?? ""}` : "";
+        // created_at EXPLÍCITOS: el batch insert les ponía el mismo now() a
+        // los dos, el orden por created_at empataba y la pregunta aparecía
+        // DESPUÉS de la respuesta en el historial (reporte de Nico
+        // 2026-08-10). La pregunta lleva la hora del request; la respuesta,
+        // la de ahora — veraz y con orden garantizado.
         const rows = [
-          { user_id: user.id, agent_key, role: "user", content: userMessageContent, page_context: pageContextNote2 },
-          { user_id: user.id, agent_key, role: "assistant", content: assistantText, page_context: pageContextNote2 },
+          { user_id: user.id, agent_key, role: "user", content: userMessageContent, page_context: pageContextNote2, created_at: requestStartIso },
+          { user_id: user.id, agent_key, role: "assistant", content: assistantText, page_context: pageContextNote2, created_at: new Date().toISOString() },
         ];
         const insertResult = await supabase.from("nico_messages" as never).insert(rows as never);
         if (insertResult.error) console.error("persist nico_messages failed:", insertResult.error);

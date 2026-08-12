@@ -55,6 +55,14 @@ export default function NicoAgentChat({
 
   const isDrawer = variant === 'drawer';
 
+  /** Orden cronológico con desempate: los mensajes viejos se guardaban en
+   *  batch con el MISMO created_at y la pregunta salía después de la
+   *  respuesta. En empate, la pregunta va primero. */
+  const ordenar = (data: Array<{ role: string; created_at?: string }>) =>
+    [...data].sort((a, b) =>
+      (a.created_at ?? '').localeCompare(b.created_at ?? '')
+      || (a.role === 'user' ? -1 : 0) - (b.role === 'user' ? -1 : 0));
+
   const refreshHistory = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -65,7 +73,7 @@ export default function NicoAgentChat({
       .eq('agent_key', agentKey)
       .order('created_at', { ascending: false })
       .limit(HISTORY_LIMIT) as { data: Array<{ id: string; role: 'user' | 'assistant'; content: string; feedback: number | null }> | null };
-    if (data) setMessages([...data].reverse());
+    if (data) setMessages(ordenar([...data]) as typeof data);
   }, [agentKey]);
 
   const handleFeedback = useCallback(async (messageId: string, value: -1 | 1, text?: string) => {
@@ -120,7 +128,7 @@ export default function NicoAgentChat({
         .order('created_at', { ascending: false })
         .limit(HISTORY_LIMIT) as { data: Array<{ id: string; role: 'user' | 'assistant'; content: string; feedback: number | null }> | null };
       if (!cancelled) {
-        setMessages(data ? [...data].reverse() : []);
+        setMessages(data ? (ordenar([...data]) as typeof data) : []);
         setHistoryLoaded(true);
       }
     };
