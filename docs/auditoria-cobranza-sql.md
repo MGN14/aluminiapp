@@ -3,7 +3,8 @@
 Todas son **solo lectura** (SELECT). Correr en el **SQL Editor de Supabase**:
 https://supabase.com/dashboard/project/flmelenvmvhsogtzjjow/sql/new
 
-Reemplazar `'<TU_USER_ID>'` una sola vez por tu `user_id` (query 0).
+Ya vienen con el `user_id` de Nico (`1449c077-7182-4311-91af-74013a9fa5da`) puesto: copiar y correr
+tal cual.
 
 ---
 
@@ -31,7 +32,7 @@ with pagos as (
        + coalesce((select sum(abs(d.amount)) from initial_state_details d
                     where d.invoice_id = i.id and d.field_type = 'anticipos_de_clientes'), 0) as pagado
   from invoices i
-  where i.user_id = '<TU_USER_ID>' and i.type = 'venta'
+  where i.user_id = '1449c077-7182-4311-91af-74013a9fa5da' and i.type = 'venta'
 )
 select i.invoice_number,
        i.counterparty_name,
@@ -51,7 +52,7 @@ select i.invoice_number,
          - coalesce(i.reteica_amount,0)
          - coalesce(i.autoretefuente_amount,0))            as diferencia
 from invoices i join pagos p on p.id = i.id
-where i.user_id = '<TU_USER_ID>' and i.type = 'venta'
+where i.user_id = '1449c077-7182-4311-91af-74013a9fa5da' and i.type = 'venta'
   and coalesce(i.void_type,'') <> 'total'
   and i.balance_pending > 0
 order by diferencia desc
@@ -72,7 +73,7 @@ with pagos as (
            - coalesce(i.reteica_amount,0)
            - coalesce(i.autoretefuente_amount,0)) as saldo_real
   from invoices i
-  where i.user_id = '<TU_USER_ID>' and i.type = 'venta'
+  where i.user_id = '1449c077-7182-4311-91af-74013a9fa5da' and i.type = 'venta'
     and coalesce(i.void_type,'') <> 'total' and i.balance_pending > 0
 )
 select count(*) as facturas,
@@ -102,7 +103,7 @@ select extract(year from i.issue_date)::int as anio,
          - coalesce(i.reteica_amount,0)
          - coalesce(i.autoretefuente_amount,0))) as saldo_vivo_hoy
 from invoices i
-where i.user_id = '<TU_USER_ID>' and i.type = 'venta'
+where i.user_id = '1449c077-7182-4311-91af-74013a9fa5da' and i.type = 'venta'
   and coalesce(i.void_type,'') <> 'total'
 group by 1 order by 1 desc;
 ```
@@ -114,7 +115,7 @@ imputa mal):
 select t.date, t.description, t.amount, i.invoice_number, i.issue_date as factura_de
 from transactions t
 join invoices i on i.id = t.invoice_id
-where t.user_id = '<TU_USER_ID>' and t.type = 'ingreso' and t.deleted_at is null
+where t.user_id = '1449c077-7182-4311-91af-74013a9fa5da' and t.type = 'ingreso' and t.deleted_at is null
   and t.date >= '2026-01-01'
   and i.issue_date < '2026-01-01'
 order by t.date desc;
@@ -130,7 +131,7 @@ select field_type,
        sum(amount) as monto,
        min(created_at)::date as cargado_el
 from initial_state_details
-where user_id = '<TU_USER_ID>'
+where user_id = '1449c077-7182-4311-91af-74013a9fa5da'
 group by 1;
 ```
 
@@ -140,7 +141,7 @@ select coalesce(r.name, d.responsible_name, '(sin nombre)') as cliente,
        sum(d.amount) as cxc_inicial
 from initial_state_details d
 left join responsibles r on r.id = d.responsible_id
-where d.user_id = '<TU_USER_ID>' and d.field_type = 'cuentas_por_cobrar'
+where d.user_id = '1449c077-7182-4311-91af-74013a9fa5da' and d.field_type = 'cuentas_por_cobrar'
 group by 1 order by 2 desc;
 ```
 
@@ -154,22 +155,22 @@ group by 1 order by 2 desc;
 Si alguno da ≥ 1000, ese query **ya está truncado** en la app y la cartera está inflada.
 
 ```sql
-select 'responsibles'  as tabla, count(*) from responsibles where user_id = '<TU_USER_ID>'
+select 'responsibles'  as tabla, count(*) from responsibles where user_id = '1449c077-7182-4311-91af-74013a9fa5da'
 union all
 select 'invoices 2026', count(*) from invoices
-  where user_id='<TU_USER_ID>' and type='venta'
+  where user_id='1449c077-7182-4311-91af-74013a9fa5da' and type='venta'
     and issue_date between '2026-01-01' and '2026-12-31'
 union all
 select 'ingresos 2026', count(*) from transactions
-  where user_id='<TU_USER_ID>' and type='ingreso' and deleted_at is null
+  where user_id='1449c077-7182-4311-91af-74013a9fa5da' and type='ingreso' and deleted_at is null
     and date between '2026-01-01' and '2026-12-31'
 union all
 select 'invoice_transaction_matches (SIN filtro)', count(*)
-  from invoice_transaction_matches where user_id='<TU_USER_ID>'
+  from invoice_transaction_matches where user_id='1449c077-7182-4311-91af-74013a9fa5da'
 union all
-select 'initial_state_details', count(*) from initial_state_details where user_id='<TU_USER_ID>'
+select 'initial_state_details', count(*) from initial_state_details where user_id='1449c077-7182-4311-91af-74013a9fa5da'
 union all
-select 'responsible_aliases', count(*) from responsible_aliases where user_id='<TU_USER_ID>';
+select 'responsible_aliases', count(*) from responsible_aliases where user_id='1449c077-7182-4311-91af-74013a9fa5da';
 ```
 
 ---
@@ -183,7 +184,7 @@ sobrestimada.
 select count(*) as movimientos,
        sum(abs(amount)) as monto_sin_conciliar
 from transactions
-where user_id='<TU_USER_ID>' and type='ingreso' and deleted_at is null
+where user_id='1449c077-7182-4311-91af-74013a9fa5da' and type='ingreso' and deleted_at is null
   and date between '2026-01-01' and '2026-12-31'
   and responsible_id is null and invoice_id is null;
 ```
@@ -194,7 +195,7 @@ where user_id='<TU_USER_ID>' and type='ingreso' and deleted_at is null
 select coalesce(movement_nature,'(null)') as naturaleza,
        count(*), sum(abs(amount)) as monto
 from transactions
-where user_id='<TU_USER_ID>' and type='ingreso' and deleted_at is null
+where user_id='1449c077-7182-4311-91af-74013a9fa5da' and type='ingreso' and deleted_at is null
   and date between '2026-01-01' and '2026-12-31'
   and responsible_id is not null
 group by 1 order by 3 desc;
@@ -207,7 +208,7 @@ select coalesce(r.name,'(sin beneficiario)') as cliente,
        count(*), sum(cm.amount) as monto
 from cash_movements cm
 left join responsibles r on r.id = cm.responsible_id
-where cm.user_id='<TU_USER_ID>' and cm.type='ingreso'
+where cm.user_id='1449c077-7182-4311-91af-74013a9fa5da' and cm.type='ingreso'
   and cm.date between '2026-01-01' and '2026-12-31'
 group by 1 order by 3 desc;
 ```
@@ -221,7 +222,7 @@ select invoice_number, counterparty_name, total_amount,
        voided_amount, voided_by_credit_note_number,
        total_amount - coalesce(voided_amount,0) as total_neto_real
 from invoices
-where user_id='<TU_USER_ID>' and type='venta' and void_type = 'partial'
+where user_id='1449c077-7182-4311-91af-74013a9fa5da' and type='venta' and void_type = 'partial'
 order by voided_amount desc;
 ```
 
@@ -233,7 +234,7 @@ order by voided_amount desc;
 select r.name as cliente_canonico, a.alias, a.source
 from responsible_aliases a
 join responsibles r on r.id = a.responsible_id
-where a.user_id='<TU_USER_ID>'
+where a.user_id='1449c077-7182-4311-91af-74013a9fa5da'
 order by 1;
 ```
 
@@ -241,6 +242,6 @@ order by 1;
 -- Scores guardados vs clientes con deuda: cuáles quedaron sin badge
 select client_name, responsible_id, score, category, total_owed, scored_at
 from client_collection_scores
-where user_id='<TU_USER_ID>'
+where user_id='1449c077-7182-4311-91af-74013a9fa5da'
 order by scored_at desc;
 ```
