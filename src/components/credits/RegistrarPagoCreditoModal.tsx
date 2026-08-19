@@ -10,8 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { suggestPaymentSplit, simulateExtraPayment } from '@/lib/amortization';
-import type { CreditWithSummary } from '@/hooks/useCredits';
-import { TrendingDown } from 'lucide-react';
+import type { CreditWithSummary, CreditPayment } from '@/hooks/useCredits';
+import { TrendingDown, Pencil } from 'lucide-react';
 
 export interface PrefillCuota {
   fecha: string;
@@ -26,17 +26,20 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   prefillCuota?: PrefillCuota | null;
+  /** Modo edición: corrige un pago ya registrado (fecha, montos, extra). */
+  editingPayment?: CreditPayment | null;
 }
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
 }
 
-export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, prefillCuota }: Props) {
+export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, prefillCuota, editingPayment }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
+  const isEdit = !!editingPayment;
 
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState('');
@@ -45,10 +48,17 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
   const [interestPart, setInterestPart] = useState('');
   const [notes, setNotes] = useState('');
 
-  // Pre-fill cuando viene una cuota seleccionada (click "Pagar esta cuota")
+  // Pre-fill: pago existente (modo edición) o cuota seleccionada ("Pagar esta cuota")
   useEffect(() => {
     if (!open) return;
-    if (prefillCuota) {
+    if (editingPayment) {
+      setDate(editingPayment.payment_date);
+      setAmount(String(Math.round(Number(editingPayment.amount_paid))));
+      setIsExtra(editingPayment.is_extra);
+      setPrincipalPart(String(Math.round(Number(editingPayment.principal_paid))));
+      setInterestPart(String(Math.round(Number(editingPayment.interest_paid))));
+      setNotes(editingPayment.notes ?? '');
+    } else if (prefillCuota) {
       setDate(new Date().toISOString().slice(0, 10));
       setAmount(String(Math.round(prefillCuota.cuotaTotal)));
       setIsExtra(false);
@@ -56,12 +66,12 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
       setInterestPart(String(Math.round(prefillCuota.interesEfectivo)));
       setNotes(`Cuota #${prefillCuota.cuotaNumero}`);
     }
-  }, [prefillCuota, open]);
+  }, [prefillCuota, editingPayment, open]);
 
   // Auto-sugerencia de split cuando cambia monto o isExtra (solo si no hay prefill activo)
   useEffect(() => {
     if (!credit) return;
-    if (prefillCuota) return; // respetar prefill explícito
+    if (prefillCuota || editingPayment) return; // respetar prefill explícito
     const num = parseFloat(amount);
     if (!num || num <= 0) {
       setPrincipalPart('');
@@ -76,7 +86,7 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
     );
     setPrincipalPart(split.principal.toString());
     setInterestPart(split.interest.toString());
-  }, [amount, isExtra, credit, prefillCuota]);
+  }, [amount, isExtra, credit, prefillCuota, editingPayment]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,27 +104,50 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
     }
     setSaving(true);
     try {
-      const { error } = await (supabase.from('credit_payments' as never) as any).insert({
-        user_id: user.id,
-        credit_id: credit.credit.id,
-        payment_date: date,
-        amount_paid: num,
-        principal_paid: cap,
-        interest_paid: intr,
-        is_extra: isExtra,
-        notes: notes.trim() || null,
-      });
-      if (error) throw error;
+      if (isEdit && editingPayment) {
+        // Modo edición: corrige el pago existente (fecha corrida por festivo,
+        // montos mal partidos, extra marcado por error).
+        const { error } = await (supabase.from('credit_payments' as never) as any)
+          .update({
+            payment_date: date,
+            amount_paid: num,
+            principal_paid: cap,
+            interest_paid: intr,
+            is_extra: isExtra,
+            notes: notes.trim() || null,
+          })
+          .eq('id', editingPayment.id);
+        if (error) throw error;
+      } else {
+        const { error } = await (supabase.from('credit_payments' as never) as any).insert({
+          user_id: user.id,
+          credit_id: credit.credit.id,
+          payment_date: date,
+          amount_paid: num,
+          principal_paid: cap,
+          interest_paid: intr,
+          is_extra: isExtra,
+          notes: notes.trim() || null,
+        });
+        if (error) throw error;
+      }
 
-      // Si el saldo restante después del pago es ~0, marcar crédito como paid
-      const newBalance = credit.summary.currentBalance - cap;
-      if (newBalance <= 0.5) {
+      // Recalcular estado del crédito con el capital neto del cambio.
+      const capViejo = isEdit && editingPayment ? Number(editingPayment.principal_paid) : 0;
+      const newBalance = credit.summary.currentBalance + capViejo - cap;
+      if (newBalance <= 0.5 && credit.credit.status !== 'paid') {
         await (supabase.from('credits' as never) as any)
           .update({ status: 'paid' })
           .eq('id', credit.credit.id);
         toast({ title: 'Crédito pagado', description: '¡Felicitaciones! Saldo en cero.' });
+      } else if (newBalance > 0.5 && credit.credit.status === 'paid') {
+        // La corrección revivió saldo → el crédito vuelve a activo.
+        await (supabase.from('credits' as never) as any)
+          .update({ status: 'active' })
+          .eq('id', credit.credit.id);
+        toast({ title: isEdit ? 'Pago corregido' : 'Pago registrado', description: 'El crédito volvió a estado activo (quedó saldo pendiente).' });
       } else {
-        toast({ title: 'Pago registrado' });
+        toast({ title: isEdit ? 'Pago corregido' : 'Pago registrado' });
       }
 
       await queryClient.invalidateQueries({ queryKey: ['credits'] });
@@ -133,10 +166,18 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
       <DialogContent className="sm:max-w-md">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>
-              Registrar pago — {credit?.credit.name}
+            <DialogTitle className="flex items-center gap-2">
+              {isEdit && <Pencil className="h-4 w-4 text-warning" />}
+              {isEdit ? 'Corregir pago' : 'Registrar pago'} — {credit?.credit.name}
             </DialogTitle>
           </DialogHeader>
+
+          {isEdit && (
+            <p className="text-xs text-muted-foreground -mt-2">
+              Estás corrigiendo el pago del {editingPayment?.payment_date}. La tabla de cuotas
+              se recalcula sola al guardar.
+            </p>
+          )}
 
           {credit && (
             <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-1">
@@ -228,7 +269,7 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
 
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Guardando...' : 'Registrar pago'}</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Guardando...' : isEdit ? 'Guardar corrección' : 'Registrar pago'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -101,3 +101,63 @@ describe('summarizeCredit — el saldo sigue los pagos reales', () => {
     expect(s.totalCreditCost - sinSeguro.totalCreditCost).toBeCloseTo(3_910_000, -4);
   });
 });
+
+describe('asignación de pagos a cuotas — FIFO por cuota impaga (fix 2026-08-19)', () => {
+  // Caso real de Nico: cuota vencía el 15 pero por festivo el banco debitó
+  // el 18. Con el bucket por fecha, el pago caía en la cuota SIGUIENTE.
+  it('pago debitado 3 días tarde (festivo) paga la cuota vencida, no la siguiente', () => {
+    const cuota1 = buildAmortization(CREDITO)[0];
+    const s = summarizeCredit(CREDITO, [{
+      payment_date: '2026-08-09', // 3 días después del vencimiento (06-ago)
+      amount_paid: cuota1.cuotaTotal,
+      principal_paid: cuota1.capitalPagado,
+      interest_paid: cuota1.interesPagado,
+      is_extra: false,
+    }]);
+    expect(s.scheduleWithStatus[0].estado).toBe('pagada');
+    expect(s.scheduleWithStatus[1].estado).toBe('pendiente');
+    // La próxima cuota es la #2, no la #1 ya cubierta
+    expect(s.nextCuota?.cuotaNumero).toBe(2);
+  });
+
+  it('un pago grande cubre dos cuotas: ambas quedan pagadas', () => {
+    const rows = buildAmortization(CREDITO);
+    const doble = rows[0].cuotaTotal + rows[1].cuotaTotal;
+    const s = summarizeCredit(CREDITO, [{
+      payment_date: '2026-08-06',
+      amount_paid: doble,
+      principal_paid: rows[0].capitalPagado + rows[1].capitalPagado,
+      interest_paid: rows[0].interesPagado + rows[1].interesPagado,
+      is_extra: false,
+    }]);
+    expect(s.scheduleWithStatus[0].estado).toBe('pagada');
+    expect(s.scheduleWithStatus[1].estado).toBe('pagada');
+    expect(s.scheduleWithStatus[2].estado).toBe('pendiente');
+  });
+
+  it('un abono EXTRA no marca la cuota como pagada — baja el saldo', () => {
+    const s = summarizeCredit(CREDITO, [{
+      payment_date: '2026-08-06',
+      amount_paid: 10_000_000,
+      principal_paid: 10_000_000,
+      interest_paid: 0,
+      is_extra: true,
+    }]);
+    expect(s.scheduleWithStatus[0].estado).toBe('parcial'); // tocada pero la obligación del mes sigue viva
+    expect(s.currentBalance).toBe(90_000_000);
+  });
+
+  it('pago parcial deja la cuota en parcial y el resto NO salta a la siguiente', () => {
+    const cuota1 = buildAmortization(CREDITO)[0];
+    const mitad = Math.round(cuota1.cuotaTotal / 2);
+    const s = summarizeCredit(CREDITO, [{
+      payment_date: '2026-08-06',
+      amount_paid: mitad,
+      principal_paid: Math.max(0, mitad - cuota1.interesPagado),
+      interest_paid: Math.min(mitad, cuota1.interesPagado),
+      is_extra: false,
+    }]);
+    expect(s.scheduleWithStatus[0].estado).toBe('parcial');
+    expect(s.scheduleWithStatus[1].estado).toBe('pendiente');
+  });
+});

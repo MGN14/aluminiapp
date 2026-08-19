@@ -5,11 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, ChevronDown, ChevronUp, DollarSign, Trash2, Loader2, AlertCircle, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { CreditCard, ChevronDown, ChevronUp, DollarSign, Trash2, Loader2, AlertCircle, CheckCircle2, AlertTriangle, XCircle, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { useCredits, type CreditWithSummary } from '@/hooks/useCredits';
+import { useCredits, type CreditWithSummary, type CreditPayment } from '@/hooks/useCredits';
 import NuevoCreditoModal from '@/components/credits/NuevoCreditoModal';
 import RegistrarPagoCreditoModal, { type PrefillCuota } from '@/components/credits/RegistrarPagoCreditoModal';
 import ConciliacionMatchesPanel from '@/components/credits/ConciliacionMatchesPanel';
@@ -32,6 +32,31 @@ export default function Creditos() {
   const [paying, setPaying] = useState<CreditWithSummary | null>(null);
   const [prefillCuota, setPrefillCuota] = useState<PrefillCuota | null>(null);
   const [cancelling, setCancelling] = useState<CreditWithSummary | null>(null);
+  const [editingPayment, setEditingPayment] = useState<CreditPayment | null>(null);
+
+  // Corrección de errores: borrar un pago mal registrado. Si el crédito
+  // estaba marcado "paid" y al borrar revive saldo, vuelve a "active".
+  const handleDeletePayment = async (c: CreditWithSummary, p: CreditPayment) => {
+    const desc = `${formatDate(p.payment_date)} · ${fmt(Number(p.amount_paid))}`;
+    const extra = p.transaction_id
+      ? '\n\nOJO: este pago vino de la Conciliación Bancaria. El movimiento del banco NO se borra, solo el vínculo con el crédito.'
+      : '';
+    if (!confirm(`¿Borrar el pago ${desc}? La tabla de cuotas se recalcula sola.${extra}`)) return;
+    try {
+      const { error } = await supabase.from('credit_payments' as never).delete().eq('id', p.id);
+      if (error) throw error;
+      const newBalance = c.summary.currentBalance + Number(p.principal_paid || 0);
+      if (newBalance > 0.5 && c.credit.status === 'paid') {
+        await (supabase.from('credits' as never) as any)
+          .update({ status: 'active' })
+          .eq('id', c.credit.id);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['credits'] });
+      toast({ title: 'Pago borrado', description: 'Cuotas recalculadas.' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`¿Eliminar "${name}" y todos sus pagos? No se puede deshacer.`)) return;
@@ -168,7 +193,7 @@ export default function Creditos() {
                             <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                               {c.credit.status === 'active' && (
                                 <>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-success" onClick={() => { setPrefillCuota(null); setPaying(c); }} title="Registrar pago">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-success" onClick={() => { setPrefillCuota(null); setEditingPayment(null); setPaying(c); }} title="Registrar pago">
                                     <DollarSign className="h-3.5 w-3.5" />
                                   </Button>
                                   <Button variant="ghost" size="icon" className="h-7 w-7 text-warning" onClick={() => setCancelling(c)} title="Cancelar crédito (refinanciado/acuerdo/error)">
@@ -309,6 +334,7 @@ export default function Creditos() {
                                                   className="h-6 w-6 text-success"
                                                   title="Pagar esta cuota"
                                                   onClick={() => {
+                                                    setEditingPayment(null);
                                                     setPrefillCuota({
                                                       fecha: row.fecha,
                                                       cuotaTotal: cuotaShow,
@@ -342,18 +368,38 @@ export default function Creditos() {
                                   <div className="space-y-1">
                                     <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Pagos registrados ({c.payments.length})</p>
                                     <div className="space-y-1">
-                                      {c.payments.slice().sort((a, b) => b.payment_date.localeCompare(a.payment_date)).slice(0, 5).map((p) => (
+                                      {c.payments.slice().sort((a, b) => b.payment_date.localeCompare(a.payment_date)).slice(0, 8).map((p) => (
                                         <div key={p.id} className="flex items-center justify-between text-xs p-1.5 rounded border bg-background">
                                           <span>{formatDate(p.payment_date)}{p.is_extra && <Badge variant="outline" className="ml-2 text-[9px]">Extra</Badge>}</span>
-                                          <div className="flex gap-3 text-right tabular-nums">
+                                          <div className="flex items-center gap-3 text-right tabular-nums">
                                             <span className="text-muted-foreground">Cap: {fmt(Number(p.principal_paid))}</span>
                                             <span className="text-muted-foreground">Int: {fmt(Number(p.interest_paid))}</span>
                                             <span className="font-semibold w-24">{fmt(Number(p.amount_paid))}</span>
+                                            <div className="flex gap-0.5">
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 text-warning"
+                                                title="Corregir este pago (fecha, montos)"
+                                                onClick={() => { setEditingPayment(p); setPrefillCuota(null); setPaying(c); }}
+                                              >
+                                                <Pencil className="h-3 w-3" />
+                                              </Button>
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 text-destructive"
+                                                title="Borrar este pago"
+                                                onClick={() => handleDeletePayment(c, p)}
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                              </Button>
+                                            </div>
                                           </div>
                                         </div>
                                       ))}
-                                      {c.payments.length > 5 && (
-                                        <p className="text-[10px] text-muted-foreground italic">+{c.payments.length - 5} pagos más</p>
+                                      {c.payments.length > 8 && (
+                                        <p className="text-[10px] text-muted-foreground italic">+{c.payments.length - 8} pagos más</p>
                                       )}
                                     </div>
                                   </div>
@@ -376,10 +422,12 @@ export default function Creditos() {
         credit={paying}
         open={!!paying}
         prefillCuota={prefillCuota}
+        editingPayment={editingPayment}
         onOpenChange={(o) => {
           if (!o) {
             setPaying(null);
             setPrefillCuota(null);
+            setEditingPayment(null);
           }
         }}
       />

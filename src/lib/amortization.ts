@@ -166,25 +166,37 @@ export function summarizeCredit(
   const currentBalance = Math.max(0, input.principal - totalPrincipalPaid);
   const percentPaid = input.principal > 0 ? (totalPrincipalPaid / input.principal) * 100 : 0;
 
-  // Próxima cuota: la primera cuya fecha es ≥ hoy
-  const today = new Date().toISOString().slice(0, 10);
-  const nextCuota = schedule.find(r => r.fecha >= today) ?? null;
-
   const totalInterestScheduled = schedule.reduce((s, r) => s + r.interesPagado, 0);
   const additionalCostsAmount = input.principal * (additionalCostsPct / 100);
   const totalCreditCost = input.principal + totalInterestScheduled + additionalCostsAmount;
 
   // Schedule con estado por cuota considerando pagos efectivos.
-  // Modalidad: "reducir plazo" — mantenemos la cuota teórica original. Para
-  // cuotas futuras (después de la última fecha pagada), el interés se
-  // calcula sobre el saldo REAL (que puede estar por debajo del teórico
-  // por abonos extra), reduciendo el plazo: el saldo se acaba antes y
-  // las cuotas finales del schedule pasan a estado "saldado" (no se paga).
+  //
+  // ASIGNACIÓN (fix 2026-08-19): los pagos NORMALES se imputan por FIFO a la
+  // cuota impaga más VIEJA, sin importar la fecha exacta del débito. Antes se
+  // asignaban por bucket de fecha (`payment_date <= row.fecha`) y un pago
+  // debitado el 18 por festivo caía en la cuota del mes SIGUIENTE, dejando la
+  // del 15 como "pendiente" (caso real de Nico, cuota del 15-ago cobrada el
+  // 18-ago). Un pago que cubre dos cuotas llena ambas.
+  //
+  // Los abonos EXTRA no llenan cuotas: bajan el saldo real en su fecha y el
+  // plazo se recorta (modalidad "reducir plazo": cuota teórica constante, las
+  // cuotas finales quedan "saldado").
   const sortedPayments = payments.slice().sort((a, b) => a.payment_date.localeCompare(b.payment_date));
+  const normalQueue = sortedPayments
+    .filter((p) => !p.is_extra)
+    .map((p) => ({
+      total: Number(p.amount_paid || 0),
+      capital: Number(p.principal_paid || 0),
+      interes: Number(p.interest_paid || 0),
+    }));
+  const extras = sortedPayments.filter((p) => p.is_extra);
+
   const scheduleWithStatus: AmortizationRowWithStatus[] = [];
   let saldoReal = input.principal;
   const i = input.interestRateMonthlyPct / 100;
-  let pIdx = 0;
+  let qIdx = 0;
+  let eIdx = 0;
   let saldado = false;
   for (const row of schedule) {
     if (saldado) {
@@ -205,41 +217,69 @@ export function summarizeCredit(
       continue;
     }
 
-    // Pagos que cayeron antes/en la fecha de esta cuota
-    let pagadoCapitalEnCuota = 0;
-    let pagadoInteresEnCuota = 0;
-    let pagadoTotalEnCuota = 0;
-    while (pIdx < sortedPayments.length && sortedPayments[pIdx].payment_date <= row.fecha) {
-      const p = sortedPayments[pIdx];
-      pagadoCapitalEnCuota += Number(p.principal_paid || 0);
-      pagadoInteresEnCuota += Number(p.interest_paid || 0);
-      pagadoTotalEnCuota += Number(p.amount_paid || 0);
-      pIdx++;
+    // 1. Abonos extra con fecha hasta esta cuota → bajan el saldo directo
+    let extraCapital = 0;
+    let extraInteres = 0;
+    let extraTotal = 0;
+    while (eIdx < extras.length && extras[eIdx].payment_date <= row.fecha) {
+      extraCapital += Number(extras[eIdx].principal_paid || 0);
+      extraInteres += Number(extras[eIdx].interest_paid || 0);
+      extraTotal += Number(extras[eIdx].amount_paid || 0);
+      eIdx++;
     }
-    saldoReal = Math.max(0, saldoReal - pagadoCapitalEnCuota);
+    saldoReal = Math.max(0, saldoReal - extraCapital);
+
+    // 2. FIFO: consumir pagos normales hasta cubrir la cuota teórica. Si un
+    //    pago sobra, el resto queda en la cola para la cuota siguiente
+    //    (capital/interés se reparten proporcionalmente).
+    const cuotaEsperada = row.cuotaTotal;
+    let consTotal = 0;
+    let consCapital = 0;
+    let consInteres = 0;
+    while (qIdx < normalQueue.length && consTotal < cuotaEsperada - 0.5) {
+      const p = normalQueue[qIdx];
+      const falta = cuotaEsperada - consTotal;
+      if (p.total <= falta + 0.5) {
+        consTotal += p.total;
+        consCapital += p.capital;
+        consInteres += p.interes;
+        qIdx++;
+      } else {
+        const frac = falta / p.total;
+        consTotal += falta;
+        consCapital += p.capital * frac;
+        consInteres += p.interes * frac;
+        p.capital *= 1 - frac;
+        p.interes *= 1 - frac;
+        p.total -= falta;
+      }
+    }
+    saldoReal = Math.max(0, saldoReal - consCapital);
+
+    const pagadoTotalEnCuota = consTotal + extraTotal;
+    const tocada = pagadoTotalEnCuota > 0;
 
     // Para cuotas futuras (sin pagos): recalcular interés sobre saldo real
     // y derivar capital = cuota teórica - interés efectivo.
-    const interesEfectivo = pagadoTotalEnCuota > 0 ? pagadoInteresEnCuota : saldoReal * i;
-    let capitalEfectivo = pagadoTotalEnCuota > 0 ? pagadoCapitalEnCuota : Math.max(0, row.cuotaTotal - interesEfectivo);
-    if (capitalEfectivo > saldoReal) capitalEfectivo = saldoReal;
-    const recalculada = pagadoTotalEnCuota === 0 && saldoReal > 0 && (saldoReal < row.saldoRestante + capitalEfectivo - 0.5);
+    const interesEfectivo = tocada ? consInteres + extraInteres : saldoReal * i;
+    let capitalEfectivo = tocada ? consCapital + extraCapital : Math.max(0, cuotaEsperada - interesEfectivo);
+    if (capitalEfectivo > saldoReal + consCapital + extraCapital) capitalEfectivo = saldoReal;
+    const recalculada = !tocada && saldoReal > 0 && (saldoReal < row.saldoRestante + capitalEfectivo - 0.5);
 
+    // Estado: solo los pagos normales consumidos "pagan" la cuota — un abono
+    // extra no la marca pagada (va a capital, no a la obligación del mes).
     let estado: CuotaEstado;
-    const cuotaEsperada = row.cuotaTotal;
-    if (saldoReal <= 0.5 && pagadoTotalEnCuota >= cuotaEsperada - 0.5) {
+    if (consTotal >= cuotaEsperada - 0.5) {
       estado = 'pagada';
-    } else if (pagadoTotalEnCuota >= cuotaEsperada - 0.5) {
-      estado = 'pagada';
-    } else if (pagadoTotalEnCuota > 0) {
+    } else if (tocada) {
       estado = 'parcial';
     } else {
       estado = 'pendiente';
     }
 
-    // Si después de aplicar capital efectivo el saldo cae a 0, marcar saldado
-    const saldoPost = saldoReal - (pagadoTotalEnCuota === 0 ? capitalEfectivo : 0);
-    if (saldoPost <= 0.5 && pagadoTotalEnCuota === 0) {
+    // Proyección para pendientes: el capital teórico baja el saldo estimado.
+    const saldoPost = saldoReal - (!tocada ? capitalEfectivo : 0);
+    if (saldoPost <= 0.5) {
       saldado = true; // las siguientes cuotas se marcarán como saldado
     }
 
@@ -255,6 +295,12 @@ export function summarizeCredit(
 
     saldoReal = Math.max(0, saldoPost);
   }
+
+  // Próxima cuota REAL: la primera no cubierta (pendiente o parcial). Antes
+  // era "primera con fecha ≥ hoy", que ignoraba si ya estaba pagada — y una
+  // cuota vieja impaga nunca aparecía como próxima.
+  const nextCuota: AmortizationRow | null =
+    scheduleWithStatus.find((r) => r.estado === 'pendiente' || r.estado === 'parcial') ?? null;
 
   return {
     schedule,
