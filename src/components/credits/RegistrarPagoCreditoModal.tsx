@@ -28,13 +28,15 @@ interface Props {
   prefillCuota?: PrefillCuota | null;
   /** Modo edición: corrige un pago ya registrado (fecha, montos, extra). */
   editingPayment?: CreditPayment | null;
+  /** Abrir con "abono extraordinario a capital" ya activado (botón ↓ de una cuota pagada). */
+  prefillExtra?: boolean;
 }
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
 }
 
-export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, prefillCuota, editingPayment }: Props) {
+export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, prefillCuota, editingPayment, prefillExtra }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -65,8 +67,17 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
       setPrincipalPart(String(Math.round(prefillCuota.capitalEfectivo)));
       setInterestPart(String(Math.round(prefillCuota.interesEfectivo)));
       setNotes(`Cuota #${prefillCuota.cuotaNumero}`);
+    } else if (prefillExtra) {
+      // Abono extra desde el botón ↓ de una cuota pagada: switch activado,
+      // fecha hoy, monto vacío para que Nico lo tipee.
+      setDate(new Date().toISOString().slice(0, 10));
+      setAmount('');
+      setIsExtra(true);
+      setPrincipalPart('');
+      setInterestPart('');
+      setNotes('Abono extraordinario a capital');
     }
-  }, [prefillCuota, editingPayment, open]);
+  }, [prefillCuota, editingPayment, prefillExtra, open]);
 
   // Auto-sugerencia de split cuando cambia monto o isExtra (solo si no hay prefill activo)
   useEffect(() => {

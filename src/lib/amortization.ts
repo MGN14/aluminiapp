@@ -31,6 +31,9 @@ export interface AmortizationRowWithStatus extends AmortizationRow {
   capitalEfectivo: number;
   /** Interés recalculado sobre saldo real para cuotas futuras. */
   interesEfectivo: number;
+  /** Abono extraordinario a capital hecho en la ventana de esta cuota
+   *  (desde su fecha hasta antes de la siguiente). Columna propia en la UI. */
+  abonoExtraCapital: number;
   /** True cuando hubo recálculo (saldo real < saldo teórico). */
   recalculada: boolean;
 }
@@ -198,7 +201,10 @@ export function summarizeCredit(
   let qIdx = 0;
   let eIdx = 0;
   let saldado = false;
-  for (const row of schedule) {
+  for (let idx = 0; idx < schedule.length; idx++) {
+    const row = schedule[idx];
+    // Ventana de esta cuota: desde su fecha hasta ANTES de la siguiente.
+    const nextFecha = schedule[idx + 1]?.fecha ?? '9999-12-31';
     if (saldado) {
       // Crédito ya fue saldado en una cuota anterior — el resto no se paga
       scheduleWithStatus.push({
@@ -212,16 +218,20 @@ export function summarizeCredit(
         pagadoEnCuota: 0,
         capitalEfectivo: 0,
         interesEfectivo: 0,
+        abonoExtraCapital: 0,
         recalculada: true,
       });
       continue;
     }
 
-    // 1. Abonos extra con fecha hasta esta cuota → bajan el saldo directo
+    // 1. Abonos extra de la VENTANA de esta cuota (fecha < próxima cuota) →
+    //    bajan el saldo directo y se muestran en ESTA fila. Un abono del
+    //    19-ago (después de la cuota del 15-ago, antes de la del 15-sep)
+    //    aparece junto a la cuota 1 y el interés de la 2 ya sale rebajado.
     let extraCapital = 0;
     let extraInteres = 0;
     let extraTotal = 0;
-    while (eIdx < extras.length && extras[eIdx].payment_date <= row.fecha) {
+    while (eIdx < extras.length && extras[eIdx].payment_date < nextFecha) {
       extraCapital += Number(extras[eIdx].principal_paid || 0);
       extraInteres += Number(extras[eIdx].interest_paid || 0);
       extraTotal += Number(extras[eIdx].amount_paid || 0);
@@ -232,14 +242,21 @@ export function summarizeCredit(
     // 2. FIFO: consumir pagos normales hasta cubrir la cuota teórica. Si un
     //    pago sobra, el resto queda en la cola para la cuota siguiente
     //    (capital/interés se reparten proporcionalmente).
+    //
+    //    TOLERANCIA (fix 2026-08-19): la cuota teórica es una ESTIMACIÓN — el
+    //    banco liquida interés por días reales y en un débito corrido por
+    //    festivo cobra más. Si el pago completo cabe en la cuota + 10%, se
+    //    consume ENTERO acá (el excedente es interés de mora de ESTA cuota,
+    //    no un pago parcial de la siguiente).
     const cuotaEsperada = row.cuotaTotal;
+    const tolerancia = Math.max(0.5, cuotaEsperada * 0.10);
     let consTotal = 0;
     let consCapital = 0;
     let consInteres = 0;
     while (qIdx < normalQueue.length && consTotal < cuotaEsperada - 0.5) {
       const p = normalQueue[qIdx];
       const falta = cuotaEsperada - consTotal;
-      if (p.total <= falta + 0.5) {
+      if (p.total <= falta + tolerancia) {
         consTotal += p.total;
         consCapital += p.capital;
         consInteres += p.interes;
@@ -290,6 +307,7 @@ export function summarizeCredit(
       pagadoEnCuota: r2(pagadoTotalEnCuota),
       capitalEfectivo: r2(capitalEfectivo),
       interesEfectivo: r2(interesEfectivo),
+      abonoExtraCapital: r2(extraCapital),
       recalculada,
     });
 

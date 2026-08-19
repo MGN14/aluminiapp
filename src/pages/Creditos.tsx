@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, ChevronDown, ChevronUp, DollarSign, Trash2, Loader2, AlertCircle, CheckCircle2, AlertTriangle, XCircle, Pencil } from 'lucide-react';
+import { CreditCard, ChevronDown, ChevronUp, DollarSign, Trash2, Loader2, AlertCircle, CheckCircle2, AlertTriangle, XCircle, Pencil, TrendingDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -33,6 +33,7 @@ export default function Creditos() {
   const [prefillCuota, setPrefillCuota] = useState<PrefillCuota | null>(null);
   const [cancelling, setCancelling] = useState<CreditWithSummary | null>(null);
   const [editingPayment, setEditingPayment] = useState<CreditPayment | null>(null);
+  const [prefillExtra, setPrefillExtra] = useState(false);
 
   // Corrección de errores: borrar un pago mal registrado. Si el crédito
   // estaba marcado "paid" y al borrar revive saldo, vuelve a "active".
@@ -193,7 +194,7 @@ export default function Creditos() {
                             <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                               {c.credit.status === 'active' && (
                                 <>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-success" onClick={() => { setPrefillCuota(null); setEditingPayment(null); setPaying(c); }} title="Registrar pago">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-success" onClick={() => { setPrefillCuota(null); setEditingPayment(null); setPrefillExtra(false); setPaying(c); }} title="Registrar pago">
                                     <DollarSign className="h-3.5 w-3.5" />
                                   </Button>
                                   <Button variant="ghost" size="icon" className="h-7 w-7 text-warning" onClick={() => setCancelling(c)} title="Cancelar crédito (refinanciado/acuerdo/error)">
@@ -264,6 +265,7 @@ export default function Creditos() {
                                         <th className="text-right p-2">Capital</th>
                                         <th className="text-right p-2">Interés</th>
                                         <th className="text-right p-2">Cuota</th>
+                                        <th className="text-right p-2">Abono extra</th>
                                         <th className="text-right p-2">Saldo real</th>
                                         <th className="p-2"></th>
                                       </tr>
@@ -323,29 +325,59 @@ export default function Creditos() {
                                             <td className={cn('p-2 text-right tabular-nums font-semibold', isSaldado && 'line-through')}>
                                               {isSaldado ? '—' : fmt(cuotaShow)}
                                             </td>
+                                            <td className="p-2 text-right tabular-nums">
+                                              {row.abonoExtraCapital > 0
+                                                ? <span className="text-primary font-semibold" title="Abono extraordinario a capital en la ventana de esta cuota">↓ {fmt(row.abonoExtraCapital)}</span>
+                                                : <span className="text-muted-foreground/40">—</span>}
+                                            </td>
                                             <td className={cn('p-2 text-right tabular-nums', row.recalculada && !isSaldado ? 'text-primary font-medium' : 'text-muted-foreground')}>
                                               {fmt(row.saldoRealRestante)}
                                             </td>
                                             <td className="p-2 text-right">
-                                              {isPendiente && c.credit.status === 'active' && (
+                                              {(isPendiente || isParcial) && c.credit.status === 'active' && (
                                                 <Button
                                                   variant="ghost"
                                                   size="icon"
                                                   className="h-6 w-6 text-success"
-                                                  title="Pagar esta cuota"
+                                                  title={isParcial ? 'Pagar el resto de esta cuota' : 'Pagar esta cuota'}
                                                   onClick={() => {
                                                     setEditingPayment(null);
+                                                    setPrefillExtra(false);
+                                                    // Parcial: pre-llenar solo lo que FALTA (interés teórico
+                                                    // primero, el resto a capital).
+                                                    const falta = isParcial
+                                                      ? Math.max(0, row.cuotaTotal - row.pagadoEnCuota)
+                                                      : cuotaShow;
+                                                    const intFalta = isParcial
+                                                      ? Math.max(0, Math.min(falta, row.interesPagado - row.interesEfectivo))
+                                                      : interesShow;
                                                     setPrefillCuota({
                                                       fecha: row.fecha,
-                                                      cuotaTotal: cuotaShow,
-                                                      capitalEfectivo: capitalShow,
-                                                      interesEfectivo: interesShow,
+                                                      cuotaTotal: falta,
+                                                      capitalEfectivo: Math.max(0, falta - intFalta),
+                                                      interesEfectivo: intFalta,
                                                       cuotaNumero: row.cuotaNumero,
                                                     });
                                                     setPaying(c);
                                                   }}
                                                 >
                                                   <DollarSign className="h-3 w-3" />
+                                                </Button>
+                                              )}
+                                              {isPagada && c.credit.status === 'active' && (
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-6 w-6 text-primary"
+                                                  title="Registrar abono extra a capital (después de esta cuota)"
+                                                  onClick={() => {
+                                                    setEditingPayment(null);
+                                                    setPrefillCuota(null);
+                                                    setPrefillExtra(true);
+                                                    setPaying(c);
+                                                  }}
+                                                >
+                                                  <TrendingDown className="h-3 w-3" />
                                                 </Button>
                                               )}
                                             </td>
@@ -381,7 +413,7 @@ export default function Creditos() {
                                                 size="icon"
                                                 className="h-6 w-6 text-warning"
                                                 title="Corregir este pago (fecha, montos)"
-                                                onClick={() => { setEditingPayment(p); setPrefillCuota(null); setPaying(c); }}
+                                                onClick={() => { setEditingPayment(p); setPrefillCuota(null); setPrefillExtra(false); setPaying(c); }}
                                               >
                                                 <Pencil className="h-3 w-3" />
                                               </Button>
@@ -423,11 +455,13 @@ export default function Creditos() {
         open={!!paying}
         prefillCuota={prefillCuota}
         editingPayment={editingPayment}
+        prefillExtra={prefillExtra}
         onOpenChange={(o) => {
           if (!o) {
             setPaying(null);
             setPrefillCuota(null);
             setEditingPayment(null);
+            setPrefillExtra(false);
           }
         }}
       />

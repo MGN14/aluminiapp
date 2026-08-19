@@ -161,3 +161,52 @@ describe('asignación de pagos a cuotas — FIFO por cuota impaga (fix 2026-08-1
     expect(s.scheduleWithStatus[1].estado).toBe('pendiente');
   });
 });
+
+describe('liquidación real del banco y ventana de abonos (fix 2026-08-19 pt.2)', () => {
+  it('el banco liquida MÁS que la cuota teórica (mora por festivo): la cuota queda pagada y NO contamina la siguiente', () => {
+    const cuota1 = buildAmortization(CREDITO)[0];
+    const moraExtra = 180_000; // ~3 días más de interés por débito corrido
+    const s = summarizeCredit(CREDITO, [{
+      payment_date: '2026-08-09',
+      amount_paid: cuota1.cuotaTotal + moraExtra,
+      principal_paid: cuota1.capitalPagado,
+      interest_paid: cuota1.interesPagado + moraExtra,
+      is_extra: false,
+    }]);
+    expect(s.scheduleWithStatus[0].estado).toBe('pagada');
+    // Antes: el excedente caía como "parcial" en la cuota 2
+    expect(s.scheduleWithStatus[1].estado).toBe('pendiente');
+    expect(s.nextCuota?.cuotaNumero).toBe(2);
+  });
+
+  it('abono extra ENTRE cuota 1 y 2: aparece en la fila 1 (columna abono) y rebaja el interés de la 2', () => {
+    const rows = buildAmortization(CREDITO);
+    const cuota1 = rows[0];
+    const s = summarizeCredit(CREDITO, [
+      {
+        payment_date: '2026-08-06',
+        amount_paid: cuota1.cuotaTotal,
+        principal_paid: cuota1.capitalPagado,
+        interest_paid: cuota1.interesPagado,
+        is_extra: false,
+      },
+      {
+        // 13 días después de la cuota 1, antes de la 2 (06-sep)
+        payment_date: '2026-08-19',
+        amount_paid: 10_000_000,
+        principal_paid: 10_000_000,
+        interest_paid: 0,
+        is_extra: true,
+      },
+    ]);
+    // El abono se ve en la FILA de la cuota 1, no en la 2
+    expect(s.scheduleWithStatus[0].abonoExtraCapital).toBe(10_000_000);
+    expect(s.scheduleWithStatus[1].abonoExtraCapital).toBe(0);
+    expect(s.scheduleWithStatus[0].estado).toBe('pagada');
+    // Interés de la cuota 2 recalculado sobre el saldo rebajado
+    const saldoTrasCuota1YAbono = 100_000_000 - cuota1.capitalPagado - 10_000_000;
+    expect(s.scheduleWithStatus[1].interesEfectivo).toBeCloseTo(saldoTrasCuota1YAbono * 0.0133, 0);
+    // Y el saldo real de la fila 1 ya refleja el abono
+    expect(s.scheduleWithStatus[0].saldoRealRestante).toBe(saldoTrasCuota1YAbono);
+  });
+});
