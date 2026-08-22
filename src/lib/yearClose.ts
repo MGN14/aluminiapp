@@ -46,12 +46,12 @@ export interface YearCloseSuggestion {
 /** Etiquetas y clasificación de cada rubro del balance. */
 const RUBRO_META: Array<{ key: string; label: string; kind: RubroKind; operativo: boolean; hasTercero: boolean }> = [
   { key: 'caja_bancos', label: 'Caja y bancos', kind: 'activo', operativo: false, hasTercero: false },
-  { key: 'cuentas_por_cobrar', label: 'Cuentas por cobrar', kind: 'activo', operativo: true, hasTercero: true },
+  { key: 'cuentas_por_cobrar', label: 'Cuentas por cobrar', kind: 'activo', operativo: false, hasTercero: true },
   { key: 'inventario', label: 'Inventario', kind: 'activo', operativo: true, hasTercero: false },
   { key: 'activos_fijos', label: 'Activos fijos (valor en libros)', kind: 'activo', operativo: true, hasTercero: false },
   { key: 'anticipos_a_proveedores', label: 'Anticipos a proveedores', kind: 'activo', operativo: false, hasTercero: true },
   { key: 'iva_a_favor', label: 'IVA a favor', kind: 'activo', operativo: false, hasTercero: false },
-  { key: 'cuentas_por_pagar', label: 'Cuentas por pagar', kind: 'pasivo', operativo: true, hasTercero: true },
+  { key: 'cuentas_por_pagar', label: 'Cuentas por pagar', kind: 'pasivo', operativo: false, hasTercero: true },
   { key: 'anticipos_de_clientes', label: 'Anticipos de clientes', kind: 'pasivo', operativo: false, hasTercero: true },
   { key: 'deuda_financiera', label: 'Deuda financiera (créditos)', kind: 'pasivo', operativo: true, hasTercero: false },
   { key: 'prestaciones_por_pagar', label: 'Prestaciones por pagar', kind: 'pasivo', operativo: true, hasTercero: false },

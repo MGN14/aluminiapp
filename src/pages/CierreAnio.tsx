@@ -8,13 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { CalendarCheck, ChevronDown, ChevronRight, Download, Lock, RotateCcw, Info } from 'lucide-react';
+import { CalendarCheck, ChevronDown, ChevronRight, Download, Lock, RotateCcw, Info, ArrowRightCircle, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
 import { supabase } from '@/integrations/supabase/client';
 import { computeYearCloseSuggestions } from '@/lib/yearClose';
-import { useYearClosings, useCloseFiscalYear, useReopenFiscalYear, type YearClosing } from '@/hooks/useYearClosings';
+import { useYearClosings, useCloseFiscalYear, useReopenFiscalYear, useApplyYearOpening, useRevertYearOpening, type YearClosing } from '@/hooks/useYearClosings';
 import { generateYearClosingPdf } from '@/lib/yearClosingPdf';
 
 const fmt = (v: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Math.round(v));
@@ -42,10 +42,17 @@ export default function CierreAnio() {
   const closingsQ = useYearClosings();
   const closeMut = useCloseFiscalYear();
   const reopenMut = useReopenFiscalYear();
+  const applyMut = useApplyYearOpening();
+  const revertMut = useRevertYearOpening();
 
   const alreadyClosed = useMemo(
     () => (closingsQ.data ?? []).find((c) => c.fiscal_year === year),
     [closingsQ.data, year],
+  );
+  // Solo el cierre más reciente puede aplicar la apertura (mismo guard que el RPC).
+  const maxClosedYear = useMemo(
+    () => Math.max(...(closingsQ.data ?? []).map((c) => c.fiscal_year), 0),
+    [closingsQ.data],
   );
 
   const sugQ = useQuery({
@@ -120,6 +127,42 @@ export default function CierreAnio() {
       toast.success(`Cierre de ${c.fiscal_year} reabierto`);
     } catch (e) {
       toast.error(`Error: ${(e as Error).message}`);
+    }
+  };
+
+  // Fase 2 — el real del contador pasa a ser la apertura del año siguiente.
+  const handleApplyOpening = async (c: YearClosing) => {
+    const lineReal = (rubro: string) =>
+      c.lines.find((l) => l.rubro === rubro && !l.responsible_name)?.real_amount ?? 0;
+    const terceros = (rubro: string) => c.lines.filter((l) => l.rubro === rubro && l.responsible_name && l.real_amount > 0.5).length;
+    const msg = [
+      `Aplicar la apertura ${c.fiscal_year + 1} desde el cierre ${c.fiscal_year}:`,
+      '',
+      `· Caja y bancos: ${fmt(lineReal('caja_bancos'))} (consolidado)`,
+      `· Cuentas por cobrar: ${fmt(lineReal('cuentas_por_cobrar'))} (${terceros('cuentas_por_cobrar')} clientes)`,
+      `· Anticipos de clientes: ${fmt(lineReal('anticipos_de_clientes'))} (${terceros('anticipos_de_clientes')} clientes)`,
+      `· Anticipos a proveedores: ${fmt(lineReal('anticipos_a_proveedores'))} (${terceros('anticipos_a_proveedores')} proveedores)`,
+      `· Cuentas por pagar: ${fmt(lineReal('cuentas_por_pagar'))} (${terceros('cuentas_por_pagar')} proveedores)`,
+      `· IVA a favor: ${fmt(lineReal('iva_a_favor'))}`,
+      '',
+      `El estado inicial pasa al 31-dic-${c.fiscal_year} con estos saldos REALES del contador. Los anticipos y saldos iniciales actuales se reemplazan (queda snapshot para revertir). Inventario, activos fijos, créditos y nómina no se tocan.`,
+    ].join('\n');
+    if (!window.confirm(msg)) return;
+    try {
+      const r = await applyMut.mutateAsync(c.id);
+      toast.success(`Apertura ${r.opening_year} aplicada (${r.detalle_terceros} saldos por tercero)`);
+    } catch (e) {
+      toast.error(`Error al aplicar la apertura: ${(e as Error).message}`);
+    }
+  };
+
+  const handleRevertOpening = async (c: YearClosing) => {
+    if (!window.confirm(`¿Revertir la apertura ${c.fiscal_year + 1}? El estado inicial vuelve al snapshot previo al roll-forward. Las ediciones hechas sobre la apertura (Settings) se pierden.`)) return;
+    try {
+      await revertMut.mutateAsync(c.id);
+      toast.success(`Apertura ${c.fiscal_year + 1} revertida`);
+    } catch (e) {
+      toast.error(`Error al revertir: ${(e as Error).message}`);
     }
   };
 
@@ -250,7 +293,7 @@ export default function CierreAnio() {
 
           <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
             <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            Los rubros marcados <Badge variant="outline" className="text-[9px] mx-0.5">apertura</Badge> (caja/bancos, anticipos, IVA) son los que la app tomará del contador como apertura del próximo año. El resto (cartera, inventario, créditos…) se arrastra solo desde sus módulos.
+            Los rubros marcados <Badge variant="outline" className="text-[9px] mx-0.5">apertura</Badge> (caja/bancos, cartera, CxP, anticipos, IVA) son los que la app tomará del contador como apertura del próximo año al aplicar el cierre. Inventario, activos fijos, créditos y prestaciones se arrastran solos desde sus módulos.
           </p>
 
           <Card>
@@ -294,6 +337,16 @@ export default function CierreAnio() {
                     <TableCell className="text-right py-2">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => handlePdf(c)}><Download className="h-3.5 w-3.5" /> PDF</Button>
+                        {editable && !c.rolled_forward && c.fiscal_year === maxClosedYear && (
+                          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary" disabled={applyMut.isPending} onClick={() => handleApplyOpening(c)}>
+                            <ArrowRightCircle className="h-3.5 w-3.5" /> {applyMut.isPending ? 'Aplicando…' : `Aplicar apertura ${c.fiscal_year + 1}`}
+                          </Button>
+                        )}
+                        {editable && c.rolled_forward && (
+                          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground" disabled={revertMut.isPending} onClick={() => handleRevertOpening(c)}>
+                            <Undo2 className="h-3.5 w-3.5" /> {revertMut.isPending ? 'Revirtiendo…' : 'Revertir apertura'}
+                          </Button>
+                        )}
                         {editable && !c.rolled_forward && (
                           <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground" onClick={() => handleReopen(c)}><RotateCcw className="h-3.5 w-3.5" /> Reabrir</Button>
                         )}

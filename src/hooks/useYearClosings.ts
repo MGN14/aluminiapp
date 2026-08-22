@@ -105,3 +105,33 @@ export function useReopenFiscalYear() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['year-closings', user?.id] }),
   });
 }
+
+/** Fase 2 — aplica los saldos REALES del cierre como apertura del año siguiente.
+ *  El RPC snapshotea el estado inicial actual (permite revertir) y reescribe
+ *  fecha_inicio + caja + CxC/CxP/anticipos por tercero + IVA. */
+export function useApplyYearOpening() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (closingId: string) => {
+      const { data, error } = await (supabase as any).rpc('apply_year_closing_opening', { p_closing_id: closingId });
+      if (error) throw error;
+      return data as { opening_year: number; detalle_terceros: number };
+    },
+    // La apertura cambia la base de TODO (balance, cartera, dashboard, caja):
+    // invalidación global antes que una lista de keys que quede corta.
+    onSuccess: () => qc.invalidateQueries(),
+  });
+}
+
+/** Fase 2 — restaura el estado inicial desde el snapshot del cierre. */
+export function useRevertYearOpening() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (closingId: string) => {
+      const { data, error } = await (supabase as any).rpc('revert_year_closing_opening', { p_closing_id: closingId });
+      if (error) throw error;
+      return data as { restored_details: number };
+    },
+    onSuccess: () => qc.invalidateQueries(),
+  });
+}
