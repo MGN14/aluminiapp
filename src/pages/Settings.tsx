@@ -64,6 +64,17 @@ const ACTIVIDAD_LABEL: Record<string, string> = {
 };
 
 export default function Settings() {
+  // Deep-links del Centro de migración: /settings#estado-inicial, #siigo.
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (!hash) return;
+    // Esperar al primer render con datos para que el elemento exista.
+    const t = setTimeout(() => {
+      document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
+    return () => clearTimeout(t);
+  }, []);
+
   const { user, signOut } = useAuth();
   const {
     plan,
@@ -391,13 +402,13 @@ export default function Settings() {
 
         {/* Categorías deducibles + Estado financiero inicial — full width c/u */}
         <CategoriesDeductibleSettings />
-        <InitialFinancialStateCard />
+        <div id="estado-inicial" className="scroll-mt-20"><InitialFinancialStateCard /></div>
 
         {/* Defaults para módulo de cotizaciones */}
         <QuotationDefaultsCard />
 
         {/* Conexiones contables/fiscales */}
-        <SiigoConnectionCard />
+        <div id="siigo" className="scroll-mt-20"><SiigoConnectionCard /></div>
 
         {/* Auditoría de cambios (gap ERP #5) */}
         <AuditLogCard />

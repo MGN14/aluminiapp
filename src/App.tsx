@@ -41,6 +41,7 @@ const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Migracion = lazy(() => import("./pages/Migracion"));
 const StatementUpload = lazy(() => import("./pages/StatementUpload"));
 const Transactions = lazy(() => import("./pages/Transactions"));
 const Export = lazy(() => import("./pages/Export"));
@@ -386,6 +387,10 @@ const App = () => (
               <Route path="/admin/analytics" element={<Navigate to="/founder?tab=analytics" replace />} />
               <Route path="/admin/campaigns" element={<AdminRoute><Campaigns /></AdminRoute>} />
               <Route path="/nico/evolution" element={<Navigate to="/founder?tab=evolution" replace />} />
+              <Route
+                path="/migracion"
+                element={<AdminRoute><Migracion /></AdminRoute>}
+              />
               <Route
                 path="/coming-soon"
                 element={<ProtectedRoute><ComingSoon /></ProtectedRoute>}

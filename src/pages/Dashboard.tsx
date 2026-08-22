@@ -25,7 +25,7 @@ import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/Re
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
 import { useOperationalData, CxCCard, AnticiposCard, TopBuyersCard } from '@/components/dashboard/OperationalSummaryCards';
-import OnboardingGuide from '@/components/onboarding/OnboardingGuide';
+import MigrationBanner from '@/components/onboarding/MigrationBanner';
 import InitialStateWarning from '@/components/dashboard/InitialStateWarning';
 import FiscalProfileWarning from '@/components/dashboard/FiscalProfileWarning';
 import FinancialHealthCard from '@/components/dashboard/FinancialHealthCard';
@@ -978,7 +978,7 @@ function DashboardContent() {
 
         <FiscalProfileWarning />
         <InitialStateWarning />
-        <OnboardingGuide hasTransactions={transactions.length > 0} />
+        <MigrationBanner />
         <TrialChecklist />
         {isGerencial && (
           /* Card unificado: brecha + disclaimer (mid/high) en una sola tarjeta. */
