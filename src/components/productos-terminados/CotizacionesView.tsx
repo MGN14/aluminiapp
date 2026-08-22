@@ -23,6 +23,7 @@ import { useQuotations } from '@/hooks/useQuotations';
 import type { QuotationStatus } from '@/types/quotation';
 import NewQuoteModal from '@/components/quotes/NewQuoteModal';
 import QuoteDetailModal from '@/components/quotes/QuoteDetailModal';
+import { useQuoteCycles, deriveCycleStage, CYCLE_STAGE_LABEL } from '@/hooks/useQuoteCycle';
 import TemplateQuoteModal from '@/components/productos-terminados/TemplateQuoteModal';
 
 const STATUS_LABELS: Record<
@@ -56,6 +57,8 @@ interface Props {
 
 export default function CotizacionesView({ onSwitchToConfig }: Props) {
   const [search, setSearch] = useState('');
+  // Ciclo comercial: etapa derivada por cotización aceptada (remisión → factura → cobro).
+  const cyclesQ = useQuoteCycles();
   const [statusFilter, setStatusFilter] = useState<QuotationStatus | 'all'>('all');
   const [showNewQuote, setShowNewQuote] = useState(false);
   const [showTemplateQuote, setShowTemplateQuote] = useState(false);
@@ -184,6 +187,14 @@ export default function CotizacionesView({ onSwitchToConfig }: Props) {
                           <TableCell className="text-xs">{formatDate(q.valid_until)}</TableCell>
                           <TableCell>
                             <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
+                            {q.status === 'accepted' && (() => {
+                              const stage = deriveCycleStage(cyclesQ.data?.get(q.id) ?? []);
+                              return stage !== 'aceptada' ? (
+                                <Badge variant={stage === 'cobrada' ? 'default' : 'secondary'} className="ml-1 text-[9px]">
+                                  {CYCLE_STAGE_LABEL[stage]}
+                                </Badge>
+                              ) : null;
+                            })()}
                           </TableCell>
                           <TableCell className="text-right tabular-nums font-medium">
                             {formatCurrency(

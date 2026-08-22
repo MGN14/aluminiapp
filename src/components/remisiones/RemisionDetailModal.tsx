@@ -87,7 +87,8 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
     queryFn: async () => {
       const { data, error } = await (supabase
         .from('remisiones') as any)
-        .select(`id, user_id, created_at, date, number, beneficiary, responsible_id, notes, status, total_manual, module_origin, remision_type,
+        .select(`id, user_id, created_at, date, number, beneficiary, responsible_id, notes, status, total_manual, module_origin, remision_type, quotation_id,
+          quotation:quotation_id(id, quote_number),
           remision_items(id, reference, product_name, units, unit_cost, total_cost),
           remision_invoices(invoice_id, invoices(id, invoice_number, total_amount, issue_date, counterparty_name))`)
         .eq('id', remisionId)
@@ -248,8 +249,13 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between gap-3">
-            <DialogTitle>
+            <DialogTitle className="flex items-center gap-2 flex-wrap">
               {isLoading ? 'Cargando...' : `Remisión ${(remision as any)?.number}`}
+              {(remision as any)?.quotation?.quote_number && (
+                <Badge variant="outline" className="text-[10px] font-normal" title="Cotización de la que nació esta remisión">
+                  Origen: {(remision as any).quotation.quote_number}
+                </Badge>
+              )}
             </DialogTitle>
             {remision && !editing && (
               <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">

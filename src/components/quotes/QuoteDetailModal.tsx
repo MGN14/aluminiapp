@@ -39,6 +39,7 @@ import {
   Trash2,
   ArrowRightCircle,
   Mail,
+  Truck,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -53,6 +54,8 @@ import { quotationItemsForPdf } from '@/lib/productDrawing';
 import type { QuotationStatus } from '@/types/quotation';
 import NewQuoteModal from './NewQuoteModal';
 import SendQuoteDialog from './SendQuoteDialog';
+import GenerateRemisionModal from './GenerateRemisionModal';
+import { useQuoteCycles, deriveCycleStage, CYCLE_STAGE_LABEL } from '@/hooks/useQuoteCycle';
 import ProductDrawing from '@/components/productos-terminados/ProductDrawing';
 
 const LETTERHEAD_BUCKET = 'letterheads';
@@ -125,6 +128,10 @@ export default function QuoteDetailModal({
   const [showEdit, setShowEdit] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showGenerateRemision, setShowGenerateRemision] = useState(false);
+
+  // Ciclo comercial: remisiones nacidas de esta cotización + sus facturas.
+  const cyclesQ = useQuoteCycles();
 
   const { data: detail, isLoading } = useQuotationDetail(quoteId);
   const { remove, setStatus, duplicate } = useQuotationMutations();
@@ -467,6 +474,53 @@ export default function QuoteDetailModal({
                 </div>
               )}
 
+              {/* Ciclo comercial: cotización → remisión → factura → cobro */}
+              {detail.status === 'accepted' && (() => {
+                const rems = cyclesQ.data?.get(detail.id) ?? [];
+                const stage = deriveCycleStage(rems);
+                return (
+                  <div className="rounded-md border border-border p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] uppercase text-muted-foreground flex items-center gap-1.5">
+                        <Truck className="h-3.5 w-3.5" /> Ciclo comercial
+                        <Badge variant={stage === 'cobrada' ? 'default' : 'outline'} className="text-[9px] ml-1">
+                          {CYCLE_STAGE_LABEL[stage]}
+                        </Badge>
+                      </div>
+                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setShowGenerateRemision(true)}>
+                        <Truck className="h-3.5 w-3.5" /> Generar remisión
+                      </Button>
+                    </div>
+                    {rems.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Sin remisiones todavía — generá el despacho desde el despiece de la cotización.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {rems.map((r) => (
+                          <div key={r.id} className="text-xs flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="font-medium">Remisión {r.number}</span>
+                            <span className="text-muted-foreground">{r.date}</span>
+                            {r.invoices.length === 0 ? (
+                              <Badge variant="outline" className="text-[9px]">sin factura</Badge>
+                            ) : (
+                              r.invoices.map((inv) => (
+                                <Badge key={inv.id} variant={Number(inv.balance_pending) <= 0.5 ? 'default' : 'secondary'} className="text-[9px]">
+                                  {inv.invoice_number} · {Number(inv.balance_pending) <= 0.5 ? 'pagada' : 'pendiente'}
+                                </Badge>
+                              ))
+                            )}
+                          </div>
+                        ))}
+                        <p className="text-[10px] text-muted-foreground">
+                          Facturas y pagos se vinculan desde el módulo Remisiones (Vincular factura / Vincular pago).
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <DialogFooter className="flex-wrap gap-2">
                 <div className="flex flex-wrap gap-2 mr-auto">
                   {/* Status transitions */}
@@ -601,6 +655,13 @@ export default function QuoteDetailModal({
         open={showSend}
         onOpenChange={setShowSend}
       />
+      {detail && (
+        <GenerateRemisionModal
+          open={showGenerateRemision}
+          onOpenChange={setShowGenerateRemision}
+          detail={detail}
+        />
+      )}
 
       {/* Confirmación de eliminación */}
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
