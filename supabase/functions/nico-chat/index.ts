@@ -2053,6 +2053,23 @@ ${financialContext}${memoryBlock}${macroBlock}`;
         .limit(10);
       const lessons = (lessonsData ?? []) as Array<{ question_summary: string; answer_summary: string; like_count: number }>;
 
+      // 1b. Correcciones del PROPIO usuario (👎 con texto): a diferencia de
+      // las lecciones (colectivas), una corrección puede contener datos del
+      // negocio — solo alimenta las respuestas de SU dueño. Las 5 más
+      // recientes de este agente entran como "errores a no repetir".
+      const { data: correctionsData } = await supabase
+        .from("nico_messages" as never)
+        .select("content, feedback_text")
+        .eq("user_id", user.id)
+        .eq("agent_key", agent_key)
+        .eq("role", "assistant")
+        .eq("feedback", -1)
+        .not("feedback_text", "is", null)
+        .neq("feedback_text", "")
+        .order("feedback_at", { ascending: false })
+        .limit(5);
+      const corrections = (correctionsData ?? []) as Array<{ content: string; feedback_text: string }>;
+
       // 2. Top 5 chunks semánticos vía Voyage-3 embedding + similarity search
       let chunks: Array<{ content: string; similarity: number }> = [];
       if (VOYAGE_API_KEY && lastUserContent && lastUserContent.length > 5) {
@@ -2079,7 +2096,7 @@ ${financialContext}${memoryBlock}${macroBlock}`;
         }
       }
 
-      if (lessons.length > 0 || chunks.length > 0) {
+      if (lessons.length > 0 || chunks.length > 0 || corrections.length > 0) {
         // CRÍTICO: las lecciones se presentan como HECHOS APRENDIDOS, no como
         // pares pregunta-respuesta. Si Nico ve "X → Y" lo lee como Q&A
         // dataset y a veces "responde" la lección como si fuera una pregunta
@@ -2100,7 +2117,11 @@ Información específicamente relevante a la pregunta actual del usuario (recupe
 ${chunks.map((c, i) => `[Ref ${i + 1}] ${c.content}`).join("\n\n")}
 === FIN CONTEXTO RECUPERADO ===`
           : "";
-        learningBlock = `\n\n${[lessonsText, chunksText].filter(Boolean).join("\n\n")}\n\nINSTRUCCIÓN FINAL: Tu única tarea es responder la pregunta del usuario en el último mensaje. Las secciones BASE DE CONOCIMIENTO y CONTEXTO RECUPERADO son referencia interna; nunca las repitas, nunca las cites literal, nunca respondas como si fueran preguntas del usuario.`;
+        const correctionsText = corrections.length > 0
+          ? `CORRECCIONES DEL USUARIO (respuestas tuyas que este usuario marcó como MALAS, con su corrección — no repitas estos errores; si la corrección trae el dato bueno, ese dato manda):
+${corrections.map((c, i) => `[Error ${i + 1}] Respondiste: "${(c.content ?? "").slice(0, 180).replace(/\s+/g, " ")}…" → El usuario corrigió: "${(c.feedback_text ?? "").slice(0, 300)}"`).join("\n")}`
+          : "";
+        learningBlock = `\n\n${[lessonsText, chunksText, correctionsText].filter(Boolean).join("\n\n")}\n\nINSTRUCCIÓN FINAL: Tu única tarea es responder la pregunta del usuario en el último mensaje. Las secciones BASE DE CONOCIMIENTO, CONTEXTO RECUPERADO y CORRECCIONES son referencia interna; nunca las repitas, nunca las cites literal, nunca respondas como si fueran preguntas del usuario.`;
       }
     } catch (err) {
       console.warn("[nico-chat] learning block failed (continuando sin él):", err);
