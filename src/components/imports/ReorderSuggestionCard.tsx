@@ -63,7 +63,7 @@ const TONO = {
   },
   pronto: {
     bar: 'bg-amber-500',
-    text: 'text-amber-600 dark:text-amber-400',
+    text: 'text-amber-700 dark:text-amber-400',
     chip: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-500/25',
   },
   ok: {
@@ -310,7 +310,7 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
                         <span className="font-mono font-medium">{q.reference}</span>
                         <span className="text-muted-foreground tabular-nums">
                           {fmtUnd(q.consumoDiario)}/d · {fmtUnd(q.stock)}
-                          {q.enTransito > 0 && <span className="text-emerald-600 dark:text-emerald-400"> +{fmtUnd(q.enTransito)}</span>}
+                          {q.enTransito > 0 && <span className="text-emerald-700 dark:text-emerald-400"> +{fmtUnd(q.enTransito)}</span>}
                         </span>
                       </span>
                     ))}
@@ -329,7 +329,7 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
             <div className="w-[3px] rounded-full bg-emerald-500 shrink-0" />
             <div className="min-w-0">
               <p className="text-[15px] font-semibold tracking-tight flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
                 Cobertura sobrada — no hay pedido que montar
               </p>
               <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
@@ -367,7 +367,7 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
                 const detalle = transitoSinImputar.map((t) => `${t.label} (${fmtUnd(t.unidades)})`).join(', ');
                 return (
                   <span
-                    className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 cursor-help"
+                    className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 cursor-help"
                     title={`${detalle}\n\nLa fecha de arriba NO las cuenta como cobertura. Revisá cómo quedó escrita esa referencia en el packing/proforma del pedido.`}
                   >
                     <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
