@@ -12,6 +12,17 @@
 import { Component, ReactNode } from 'react';
 import { RefreshCw, AlertCircle, Home } from 'lucide-react';
 
+/** Recarga rompiendo TODOS los cachés del documento (browser y edge de
+ *  Cloudflare): un query param único fuerza a pedir un index.html fresco.
+ *  location.reload() a secas NO alcanza — si el edge tiene el HTML viejo
+ *  cacheado, devuelve el mismo index con hashes muertos y el usuario queda
+ *  en loop sobre esta pantalla (incidente 2026-08-23: deploys en cadena +
+ *  Cloudflare degradado sirviendo stale). */
+function hardReload(path?: string) {
+  const base = path ?? window.location.pathname;
+  window.location.replace(`${base}?v=${Date.now()}`);
+}
+
 interface Props {
   children: ReactNode;
 }
@@ -56,7 +67,7 @@ export default class RouteErrorBoundary extends Component<Props, State> {
       if (!already) {
         sessionStorage.setItem(KEY, String(Date.now()));
         this.setState({ reloading: true });
-        window.location.reload();
+        hardReload();
         return;
       }
       // Si ya intentamos reload y volvió a fallar → no hacemos auto-reload
@@ -69,7 +80,7 @@ export default class RouteErrorBoundary extends Component<Props, State> {
 
   handleRetry = () => {
     sessionStorage.removeItem('aluminia_chunk_reload_attempt');
-    window.location.reload();
+    hardReload();
   };
 
   render() {
@@ -122,7 +133,7 @@ export default class RouteErrorBoundary extends Component<Props, State> {
             </button>
             <button
               type="button"
-              onClick={() => { window.location.assign('/dashboard'); }}
+              onClick={() => { sessionStorage.removeItem('aluminia_chunk_reload_attempt'); hardReload('/dashboard'); }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors"
             >
               <Home className="h-4 w-4" />
