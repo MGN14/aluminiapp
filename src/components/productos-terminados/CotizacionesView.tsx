@@ -24,6 +24,7 @@ import type { QuotationStatus } from '@/types/quotation';
 import NewQuoteModal from '@/components/quotes/NewQuoteModal';
 import QuoteDetailModal from '@/components/quotes/QuoteDetailModal';
 import { useQuoteCycles, deriveCycleStage, CYCLE_STAGE_LABEL } from '@/hooks/useQuoteCycle';
+import QuoteWinLossCard from '@/components/quotes/QuoteWinLossCard';
 import TemplateQuoteModal from '@/components/productos-terminados/TemplateQuoteModal';
 
 const STATUS_LABELS: Record<
@@ -88,6 +89,8 @@ export default function CotizacionesView({ onSwitchToConfig }: Props) {
           </Button>
         </div>
       </div>
+
+      <QuoteWinLossCard />
 
       {isEmpty ? (
         <Card>
