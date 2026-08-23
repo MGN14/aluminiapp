@@ -145,6 +145,8 @@ export default function Importaciones() {
   const { data, isLoading, changeEstado } = useImports();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ImportRow | null>(null);
+  // Apertura dirigida desde los avisos por fila: pestaña + subida a disparar.
+  const [modalOpts, setModalOpts] = useState<{ tab: 'resumen' | 'costeo' | 'datos'; upload: 'proforma' | 'packing' | null } | null>(null);
   const [filter, setFilter] = useState<Filter>('abiertos');
   // Foco de los banners: automático (próx. a entregar), un contenedor
   // puntual, o la simulación "si pido hoy". Reemplaza la tabla comparativa.
@@ -1402,14 +1404,23 @@ export default function Importaciones() {
                               const enviado = row.estado === 'transito' || row.estado === 'aduana';
                               const entregadoYa = row.estado === 'entregado' || row.estado === 'cerrado';
                               if (row.estado === 'cancelado') return null;
+                              // Aviso → botón: te deja parado en Costeo con la
+                              // subida correcta abierta y el tipo preseleccionado.
+                              const abrirSubida = (upload: 'proforma' | 'packing') => (e: React.MouseEvent) => {
+                                e.stopPropagation();
+                                setEditing(row);
+                                setModalOpts({ tab: 'costeo', upload });
+                                setShowModal(true);
+                              };
+                              const warnBtn = 'text-[9px] text-amber-600 mt-0.5 whitespace-nowrap underline decoration-dotted underline-offset-2 hover:text-amber-700 block text-left';
                               if (!ds?.hasItems) {
-                                return <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta subir proforma</div>;
+                                return <button type="button" className={warnBtn} onClick={abrirSubida('proforma')}>⚠ falta subir proforma → subila acá</button>;
                               }
                               if (enviado && !ds.hasPacking) {
-                                return <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta subir packing list</div>;
+                                return <button type="button" className={warnBtn} onClick={abrirSubida('packing')}>⚠ falta subir packing list → subilo acá</button>;
                               }
                               if (entregadoYa && !ds.hasPackingCosteado) {
-                                return <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta packing list costeado</div>;
+                                return <button type="button" className={warnBtn} onClick={abrirSubida('packing')}>⚠ falta packing list costeado → subilo acá</button>;
                               }
                               return null;
                             })()}
@@ -1486,8 +1497,11 @@ export default function Importaciones() {
 
       <ImportModal
         open={showModal}
-        onOpenChange={(v) => { setShowModal(v); if (!v) setEditing(null); }}
+        onOpenChange={(v) => { setShowModal(v); if (!v) { setEditing(null); setModalOpts(null); } }}
         editing={editing}
+        initialTab={modalOpts?.tab}
+        autoOpenUpload={modalOpts?.upload ?? null}
+        onAutoOpenHandled={() => setModalOpts((o) => (o ? { ...o, upload: null } : o))}
       />
 
       {/* Fecha del cambio de estado (select inline de la lista) */}

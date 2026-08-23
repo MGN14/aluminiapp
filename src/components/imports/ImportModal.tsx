@@ -29,6 +29,11 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing?: ImportRow | null;
+  /** Abrir directo en una pestaña (los avisos por fila llevan a 'costeo'). */
+  initialTab?: 'resumen' | 'costeo' | 'datos';
+  /** Al abrir en costeo, disparar la subida con este tipo preseleccionado. */
+  autoOpenUpload?: 'proforma' | 'packing' | null;
+  onAutoOpenHandled?: () => void;
 }
 
 const todayIso = () => new Date().toISOString().split('T')[0];
@@ -92,7 +97,7 @@ function useProveedoresConocidos(enabled: boolean) {
 // Estructura: header con los 4 números que importan + 3 pestañas con el
 // RESUMEN como protagonista (cierre + tiempos + costeo casilla por casilla),
 // Costeo = abonos + landed cost por referencia, Datos = formulario.
-export default function ImportModal({ open, onOpenChange, editing }: Props) {
+export default function ImportModal({ open, onOpenChange, editing, initialTab, autoOpenUpload, onAutoOpenHandled }: Props) {
   const { create, update, remove, data: importsData } = useImports();
   const { user } = useAuth();
   const { isAdmin } = usePermissions();
@@ -597,7 +602,7 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
 
         <form onSubmit={handleSubmit} className="px-6 pb-5 pt-3 space-y-4">
           {isEdit && editing ? (
-            <Tabs defaultValue="resumen">
+            <Tabs defaultValue={initialTab ?? 'resumen'} key={`${editing?.id ?? 'new'}:${initialTab ?? 'resumen'}`}>
               {/* Resumen es el protagonista: pestaña destacada, todo lo importante vive ahí */}
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger
@@ -911,7 +916,13 @@ export default function ImportModal({ open, onOpenChange, editing }: Props) {
                 <ImportPaymentsSection importId={editing.id} />
                 <div>
                   <CosteoCsvTools importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
-                  <ImportCostingSection importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
+                  <ImportCostingSection
+                    importId={editing.id}
+                    montoTotalUsd={editing.monto_total_usd}
+                    estado={estado}
+                    autoOpenUpload={autoOpenUpload}
+                    onAutoOpenHandled={onAutoOpenHandled}
+                  />
                 </div>
               </TabsContent>
 

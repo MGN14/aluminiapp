@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -32,11 +32,15 @@ interface Props {
   onConfirm: (rows: NewImportItem[], source: ImportItemSource, replace: boolean) => void;
   /** Cuántas filas ya existen de cada tipo (para ofrecer reemplazo). */
   existingCounts?: { proforma: number; packing: number };
+  /** Preselección del tipo cuando se llega desde un aviso o CTA por estado
+   *  (producción → proforma, tránsito → packing). El usuario puede cambiarlo
+   *  y la auto-detección por sufijos sigue mandando si no se tocó nada. */
+  initialSource?: ImportItemSource | null;
 }
 
 type Phase = 'input' | 'sheet' | 'map';
 
-export default function PackingListImport({ open, onOpenChange, onConfirm, existingCounts }: Props) {
+export default function PackingListImport({ open, onOpenChange, onConfirm, existingCounts, initialSource }: Props) {
   const [phase, setPhase] = useState<Phase>('input');
   const [pasted, setPasted] = useState('');
   const [rows, setRows] = useState<string[][]>([]);
@@ -51,12 +55,16 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
   // Proforma (pedido a producción, refs sin sufijo — China no los maneja) o
   // packing list definitivo (refs con sufijo de color). null = aún sin decidir
   // → se auto-detecta por los sufijos y el usuario puede cambiarlo.
-  const [tipo, setTipo] = useState<ImportItemSource | null>(null);
+  const [tipo, setTipo] = useState<ImportItemSource | null>(initialSource ?? null);
   const [replaceExisting, setReplaceExisting] = useState(true);
+
+  useEffect(() => {
+    if (open && initialSource) setTipo(initialSource);
+  }, [open, initialSource]);
 
   const reset = () => {
     setPhase('input'); setPasted(''); setRows([]); setSheets([]); setReadingXlsx(false);
-    setHasHeader(true); setMapping([]); setError(null); setTipo(null); setReplaceExisting(true);
+    setHasHeader(true); setMapping([]); setError(null); setTipo(initialSource ?? null); setReplaceExisting(true);
     setStrictNumbers(false);
   };
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -51,7 +51,17 @@ function useInventoryCosts() {
   });
 }
 
-export default function ImportCostingSection({ importId, montoTotalUsd }: { importId: string; montoTotalUsd?: number | null }) {
+export default function ImportCostingSection({ importId, montoTotalUsd, estado, autoOpenUpload, onAutoOpenHandled }: {
+  importId: string;
+  montoTotalUsd?: number | null;
+  /** Estado del pedido — decide el CTA (producción→proforma, tránsito→packing)
+   *  y la etiqueta del costeo (ESPERADO en viaje, REAL entregado). */
+  estado?: string;
+  /** Abre el diálogo de subida apenas monta, con el tipo preseleccionado
+   *  (viene de los avisos por fila de la tabla de pedidos). */
+  autoOpenUpload?: 'proforma' | 'packing' | null;
+  onAutoOpenHandled?: () => void;
+}) {
   const [trmOverride, setTrmOverride] = useState<number | ''>('');
   const {
     effectiveItems: items, effectiveSource, proformaItems, hayProforma, hayPacking,
@@ -64,6 +74,33 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
     [invCostPares],
   );
   const [showImport, setShowImport] = useState(false);
+  const [uploadSource, setUploadSource] = useState<'proforma' | 'packing' | null>(null);
+
+  // Deep-link desde los avisos por fila: aterrizar con el diálogo abierto y
+  // el tipo correcto ya elegido — cero clicks de búsqueda.
+  useEffect(() => {
+    if (!autoOpenUpload) return;
+    setUploadSource(autoOpenUpload);
+    setShowImport(true);
+    onAutoOpenHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenUpload]);
+
+  const abrirSubida = (source: 'proforma' | 'packing') => {
+    setUploadSource(source);
+    setShowImport(true);
+  };
+
+  // Qué documento toca según el estado (Nico 2026-08-23): en producción se
+  // sube la PROFORMA (lo pedido a fábrica); embarcado, el PACKING definitivo
+  // (lo que realmente viene, con costeo). Entregado = el costeo pasa a REAL.
+  const enProduccion = estado === 'produccion' || estado === 'anticipo' || estado === 'cotizacion';
+  const enViaje = estado === 'transito' || estado === 'aduana';
+  const entregadoYa = estado === 'entregado' || estado === 'cerrado';
+  const ctaDoc: 'proforma' | 'packing' | null =
+    enProduccion && !hayProforma && !hayPacking ? 'proforma'
+    : (enViaje || entregadoYa) && !hayPacking ? 'packing'
+    : null;
 
   const landedById = useMemo(() => {
     const m = new Map(landed.items.map((r) => [r.id, r]));
@@ -104,10 +141,46 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
 
   return (
     <div className="space-y-5 rounded-lg border border-border p-4 bg-muted/10">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <PackageOpen className="h-4 w-4 text-primary" />
         <h3 className="text-sm font-semibold">Costeo referencia a referencia (landed cost)</h3>
+        {estado && (
+          entregadoYa ? (
+            <span
+              className="text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-success/10 text-success ring-1 ring-inset ring-success/25"
+              title="El contenedor ya llegó: con la liquidación real de aduana digitada, este costo es el que alimenta el inventario y los demás módulos."
+            >
+              costeo real
+            </span>
+          ) : (
+            <span
+              className="text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-warning/10 text-warning ring-1 ring-inset ring-warning/25"
+              title="Mientras el pedido viaja, arancel/IVA/TRM son estimados: este costo es el ESPERADO. Al marcar entregado y digitar la liquidación real de aduana, pasa a ser el costo real que toma el inventario."
+            >
+              costeo esperado
+            </span>
+          )
+        )}
       </div>
+
+      {/* CTA del documento que toca según el estado — la guía de "qué subo
+          ahora": producción→proforma, embarcado→packing definitivo. */}
+      {ctaDoc && (
+        <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5">
+          <p className="text-xs">
+            {ctaDoc === 'proforma' ? (
+              <><span className="font-semibold">Este pedido está en producción:</span>{' '}
+              subí la <span className="font-semibold">proforma</span> (lo que le pediste a la fábrica) para que la cobertura y el radar lo cuenten.</>
+            ) : (
+              <><span className="font-semibold">El contenedor ya embarcó:</span>{' '}
+              subí el <span className="font-semibold">packing list definitivo</span> — con su costeo es el costo <span className="font-semibold">esperado</span>, y acá se compara contra la proforma.</>
+            )}
+          </p>
+          <Button type="button" size="sm" className="h-7 text-xs gap-1.5 shrink-0" onClick={() => abrirSubida(ctaDoc)}>
+            <Upload className="h-3.5 w-3.5" /> Subir {ctaDoc === 'proforma' ? 'proforma' : 'packing list'}
+          </Button>
+        </div>
+      )}
 
       {/* ── TRM ── */}
       <div className="flex flex-wrap items-end gap-3 text-xs">
@@ -152,7 +225,7 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
             )}
           </Label>
           <div className="flex gap-1.5">
-            <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setShowImport(true)}>
+            <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => abrirSubida(hayPacking || enViaje || entregadoYa ? 'packing' : hayProforma ? 'packing' : 'proforma')}>
               <Upload className="h-3.5 w-3.5" /> Importar CSV/Excel
             </Button>
             <Button
@@ -405,7 +478,9 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
           </div>
           <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
             <Info className="h-3.5 w-3.5 shrink-0" />
-            Solo análisis: este costo no modifica tu inventario. La columna "Δ vs inv." compara contra el costo que ya tenés cargado.
+            {entregadoYa
+              ? 'Costeo REAL: al marcar entregado, la entrada al inventario corre sola con este costo (el excel de costeo manda; landed como respaldo). "Δ vs inv." compara contra lo que ya tenés cargado.'
+              : 'Costeo ESPERADO (arancel/IVA/TRM estimados): todavía no toca tu inventario. Al marcar entregado y digitar la liquidación real de aduana, la entrada corre sola con el costo real.'}
           </p>
         </div>
       )}
@@ -414,6 +489,7 @@ export default function ImportCostingSection({ importId, montoTotalUsd }: { impo
         open={showImport}
         onOpenChange={setShowImport}
         existingCounts={{ proforma: proformaItems.length, packing: hayPacking ? items.length : 0 }}
+        initialSource={uploadSource}
         onConfirm={(rows, source, replace) => importItemSet.mutate({ rows, source, replace })}
       />
     </div>
