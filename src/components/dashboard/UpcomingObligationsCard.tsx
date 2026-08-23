@@ -3,9 +3,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Link } from 'react-router-dom';
-import { ArrowRight, CalendarClock, AlertTriangle } from 'lucide-react';
+import { ArrowRight, CalendarClock, AlertTriangle, Sparkles, Check, X } from 'lucide-react';
 import { useUpcomingObligations, diasRestantes } from '@/hooks/useUpcomingObligations';
 import { usePaidObligations } from '@/hooks/usePaidObligations';
+import { usePredictedObligations } from '@/hooks/usePredictedObligations';
 import { TIPO_LABEL } from '@/lib/dianCalendar2026';
 
 const MAX_ITEMS = 5;
@@ -36,6 +37,8 @@ function urgencyLabel(days: number): string {
 export default function UpcomingObligationsCard() {
   const { events, nitDigit } = useUpcomingObligations(UPCOMING_WINDOW_DAYS);
   const { isPaid, togglePaid } = usePaidObligations();
+  // Gastos recurrentes detectados en la conciliación (estimados, nunca DIAN).
+  const { predicted, confirm, dismiss } = usePredictedObligations();
 
   // Mantiene vencidas no pagadas (d < 0) — solo el checkbox las saca de la lista.
   // Ordena: vencidas primero (más vencida arriba), luego por fecha ascendente.
@@ -76,8 +79,8 @@ export default function UpcomingObligationsCard() {
     );
   }
 
-  // Sin obligaciones próximas.
-  if (upcoming.length === 0) {
+  // Sin obligaciones próximas (ni predichos que mostrar).
+  if (upcoming.length === 0 && predicted.length === 0) {
     return (
       <Link to="/visita-dian" className="block group">
         <Card className="overflow-hidden border border-success/30 bg-success/5 hover:border-success/50 transition-colors cursor-pointer h-full">
@@ -164,6 +167,52 @@ export default function UpcomingObligationsCard() {
               );
             })}
           </div>
+
+          {/* Predichos desde la conciliación — SIEMPRE marcados "estimado":
+              una fecha DIAN es ley, esta es estadística de tus propios pagos. */}
+          {predicted.length > 0 && (
+            <div className="mt-2.5 pt-2 border-t border-border/60 space-y-1.5">
+              <p className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+                <Sparkles className="h-3 w-3" /> Detectado en tus pagos
+              </p>
+              {predicted.map((p) => (
+                <div
+                  key={p.pattern_key}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 border border-dashed border-border bg-muted/20"
+                  title={`Se repitió ${p.occurrences} veces, cada ~${p.frequency_days} días (confianza ${Math.round(p.confidence * 100)}%).`}
+                >
+                  <Badge variant="outline" className="text-[9px] py-0 px-1.5 h-4 shrink-0 bg-background text-muted-foreground">
+                    estimado
+                  </Badge>
+                  <span className="text-[11px] text-foreground truncate flex-1 min-w-0">{p.description}</span>
+                  <span className={`text-[10px] font-semibold shrink-0 ${urgencyColor(p.days_until)}`}>
+                    {urgencyLabel(p.days_until)}
+                  </span>
+                  <span className="text-[10px] font-medium tabular-nums shrink-0 text-muted-foreground">
+                    ≈{new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0, notation: 'compact' }).format(p.estimated_amount)}
+                  </span>
+                  <span className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      type="button"
+                      title="Sí, es un pago fijo — crear la obligación"
+                      className="h-5 w-5 rounded flex items-center justify-center text-success hover:bg-success/10"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); confirm.mutate(p); }}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="No es fijo — no volver a sugerirlo"
+                      className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:bg-muted"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); dismiss.mutate(p); }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex items-center gap-1 text-[11px] text-primary/70 group-hover:text-primary font-medium transition-colors pt-2.5">
             Ver calendario completo <ArrowRight className="h-3 w-3" />

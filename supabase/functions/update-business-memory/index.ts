@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-cron-secret, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 Deno.serve(async (req) => {
@@ -12,34 +12,74 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "No autorizado" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const admin = createClient(supabaseUrl, serviceKey);
 
-    const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await userClient.auth.getUser();
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "No autorizado" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Dos vías (patrón score-collection-clients):
+    //   1. x-cron-secret → corre para TODOS los usuarios (cron diario 6am)
+    //   2. Bearer JWT    → solo el usuario autenticado (disparo del Dashboard)
+    const cronSecret = Deno.env.get("BUSINESS_MEMORY_CRON_SECRET") || Deno.env.get("NICO_REPORT_CRON_SECRET");
+    const isCron = !!cronSecret && req.headers.get("x-cron-secret") === cronSecret;
+
+    let targetUsers: string[] = [];
+    if (isCron) {
+      const { data: profs } = await admin.from("profiles").select("user_id");
+      targetUsers = Array.from(new Set((profs ?? []).map((r: any) => r.user_id).filter(Boolean)));
+    } else {
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader) {
+        return new Response(JSON.stringify({ error: "No autorizado" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: authHeader } },
       });
+      const { data: { user }, error: authErr } = await userClient.auth.getUser();
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: "No autorizado" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      targetUsers = [user.id];
     }
 
-    const userId = user.id;
-    const admin = createClient(supabaseUrl, serviceKey);
+    const results: Record<string, unknown> = {};
+    for (const uid of targetUsers) {
+      try {
+        results[uid] = await processUser(admin, uid);
+      } catch (e) {
+        console.error(`[update-business-memory] user=${uid} failed:`, e);
+        results[uid] = { error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+
+    const payload = isCron
+      ? { mode: "cron", users: targetUsers.length, results }
+      : results[targetUsers[0]];
+    return new Response(JSON.stringify(payload), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[update-business-memory] Error:", error);
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
+
+// Toda la lógica por usuario (métricas + patrones + predicciones). Devuelve el
+// payload que antes salía directo en la Response del modo single-user.
+async function processUser(admin: any, userId: string) {
 
     // Fetch all transaction data
     const [txRes, invRes, respRes] = await Promise.all([
       admin.from("transactions")
-        .select("id, date, description, amount, credit, debit, type, category_id, responsible_id, invoice_id, operational_type, categories!transactions_category_id_fkey(name)")
+        .select("id, date, description, amount, credit, debit, type, category_id, responsible_id, invoice_id, operational_type, movement_nature, categories!transactions_category_id_fkey(name)")
         .eq("user_id", userId)
         .is("deleted_at", null)
         .order("date", { ascending: true })
@@ -188,18 +228,38 @@ Deno.serve(async (req) => {
       dates: string[];
       entities: Set<string>;
       type: string;
+      source: "conciliado" | "texto";
+      label: string | null;
     }> = {};
 
     transactions.forEach((t: any) => {
-      // Normalize description for grouping
+      // Traspasos, préstamos y aportes NO son patrones del negocio (mismo
+      // criterio que isOperativo en types/transaction.ts).
+      const nature = t.movement_nature ?? "operativo";
+      if (nature !== "operativo") return;
+
       const desc = (t.description || "").toLowerCase().trim();
       const words = desc.split(/\s+/).slice(0, 4).join(" "); // first 4 words as key
       const amount = Math.abs(t.amount ?? 0);
       if (amount < 10000) return; // skip tiny amounts
 
-      const groupKey = `${t.type || "unknown"}_${words}`;
+      // La curaduría de Conciliación manda: si el movimiento tiene beneficiario
+      // asignado, se agrupa por beneficiario+categoría — dos pagos del mismo
+      // arriendo con referencia bancaria distinta caen en el MISMO grupo.
+      // Sin beneficiario, fallback al texto crudo (las primeras 4 palabras).
+      const conciliado = !!t.responsible_id;
+      const groupKey = conciliado
+        ? `${t.type || "unknown"}|resp:${t.responsible_id}|cat:${t.category_id ?? ""}`
+        : `${t.type || "unknown"}|txt:${words}`;
       if (!txGroups[groupKey]) {
-        txGroups[groupKey] = { descriptions: [], amounts: [], dates: [], entities: new Set(), type: t.type || "unknown" };
+        const catName = (t.categories as any)?.name ?? null;
+        const respName = t.responsible_id ? respMap[t.responsible_id] ?? null : null;
+        txGroups[groupKey] = {
+          descriptions: [], amounts: [], dates: [], entities: new Set(), type: t.type || "unknown",
+          source: conciliado ? "conciliado" : "texto",
+          // Etiqueta curada para patrones conciliados: "Arriendo — Inmobiliaria X"
+          label: conciliado ? [catName, respName].filter(Boolean).join(" — ") || null : null,
+        };
       }
       txGroups[groupKey].descriptions.push(t.description || "");
       txGroups[groupKey].amounts.push(amount);
@@ -231,6 +291,8 @@ Deno.serve(async (req) => {
       entities: string[];
       occurrences: number;
       confidence: number;
+      pattern_key: string;
+      source: string;
     }[] = [];
 
     // From transaction groups
@@ -264,16 +326,24 @@ Deno.serve(async (req) => {
         group.descriptions.filter(d => d === a).length - group.descriptions.filter(d => d === b).length
       ).pop() || "";
 
+      // Un patrón anclado a la curaduría de Conciliación (beneficiario+categoría)
+      // es más sólido que uno por texto crudo: +0.15 de confianza, capped.
+      const finalConfidence = group.source === "conciliado"
+        ? Math.min(1, confidence + 0.15)
+        : confidence;
+
       detectedPatterns.push({
         pattern_type: patternType,
-        description: mostCommonDesc.substring(0, 200),
+        description: (group.label ?? mostCommonDesc).substring(0, 200),
         amount_min: Math.round(minAmount),
         amount_max: Math.round(maxAmount),
         frequency_days: avgFreq,
         last_occurrence: sortedDates[sortedDates.length - 1],
         entities: Array.from(group.entities).slice(0, 5),
         occurrences: group.amounts.length,
-        confidence: Math.round(confidence * 100) / 100,
+        confidence: Math.round(finalConfidence * 100) / 100,
+        pattern_key: key,
+        source: group.source,
       });
     }
 
@@ -312,6 +382,8 @@ Deno.serve(async (req) => {
         entities: [entityName],
         occurrences: group.amounts.length,
         confidence: Math.round(confidence * 100) / 100,
+        pattern_key: key,
+        source: "factura",
       });
     }
 
@@ -320,6 +392,18 @@ Deno.serve(async (req) => {
 
     // Keep top 30 patterns
     const topPatterns = detectedPatterns.slice(0, 30);
+
+    // El regenerado es DELETE+INSERT: preservar el status por pattern_key para
+    // que archived (regla creada) / dismissed / confirmed (F3) sobrevivan cada
+    // corrida. Antes se perdían — el archivado de reglas se des-archivaba solo.
+    const { data: prevRows } = await admin
+      .from("business_patterns")
+      .select("pattern_key, status")
+      .eq("user_id", userId)
+      .not("pattern_key", "is", null);
+    const prevStatus = new Map<string, string>(
+      ((prevRows ?? []) as any[]).map((r) => [r.pattern_key as string, r.status as string]),
+    );
 
     // Delete old patterns and insert new ones
     await admin.from("business_patterns").delete().eq("user_id", userId);
@@ -336,7 +420,9 @@ Deno.serve(async (req) => {
           entities: p.entities,
           occurrences: p.occurrences,
           confidence: p.confidence,
-          status: p.occurrences >= 3 ? "active" : "new",
+          pattern_key: p.pattern_key,
+          source: p.source,
+          status: prevStatus.get(p.pattern_key) ?? "new",
         }))
       );
     }
@@ -348,6 +434,10 @@ Deno.serve(async (req) => {
 
     // For active patterns, predict next occurrence
     for (const p of topPatterns.filter(p => p.occurrences >= 3 && p.frequency_days > 0 && p.confidence >= 0.3)) {
+      // dismissed = el usuario dijo "ignoralo"; confirmed = ya es una
+      // business_obligation real (F3) — no predecir encima.
+      const st = prevStatus.get(p.pattern_key) ?? "new";
+      if (st === "dismissed" || st === "confirmed") continue;
       const lastDate = new Date(p.last_occurrence + "T00:00:00");
       const nextDate = new Date(lastDate.getTime() + p.frequency_days * 24 * 60 * 60 * 1000);
       const daysUntil = Math.round((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -362,6 +452,10 @@ Deno.serve(async (req) => {
           days_until: daysUntil,
           confidence: p.confidence,
           entities: p.entities,
+          pattern_key: p.pattern_key,
+          source: p.source,
+          occurrences: p.occurrences,
+          frequency_days: p.frequency_days,
         });
       }
     }
@@ -385,7 +479,7 @@ Deno.serve(async (req) => {
 
     console.log(`[update-business-memory] user=${userId} metrics=${Object.keys(metrics).length} patterns=${topPatterns.length} predictions=${predictions.length}`);
 
-    return new Response(JSON.stringify({
+    return {
       metrics_updated: Object.keys(metrics).length,
       patterns_detected: topPatterns.length,
       active_patterns: activePatterns.length,
@@ -399,15 +493,5 @@ Deno.serve(async (req) => {
           days_until: p.days_until,
         })),
       },
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[update-business-memory] Error:", error);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-});
+    };
+}

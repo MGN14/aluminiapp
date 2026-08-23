@@ -204,6 +204,23 @@ async function buildReport(admin: any, userId: string): Promise<string | null> {
     ? ((recoveredWeek - recoveredPrev) / recoveredPrev) * 100
     : null;
 
+  // F4 aprendizaje continuo: gastos recurrentes PREDICHOS que caen esta
+  // semana (detectados en la conciliación por update-business-memory).
+  // Se muestran como estimados — estadística de los pagos del negocio.
+  const { data: predMem } = await admin
+    .from("business_memory")
+    .select("metric_value")
+    .eq("user_id", userId)
+    .eq("metric_key", "predictions")
+    .maybeSingle();
+  const predSemana = (Array.isArray(predMem?.metric_value) ? predMem.metric_value : [])
+    .filter((p: any) =>
+      (p.type === "egreso_recurrente" || p.type === "compra_recurrente_proveedor")
+      && p.days_until >= 0 && p.days_until <= 7
+      && (p.occurrences ?? 0) >= 4 && (p.confidence ?? 0) >= 0.5)
+    .slice(0, 5);
+  const totalPredSemana = predSemana.reduce((s: number, p: any) => s + Number(p.estimated_amount ?? 0), 0);
+
   // HTML
   const semaforoColor = (overdue: number) => overdue > 60 ? "#dc2626" : overdue > 30 ? "#f59e0b" : "#0891b2";
   const html = `
@@ -223,6 +240,14 @@ async function buildReport(admin: any, userId: string): Promise<string | null> {
       ${recoveryDelta !== null ? `<p style="font-size: 11px; color: ${recoveryDelta >= 0 ? '#16a34a' : '#dc2626'}; margin: 4px 0 0 0;">${recoveryDelta >= 0 ? '↑' : '↓'} ${Math.abs(recoveryDelta).toFixed(0)}% vs semana anterior</p>` : ''}
     </div>
   </div>
+
+  ${predSemana.length > 0 ? `
+  <!-- Gastos recurrentes estimados de la semana (aprendizaje continuo F4) -->
+  <div style="padding: 12px 16px; border: 1px dashed #d1d5db; border-radius: 8px; margin-bottom: 24px; background: #fafafa;">
+    <p style="font-size: 12px; font-weight: bold; margin: 0 0 6px 0;">🔮 Esta semana te caen ≈ ${fmtMoney(totalPredSemana)} en gastos recurrentes <span style="font-weight: normal; color: #6b7280;">(estimado por tus propios pagos)</span></p>
+    ${predSemana.map((p: any) => `<p style="font-size: 12px; color: #374151; margin: 2px 0;">· ${p.description} — ≈${fmtMoney(Number(p.estimated_amount ?? 0))} en ${p.days_until === 0 ? 'HOY' : `${p.days_until}d`}</p>`).join('')}
+    <p style="font-size: 11px; color: #9ca3af; margin: 6px 0 0 0;">Cruzalo contra lo recuperado arriba: si la cobranza de la semana no cubre esto, hay que apretar.</p>
+  </div>` : ''}
 
   <!-- Aging -->
   <h2 style="font-size: 15px; margin: 24px 0 8px 0;">📈 Envejecimiento de cartera</h2>
