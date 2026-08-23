@@ -74,6 +74,12 @@ Deno.serve(async (req) => {
 
 // Toda la lógica por usuario (métricas + patrones + predicciones). Devuelve el
 // payload que antes salía directo en la Response del modo single-user.
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + Math.round(days));
+  return d.toISOString().slice(0, 10);
+}
+
 async function processUser(admin: any, userId: string) {
 
     // Fetch all transaction data
@@ -478,6 +484,102 @@ async function processUser(admin: any, userId: string) {
     const activePatterns = topPatterns.filter(p => p.occurrences >= 3);
 
     console.log(`[update-business-memory] user=${userId} metrics=${Object.keys(metrics).length} patterns=${topPatterns.length} predictions=${predictions.length}`);
+
+    // ══════════════════ LIBRO DE ACIERTOS ══════════════════
+    // Registrar predicciones abiertas + resolver las vencidas contra la
+    // realidad. Corre en el mismo cron diario — un solo lugar escribe el log.
+    try {
+      const todayIso = now.toISOString().slice(0, 10);
+
+      // A. Abrir logs de gastos recurrentes predichos (uno abierto por patrón).
+      const gastoPreds = predictions.filter((p: any) =>
+        (p.type === "egreso_recurrente" || p.type === "compra_recurrente_proveedor") && p.days_until >= 0);
+      if (gastoPreds.length > 0) {
+        const { data: openRows } = await admin.from("prediction_log")
+          .select("subject_key").eq("user_id", userId).eq("kind", "gasto_recurrente").is("resolved_at", null);
+        const openKeys = new Set(((openRows ?? []) as any[]).map((r) => r.subject_key));
+        const toInsert = gastoPreds.filter((p: any) => p.pattern_key && !openKeys.has(p.pattern_key));
+        if (toInsert.length > 0) {
+          await admin.from("prediction_log").insert(toInsert.map((p: any) => ({
+            user_id: userId,
+            kind: "gasto_recurrente",
+            subject_key: p.pattern_key,
+            subject_label: (p.description ?? "").slice(0, 200),
+            predicted: { estimated_amount: p.estimated_amount, estimated_date: p.estimated_date, confidence: p.confidence, source: p.source },
+            resolve_after: addDaysIso(p.estimated_date, 4),
+          })));
+        }
+      }
+
+      // B. Abrir logs de score de cobranza (desde el cache de scores vigente).
+      const { data: scoreRows } = await admin.from("client_collection_scores")
+        .select("client_id, client_name, score").eq("user_id", userId);
+      if ((scoreRows ?? []).length > 0) {
+        const { data: openScoreRows } = await admin.from("prediction_log")
+          .select("subject_key").eq("user_id", userId).eq("kind", "score_cobranza").is("resolved_at", null);
+        const openScoreKeys = new Set(((openScoreRows ?? []) as any[]).map((r) => r.subject_key));
+        const newScores = ((scoreRows ?? []) as any[]).filter((r) => !openScoreKeys.has(r.client_id));
+        if (newScores.length > 0) {
+          await admin.from("prediction_log").insert(newScores.map((r) => ({
+            user_id: userId,
+            kind: "score_cobranza",
+            subject_key: r.client_id,
+            subject_label: (r.client_name ?? "").slice(0, 200),
+            predicted: { score: r.score },
+            resolve_after: addDaysIso(todayIso, 30),
+          })));
+        }
+      }
+
+      // C. Resolver los vencidos.
+      const { data: dueRows } = await admin.from("prediction_log")
+        .select("id, kind, subject_key, predicted")
+        .eq("user_id", userId).is("resolved_at", null).lte("resolve_after", todayIso)
+        .limit(100);
+      for (const row of (dueRows ?? []) as any[]) {
+        let hit: boolean | null = null;
+        let actual: Record<string, unknown> = {};
+        if (row.kind === "gasto_recurrente") {
+          // ¿Cayó un egreso del mismo grupo (resp/cat del pattern_key) en la
+          // ventana ±4 días y ±40% del monto? Para patrones de texto, solo
+          // monto+fecha (señal más débil, documentada en actual.match).
+          const est = Number(row.predicted?.estimated_amount ?? 0);
+          const estDate = String(row.predicted?.estimated_date ?? todayIso);
+          const respMatch = /\|resp:([0-9a-f-]{36})/.exec(row.subject_key ?? "");
+          let q = admin.from("transactions")
+            .select("amount, date").eq("user_id", userId).is("deleted_at", null)
+            .gte("date", addDaysIso(estDate, -4)).lte("date", addDaysIso(estDate, 4));
+          if (respMatch) q = q.eq("responsible_id", respMatch[1]);
+          const { data: txs } = await q;
+          const found = ((txs ?? []) as any[]).find((t) => {
+            const amt = Math.abs(Number(t.amount) || 0);
+            return est > 0 && amt >= est * 0.6 && amt <= est * 1.4;
+          });
+          hit = !!found;
+          actual = found
+            ? { found_amount: Math.abs(Number(found.amount)), found_date: found.date, match: respMatch ? "beneficiario" : "monto" }
+            : { match: respMatch ? "beneficiario" : "monto" };
+        } else if (row.kind === "score_cobranza") {
+          // ¿El cliente pagó algo en los 30 días? Score alto (≥60) acierta si
+          // pagó; score bajo (<40) acierta si NO pagó; 40-59 = zona gris, no
+          // puntúa (hit null) — el modelo no se comprometió.
+          const score = Number(row.predicted?.score ?? 50);
+          const { count } = await admin.from("transactions")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", userId).is("deleted_at", null).eq("type", "ingreso")
+            .eq("responsible_id", row.subject_key)
+            .gte("date", addDaysIso(todayIso, -30));
+          const pago = (count ?? 0) > 0;
+          actual = { pagos_ventana: count ?? 0 };
+          hit = score >= 60 ? pago : score < 40 ? !pago : null;
+        }
+        await admin.from("prediction_log")
+          .update({ actual, hit, resolved_at: now.toISOString() })
+          .eq("id", row.id);
+      }
+    } catch (e) {
+      console.warn("[update-business-memory] libro de aciertos falló (no bloquea):", e);
+    }
 
     return {
       metrics_updated: Object.keys(metrics).length,

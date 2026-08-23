@@ -3,6 +3,7 @@ import AppLayout from '@/components/layout/AppLayout';
 import NicoAgentsView from '@/components/nico/NicoAgentsView';
 import NicoPronosticos from '@/components/nico/NicoPronosticos';
 import NicoPatrones from '@/components/nico/NicoPatrones';
+import LibroAciertosCard from '@/components/nico/LibroAciertosCard';
 import NicoReglas from '@/pages/nico/Reglas';
 import nicoAvatar from '@/assets/nico-avatar.png';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -101,8 +102,13 @@ export default function NicoPage() {
         )}
 
         {tab === 'patrones' && (
-          <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
-            <NicoPatrones onPreguntarNico={() => setTab('chat')} />
+          <div className="space-y-4">
+            <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
+              <NicoPatrones onPreguntarNico={() => setTab('chat')} />
+            </div>
+            <div className="bg-card border border-border rounded-2xl shadow-sm p-5">
+              <LibroAciertosCard />
+            </div>
           </div>
         )}
 
