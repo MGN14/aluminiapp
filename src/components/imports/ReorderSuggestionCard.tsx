@@ -100,7 +100,7 @@ function Metric({ label, value, hint, tone = 'text-foreground', title }: {
 }
 
 export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?: () => void }) {
-  const { isPending, suggestion: sug, pedidosSinItems, pipeline, diasCotizacion, retenidos, transitoSinImputar } = useReorderSuggestion();
+  const { isPending, suggestion: sug, pedidosSinItems, pipeline, diasCotizacion, retenidos, transitoSinImputar, merma } = useReorderSuggestion();
   const [showRefs, setShowRefs] = useState(false);
 
   if (isPending || !sug) {
@@ -131,6 +131,9 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
     `· lead time ${sug.leadTime.totalDias}d + ${sug.safetyDias}d de colchón`,
     sug.leadTime.tieneDefaults
       ? '\n\nParte del lead time sigue estimado por defecto — se reemplaza solo con las fechas reales de tus pedidos.'
+      : null,
+    merma && merma.porFamilia.size > 0
+      ? `\n\nMerma aprendida de tus conteos: ${merma.porFamilia.size} familia${merma.porFamilia.size === 1 ? '' : 's'} con pérdida histórica — su demanda sube hasta +10% para cubrirla.`
       : null,
   ].filter(Boolean).join(' ');
 

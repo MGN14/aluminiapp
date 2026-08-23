@@ -23,6 +23,7 @@ import {
   type ReorderSuggestion,
 } from '@/lib/reorderSuggestion';
 import { refFamilyKey, variantKey, applyColorSuffix, colorFromSuffix } from '@/lib/refFamily';
+import { computeShrinkage, type ShrinkageResult } from '@/lib/shrinkageRate';
 import { computeFamilyDemand, type FamilyDemand, type DemandMovement } from '@/lib/demandModel';
 import { buildVariantPrimitives, decorateVariants, type VarianteCobertura, type VentaRow } from '@/lib/coverageVariants';
 
@@ -42,6 +43,8 @@ export interface PipelineResumen {
 }
 
 export interface UseReorderSuggestionResult {
+  /** Merma aprendida por familia desde los cierres confirmados (null mientras carga). */
+  merma: import('@/lib/shrinkageRate').ShrinkageResult | null;
   isPending: boolean;
   suggestion: ReorderSuggestion | null;
   /** Pedidos abiertos SIN packing list/proforma: no cuentan como cobertura. */
@@ -242,6 +245,26 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // entradas de contenedor: la reconstrucción hacia atrás daba 1-3 "días con
   // stock" de 90 e inflaba el consumo hasta ×36 (GL4102 marcaba 872 und/día
   // contra 24 reales — auditoría 2026-08-02).
+  // Merma aprendida: líneas de los cierres de inventario CONFIRMADOS.
+  // computeShrinkage exige >=2 sesiones y capea en 10% — ver shrinkageRate.ts.
+  const shrinkageQuery = useQuery({
+    queryKey: ['imports', 'reorder-merma'],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<ShrinkageResult> => {
+      const { data, error } = await (supabase as any)
+        .from('inventory_count_lines')
+        .select('session_id, variant_reference, stock_teorico, diferencia, session:session_id!inner(estado)')
+        .eq('session.estado', 'confirmado');
+      if (error) throw error;
+      return computeShrinkage(((data ?? []) as any[]).map((r) => ({
+        session_id: r.session_id,
+        variant_reference: r.variant_reference,
+        stock_teorico: Number(r.stock_teorico) || 0,
+        diferencia: Number(r.diferencia) || 0,
+      })));
+    },
+  });
+
   const variantMovsQuery = useQuery({
     queryKey: ['imports', 'reorder-variant-movs'],
     queryFn: async () => {
@@ -271,7 +294,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
   const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
   if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || variantMovsQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], disponibilidadPorImport: new Map(), referenciasSinCruzar: [], transitoSinImputar: [], demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map() };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], disponibilidadPorImport: new Map(), referenciasSinCruzar: [], transitoSinImputar: [], demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map(), merma: null };
   }
 
   const today = isoToday();
@@ -484,7 +507,11 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     const censura = d.consumoDiarioSimple > 0 && d.consumoDiario > 0
       ? Math.min(CENSURA_MAX, Math.max(1, d.consumoDiario / d.consumoDiarioSimple))
       : 1;
-    const factor = Math.min(FACTOR_TOTAL_MAX, censura * (d.factorDemanda || 1));
+    // Merma aprendida de los conteos físicos confirmados (cap 10% en la lib):
+    // donde históricamente se pierde material, la demanda efectiva sube — el
+    // colchón se paga solo con la primera remisión que no alcanza a cubrirse.
+    const merma = shrinkageQuery.data?.porFamilia.get(fam)?.tasa ?? 0;
+    const factor = Math.min(FACTOR_TOTAL_MAX, censura * (d.factorDemanda || 1) * (1 + merma));
     if (factor !== 1) factorDemandaPorFamilia.set(fam, factor);
   }
 
@@ -569,5 +596,5 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, disponibilidadPorImport: dispPorImport, referenciasSinCruzar: prims.sinCruzar, transitoSinImputar: prims.transitoSinImputar, demandPorFamilia, porVariante, kgPorUnidadVariante };
+  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, disponibilidadPorImport: dispPorImport, referenciasSinCruzar: prims.sinCruzar, transitoSinImputar: prims.transitoSinImputar, demandPorFamilia, porVariante, kgPorUnidadVariante, merma: shrinkageQuery.data ?? null };
 }
