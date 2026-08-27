@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ClipboardCheck, Upload, Loader2, Check, X, AlertTriangle, History, ChevronDown, ChevronRight,
-  FileSpreadsheet, Download,
+  FileSpreadsheet, Download, Eye, User,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,7 @@ import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { parseMaestra } from '@/hooks/useInventoryVariants';
 import { useInventoryCount, fetchCountLines, syncTeoricoBorrador, type CountLine, type CountSession } from '@/hooks/useInventoryCount';
 import { calcularLineas, totalizar, exportCountToExcel } from '@/lib/inventoryCountExport';
+import CountDiffView from './CountDiffView';
 import { cn } from '@/lib/utils';
 
 const fmt = (n: number) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
@@ -39,18 +40,15 @@ export default function InventoryCountClosing() {
   const { isAdmin } = usePermissions();
   const {
     sessions, borrador, lineasBorrador, lineasPending,
-    crearBorrador, editarLinea, confirmarCierre, descartarBorrador,
+    crearBorrador, editarLinea, confirmarCierre, descartarBorrador, useLineasDe,
   } = useInventoryCount();
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [fechaConteo, setFechaConteo] = useState(hoyIso());
-  // La tabla ordena por impacto en plata, así que los faltantes (grandes)
-  // tapaban a los sobrantes (chicos): el card decía "sobran 9M" y en la tabla
-  // no se veía un solo positivo (reporte de Nico 2026-08-04). Filtro explícito.
-  const [filtro, setFiltro] = useState<'dif' | 'faltan' | 'sobran' | 'todas'>('dif');
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editVal, setEditVal] = useState('');
-  const [verHistorial, setVerHistorial] = useState(false);
+  // Abierto por defecto: el dueño tiene que poder ver qué hizo bodega sin
+  // salir a buscarlo (reporte de Nico 2026-08-24).
+  const [verHistorial, setVerHistorial] = useState(true);
+  const [detalleId, setDetalleId] = useState<string | null>(null);
   const [exportando, setExportando] = useState<string | null>(null);
 
   // El teórico del borrador se congela al crearlo; si después cambió la fecha
@@ -84,14 +82,6 @@ export default function InventoryCountClosing() {
     noContadas: lineasBorrador.filter(esNoContada).length,
   }), [calc, lineasBorrador]);
 
-  const visibles = useMemo(() => {
-    const arr = calc.filter((c) =>
-      filtro === 'todas' ? true
-        : filtro === 'faltan' ? c.diferencia < 0
-          : filtro === 'sobran' ? c.diferencia > 0
-            : c.diferencia !== 0);
-    return [...arr].sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));
-  }, [calc, filtro]);
 
   async function onFile(file: File) {
     try {
@@ -214,140 +204,38 @@ export default function InventoryCountClosing() {
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <Metric label="Referencias contadas" value={fmt(resumen.total - resumen.noContadas)}
-                hint={resumen.nuevas > 0 ? `${resumen.nuevas} nuevas` : undefined} />
-              <Metric label="Con diferencia" value={fmt(resumen.conDif)}
-                hint={resumen.noContadas > 0 ? `${resumen.noContadas} no vinieron → cuentan 0` : undefined} tone="amber" />
-              <Metric label="Faltan (merma)" value={fmt(Math.abs(resumen.unidadesFaltan))}
-                hint={fmtCOP(Math.abs(resumen.valorFaltan))} tone="red"
-                activo={filtro === 'faltan'} onClick={() => setFiltro(filtro === 'faltan' ? 'dif' : 'faltan')} />
-              <Metric label="Sobran" value={fmt(resumen.unidadesSobran)}
-                hint={fmtCOP(resumen.valorSobran)} tone="green"
-                activo={filtro === 'sobran'} onClick={() => setFiltro(filtro === 'sobran' ? 'dif' : 'sobran')} />
-            </div>
-
-            <div className="flex items-center justify-between gap-3 flex-wrap text-xs">
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="inline-flex rounded-md border border-border overflow-hidden">
-                  {([
-                    ['dif', `Con diferencia (${fmt(resumen.conDif)})`],
-                    ['faltan', `Faltantes (${fmt(resumen.lineasFaltan)})`],
-                    ['sobran', `Sobrantes (${fmt(resumen.lineasSobran)})`],
-                    ['todas', 'Todas'],
-                  ] as [typeof filtro, string][]).map(([k, label]) => (
-                    <button key={k} onClick={() => setFiltro(k)}
-                      className={cn('px-2.5 py-1 transition-colors border-r border-border last:border-r-0',
-                        filtro === k ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-muted')}>
-                      {label}
-                    </button>
-                  ))}
+            <CountDiffView
+              lineas={lineasBorrador}
+              cargando={lineasPending}
+              onEditarLinea={(id, stock_contado) => editarLinea.mutate({ id, stock_contado })}
+              acciones={
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" className="h-8 text-xs"
+                    onClick={onExportarBorrador} disabled={exportando === 'borrador'}
+                    title="Descarga el reporte de diferencias en Excel (con el costo de cada faltante/sobrante)">
+                    {exportando === 'borrador'
+                      ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Armando…</>
+                      : <><FileSpreadsheet className="h-3.5 w-3.5 mr-1" /> Exportar Excel</>}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-8 text-xs"
+                    onClick={() => { if (window.confirm('¿Descartar este borrador? El inventario no se toca.')) descartarBorrador.mutate(borrador.id); }}>
+                    <X className="h-3.5 w-3.5 mr-1" /> Descartar
+                  </Button>
+                  <Button size="sm" className="h-8 text-xs" onClick={onConfirmar}
+                    disabled={!isAdmin || confirmarCierre.isPending}
+                    title={isAdmin ? 'Aplica el conteo como fuente de verdad' : 'Solo el admin puede confirmar un cierre'}>
+                    {confirmarCierre.isPending
+                      ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Cerrando…</>
+                      : <><Check className="h-3.5 w-3.5 mr-1" /> Confirmar cierre</>}
+                  </Button>
                 </div>
-                {resumen.noContadas > 0 && (
-                  <span className="text-muted-foreground"
-                    title="Regla: si no se contó, no hay. Si de verdad hay stock sin contar, corregí la línea con el lápiz antes de confirmar.">
-                    {resumen.noContadas} referencias no vinieron en el archivo → quedan en 0
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" className="h-8 text-xs"
-                  onClick={onExportarBorrador} disabled={exportando === 'borrador'}
-                  title="Descarga el reporte de diferencias en Excel (con el costo de cada faltante/sobrante)">
-                  {exportando === 'borrador'
-                    ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Armando…</>
-                    : <><FileSpreadsheet className="h-3.5 w-3.5 mr-1" /> Exportar Excel</>}
-                </Button>
-                <Button size="sm" variant="ghost" className="h-8 text-xs"
-                  onClick={() => { if (window.confirm('¿Descartar este borrador? El inventario no se toca.')) descartarBorrador.mutate(borrador.id); }}>
-                  <X className="h-3.5 w-3.5 mr-1" /> Descartar
-                </Button>
-                <Button size="sm" className="h-8 text-xs" onClick={onConfirmar}
-                  disabled={!isAdmin || confirmarCierre.isPending}
-                  title={isAdmin ? 'Aplica el conteo como fuente de verdad' : 'Solo el admin puede confirmar un cierre'}>
-                  {confirmarCierre.isPending
-                    ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Cerrando…</>
-                    : <><Check className="h-3.5 w-3.5 mr-1" /> Confirmar cierre</>}
-                </Button>
-              </div>
-            </div>
+              }
+            />
             {!isAdmin && (
               <p className="text-[11px] text-muted-foreground">
                 El conteo quedó guardado. Un admin tiene que revisarlo y confirmarlo para que aplique.
               </p>
             )}
-
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/60">
-                  <tr className="text-left">
-                    <th className="px-3 py-2 font-semibold">Referencia</th>
-                    <th className="px-3 py-2 font-semibold text-right">Debería haber</th>
-                    <th className="px-3 py-2 font-semibold text-right">Contado</th>
-                    <th className="px-3 py-2 font-semibold text-right">Diferencia</th>
-                    <th className="px-3 py-2 font-semibold text-right">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lineasPending ? (
-                    <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Cargando líneas…</td></tr>
-                  ) : visibles.length === 0 ? (
-                    <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
-                      {filtro === 'faltan' ? 'Ninguna referencia con faltante.'
-                        : filtro === 'sobran' ? 'Ninguna referencia con sobrante.'
-                          : <span className="text-success font-medium">Sin diferencias: el conteo cuadra con el sistema. ✓</span>}
-                    </td></tr>
-                  ) : visibles.slice(0, 300).map(({ linea: l, teorico, contado, diferencia: dif, valor }) => {
-                    return (
-                      <tr key={l.id} className="border-t border-border/60 hover:bg-muted/30">
-                        <td className="px-3 py-1.5">
-                          <span className="font-mono font-medium">{l.variant_reference}</span>
-                          {l.descripcion && <span className="text-muted-foreground ml-1.5">{l.descripcion}</span>}
-                          {l.es_nueva && <span className="ml-1.5 rounded bg-blue-50 text-blue-700 px-1 py-px text-[10px] dark:bg-blue-950/40 dark:text-blue-300">nueva</span>}
-                          {esNoContada(l) && <span className="ml-1.5 rounded bg-muted px-1 py-px text-[10px] text-muted-foreground">no vino en el archivo</span>}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{fmt(teorico)}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {editId === l.id ? (
-                            <input
-                              autoFocus type="number" value={editVal}
-                              onChange={(e) => setEditVal(e.target.value)}
-                              onBlur={() => {
-                                const n = Number(editVal);
-                                setEditId(null);
-                                if (Number.isFinite(n) && n !== Number(l.stock_contado)) {
-                                  editarLinea.mutate({ id: l.id, stock_contado: n });
-                                }
-                              }}
-                              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                              className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right"
-                            />
-                          ) : (
-                            <button className="hover:underline" title="Corregir un error de conteo"
-                              onClick={() => { setEditId(l.id); setEditVal(String(Number(l.stock_contado))); }}>
-                              {fmt(contado)}
-                            </button>
-                          )}
-                        </td>
-                        <td className={cn('px-3 py-1.5 text-right tabular-nums font-semibold',
-                          dif < 0 ? 'text-destructive' : dif > 0 ? 'text-success' : 'text-muted-foreground')}>
-                          {dif > 0 ? '+' : ''}{fmt(dif)}
-                        </td>
-                        <td className={cn('px-3 py-1.5 text-right tabular-nums font-mono',
-                          valor < 0 ? 'text-destructive' : valor > 0 ? 'text-success' : 'text-muted-foreground')}>
-                          {valor === 0 ? '—' : fmtCOP(valor)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {visibles.length > 300 && (
-                <p className="px-3 py-2 text-[11px] text-muted-foreground">
-                  Mostrando las 300 de mayor impacto en plata de {visibles.length}.
-                </p>
-              )}
-            </div>
           </>
         )}
       </div>
@@ -363,28 +251,86 @@ export default function InventoryCountClosing() {
           {verHistorial && (
             <div className="mt-3 space-y-1.5">
               {confirmados.map((s) => (
-                <div key={s.id} className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-border/60 px-3 py-2 text-xs">
-                  <span className="font-medium">Conteo del {s.fecha_conteo}</span>
-                  <span className="text-muted-foreground">
-                    {fmt(s.total_referencias)} refs · {fmt(s.total_con_diferencia)} con diferencia
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className={cn('font-mono font-semibold tabular-nums',
-                      Number(s.total_valor_diferencia) < 0 ? 'text-destructive' : 'text-success')}>
-                      {fmtCOP(Number(s.total_valor_diferencia))}
-                    </span>
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
-                      onClick={() => onExportarCierre(s)} disabled={exportando === s.id}
-                      title="Descargar el reporte de este cierre en Excel">
-                      {exportando === s.id
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Download className="h-3.5 w-3.5" />}
-                    </Button>
-                  </div>
-                </div>
+                <CierreRow
+                  key={s.id}
+                  sesion={s}
+                  abierto={detalleId === s.id}
+                  onToggle={() => setDetalleId(detalleId === s.id ? null : s.id)}
+                  onExportar={() => onExportarCierre(s)}
+                  exportando={exportando === s.id}
+                  useLineasDe={useLineasDe}
+                />
               ))}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Fila de un cierre confirmado, expandible al detalle completo de diferencias.
+ *
+ * Antes esto era una línea con un ícono de descarga y nada más: al confirmarse
+ * un conteo, la única forma de ver qué había pasado era bajar un Excel — y el
+ * dueño ni sabía que existía. Ahora el detalle se abre en la misma pantalla,
+ * con la misma tabla que se usó para revisar el borrador.
+ */
+function CierreRow({ sesion, abierto, onToggle, onExportar, exportando, useLineasDe }: {
+  sesion: CountSession;
+  abierto: boolean;
+  onToggle: () => void;
+  onExportar: () => void;
+  exportando: boolean;
+  useLineasDe: (id: string | null) => { data?: CountLine[]; isPending: boolean };
+}) {
+  // La query solo corre cuando la fila está abierta.
+  const lineasQ = useLineasDe(abierto ? sesion.id : null);
+  const neto = Number(sesion.total_valor_diferencia);
+
+  return (
+    <div className="rounded-lg border border-border/60">
+      <div className="flex items-center justify-between gap-3 flex-wrap px-3 py-2 text-xs">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium">Conteo del {sesion.fecha_conteo}</span>
+          {sesion.confirmado_at && (
+            <span className="text-muted-foreground flex items-center gap-1" title="Quién y cuándo lo confirmó">
+              <User className="h-3 w-3" />
+              confirmado {new Date(sesion.confirmado_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+            </span>
+          )}
+        </div>
+        <span className="text-muted-foreground">
+          {fmt(sesion.total_referencias)} refs · {fmt(sesion.total_con_diferencia)} con diferencia
+        </span>
+        <div className="flex items-center gap-2">
+          <span className={cn('font-mono font-semibold tabular-nums',
+            neto < 0 ? 'text-destructive' : 'text-success')}>
+            {fmtCOP(neto)}
+          </span>
+          <Button size="sm" variant={abierto ? 'secondary' : 'outline'} className="h-7 px-2 text-xs gap-1"
+            onClick={onToggle}
+            title="Ver las diferencias de este conteo en pantalla">
+            <Eye className="h-3.5 w-3.5" />
+            {abierto ? 'Ocultar' : 'Ver diferencias'}
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1"
+            onClick={onExportar} disabled={exportando}
+            title="Descargar el reporte de este cierre en Excel">
+            {exportando
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <><Download className="h-3.5 w-3.5" /> Excel</>}
+          </Button>
+        </div>
+      </div>
+      {abierto && (
+        <div className="border-t border-border/60 p-3 space-y-3">
+          <p className="text-[11px] text-muted-foreground">
+            Este conteo ya está aplicado: el inventario arranca de acá. Abajo, lo que bodega
+            contó contra lo que la app decía que debía haber en ese momento.
+          </p>
+          <CountDiffView lineas={lineasQ.data ?? []} cargando={lineasQ.isPending} />
         </div>
       )}
     </div>
