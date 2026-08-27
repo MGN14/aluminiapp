@@ -55,7 +55,7 @@ import type { QuotationStatus } from '@/types/quotation';
 import NewQuoteModal from './NewQuoteModal';
 import SendQuoteDialog from './SendQuoteDialog';
 import GenerateRemisionModal from './GenerateRemisionModal';
-import { useQuoteCycles, deriveCycleStage, CYCLE_STAGE_LABEL } from '@/hooks/useQuoteCycle';
+import { useQuoteCycles, quoteCycleIndex, deriveCycleStage, CYCLE_STAGE_LABEL } from '@/hooks/useQuoteCycle';
 import ProductDrawing from '@/components/productos-terminados/ProductDrawing';
 
 const LETTERHEAD_BUCKET = 'letterheads';
@@ -476,7 +476,7 @@ export default function QuoteDetailModal({
 
               {/* Ciclo comercial: cotización → remisión → factura → cobro */}
               {detail.status === 'accepted' && (() => {
-                const rems = cyclesQ.data?.get(detail.id) ?? [];
+                const rems = quoteCycleIndex(cyclesQ.data).get(detail.id) ?? [];
                 const stage = deriveCycleStage(rems);
                 return (
                   <div className="rounded-md border border-border p-3 space-y-2">

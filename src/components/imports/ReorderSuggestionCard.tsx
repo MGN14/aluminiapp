@@ -132,8 +132,8 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
     sug.leadTime.tieneDefaults
       ? '\n\nParte del lead time sigue estimado por defecto — se reemplaza solo con las fechas reales de tus pedidos.'
       : null,
-    merma && merma.porFamilia.size > 0
-      ? `\n\nMerma aprendida de tus conteos: ${merma.porFamilia.size} familia${merma.porFamilia.size === 1 ? '' : 's'} con pérdida histórica — su demanda sube hasta +10% para cubrirla.`
+    Array.isArray(merma?.familias) && merma.familias.length > 0
+      ? `\n\nMerma aprendida de tus conteos: ${merma.familias.length} familia${merma.familias.length === 1 ? '' : 's'} con pérdida histórica — su demanda sube hasta +10% para cubrirla.`
       : null,
   ].filter(Boolean).join(' ');
 

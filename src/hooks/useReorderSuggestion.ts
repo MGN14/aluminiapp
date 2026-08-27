@@ -23,7 +23,7 @@ import {
   type ReorderSuggestion,
 } from '@/lib/reorderSuggestion';
 import { refFamilyKey, variantKey, applyColorSuffix, colorFromSuffix } from '@/lib/refFamily';
-import { computeShrinkage, type ShrinkageResult } from '@/lib/shrinkageRate';
+import { computeShrinkage, shrinkageIndex, type ShrinkageResult } from '@/lib/shrinkageRate';
 import { computeFamilyDemand, type FamilyDemand, type DemandMovement } from '@/lib/demandModel';
 import { buildVariantPrimitives, decorateVariants, type VarianteCobertura, type VentaRow } from '@/lib/coverageVariants';
 
@@ -496,6 +496,8 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // Antes la fecha usaba consumo plano de 90d: diciembre alto NO adelantaba
   // el pedido de fin de año (feedback de Nico: "fijo debo montar antes del
   // 20 de octubre"). Ahora el índice estacional corre la fecha solo.
+  // Índice de merma armado AL USAR (la query guarda arrays serializables).
+  const mermaIdx = shrinkageIndex(shrinkageQuery.data);
   const factorDemandaPorFamilia = new Map<string, number>();
   for (const [fam, d] of demandPorFamilia) {
     // Censura ACOTADA (auditoría 2026-08-02): sin tope, una familia con pocos
@@ -510,7 +512,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     // Merma aprendida de los conteos físicos confirmados (cap 10% en la lib):
     // donde históricamente se pierde material, la demanda efectiva sube — el
     // colchón se paga solo con la primera remisión que no alcanza a cubrirse.
-    const merma = shrinkageQuery.data?.porFamilia.get(fam)?.tasa ?? 0;
+    const merma = mermaIdx.get(fam)?.tasa ?? 0;
     const factor = Math.min(FACTOR_TOTAL_MAX, censura * (d.factorDemanda || 1) * (1 + merma));
     if (factor !== 1) factorDemandaPorFamilia.set(fam, factor);
   }

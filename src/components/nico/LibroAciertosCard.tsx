@@ -34,14 +34,15 @@ function useLibroAciertos() {
           .not('fecha_estimada_llegada', 'is', null).not('fecha_arribo_real', 'is', null),
       ]);
 
-      const byKind = new Map<string, KindStats>();
+      // Record plano, no Map: esta es data de query y el cache persistido es
+      // JSON — un Map no sobrevive la rehidratación (patrón conciliación).
+      const byKind: Record<string, KindStats> = {};
       for (const r of ((logRes.data ?? []) as Array<{ kind: string; hit: boolean | null }>)) {
-        const s = byKind.get(r.kind) ?? { n: 0, hits: 0, misses: 0, gris: 0 };
+        const s = byKind[r.kind] ?? (byKind[r.kind] = { n: 0, hits: 0, misses: 0, gris: 0 });
         s.n += 1;
         if (r.hit === true) s.hits += 1;
         else if (r.hit === false) s.misses += 1;
         else s.gris += 1;
-        byKind.set(r.kind, s);
       }
 
       const desvios = ((impRes.data ?? []) as Array<{ fecha_estimada_llegada: string; fecha_arribo_real: string }>)
@@ -85,9 +86,9 @@ export default function LibroAciertosCard() {
   const { data } = useLibroAciertos();
   if (!data) return null;
 
-  const gasto = pctOf(data.byKind.get('gasto_recurrente'));
-  const score = pctOf(data.byKind.get('score_cobranza'));
-  const scoreStats = data.byKind.get('score_cobranza');
+  const gasto = pctOf(data.byKind['gasto_recurrente']);
+  const score = pctOf(data.byKind['score_cobranza']);
+  const scoreStats = data.byKind['score_cobranza'];
 
   const tone = (p: number) => (p >= 70 ? 'text-success' : p >= 50 ? 'text-warning' : 'text-destructive');
 

@@ -34,10 +34,22 @@ export interface FamilyShrinkage {
   unidadesPerdidas: number;
 }
 
+/**
+ * SERIALIZABLE a propósito (arrays, no Map): esto es data de una query y
+ * react-query persiste el cache como JSON — un Map no sobrevive la
+ * rehidratación (TERCERA VEZ de este patrón: conciliación 2026-08-08,
+ * merma 2026-08-23 "porFamilia.get is not a function"). El índice se arma
+ * al usarlo con shrinkageIndex().
+ */
 export interface ShrinkageResult {
-  porFamilia: Map<string, FamilyShrinkage>;
+  familias: FamilyShrinkage[];
   /** Familias con tasa cruda > MERMA_MAX: problema operativo, no colchón. */
   sospechosas: FamilyShrinkage[];
+}
+
+/** Índice por familia — se construye AL USAR, nunca viaja en la query. */
+export function shrinkageIndex(r: ShrinkageResult | null | undefined): Map<string, FamilyShrinkage> {
+  return new Map((r?.familias ?? []).map((f) => [f.familia, f]));
 }
 
 export const MIN_CONTEOS = 2;
@@ -59,7 +71,7 @@ export function computeShrinkage(lines: CountLineInput[]): ShrinkageResult {
     acc.set(fam, a);
   }
 
-  const porFamilia = new Map<string, FamilyShrinkage>();
+  const familias: FamilyShrinkage[] = [];
   const sospechosas: FamilyShrinkage[] = [];
 
   for (const [fam, a] of acc) {
@@ -72,10 +84,10 @@ export function computeShrinkage(lines: CountLineInput[]): ShrinkageResult {
       sesiones: a.sesiones.size,
       unidadesPerdidas: Math.round(a.perdidas),
     };
-    porFamilia.set(fam, row);
+    familias.push(row);
     if (tasaCruda > MERMA_MAX) sospechosas.push(row);
   }
 
   sospechosas.sort((a, b) => b.tasaCruda - a.tasaCruda);
-  return { porFamilia, sospechosas };
+  return { familias, sospechosas };
 }
