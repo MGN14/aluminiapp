@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { afectaResultado, signoCaja } from '@/hooks/usePettyCashMovements';
 import { useAuth } from '@/hooks/useAuth';
 import { buildBalanceSheet, type BalanceSheet } from '@/lib/balanceSheet';
 import { computeDepreciation } from '@/lib/depreciation';
@@ -78,9 +79,13 @@ export function useBalanceSheet() {
           utilidad_acumulada += signed;
         }
         for (const p of (pettyRes.data ?? []) as Array<{ amount: number | null; kind: string | null }>) {
-          const signed = (p.kind === 'ingreso_efectivo' ? 1 : -1) * Math.abs(num(p.amount));
+          const signed = signoCaja(p.kind) * Math.abs(num(p.amount));
+          // La caja SIEMPRE se mueve (el retiro sacó la plata de ahí)...
           flujoEfectivo += signed;
-          utilidad_acumulada += signed;
+          // ...pero la utilidad solo con lo que de verdad es ingreso o gasto.
+          // Si el dueño consigna el retiro, entra por el extracto y el activo
+          // vuelve a cuadrar; si se la queda, es un retiro de socio.
+          if (afectaResultado(p.kind)) utilidad_acumulada += signed;
         }
       }
       const caja_bancos = saldoInicialCuentas + flujoBanco + flujoEfectivo;

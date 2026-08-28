@@ -521,6 +521,9 @@ export default function CajaMenor() {
                         <Badge variant="outline" className="text-[10px] gap-1"><Receipt className="h-3 w-3" />Cuenta cobro</Badge>
                       ) : r.kind === 'ingreso_efectivo' ? (
                         <Badge variant="outline" className="text-[10px] gap-1 border-success/40 text-success"><Receipt className="h-3 w-3" />Ingreso</Badge>
+                      ) : r.kind === 'retiro_efectivo' ? (
+                        <Badge variant="outline" className="text-[10px] gap-1 border-blue-400/50 text-blue-700 dark:text-blue-300"
+                          title="Salida de efectivo que no es gasto — no entra al P&G">Retiro</Badge>
                       ) : (
                         <Badge variant="outline" className="text-[10px]">Efectivo</Badge>
                       )}
@@ -604,6 +607,11 @@ export default function CajaMenor() {
                             <Badge variant="outline" className="text-[10px] gap-1 border-success/40 text-success">
                               <Receipt className="h-3 w-3" />
                               Ingreso
+                            </Badge>
+                          ) : r.kind === 'retiro_efectivo' ? (
+                            <Badge variant="outline" className="text-[10px] gap-1 border-blue-400/50 text-blue-700 dark:text-blue-300"
+                              title="Salida de efectivo que no es gasto — no entra al P&G">
+                              Retiro
                             </Badge>
                           ) : (
                             <Badge variant="outline" className="text-[10px]">Efectivo</Badge>

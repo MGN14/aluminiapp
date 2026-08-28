@@ -42,6 +42,7 @@ interface Category {
 const KIND_LABELS: Record<string, string> = {
   gasto_efectivo: 'Gasto en efectivo (sin documento)',
   cuenta_de_cobro: 'Cuenta de cobro (servicio ocasional)',
+  retiro_efectivo: 'Retiro de efectivo (entrega al dueño — no es gasto)',
 };
 
 const NEW_PRESTADOR_VALUE = '__new__';
@@ -61,7 +62,7 @@ export default function RegistrarGastoModal() {
   // navega a otra ruta / Chrome descarta el tab, al volver el form sigue
   // donde lo dejó. clearForm() se llama al guardar exitosamente.
   type FormState = {
-    kind: 'gasto_efectivo' | 'cuenta_de_cobro';
+    kind: 'gasto_efectivo' | 'cuenta_de_cobro' | 'retiro_efectivo';
     cuenta: string;
     categoryId: string;
     responsibleId: string;
@@ -220,24 +221,37 @@ export default function RegistrarGastoModal() {
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>Registrar gasto en Caja Menor</DialogTitle>
+            <DialogTitle>
+              {kind === 'retiro_efectivo' ? 'Registrar retiro de Caja Menor' : 'Registrar gasto en Caja Menor'}
+            </DialogTitle>
             <DialogDescription>
-              Egreso del Modo DIAN. La deducibilidad se calcula automáticamente según la categoría.
+              {kind === 'retiro_efectivo'
+                ? 'Salida de efectivo que no es gasto: baja el saldo de la caja y queda fuera del P&G.'
+                : 'Egreso del Modo DIAN. La deducibilidad se calcula automáticamente según la categoría.'}
             </DialogDescription>
           </DialogHeader>
 
           {/* Tipo */}
           <div className="space-y-1.5">
             <Label>Tipo</Label>
-            <Select value={kind} onValueChange={(v) => setKind(v as 'gasto_efectivo' | 'cuenta_de_cobro')}>
+            <Select value={kind} onValueChange={(v) => setKind(v as 'gasto_efectivo' | 'cuenta_de_cobro' | 'retiro_efectivo')}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="gasto_efectivo">{KIND_LABELS.gasto_efectivo}</SelectItem>
                 <SelectItem value="cuenta_de_cobro">{KIND_LABELS.cuenta_de_cobro}</SelectItem>
+                <SelectItem value="retiro_efectivo">{KIND_LABELS.retiro_efectivo}</SelectItem>
               </SelectContent>
             </Select>
+            {kind === 'retiro_efectivo' && (
+              <p className="text-[11px] text-muted-foreground">
+                Baja el saldo de la caja pero <strong>no cuenta como gasto</strong> del negocio.
+                Usalo cuando el dueño se lleva el efectivo para asegurarlo o consignarlo.
+                Si después lo consignás, marcá ese depósito como traspaso en Conciliación
+                para no contar la plata dos veces.
+              </p>
+            )}
           </div>
 
           {/* De qué caja salió la plata. Los gastos de Nequi solo los carga el
@@ -250,8 +264,9 @@ export default function RegistrarGastoModal() {
             bloqueadas={isCollaborator ? { nequi: 'Los gastos de Nequi los registra el dueño de la cuenta. Vos podés registrar ingresos a Nequi.' } : undefined}
           />
 
-          {/* Categoría — justo después de Tipo */}
-          <div className="space-y-1.5">
+          {/* Categoría — justo después de Tipo. En un retiro no aplica: no hay
+              gasto que categorizar ni deducibilidad que calcular. */}
+          <div className={cn('space-y-1.5', kind === 'retiro_efectivo' && 'hidden')}>
             <Label>Categoría</Label>
             <Select value={categoryId} onValueChange={setCategoryId}>
               <SelectTrigger>

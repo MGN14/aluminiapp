@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { afectaResultado } from '@/hooks/usePettyCashMovements';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { parseLocalDate } from '@/lib/dateUtils';
@@ -105,6 +106,7 @@ export function useBreakeven(year: number) {
       for (const p of (pcRes.data ?? []) as Array<{ date: string; amount: number | null; category_id: string | null; kind: string | null }>) {
         monthsSet.add(parseLocalDate(p.date).getMonth());
         const abs = Math.abs(Number(p.amount) || 0);
+        if (!afectaResultado(p.kind)) continue; // retiro: ni venta ni costo
         if (p.kind === 'ingreso_efectivo') { ventas += abs; continue; }
         const group = (p.category_id ? catInfo.get(p.category_id)?.group : null) ?? 'gastos_operativos';
         addSpend(p.category_id, abs, group);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { afectaResultado } from '@/hooks/usePettyCashMovements';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -394,12 +395,14 @@ function DashboardContent() {
         const d = parseLocalDate(p.date);
         return d >= periodRange.start && d <= periodRange.end;
       });
-      // kind='ingreso_efectivo' → suma a ingresos; otros (gasto_efectivo, cuenta_de_cobro) → egresos
+      // kind='ingreso_efectivo' → suma a ingresos; gasto_efectivo y
+      // cuenta_de_cobro → egresos. 'retiro_efectivo' NO entra a ninguno: la
+      // plata sale de la caja pero el negocio no gastó (afectaResultado).
       totalIngresos += periodPetty
         .filter(p => p.kind === 'ingreso_efectivo')
         .reduce((s, p) => s + Math.abs(Number(p.amount) || 0), 0);
       totalEgresos += periodPetty
-        .filter(p => p.kind !== 'ingreso_efectivo')
+        .filter(p => p.kind !== 'ingreso_efectivo' && afectaResultado(p.kind))
         .reduce((s, p) => s + Math.abs(Number(p.amount) || 0), 0);
     }
 

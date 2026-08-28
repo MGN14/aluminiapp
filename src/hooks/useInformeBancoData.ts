@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { afectaResultado } from '@/hooks/usePettyCashMovements';
 import { useAuth } from '@/hooks/useAuth';
 import { getYearRange } from '@/lib/dateUtils';
 import { normalizeCompanyName } from '@/lib/stringUtils';
@@ -272,7 +273,10 @@ export function useInformeBancoData() {
       ) =>
         cash.filter(c => c.type === dir).reduce((s, c) => s + Math.abs(Number(c.amount) || 0), 0)
         + petty
-          .filter(p => (dir === 'ingreso' ? p.kind === 'ingreso_efectivo' : p.kind !== 'ingreso_efectivo'))
+          // El retiro no es ingreso ni egreso del negocio: el dueño mueve su
+          // propia plata. Mostrarlo como egreso le infla los gastos al banco.
+          .filter(p => afectaResultado(p.kind)
+            && (dir === 'ingreso' ? p.kind === 'ingreso_efectivo' : p.kind !== 'ingreso_efectivo'))
           .reduce((s, p) => s + Math.abs(Number(p.amount) || 0), 0);
 
       const efectivoIngresoAno = sumaEfectivo(cashMovs, pettyMovs, 'ingreso');

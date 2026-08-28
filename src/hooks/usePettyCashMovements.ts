@@ -3,7 +3,39 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { DEFAULT_ACCOUNT } from '@/lib/pettyCashAccounts';
 
-export type PettyCashKind = 'gasto_efectivo' | 'cuenta_de_cobro' | 'ingreso_efectivo';
+export type PettyCashKind = 'gasto_efectivo' | 'cuenta_de_cobro' | 'ingreso_efectivo' | 'retiro_efectivo';
+
+/**
+ * SEIS lugares distintos calculaban el signo con `kind === 'ingreso_efectivo'
+ * ? +1 : -1` y trataban todo el resto como gasto del P&G. Con la llegada de
+ * 'retiro_efectivo' (plata que sale de la caja pero NO es gasto) esa cuenta
+ * dejó de servir, así que la regla vive acá y todos la importan.
+ */
+
+/** Signo sobre el SALDO de la caja: solo el ingreso suma; retiros y gastos restan. */
+export function signoCaja(kind: string | null | undefined): 1 | -1 {
+  return kind === 'ingreso_efectivo' ? 1 : -1;
+}
+
+/**
+ * ¿Este movimiento entra al P&G / estado de resultados?
+ * El retiro NO: la plata cambia de bolsillo, el negocio no gastó ni ganó nada.
+ */
+export function afectaResultado(kind: string | null | undefined): boolean {
+  return kind !== 'retiro_efectivo';
+}
+
+/** true si suma a INGRESOS del resultado (los demás que afectan son egresos). */
+export function esIngresoResultado(kind: string | null | undefined): boolean {
+  return kind === 'ingreso_efectivo';
+}
+
+export const PETTY_KIND_LABELS: Record<PettyCashKind, string> = {
+  gasto_efectivo: 'Gasto en efectivo (sin documento)',
+  cuenta_de_cobro: 'Cuenta de cobro (servicio ocasional)',
+  ingreso_efectivo: 'Ingreso de efectivo',
+  retiro_efectivo: 'Retiro de efectivo (no es gasto)',
+};
 
 export interface PettyCashRow {
   id: string;
@@ -123,7 +155,9 @@ export function usePettyCashMovements() {
 
       const monthStart = startOfMonth();
       const mesActual = rows.filter((r) => r.date >= monthStart);
-      const egresosMes = mesActual.filter((r) => r.kind !== 'ingreso_efectivo');
+      // Gasto del mes = solo lo que el negocio realmente gastó. El retiro
+      // sale de la caja pero no es gasto, así que no infla este KPI.
+      const egresosMes = mesActual.filter((r) => !esIngresoResultado(r.kind) && afectaResultado(r.kind));
       const ingresosMes = mesActual.filter((r) => r.kind === 'ingreso_efectivo');
       const total_mes_actual = egresosMes.reduce((s, r) => s + r.amount, 0);
       const total_ingresos_mes = ingresosMes.reduce((s, r) => s + r.amount, 0);
@@ -132,8 +166,9 @@ export function usePettyCashMovements() {
       const totalIngresosHist = rows
         .filter((r) => r.kind === 'ingreso_efectivo')
         .reduce((s, r) => s + r.amount, 0);
+      // El SALDO sí resta los retiros: esa plata ya no está en la caja.
       const totalEgresosHist = rows
-        .filter((r) => r.kind !== 'ingreso_efectivo')
+        .filter((r) => signoCaja(r.kind) === -1)
         .reduce((s, r) => s + r.amount, 0);
       const saldo_caja = totalIngresosHist - totalEgresosHist;
 

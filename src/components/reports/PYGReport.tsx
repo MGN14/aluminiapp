@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { afectaResultado } from '@/hooks/usePettyCashMovements';
 import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { ChevronRight, ChevronDown } from 'lucide-react';
@@ -109,13 +110,15 @@ function useYearData(userId: string | undefined, year: number, includePetty: boo
       // kind: 'ingreso_efectivo' (comprobante de pago al cliente) → ingreso, el
       // resto (gasto_efectivo, cuenta_de_cobro) → egreso. Sin esto, los ingresos
       // en efectivo se contaban como egreso e inflaban gastos del PyG.
+      // 'retiro_efectivo' NO entra: la plata sale de la caja pero el negocio no
+      // gastó nada (el dueño se la lleva para asegurarla / consignarla).
       const pettyAsTx: TransactionRow[] = ((pcRes.data ?? []) as Array<{
         date: string;
         amount: number | null;
         category_id: string | null;
         responsible_id: string | null;
         kind: string | null;
-      }>).map((m) => {
+      }>).filter((m) => afectaResultado(m.kind)).map((m) => {
         const isIngreso = m.kind === 'ingreso_efectivo';
         const absAmt = Math.abs(Number(m.amount) || 0);
         return {

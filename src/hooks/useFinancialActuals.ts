@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { afectaResultado } from '@/hooks/usePettyCashMovements';
 import { useAuth } from '@/hooks/useAuth';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { isOperativo, type ReportGroup } from '@/types/transaction';
@@ -91,6 +92,8 @@ export function useFinancialActuals(year: number) {
 
       // Petty cash (vista gerencial).
       for (const p of (pcRes.data ?? []) as Array<{ date: string; amount: number | null; category_id: string | null; kind: string | null }>) {
+        // El retiro mueve plata, no la gasta: fuera del real ejecutado.
+        if (!afectaResultado(p.kind)) continue;
         const m = parseLocalDate(p.date).getMonth();
         const abs = Math.abs(Number(p.amount) || 0);
         if (p.kind === 'ingreso_efectivo') {
