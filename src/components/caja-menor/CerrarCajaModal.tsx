@@ -8,9 +8,10 @@ import { Lock, Loader2, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatters';
 import { safeParseFloat } from '@/lib/numberUtils';
 import { useToast } from '@/hooks/use-toast';
-import { useClosePettyCashPeriod } from '@/hooks/usePettyCashClosings';
+import { useClosePettyCashPeriod, usePettyCashClosings } from '@/hooks/usePettyCashClosings';
 import { accountsPresentes } from '@/lib/pettyCashAccounts';
 import type { PettyCashRow } from '@/hooks/usePettyCashMovements';
+import { computeClosingBalance } from '@/lib/pettyCashClosing';
 
 interface Props {
   open: boolean;
@@ -32,6 +33,8 @@ function endOfCurrentMonth(): string {
 export default function CerrarCajaModal({ open, onClose, rows }: Props) {
   const { toast } = useToast();
   const closeMutation = useClosePettyCashPeriod();
+  // Cierres previos: sus diferencias son plata real que existe en la caja.
+  const { data: closings = [] } = usePettyCashClosings();
 
   const [periodStart, setPeriodStart] = useState(startOfCurrentMonth());
   const [periodEnd, setPeriodEnd] = useState(endOfCurrentMonth());
@@ -56,38 +59,23 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
     );
   }, [rows, periodStart, periodEnd]);
 
-  // Separar ingresos de egresos por kind. Antes se sumaba TODO como egreso
-  // (bug: el saldo computado quedaba -ingresos-egresos en lugar del neto).
-  const { totalIngresos, totalEgresos } = useMemo(() => {
-    let ing = 0;
-    let egr = 0;
-    for (const r of periodRows) {
-      if (r.kind === 'ingreso_efectivo') ing += r.amount;
-      else egr += r.amount;
-    }
-    return { totalIngresos: ing, totalEgresos: egr };
-  }, [periodRows]);
+  // ARRASTRE + saldo esperado: la cuenta vive en lib/pettyCashClosing (con
+  // tests, incluido el caso real de agosto 2026 que destapó el bug: el cierre
+  // computaba solo el neto del período e ignoraba la plata que ya había en la
+  // caja, dando un "debería haber" NEGATIVO y un sobrante falso).
+  const balance = useMemo(
+    () => computeClosingBalance(rows, periodRows, periodStart, closings),
+    [rows, periodRows, periodStart, closings],
+  );
+  const { arrastreTotal, totalIngresos, totalEgresos, computadoPorCuenta, computedBalance } = balance;
 
-  // Computado POR CUENTA. Cada una se verifica contra algo distinto (los
-  // billetes vs la app de Nequi), así que declarar un solo número total no
-  // sirve para detectar dónde está el faltante.
-  const computadoPorCuenta = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const r of periodRows) {
-      const signo = r.kind === 'ingreso_efectivo' ? 1 : -1;
-      m[r.cuenta] = (m[r.cuenta] ?? 0) + signo * r.amount;
-    }
-    return m;
-  }, [periodRows]);
-
-  // Solo se pide declarar las cuentas que tuvieron movimiento en el período.
+  // Solo se pide declarar las cuentas que participan del cierre (las que
+  // tuvieron movimiento en el período o traen saldo de arrastre).
   const cuentasDelPeriodo = useMemo(
     () => accountsPresentes(Object.keys(computadoPorCuenta)).filter((a) => a.id in computadoPorCuenta),
     [computadoPorCuenta],
   );
 
-  // Saldo computado = neto del período: ingresos suman, egresos restan.
-  const computedBalance = totalIngresos - totalEgresos;
   const declaradosPorCuenta = useMemo(() => {
     const m: Record<string, number> = {};
     for (const a of cuentasDelPeriodo) m[a.id] = safeParseFloat(declaradoStr[a.id] ?? '');
@@ -177,6 +165,12 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
               <span className="tabular-nums">{periodRows.length}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-muted-foreground" title="Lo que ya había en la caja el primer día del período (movimientos anteriores + diferencias de cierres previos)">
+                Saldo al {new Date(periodStart + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+              </span>
+              <span className="tabular-nums">{formatCurrency(arrastreTotal)}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Total ingresos</span>
               <span className="tabular-nums text-success">+{formatCurrency(totalIngresos)}</span>
             </div>
@@ -185,14 +179,21 @@ export default function CerrarCajaModal({ open, onClose, rows }: Props) {
               <span className="tabular-nums text-destructive">−{formatCurrency(totalEgresos)}</span>
             </div>
             <div className="flex justify-between font-medium pt-1.5 border-t">
-              <span>Saldo computado (neto)</span>
+              <span>Debería haber en caja</span>
               <span className={`tabular-nums ${computedBalance >= 0 ? 'text-foreground' : 'text-destructive'}`}>
                 {formatCurrency(computedBalance)}
               </span>
             </div>
+            {computedBalance < 0 && (
+              <p className="text-[11px] text-destructive pt-1">
+                Dio negativo, y eso no puede pasar en una caja física: salió más plata de la que
+                entró. Casi siempre falta cargar ingresos del período, o el saldo con que arrancó
+                la caja no está registrado.
+              </p>
+            )}
             <p className="text-[11px] text-muted-foreground pt-1">
-              El saldo computado es lo que <em>debería</em> haber en caja según los movimientos
-              (ingresos − egresos). Si arrancaste el período con plata previa, sumala a tu saldo declarado.
+              Arranca con lo que ya había en la caja y le aplica los movimientos del período.
+              Declará abajo la plata que contaste de verdad.
             </p>
           </div>
 
