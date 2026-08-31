@@ -1,174 +1,151 @@
-# Auditoría del HTML "Calculador de costo MGN" + plan del tablero de Importaciones
+# Plan — pestaña "Escenarios" en Importaciones
 
-**Fecha:** 2026-08-31
-**Origen:** `Calculador-Costo-MGN.html` (969 líneas, construido a mano con Claude; el artifact
-dejó de poder actualizarse).
-**Objetivo de Nico:** *"un módulo para ver abonos, saldos, caja que necesito, historial de
-contenedores, y toda la información pasada, presente y a futuro para tomar la mejor decisión
-cada día."*
+**Fecha:** 2026-08-31 · **v2** (corregida con las 4 observaciones de Nico)
+**Para:** que lo implemente Fable.
 
-**Veredicto en una línea:** el 70% de lo que hace el HTML **ya está en la app y mejor
-resuelto** — no hay que reconstruirlo. Lo que falta no son cálculos: es una **vista
-consolidada** (hoy todo vive por pedido, hay que entrar a cada uno) y tres piezas de análisis
-que el HTML sí tenía.
+> **Cambios respecto de la v1** — los cuatro puntos que Nico corrigió:
+> 1. Los **escenarios editables (TRM · SMM · flete)** pasan de última prioridad a **F1, lo primero**. Y deben cubrir DOS contenedores: el vigente y el siguiente.
+> 2. El IVA es **19% sobre (base + arancel)**, con la base formada por lo ya pagado a la TRM de cada abono **+ el saldo a TRM vigente**. La v1 proponía una "tasa efectiva observada" — estaba mal.
+> 3. **Se elimina el F0 de cargar datos de 2026-1.** Esa información ya está en la app y ya fue corregida; volver a meterla es riesgo de dañar datos buenos sin ganancia.
+> 4. La pestaña va **aparte** porque muestra **lo real**, no solo lo que entra por contabilidad.
 
 ---
 
-## 1. Qué hacía el HTML
+## 1. Qué ya existe (verificado en el código, no rehacer)
 
-| # | Función | Dónde vive en el HTML |
+La auditoría del HTML `Calculador-Costo-MGN` contra la app dio que casi todo el cálculo ya
+está resuelto — y en dos puntos, mejor que en el HTML:
+
+| Pieza | Dónde | Nota |
 |---|---|---|
-| 1 | Historial de contenedores y variación frente al anterior | `C1` / `C2` hardcodeados, `renderHist()`, bloque "de dónde sale la diferencia" |
-| 2 | Costo en COP (mercancía, flete, arancel, aduana), variación por factor, preparación de IVA | `projCost()`, `IVA_RATE=0.1716`, `aranRate≈4,49%`, `fijos=28M` |
-| 3 | Mover la TRM del saldo | `TRM_HOY`, `state2()`, `renderSaldo()` |
-| 4 | Abonos con su TRM → variación del saldo USD y su equivalente COP | `ABONOS` en localStorage, `calcAbonoUsd()`, `abonoTotals()` |
-| + | Simulador de escenarios (SMM / TRM / flete) | `renderSim()`, `totalSim()` |
-| + | Tabla de ~130 referencias con costo unitario y comparación vs anterior (`old`) | `ITEMS`, `renderTable()`, export CSV/XLS |
+| Abonos con su TRM | `import_payments` + `ImportPaymentsSection` | Autocompleta desde la transacción bancaria real; el HTML se digita a mano. |
+| TRM ponderada | `useImportItems.trmPonderada` / `trmEfectiva` | Ya alimenta el costeo. |
+| Saldo USD y diferencia en cambio | `ExchangeDiffPanel` | Congela al cerrar el pedido. |
+| **Arancel e IVA** | `lib/importCosting.computeImportBreakdown` | **Ya calcula lo que pide Nico:** `arancel = cifAduana × arancel%` y `iva = (cifAduana + arancel) × iva%`. Aplica **piso FOB** (`PISO_FOB_ALUMINIO_USD_KG`) y prefiere los valores REALES cuando la liquidación ya está cargada. |
+| **Comparativo entre contenedores** | `lib/importComparison` (376 líneas, con tests) | Compara último entregado · en curso · **"si montara uno hoy"**. `columnaHoy()` usa el último entregado como molde y le cambia solo dólar y aluminio, dejando los `supuestos` declarados. |
+| Landed cost por referencia | `ImportCostingSection` + `lib/landedCost` | Excluye el IVA de importación del costeable (es descontable) — el HTML lo mezclaba. |
+| Costo por referencia vs anteriores | `ImportPriceAnalysis` | Cubre el `old` de los ITEMS del HTML. |
+| Peso y unidades reales | `PackingListImport` | El HTML deriva el peso de la factura porque no lo tenía. |
 
-**Datos que el HTML tiene hardcodeados y hay que verificar contra la app:**
-- `C1` (2026-1, cerrado): 28.437,4 kg · SMM 3.585 · mercancía 125.104 USD · flete 5.800 ·
-  seguro 110 · arancel $20.641.283 · fijos $28M · **total $507.922.913** · IVA $82.358.717.
-- `C2` (2026-2, en curso): SMM 3.520 · prima 814 USD/t · flete 5.700 · seguro 110 ·
-  **factura 125.028 USD** (confirmada 24-ago-2026) · plan 28.389 kg / 20.985 unds.
-- **Abonos de 2026-1** (los del `<table>`): 18-may 8.671@3.800 · 9-jun 58.000@3.573 ·
-  22-jun 28.000@3.415 · Mauricio 20.000@3.400 · 6-jul saldo mercancía 10.432@3.353 ·
-  6-jul flete 5.800@3.353 → **131.014 USD, TRM ponderada 3.501, $458.634.846**.
-- Nota del propio HTML: el Project doc registraba 2026-1 en $497,0M sin el ajuste del tramo
-  del 22-jun; la versión reconciliada es **$507,9M**. Verificar cuál quedó en la app.
-
-⚠️ Los abonos del HTML viven en `localStorage` del navegador de Nico. Si no están cargados en
-`import_payments`, se pierden al limpiar el browser. **Migrarlos es lo primero.**
+**Consecuencia:** F1 y F2 de abajo **no construyen motores nuevos** — hacen editable y visible
+lo que `importComparison` + `importCosting` ya calculan y ya están testeados.
 
 ---
 
-## 2. Lo que la app YA tiene (no rehacer)
+## 2. Lo que falta
 
-| Necesidad del HTML | Ya resuelto en la app | Comentario |
+| # | Falta | Por qué importa |
 |---|---|---|
-| Abonos con TRM | `import_payments` (fecha, `amount_usd`, `trm`, `amount_cop` generado, tipo) + `ImportPaymentsSection` | **Mejor que el HTML:** autocompleta fecha y USD desde la transacción bancaria real. El HTML se digita a mano. |
-| TRM ponderada del pedido | `useImportItems.trmPonderada` / `trmEfectiva` | Ya calculada, ya usada por el costeo. |
-| Saldo USD y su COP a TRM de hoy | `ExchangeDiffPanel` (saldo, TRM hoy, diferencia en cambio, congela al cerrar) | Cubre el punto 3 del HTML. |
-| Costos por concepto | `import_costs`: flete, seguro, arancel, `iva_importacion`, nacionalización, gastos bancarios, otro — con moneda, TRM y `base_asignacion` (peso/valor/cantidad) | Más fino que el `fijos=28M` del HTML. |
-| Costo COP por referencia (landed) | `ImportCostingSection` + `lib/landedCost` | Prorratea por peso/valor/cantidad. **Ya excluye el IVA de importación del costeable** (es descontable) — el HTML lo mezclaba. |
-| Variación de costo por referencia vs contenedores anteriores | `ImportPriceAnalysis` (series por referencia + `DeltaBadge` con %) | Cubre el `old` de `ITEMS`. |
-| Peso y unidades reales | `PackingListImport` | El HTML los deriva de la factura (`KG_DERIV`) porque no tenía packing. |
-| Liquidación real de aduana | `AduanaRealCosts` | El HTML solo estima. |
-| Futuro (cuándo pedir, cobertura) | `ReorderSuggestionCard` + `CoverageAnalysis` | El HTML no lo tiene. |
-
-**Conclusión:** los cuatro puntos que Nico enumeró están cubiertos a nivel de dato y cálculo.
-El problema es de **presentación y consolidación**.
+| **G1** | Que los supuestos del comparativo sean **editables a mano** (TRM, SMM, flete) | Hoy `columnaHoy()` los toma del mercado automáticamente. Nico necesita mover los tres y ver el efecto — es su decisión diaria. |
+| **G2** | Escenarios sobre **dos** contenedores a la vez: el **vigente** (¿cuánto me falta pagar y a qué me expone el dólar?) y el **siguiente** (¿cuánto me costaría montarlo hoy?) | `columnaHoy` ya hace el "siguiente"; el vigente con saldo abierto no está cubierto con supuestos móviles. |
+| **G3** | **TRM mixta** en la base de impuestos: lo ya pagado a la TRM real de cada abono **+** el saldo a TRM vigente | Hoy `computeImportBreakdown` recibe **una sola** TRM para todo. Con abonos a 3.800 y 3.353, valorar todo a una TRM única desvía la base del IVA y del arancel. |
+| **G4** | **Caja que necesito**: los saldos abiertos de todos los pedidos, a TRM de hoy y bajo escenarios | Existe por pedido; falta el consolidado y su proyección en el tiempo. |
 
 ---
 
-## 3. El gap real (5 piezas)
+## 3. Regla de oro de la pestaña: es **lo real**, no la contabilidad
 
-### G1 — No hay vista consolidada *(el gap principal)*
-Todo el análisis vive **dentro de un pedido**: para comparar 2026-1 con 2026-2 hay que abrir
-uno, anotar, abrir el otro. Las tabs actuales son `Pedidos`, `Análisis de precios`, `Cobertura`
-— ninguna responde "cómo voy con TODO".
+Decisión de Nico. La pestaña vive aparte porque responde una pregunta distinta a la del
+registro contable:
 
-### G2 — Comparativo contenedor vs contenedor con atribución de drivers
-`ImportPriceAnalysis` compara **por referencia**. Falta la cabecera: *"2026-2 cuesta $X más que
-2026-1, y de esa diferencia $A es SMM, $B es TRM, $C es flete, $D es peso."* Es el bloque más
-valioso del HTML y no tiene equivalente.
+- **Contabilidad** = lo causado, lo facturado, lo que ya pasó por un documento.
+- **Esta pestaña** = lo real para decidir hoy: el saldo que todavía no se giró, el contenedor
+  que todavía no se pidió, el dólar que todavía no se movió.
 
-### G3 — Simulador de escenarios
-Mover SMM / TRM / flete y ver el impacto en el costo total y por referencia **antes** de
-cerrar el precio. No existe en la app.
+Por lo tanto:
 
-### G4 — "Caja que necesito"
-`ExchangeDiffPanel` da el saldo de UN pedido. Falta: *"para cerrar todos los saldos abiertos
-necesito $X COP a TRM de hoy, y me vencen así en el tiempo."* Es la pregunta de tesorería que
-Nico hace todos los días.
-
-### G5 — Preparación de IVA
-El HTML usa `IVA_RATE=0.1716` (tasa efectiva **observada** en 2026-1) para anticipar el IVA
-del contenedor en curso. La app registra el IVA real cuando llega la liquidación, pero no
-proyecta el esperado ni muestra la tasa efectiva histórica.
+1. **NO escribe nunca** en `import_costs`, `import_payments`, `transactions` ni `imports`.
+   Es solo lectura + cálculo en memoria.
+2. **No crea pedidos.** El "contenedor siguiente" es una simulación con nombre, no una fila
+   en `imports`. Si Nico decide montarlo, usa el flujo normal de Nueva importación.
+3. **Todo supuesto se declara en pantalla** (de dónde salió cada número y si es real, medido
+   o asumido) — el patrón que `importComparison.supuestos` ya usa.
+4. Los escenarios **se pueden guardar** para volver a mirarlos, pero en su propia tabla
+   (`import_scenarios`), nunca mezclados con los datos contables.
 
 ---
 
-## 4. Plan para Fable
+## 4. Plan
 
-Cinco fases independientes. **F0 primero y sin excusa** (hay datos en riesgo). F1 y F2 dan el
-grueso del valor.
+### F1 — Escenarios editables sobre vigente + siguiente · ~2 días · mata G1 y G2
 
-### F0 — Rescatar los datos del HTML · ~medio día
-1. Verificar contra la app: ¿existen los pedidos **2026-1** y **2026-2**? ¿Con qué totales?
-   Comparar contra los números de §1 (ojo con $497,0M vs $507,9M).
-2. Cargar los **6 abonos de 2026-1** en `import_payments` si faltan (fecha, USD, TRM del
-   cuadro). Idem los de 2026-2 que Nico tenga en el navegador.
-3. Cargar los `import_costs` de 2026-1: arancel $20.641.283 y los fijos $28M **desglosados**
-   por concepto (no como un bulto).
-4. Confirmar el packing real de 2026-2 (el HTML deriva 28,85 t de la factura porque no lo
-   tenía; si ya llegó, cargarlo con `PackingListImport`).
+Pestaña nueva **"Escenarios"** en `/importaciones`.
 
-**Verificación:** la TRM ponderada de 2026-1 que calcule la app debe dar **3.501** y el total
-de abonos **131.014 USD / $458.634.846**. Si no cuadra, el error está en los datos, no en la
-fórmula — resolverlo antes de seguir.
+**Tres controles arriba, siempre visibles:** `TRM`, `SMM (USD/ton)`, `Flete (USD)`. Arrancan
+con los valores vigentes (TRM de hoy, último SMM cerrado, flete del último pedido) y un botón
+"volver a hoy".
 
-### F1 — Tab "Tablero" (consolidado) · ~2 días · mata G1 y G4
-Una tab nueva en `/importaciones` que responda de un vistazo:
-- **Fila de KPIs:** saldo USD abierto (todos los pedidos), su COP a TRM de hoy, próximo
-  vencimiento, y "caja que necesito este mes".
-- **Timeline de pedidos** por estado (producción / tránsito / aduana / entregado), con ETA y
-  saldo de cada uno. Reusar `useImports` y las fechas que ya existen.
-- **Curva de abonos**: USD comprado por fecha y la TRM de cada uno contra la TRM del día —
-  se ve si Nico compró bien o mal. Datos de `import_payments`, cero cálculo nuevo.
-- **Caja proyectada**: los saldos pendientes ordenados por fecha esperada de giro, a TRM de
-  hoy y a TRM +/− escenarios. Es G4.
+**Dos columnas, mismo motor:**
 
-Reglas: nada de recalcular lo que ya está en `useImportItems` / `useImportPayments`;
-la tab consume, no duplica.
+| | Contenedor **vigente** | Contenedor **siguiente** |
+|---|---|---|
+| Qué es | El pedido abierto con saldo | Simulación: "si lo monto hoy" |
+| Mercancía | La factura real ya confirmada | SMM simulado × toneladas estimadas |
+| Lo ya pagado | Abonos reales, cada uno a **su** TRM | — |
+| Saldo | `total − pagado`, valorado a la **TRM simulada** | Todo el monto a la TRM simulada |
+| Salida | Cuánto COP necesito para cerrarlo · arancel · IVA · costo/kg | Costo total · costo/kg · cuándo llegaría |
 
-### F2 — Comparador de contenedores con drivers · ~1,5 días · mata G2
-Selector de dos pedidos → tabla de descomposición. Fórmula del HTML (`renderHist` + drivers),
-generalizada a cualquier par:
+Implementación: extender `columnaHoy()` / `buildComparativo()` de `lib/importComparison` para
+aceptar **overrides opcionales** de trm/smm/flete. Si no se pasan, se comporta exactamente
+como hoy (los tests existentes deben seguir pasando sin tocarlos).
+
+**Verificación:** con los overrides en los valores actuales, la columna "vigente" debe dar el
+mismo saldo que muestra hoy `ExchangeDiffPanel` en ese pedido. Si difiere, hay doble fuente de
+verdad.
+
+### F2 — TRM mixta en la base de impuestos · ~1 día · mata G3
+
+Hoy `computeImportBreakdown({ trm })` valora todo a una sola TRM. Cambio:
 
 ```
-Δ total = Δ mercancía + Δ flete + Δ arancel + Δ fijos + Δ TRM
-  Δ mercancía  = (smm₂+prima₂)·tons₂ − (smm₁+prima₁)·tons₁   → separar efecto PRECIO de efecto PESO
-  Δ TRM        = usd_total₂ · (trm_pond₂ − trm_pond₁)
+base_cop = Σ (abono_usd × trm_de_ese_abono)        ← lo ya pagado, TRM real e inmutable
+         + (saldo_usd × trm_vigente_o_simulada)     ← lo que falta, expuesto al dólar
+arancel  = base_aduana × arancel%                   (con piso FOB, como ya hace)
+iva      = (base_aduana + arancel) × 19%
 ```
-Mostrar cada driver en COP y en %, con el signo claro. Reusar `trmPonderada` y los
-`import_costs` por tipo — todo el input ya está en la base.
 
-**Verificación:** con 2026-1 vs 2026-2 los drivers deben sumar exactamente la diferencia de
-totales. Test unitario con los números de §1.
+- Agregar a `computeImportBreakdown` un parámetro opcional `trmMixta?: { pagadoCop, saldoUsd }`.
+  Sin él, el comportamiento actual no cambia (los tests siguen pasando).
+- El IVA sigue **excluido del costeable** en `landedCost` — no tocar eso.
+- Mostrar en pantalla los dos pedazos por separado: *"ya pagaste $X a TRM promedio 3.501; te
+  faltan USD Y que a TRM de hoy son $Z"*. Es la lectura que Nico hace todos los días.
 
-### F3 — Simulador de escenarios · ~1 día · mata G3
-Sobre el pedido abierto: sliders de SMM (USD/t), TRM y flete → recalcula total COP y landed
-por referencia en vivo. **Reusar `lib/landedCost` tal cual**, pasándole los valores simulados;
-si hay que tocar esa lib, es señal de estar duplicando. Marcar visualmente que es simulación
-(no persiste). Respetar el piso FOB (`PISO_FOB_ALUMINIO_USD_KG`).
+**Verificación:** un pedido totalmente pagado debe dar exactamente lo mismo que hoy (saldo 0 →
+la TRM del saldo no aplica). Un pedido sin abonos, también (todo va a TRM vigente). Los tests
+tienen que cubrir los dos extremos y un caso mixto.
 
-### F4 — Preparación de IVA · ~medio día · mata G5
-- Tasa efectiva de IVA **observada** por contenedor cerrado (IVA real / base gravable) y su
-  promedio histórico — el `0.1716` del HTML, pero calculado, no hardcodeado.
-- IVA **esperado** del contenedor en curso = base estimada × tasa efectiva histórica, marcado
-  como estimado hasta que llegue la liquidación.
-- Enlazar con el calendario DIAN que ya existe (`useUpcomingObligations`) para que el IVA de
-  importación aparezca como obligación próxima.
+### F3 — Caja que necesito (consolidado) · ~1 día · mata G4
+
+Bloque en la misma pestaña: todos los pedidos con saldo abierto, ordenados por fecha esperada
+de giro, con el COP necesario a TRM de hoy y bajo la TRM simulada. Total abajo: *"para cerrar
+todo lo abierto necesito $X"*. Consume `useImports` + `useImportPayments`; nada nuevo que
+calcular.
+
+### F4 — Guardar escenarios (opcional) · ~medio día
+
+Tabla `import_scenarios` (nombre, supuestos, fecha, notas) para volver a un escenario guardado
+y compararlo con lo que efectivamente pasó. Es el enganche natural con el **libro de aciertos**
+(`prediction_log`): un escenario guardado es una predicción y puede confrontarse con la
+realidad.
 
 ---
 
-## 5. Lo que NO hay que portar del HTML
+## 5. Lo que NO se hace
 
-- **La tabla de ~130 `ITEMS` hardcodeada.** Ya vive en `import_items` + `landedCost`. Portarla
-  sería duplicar la fuente de verdad — justo lo que Nico pidió evitar.
-- **`localStorage`.** Todo va a la base (y encima el cache persistido de la app no tolera
-  estructuras raras — ver `feedback_no_maps_en_queries`).
-- **`fijos = 28M` como un bulto.** La app ya desglosa por concepto; mantener el desglose.
-- **El precio de venta sugerido (`t` en ITEMS).** Eso pertenece al ciclo comercial /
-  cotizaciones, no al módulo de importaciones. Si Nico lo quiere, va como feature aparte
-  alimentando `aluminum_catalog`.
+- **No se cargan datos de 2026-1** (ni de ningún contenedor histórico) desde el HTML. Ya están
+  en la app y ya fueron corregidos. El HTML queda como referencia de lectura, nada más.
+- **No se porta la tabla de ~130 ITEMS.** Vive en `import_items` + `landedCost`.
+- **No se usa `localStorage`.** Todo en base o en memoria.
+- **No se toca `landedCost`** para meter simulación: se le pasan valores simulados, no se le
+  agrega lógica de escenarios.
+- **No se porta la "tasa efectiva de IVA" del HTML (17,16%).** Es 19% sobre base + arancel, que
+  es lo que la app ya hace bien.
 
 ## 6. Riesgos
 
-- **Doble fuente de verdad.** El mayor riesgo es que el tablero recalcule por su cuenta y
-  empiece a diferir de la vista por pedido. Regla: la tab consume los hooks existentes.
-- **Números del HTML sin conciliar.** El propio HTML admite dos versiones de 2026-1 ($497,0M
-  vs $507,9M). No construir encima sin cerrar eso en F0.
-- **Peso derivado vs real.** 2026-2 usa peso derivado de la factura. Cuando entre el packing
-  real, todos los costos unitarios se mueven — el tablero debe mostrar de dónde viene el peso
-  (derivado / packing) como ya hace el motor de reorden con `fuente: medido | default`.
+- **Doble fuente de verdad.** Si la pestaña recalcula por su cuenta, va a empezar a diferir de
+  la vista por pedido. Regla: consume `importComparison`, `importCosting`, `useImportPayments`.
+- **Confundir simulado con real.** Todo número simulado debe estar visualmente marcado. Un
+  escenario que se lee como dato contable es peor que no tenerlo.
+- **Romper los tests de `importComparison`.** Los overrides van como opcionales; si un test
+  existente hay que modificarlo, es señal de que se cambió el comportamiento por defecto.
