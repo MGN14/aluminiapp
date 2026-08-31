@@ -24,6 +24,19 @@ import { estimateLeadTime, type ImportFechas, type LeadTimeEstimate } from '@/li
 
 export type ColumnaKind = 'entregado' | 'en_curso' | 'hoy';
 
+/**
+ * Overrides de la pestaña Escenarios: TRM, SMM y flete fijados a mano.
+ * Opcionales todos — sin ellos, el comparativo se comporta EXACTAMENTE igual
+ * que siempre (los tests previos a la pestaña corren intactos). Con ellos,
+ * la columna "hoy" deja de seguir al mercado y obedece al escenario, y cada
+ * override queda declarado en `supuestos` para que la UI lo muestre.
+ */
+export interface EscenarioOverrides {
+  trm?: number | null;
+  smmUsdTon?: number | null;
+  fleteUsd?: number | null;
+}
+
 /** Lo mínimo que necesita el comparativo de cada pedido. */
 export interface PedidoComparable {
   id: string;
@@ -225,14 +238,29 @@ export function columnaHoy(
   molde: PedidoComparable,
   lt: LeadTimeEstimate,
   hoy: string,
-  opts: { trmHoy: number | null; lmeHoy: number | null; lmeEnFechaMolde: number | null },
+  opts: {
+    trmHoy: number | null;
+    lmeHoy: number | null;
+    lmeEnFechaMolde: number | null;
+    overrides?: EscenarioOverrides;
+  },
 ): ColumnaComparativo | null {
   const ton = num(molde.cantidad_ton);
   const precioMolde = num(molde.precio_smm_cerrado_usd_ton);
   const supuestos: string[] = [];
+  const ov = opts.overrides ?? {};
+  const ovSmm = num(ov.smmUsdTon);
+  const ovTrm = num(ov.trm);
+  const ovFlete = ov.fleteUsd != null && Number.isFinite(Number(ov.fleteUsd)) && Number(ov.fleteUsd) >= 0
+    ? Number(ov.fleteUsd)
+    : null;
 
   let precioHoy = precioMolde;
-  if (precioMolde != null && opts.lmeHoy != null && opts.lmeEnFechaMolde != null && opts.lmeEnFechaMolde > 0) {
+  if (ovSmm != null) {
+    // El escenario manda: el SMM es el que Nico fijó, no el que dice el LME.
+    precioHoy = ovSmm;
+    supuestos.push(`SMM del escenario: ${Math.round(ovSmm)} USD/ton (fijado a mano).`);
+  } else if (precioMolde != null && opts.lmeHoy != null && opts.lmeEnFechaMolde != null && opts.lmeEnFechaMolde > 0) {
     const factor = opts.lmeHoy / opts.lmeEnFechaMolde;
     precioHoy = precioMolde * factor;
     const pct = (factor - 1) * 100;
@@ -243,8 +271,9 @@ export function columnaHoy(
     supuestos.push('Precio del aluminio: el mismo del último pedido (no hay LME para comparar contra esa fecha).');
   }
 
-  const trm = opts.trmHoy ?? molde.trm;
-  if (opts.trmHoy == null) supuestos.push('TRM: la del último pedido (no hay TRM de hoy cargada).');
+  const trm = ovTrm ?? opts.trmHoy ?? molde.trm;
+  if (ovTrm != null) supuestos.push(`TRM del escenario: ${Math.round(ovTrm).toLocaleString('es-CO')} (fijada a mano).`);
+  else if (opts.trmHoy == null) supuestos.push('TRM: la del último pedido (no hay TRM de hoy cargada).');
 
   // Mercancía: se ESCALA la factura real del molde por la variación de precio.
   //
@@ -268,13 +297,26 @@ export function columnaHoy(
   if (mercanciaUsd == null) return null;
 
   supuestos.push(`Cantidad: las mismas ${ton != null ? `${ton} t` : 'toneladas'} del último pedido.`);
-  supuestos.push('Flete, seguro, agencia y bancarios: los del último pedido (no hay cotización nueva).');
+  if (ovFlete != null) {
+    supuestos.push(`Flete del escenario: ${Math.round(ovFlete).toLocaleString('es-CO')} USD (fijado a mano). Seguro, agencia y bancarios: los del último pedido.`);
+  } else {
+    supuestos.push('Flete, seguro, agencia y bancarios: los del último pedido (no hay cotización nueva).');
+  }
   supuestos.push(`Tiempos: promedio de tus pedidos (${lt.totalDias} días de producción a bodega).`);
+
+  // Con flete fijado a mano, las líneas de flete del molde se reemplazan por
+  // UNA sola en USD. El resto de costos (seguro, agencia…) queda igual.
+  const costsEff = ovFlete != null
+    ? [
+        ...(molde.costs ?? []).filter((c) => c.tipo !== 'flete'),
+        { tipo: 'flete', monto: ovFlete, moneda: 'USD', trm: null } as ImportCostLine,
+      ]
+    : molde.costs;
 
   const kg = ton != null ? ton * 1000 : null;
   const bd = computeImportBreakdown({
     mercanciaUsd,
-    costs: molde.costs,
+    costs: costsEff,
     trm,
     arancelPct: Number(molde.arancel_pct ?? 5),
     ivaPct: Number(molde.iva_pct ?? 19),
@@ -315,8 +357,10 @@ export function buildComparativo(params: {
   lmeHoy: number | null;
   /** Serie LME ascendente para ubicar el valor en la fecha del molde. */
   lmeHistoria: Array<{ date: string; value: number }>;
+  /** Escenario a mano (pestaña Escenarios). Sin esto, comportamiento clásico. */
+  overrides?: EscenarioOverrides;
 }): ComparativoResult {
-  const { pedidos, hoy, trmHoy, lmeHoy, lmeHistoria } = params;
+  const { pedidos, hoy, trmHoy, lmeHoy, lmeHistoria, overrides } = params;
 
   const vivos = pedidos.filter((p) => p.estado !== 'cancelado');
   const leadTime = estimateLeadTime(vivos.map((p) => p.fechas));
@@ -341,7 +385,7 @@ export function buildComparativo(params: {
   if (ultimo) {
     const fechaMolde = ultimo.fechas.fecha_entregado ?? ultimo.fechas.fecha_anticipo ?? null;
     const lmeEnFechaMolde = fechaMolde ? valorEnFecha(lmeHistoria, fechaMolde) : null;
-    const hoyCol = columnaHoy(ultimo, leadTime, hoy, { trmHoy, lmeHoy, lmeEnFechaMolde });
+    const hoyCol = columnaHoy(ultimo, leadTime, hoy, { trmHoy, lmeHoy, lmeEnFechaMolde, overrides });
     if (hoyCol) columnas.push(hoyCol);
   }
 

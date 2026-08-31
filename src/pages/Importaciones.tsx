@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, CheckCircle2, Lock as LockIcon, Radar as RadarIcon, AlertTriangle, PackageCheck, PackageSearch, Factory } from 'lucide-react';
+import { Plus, Ship, AlertCircle, Search, LineChart, List, Clock, TrendingUp, TrendingDown, CheckCircle2, Lock as LockIcon, Radar as RadarIcon, AlertTriangle, PackageCheck, PackageSearch, Factory , FlaskConical } from 'lucide-react';
 import { useImports, sumImportCosts, type ImportRow, type ImportEstado, IMPORT_ESTADO_LABEL, IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import { fetchTrmForDate } from '@/hooks/useImportPayments';
 import { computeImportBreakdown } from '@/lib/importCosting';
@@ -20,6 +20,7 @@ import CoverageAnalysis from '@/components/imports/CoverageAnalysis';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
 import { useMacroIndicators } from '@/hooks/useMacroIndicators';
 import { buildComparativo, type TrmFuente } from '@/lib/importComparison';
+import EscenariosTab from '@/components/imports/EscenariosTab';
 import { computeTotalDays, computeStageAverages } from '@/lib/importStages';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -152,7 +153,7 @@ export default function Importaciones() {
   // puntual, o la simulación "si pido hoy". Reemplaza la tabla comparativa.
   const [focoSel, setFocoSel] = useState<'auto' | 'hoy' | string>('auto');
   const [search, setSearch] = useState('');
-  const [view, setView] = useState<'pedidos' | 'analisis' | 'cobertura'>('pedidos');
+  const [view, setView] = useState<'pedidos' | 'analisis' | 'cobertura' | 'escenarios'>('pedidos');
   // Diálogo "¿en qué fecha cambió de estado?" al cambiar desde el select inline
   const [changing, setChanging] = useState<{ row: ImportRow; estado: ImportEstado; fecha: string } | null>(null);
 
@@ -212,13 +213,13 @@ export default function Importaciones() {
   // de los banners (reemplazo de la tabla comparativa, Nico 2026-07-30).
   const { indicators } = useMacroIndicators();
   const lme = indicators.find((i) => i.type === 'aluminio_lme') ?? null;
-  const columnaHoy = useMemo(() => {
+  // Pedidos en formato comparable — compartido entre la columna "si pido hoy"
+  // de los banners y la pestaña Escenarios (misma fuente, cero recálculo).
+  const pedidosComparables = useMemo(() => {
     const rows = (data?.all ?? []).filter(r => r.estado !== 'cancelado');
-    if (!rows.length) return null;
     const fechaDe = (r: ImportRow, estado: string) =>
       (r.import_estado_history ?? []).find((x) => x.estado === estado)?.fecha ?? null;
-    const cmp = buildComparativo({
-      pedidos: rows.map((r) => {
+    return rows.map((r) => {
         const pond = trmByImport.get(r.id);
         const trm = (pond != null && pond > 0) ? pond
           : (r.trm_causacion && Number(r.trm_causacion) > 0) ? Number(r.trm_causacion)
@@ -247,14 +248,20 @@ export default function Importaciones() {
             fecha_listo_fabrica: fechaDe(r, 'listo_fabrica'),
           },
         };
-      }),
+      });
+  }, [data, trmByImport, trmHoy]);
+
+  const columnaHoy = useMemo(() => {
+    if (!pedidosComparables.length) return null;
+    const cmp = buildComparativo({
+      pedidos: pedidosComparables,
       hoy: todayIso(),
       trmHoy: trmHoy != null ? Number(trmHoy) : null,
       lmeHoy: lme?.value ?? null,
       lmeHistoria: lme?.history ?? [],
     });
     return cmp.columnas.find((c) => c.kind === 'hoy') ?? null;
-  }, [data, trmByImport, trmHoy, lme]);
+  }, [pedidosComparables, trmHoy, lme]);
 
   // Chips del selector de foco: los pedidos recientes + la simulación.
   // Chips del selector de banners (Nico 2026-08-02): SOLO los pedidos en
@@ -788,6 +795,14 @@ export default function Importaciones() {
               >
                 <PackageSearch className="h-3.5 w-3.5" /> Cobertura
               </button>
+              <button
+                type="button"
+                onClick={() => setView('escenarios')}
+                className={cn('px-3 py-1.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5',
+                  view === 'escenarios' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <FlaskConical className="h-3.5 w-3.5" /> Escenarios
+              </button>
             </div>
             <Button onClick={openNew} className="gap-2">
               <Plus className="h-4 w-4" />
@@ -800,6 +815,15 @@ export default function Importaciones() {
           <ImportPriceAnalysis />
         ) : view === 'cobertura' ? (
           <CoverageAnalysis />
+        ) : view === 'escenarios' ? (
+          <EscenariosTab
+            pedidos={pedidosComparables}
+            payRows={payRows}
+            trmHoy={trmHoy != null ? Number(trmHoy) : null}
+            lmeHoy={lme?.value ?? null}
+            lmeHistoria={lme?.history ?? []}
+            hoy={todayIso()}
+          />
         ) : (
         <>
         {/* Sugerencia de próximo pedido: quiebre de stock − lead time − colchón */}

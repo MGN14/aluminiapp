@@ -78,8 +78,24 @@ export function computeImportBreakdown(params: {
   cantidadKg?: number | null;
   /** Override del umbral (default: piso legal perfiles de aluminio). */
   pisoFobUsdKg?: number;
+  /**
+   * TRM MIXTA (pestaña Escenarios, pedido de Nico 2026-08-31): lo YA pagado
+   * de la mercancía va a la TRM real de cada abono (historia inmutable) y
+   * solo el saldo queda expuesto a la TRM del parámetro `trm`:
+   *
+   *   mercancía_cop = pagadoCop + (mercanciaUsd − pagadoUsd) × trm
+   *
+   * Sin este parámetro, TODO se valora a `trm` — el comportamiento clásico,
+   * intacto. Es una estimación para PREPARAR la caja del IVA/arancel (la
+   * DIAN liquida a la TRM del día de nacionalización); la UI debe marcarla
+   * como estimación.
+   */
+  trmMixta?: { pagadoUsd: number; pagadoCop: number } | null;
 }): ImportBreakdown {
   const { mercanciaUsd, costs, arancelPct, ivaPct } = params;
+  const mixta = params.trmMixta && params.trmMixta.pagadoUsd > 0 && params.trmMixta.pagadoCop > 0
+    ? params.trmMixta
+    : null;
   const trm = Number(params.trm) > 0 ? Number(params.trm) : null;
   const cantidadKg = Number(params.cantidadKg) > 0 ? Number(params.cantidadKg) : null;
   const pisoFobUsdKg = params.pisoFobUsdKg ?? PISO_FOB_ALUMINIO_USD_KG;
@@ -92,8 +108,19 @@ export function computeImportBreakdown(params: {
   const bancarios = sumImportCosts(costs, 'gastos_bancarios');
   const otros = sumImportCosts(costs, 'otro');
 
+  // Mercancía → COP. Con TRM mixta: lo pagado a sus TRMs reales + el saldo a
+  // la TRM vigente/simulada. El pagado se capea a la mercancía (si los abonos
+  // superan la factura, no hay saldo expuesto).
+  const mercanciaCop = (usd: number): number | null => {
+    if (!trm) return null;
+    if (!mixta) return usd * trm;
+    const pagadoAplicado = Math.min(mixta.pagadoUsd, usd);
+    const pagadoCopAplicado = mixta.pagadoCop * (pagadoAplicado / mixta.pagadoUsd);
+    return pagadoCopAplicado + Math.max(0, usd - pagadoAplicado) * trm;
+  };
+
   const cifUsd = mercanciaUsd + flete.usd + seguro.usd;
-  const cifCop = trm ? cifUsd * trm + flete.cop + seguro.cop : null;
+  const cifCop = trm ? mercanciaCop(mercanciaUsd)! + flete.usd * trm + flete.cop + seguro.usd * trm + seguro.cop : null;
 
   // Piso FOB: si el precio real por kg quedó bajo el umbral, la aduana liquida
   // sobre la base mínima. Solo afecta la BASE de los impuestos estimados —
@@ -102,7 +129,12 @@ export function computeImportBreakdown(params: {
   const pisoAplicado = fobUsdKg != null && fobUsdKg < pisoFobUsdKg;
   const mercanciaAduanaUsd = pisoAplicado ? pisoFobUsdKg * cantidadKg! : mercanciaUsd;
   const cifAduanaUsd = mercanciaAduanaUsd + flete.usd + seguro.usd;
-  const cifAduanaCop = trm ? cifAduanaUsd * trm + flete.cop + seguro.cop : null;
+  // El extra del piso FOB (mercancía flooreada − real) no fue pagado por
+  // nadie: queda expuesto a la TRM vigente, como el saldo.
+  const cifAduanaCop = trm
+    ? mercanciaCop(mercanciaUsd)! + Math.max(0, mercanciaAduanaUsd - mercanciaUsd) * trm
+      + flete.usd * trm + flete.cop + seguro.usd * trm + seguro.cop
+    : null;
 
   const arancelRealCop = (trm ? arancelReal.usd * trm : 0) + arancelReal.cop;
   const usaArancelReal = arancelRealCop > 0;
