@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,6 +14,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Category, Responsible } from '@/types/transaction';
+import { linkCreditPayment, unlinkCreditPayment, parseCreditNameFromNotes, CREDIT_NOTE_MARKER_REGEX } from '@/lib/creditLink';
 
 interface PendingTransaction {
   id: string;
@@ -61,6 +63,7 @@ export function PendingTransactionsTable({
 }: PendingTransactionsTableProps) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   // IDs "pinned" — transacciones que el usuario tocó en esta sesión.
   // Se mantienen VISIBLES en la lista aunque ya no califiquen como
@@ -259,7 +262,9 @@ export function PendingTransactionsTable({
   ) => {
     setUpdatingId(transactionId);
     try {
-      // Build notes with tags
+      // Build notes with tags — conservando el marcador de crédito existente:
+      // cambiar un tag no debe "soltar" un crédito que sigue vinculado.
+      const existingCreditMarker = (currentNotes || '').match(/\[Crédito - [^\]]+\]/)?.[0] ?? '';
       let cleanNotes = (currentNotes || '')
         .replace(/\[N\/A\]/g, '')
         .replace(/\[IVA a favor - Pago DIAN\]/g, '')
@@ -273,6 +278,7 @@ export function PendingTransactionsTable({
       if (tags.includes('retefuente')) tagMarkers.push('[Retefuente - Sin factura]');
       if (tags.includes('anticipo')) tagMarkers.push('[Anticipo]');
       if (creditLink) tagMarkers.push(`[Crédito - ${creditLink.creditName}]`);
+      else if (existingCreditMarker) tagMarkers.push(existingCreditMarker);
       const newNotes = [...tagMarkers, cleanNotes].filter(Boolean).join(' ').trim() || null;
 
       // Pisamos categoría/responsable cuando hay creditLink
@@ -288,32 +294,38 @@ export function PendingTransactionsTable({
         .eq('id', transactionId);
       if (error) throw error;
 
-      // Vincular pago a crédito
+      // Vincular pago a crédito — con dedupe: si la tx ya respalda un pago no
+      // duplica, y si el pago ya estaba registrado a mano lo adopta en vez de
+      // descontar la cuota dos veces (bug doble descuento 2026-09-01).
       if (creditLink) {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const { error: cpErr } = await (supabase.from('credit_payments' as never) as any)
-            .insert({
-              user_id: user.id,
-              credit_id: creditLink.creditId,
-              payment_date: creditLink.paymentDate,
-              amount_paid: creditLink.amountPaid,
-              principal_paid: creditLink.principalPaid,
-              interest_paid: creditLink.interestPaid,
-              is_extra: false,
-              notes: 'Conciliado desde extracto',
-              transaction_id: transactionId,
+          const result = await linkCreditPayment({
+            userId: user.id,
+            creditId: creditLink.creditId,
+            transactionId,
+            paymentDate: creditLink.paymentDate,
+            amountPaid: creditLink.amountPaid,
+            principalPaid: creditLink.principalPaid,
+            interestPaid: creditLink.interestPaid,
+            newBalance: creditLink.newBalance,
+          });
+          if (result.outcome === 'adopted') {
+            toast({
+              title: 'Vinculado al pago que ya habías registrado',
+              description: `Este débito es el mismo pago manual del ${result.manualPaymentDate}. No se descontó otra cuota.`,
             });
-          if (cpErr) console.error('Error inserting credit_payment:', cpErr);
-
-          if (creditLink.newBalance <= 0.5) {
-            await (supabase.from('credits' as never) as any)
-              .update({ status: 'paid' })
-              .eq('id', creditLink.creditId);
+          } else if (result.outcome === 'already_linked') {
+            toast({
+              title: 'Este movimiento ya estaba vinculado al crédito',
+              description: 'No se registró un pago adicional.',
+            });
+          } else if (result.creditPaidOff) {
             toast({ title: `Crédito ${creditLink.creditName} saldado 🎉` });
           } else {
             toast({ title: `Pago vinculado a "${creditLink.creditName}"` });
           }
+          queryClient.invalidateQueries({ queryKey: ['credits'] });
         }
       }
 
@@ -321,6 +333,31 @@ export function PendingTransactionsTable({
     } catch (error) {
       console.error('Error updating invoice:', error);
       toast({ title: 'Error', description: 'No se pudo actualizar la factura', variant: 'destructive' });
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  /** X del chip de crédito: suelta el vínculo (borra el pago si nació de la
+   *  conciliación; si era un pago manual adoptado, solo lo desengancha). */
+  const handleUnlinkCredit = async (transactionId: string, currentNotes: string | null) => {
+    setUpdatingId(transactionId);
+    try {
+      const res = await unlinkCreditPayment(transactionId);
+      const cleaned = (currentNotes || '').replace(CREDIT_NOTE_MARKER_REGEX, '').trim() || null;
+      const { error } = await supabase
+        .from('transactions')
+        .update({ notes: cleaned })
+        .eq('id', transactionId);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+      toast(res === 'deleted'
+        ? { title: 'Crédito desvinculado', description: 'El pago creado desde la conciliación se borró y las cuotas se recalcularon.' }
+        : { title: 'Crédito desvinculado', description: 'El pago manual del crédito se conserva; solo se soltó el vínculo con el extracto.' });
+      onTransactionUpdated();
+    } catch (error) {
+      console.error('Error unlinking credit:', error);
+      toast({ title: 'Error', description: 'No se pudo desvincular el crédito', variant: 'destructive' });
     } finally {
       setUpdatingId(null);
     }
@@ -447,6 +484,8 @@ export function PendingTransactionsTable({
                       transactionAmount={tx.amount}
                       transactionDate={tx.date}
                       transactionId={tx.id}
+                      creditName={parseCreditNameFromNotes(tx.notes)}
+                      onUnlinkCredit={parseCreditNameFromNotes(tx.notes) ? () => handleUnlinkCredit(tx.id, tx.notes) : undefined}
                       onChange={(invId, tags, _autoMatches, creditLink) => handleInvoiceChange(tx.id, invId, tags, tx.notes, creditLink)}
                       className="w-full"
                     />
@@ -538,6 +577,8 @@ export function PendingTransactionsTable({
                         transactionAmount={tx.amount}
                         transactionDate={tx.date}
                         transactionId={tx.id}
+                        creditName={parseCreditNameFromNotes(tx.notes)}
+                        onUnlinkCredit={parseCreditNameFromNotes(tx.notes) ? () => handleUnlinkCredit(tx.id, tx.notes) : undefined}
                         onChange={(invId, tags, _autoMatches, creditLink) => handleInvoiceChange(tx.id, invId, tags, tx.notes, creditLink)}
                         className="min-w-[120px]"
                       />

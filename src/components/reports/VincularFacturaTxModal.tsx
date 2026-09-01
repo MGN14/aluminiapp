@@ -26,6 +26,7 @@ import { Loader2, Link2, Search, Calendar, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { suggestPaymentSplit, summarizeCredit, type AmortizationType } from '@/lib/amortization';
+import { linkCreditPayment } from '@/lib/creditLink';
 
 interface InvoiceCandidate {
   id: string;
@@ -363,21 +364,21 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
         false,
       );
 
-      const { data: cpData, error: cpErr } = await (supabase.from('credit_payments' as never) as any)
-        .insert({
-          user_id: user.id,
-          credit_id: credit.id,
-          payment_date: tx.date,
-          amount_paid: tx.amount,
-          principal_paid: split.principal,
-          interest_paid: split.interest,
-          is_extra: false,
-          notes: `Conciliado desde extracto: ${tx.description}`,
-          transaction_id: tx.id,
-        })
-        .select()
-        .single();
-      if (cpErr) throw cpErr;
+      // Dedupe: si la tx ya respalda un pago no duplica, y si el pago ya
+      // estaba registrado a mano lo adopta en vez de descontar la cuota dos
+      // veces (bug doble descuento 2026-09-01).
+      const newBalance = credit.currentBalance - split.principal;
+      const result = await linkCreditPayment({
+        userId: user.id,
+        creditId: credit.id,
+        transactionId: tx.id,
+        paymentDate: tx.date,
+        amountPaid: tx.amount,
+        principalPaid: split.principal,
+        interestPaid: split.interest,
+        newBalance,
+        notes: `Conciliado desde extracto: ${tx.description}`,
+      });
 
       // Actualizar la tx con categoría y beneficiario por defecto del crédito
       const txUpdate: Record<string, unknown> = {};
@@ -391,12 +392,11 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
         if (txErr) throw txErr;
       }
 
-      // Si el saldo después del pago llega a ~0, marcar crédito como pagado
-      const newBalance = credit.currentBalance - split.principal;
-      if (newBalance <= 0.5) {
-        await (supabase.from('credits' as never) as any)
-          .update({ status: 'paid' })
-          .eq('id', credit.id);
+      if (result.outcome === 'adopted') {
+        toast.success(`Este débito es el mismo pago manual del ${result.manualPaymentDate} — quedó vinculado, sin descontar otra cuota.`);
+      } else if (result.outcome === 'already_linked') {
+        toast.info('Este movimiento ya estaba vinculado al crédito. No se registró un pago adicional.');
+      } else if (result.creditPaidOff) {
         toast.success(`Crédito ${credit.name} saldado 🎉`);
       } else {
         toast.success(`Pago vinculado a "${credit.name}" — saldo: ${formatCOP(newBalance)}`);

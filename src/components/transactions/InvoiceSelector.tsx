@@ -46,6 +46,13 @@ interface InvoiceSelectorProps {
   /** Beneficiario ya asignado a la transacción — sus facturas van primero como sugeridas */
   responsibleId?: string | null;
   responsibleName?: string | null;
+  /** Nombre del crédito ya vinculado a esta transacción (marcador [Crédito - X]
+   *  en las notas). Con esto la fila deja de decir "Pendiente" y muestra el
+   *  chip — antes el usuario no veía feedback y volvía a dar clic, creando
+   *  pagos duplicados. */
+  creditName?: string | null;
+  /** Quitar el vínculo con el crédito (la X del chip). */
+  onUnlinkCredit?: () => void;
   onChange: (invoiceId: string | null, tags: InvoiceTag[], autoMatches?: AutoMatchResult[], creditLink?: CreditLinkInfo) => void;
   className?: string;
 }
@@ -83,7 +90,7 @@ const TAG_CONFIG: Record<InvoiceTag, { label: string; icon: typeof FileText; col
   anticipo: { label: 'Anticipo', icon: Wallet, colorClass: 'text-warning', description: 'Pago anticipado sin factura' },
 };
 
-export default function InvoiceSelector({ invoiceId, tags, transactionType, transactionAmount, transactionDate, transactionId, responsibleId, responsibleName, onChange, className }: InvoiceSelectorProps) {
+export default function InvoiceSelector({ invoiceId, tags, transactionType, transactionAmount, transactionDate, transactionId, responsibleId, responsibleName, creditName, onUnlinkCredit, onChange, className }: InvoiceSelectorProps) {
   const [open, setOpen] = useState(false);
   const [invoices, setInvoices] = useState<InvoiceOption[]>([]);
   const [credits, setCredits] = useState<CreditOption[]>([]);
@@ -494,7 +501,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     setSearch('');
   };
 
-  const hasAnySelection = !!invoiceId || tags.length > 0;
+  const hasAnySelection = !!invoiceId || tags.length > 0 || !!creditName;
 
   // IVA y Retefuente NO son tipos de factura — son atributos tributarios del
   // pago y viven en has_iva/has_retefuente (toggles en el detalle de la
@@ -517,6 +524,23 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
           >
             <X className="h-3 w-3" />
           </button>
+        </span>
+      )}
+
+      {/* Chip de crédito vinculado — mismo peso visual que el de factura */}
+      {creditName && (
+        <span className="inline-flex items-center gap-1 text-xs rounded-md px-1.5 py-0.5 min-w-0 flex-1 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/20 font-medium">
+          <CreditCard className="h-3 w-3 shrink-0" />
+          <span className="truncate" title={`Pago vinculado al crédito ${creditName}`}>{creditName}</span>
+          {onUnlinkCredit && (
+            <button
+              className="shrink-0 hover:text-destructive opacity-60 hover:opacity-100"
+              onClick={(e) => { e.stopPropagation(); onUnlinkCredit(); }}
+              aria-label="Desvincular crédito"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </span>
       )}
 
@@ -616,6 +640,11 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
                       <span className="text-muted-foreground truncate flex-1">
                         {c.bank_name ?? 'Sin banco'} · saldo {formatCurrency(c.currentBalance)}
                       </span>
+                      {creditName === c.name && (
+                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-success/15 text-success font-semibold shrink-0">
+                          ✓ Vinculado
+                        </span>
+                      )}
                       {matchesCuota && (
                         <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary font-semibold shrink-0">
                           Cuota

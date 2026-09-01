@@ -58,17 +58,28 @@ export default function ConciliacionMatchesPanel({ credit }: Props) {
       const toIso = maxDate.toISOString().slice(0, 10);
 
       // RLS filtra por owner; sin .eq('user_id', user.id) que rompía a colaboradores.
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('id, date, amount, description, type, category_id')
-        .is('deleted_at', null)
-        .eq('type', 'egreso')
-        .gte('date', fromIso)
-        .lte('date', toIso);
+      const [{ data, error }, { data: linked, error: linkedErr }] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('id, date, amount, description, type, category_id')
+          .is('deleted_at', null)
+          .eq('type', 'egreso')
+          .gte('date', fromIso)
+          .lte('date', toIso),
+        // Transacciones que YA respaldan un pago de crédito: no sugerirlas de
+        // nuevo (invitaba a re-vincular y duplicar el descuento).
+        (supabase.from('credit_payments' as never) as any)
+          .select('transaction_id')
+          .not('transaction_id', 'is', null),
+      ]);
 
       if (error) throw error;
+      if (linkedErr) throw linkedErr;
 
-      const txs = (data ?? []) as BankTx[];
+      const linkedIds = new Set(
+        ((linked ?? []) as Array<{ transaction_id: string }>).map((r) => r.transaction_id),
+      );
+      const txs = ((data ?? []) as BankTx[]).filter((t) => !linkedIds.has(t.id));
       const out: Array<{ tx: BankTx; cuotaNumero: number; cuotaFecha: string; matchScore: number; matchReason: string[] }> = [];
 
       const creditNameLower = credit.credit.name.toLowerCase();

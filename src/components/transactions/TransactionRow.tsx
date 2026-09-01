@@ -31,7 +31,8 @@ import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { useConciliacionHistorial } from '@/hooks/useConciliacionHistorial';
 import { useBankInvoiceMatches } from '@/hooks/useBankInvoiceMatches';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { linkCreditPayment, unlinkCreditPayment, parseCreditNameFromNotes, CREDIT_NOTE_MARKER_REGEX } from '@/lib/creditLink';
 import { fetchDatosVentasProbable, sugerirClienteParaPago } from '@/lib/ventasProbable';
 import {
   sugerirBeneficiario, sugerirCategoria, alertaCategoriaInusual, alertaMontoInusual,
@@ -80,7 +81,8 @@ export default function TransactionRow({
   cardDescriptionRules,
 }: TransactionRowProps) {
   const { user } = useAuth();
-  
+  const queryClient = useQueryClient();
+
   const { status, errorMessage, updateField, localTransaction } = useTransactionEdit(transaction, {
     debounceMs: 600,
   });
@@ -191,7 +193,10 @@ export default function TransactionRow({
       anticipo: '[Anticipo]',
     };
 
-    // Clean existing markers from notes
+    // Clean existing markers from notes — conservando el marcador de crédito
+    // existente: cambiar un tag no debe "soltar" visualmente un crédito que
+    // sigue vinculado en credit_payments.
+    const existingCreditMarker = (localTransaction.notes || '').match(/\[Crédito - [^\]]+\]/)?.[0] ?? '';
     let cleanNotes = (localTransaction.notes || '')
       .replace(/\[N\/A - Sin factura\]/g, '')
       .replace(/\[IVA a favor - Pago DIAN\]/g, '')
@@ -202,7 +207,7 @@ export default function TransactionRow({
 
     // Add new markers
     const markers = newTags.map(t => tagMarkers[t]).join('');
-    const creditMarker = creditLink ? `[Crédito - ${creditLink.creditName}]` : '';
+    const creditMarker = creditLink ? `[Crédito - ${creditLink.creditName}]` : existingCreditMarker;
     const finalNotes = [markers, creditMarker, cleanNotes].filter(Boolean).join('') || null;
 
     // Si vino un creditLink, también pisamos categoría/responsable con los defaults del crédito
@@ -232,31 +237,66 @@ export default function TransactionRow({
       }
     }
 
-    // Vincular pago a crédito: insert credit_payment + actualizar status si saldó
+    // Vincular pago a crédito — con dedupe: si la tx ya respalda un pago no
+    // duplica, y si el pago ya estaba registrado a mano lo adopta en vez de
+    // descontar la cuota dos veces (bug doble descuento 2026-09-01).
     if (creditLink && user) {
       try {
-        const { error: cpErr } = await (supabase.from('credit_payments' as never) as any)
-          .insert({
-            user_id: user.id,
-            credit_id: creditLink.creditId,
-            payment_date: creditLink.paymentDate,
-            amount_paid: creditLink.amountPaid,
-            principal_paid: creditLink.principalPaid,
-            interest_paid: creditLink.interestPaid,
-            is_extra: false,
-            notes: `Conciliado desde extracto`,
-            transaction_id: localTransaction.id,
+        const result = await linkCreditPayment({
+          userId: user.id,
+          creditId: creditLink.creditId,
+          transactionId: localTransaction.id,
+          paymentDate: creditLink.paymentDate,
+          amountPaid: creditLink.amountPaid,
+          principalPaid: creditLink.principalPaid,
+          interestPaid: creditLink.interestPaid,
+          newBalance: creditLink.newBalance,
+        });
+        if (result.outcome === 'adopted') {
+          toast({
+            title: 'Vinculado al pago que ya habías registrado',
+            description: `Este débito es el mismo pago manual del ${result.manualPaymentDate}. No se descontó otra cuota.`,
           });
-        if (cpErr) throw cpErr;
-
-        if (creditLink.newBalance <= 0.5) {
-          await (supabase.from('credits' as never) as any)
-            .update({ status: 'paid' })
-            .eq('id', creditLink.creditId);
+        } else if (result.outcome === 'already_linked') {
+          toast({
+            title: 'Este movimiento ya estaba vinculado al crédito',
+            description: 'No se registró un pago adicional.',
+          });
+        } else if (result.creditPaidOff) {
+          toast({ title: `Crédito ${creditLink.creditName} saldado 🎉` });
+        } else {
+          toast({ title: `Pago vinculado a "${creditLink.creditName}"` });
         }
+        queryClient.invalidateQueries({ queryKey: ['credits'] });
       } catch (err) {
         console.error('Error linking credit:', err);
+        toast({
+          title: 'No se pudo vincular el crédito',
+          description: err instanceof Error ? err.message : 'Error desconocido',
+          variant: 'destructive',
+        });
       }
+    }
+  };
+
+  /** X del chip de crédito: suelta el vínculo (borra el pago si nació de la
+   *  conciliación; si era un pago manual adoptado, solo lo desengancha). */
+  const handleUnlinkCredit = async () => {
+    try {
+      const res = await unlinkCreditPayment(localTransaction.id);
+      const cleaned = (localTransaction.notes || '').replace(CREDIT_NOTE_MARKER_REGEX, '').trim() || null;
+      updateField({ notes: cleaned });
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+      toast(res === 'deleted'
+        ? { title: 'Crédito desvinculado', description: 'El pago creado desde la conciliación se borró y las cuotas se recalcularon.' }
+        : { title: 'Crédito desvinculado', description: 'El pago manual del crédito se conserva; solo se soltó el vínculo con el extracto.' });
+    } catch (err) {
+      console.error('Error unlinking credit:', err);
+      toast({
+        title: 'No se pudo desvincular',
+        description: err instanceof Error ? err.message : 'Error desconocido',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -409,6 +449,10 @@ export default function TransactionRow({
 
   // Derive invoiceId and tags from transaction data
   const derivedInvoiceId = localTransaction.invoice_id || null;
+  const derivedCreditName = useMemo(
+    () => parseCreditNameFromNotes(localTransaction.notes),
+    [localTransaction.notes],
+  );
   const derivedTags = useMemo((): InvoiceTag[] => {
     const t: InvoiceTag[] = [];
     const notes = localTransaction.notes || '';
@@ -599,6 +643,8 @@ export default function TransactionRow({
             transactionId={localTransaction.id}
             responsibleId={localTransaction.responsible_id}
             responsibleName={responsibles.find(r => r.id === localTransaction.responsible_id)?.name ?? null}
+            creditName={derivedCreditName}
+            onUnlinkCredit={derivedCreditName ? handleUnlinkCredit : undefined}
             onChange={handleInvoiceChange}
           />
           {/* Sugerencia del motor: "¿este ingreso es la factura X de Y?" —
