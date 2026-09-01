@@ -17,13 +17,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FlaskConical, RotateCcw, Ship, Wallet, ChevronDown, PiggyBank } from 'lucide-react';
+import { FlaskConical, RotateCcw, Ship, Wallet, ChevronDown, PiggyBank, BookmarkPlus, Trash2, Upload, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   buildComparativo, deltaPct,
   type PedidoComparable, type EscenarioOverrides,
 } from '@/lib/importComparison';
 import { escenarioVigente } from '@/lib/importScenario';
+import { useImportScenarios, type ImportScenario } from '@/hooks/useImportScenarios';
 import type { ImportCostLine } from '@/lib/importCosting';
 
 const fmtCop = (n: number | null | undefined) =>
@@ -121,6 +122,13 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
   const tocado = trmStr != null || smmStr != null || fleteStr != null;
   const volverAHoy = () => { setTrmStr(null); setSmmStr(null); setFleteStr(null); };
 
+  // ── F4: escenarios guardados ──
+  const { scenarios, save, remove } = useImportScenarios();
+  const [saving, setSaving] = useState(false);
+  const [nombre, setNombre] = useState('');
+  const [notas, setNotas] = useState('');
+  const [verGuardados, setVerGuardados] = useState(false);
+
   const parse = (s: string): number | null => {
     const n = Number(s.replace(/[.,\s]/g, ''));
     return Number.isFinite(n) && n > 0 ? n : null;
@@ -180,6 +188,53 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
     };
   }, [enCurso, payRows, overrides.trm, trmHoy]);
 
+  const handleGuardar = () => {
+    const n = nombre.trim();
+    if (!n) return;
+    save.mutate({
+      nombre: n,
+      trm: overrides.trm,
+      smm_usd_ton: overrides.smmUsdTon,
+      flete_usd: overrides.fleteUsd,
+      import_id: vigente?.id ?? null,
+      notas: notas.trim() || null,
+      // Foto de lo que daba el escenario al guardarlo — para confrontar después.
+      snapshot: {
+        trmHoy,
+        vigente: esc && vigente ? {
+          label: vigente.label,
+          saldoUsd: esc.saldoUsd,
+          saldoCop: esc.saldoCopSimulado,
+          cajaParaCerrar: esc.cajaParaCerrarCop,
+        } : null,
+        siguiente: colSiguiente ? {
+          totalCop: colSiguiente.totalCop,
+          copPorKg: colSiguiente.copPorKg,
+          mercanciaUsd: colSiguiente.mercanciaUsd,
+          llegada: colSiguiente.fechaLlegada,
+        } : null,
+      },
+    }, { onSuccess: () => { setSaving(false); setNombre(''); setNotas(''); setVerGuardados(true); } });
+  };
+
+  const cargarEscenario = (sc: ImportScenario) => {
+    setTrmStr(sc.trm != null ? String(Math.round(sc.trm)) : null);
+    setSmmStr(sc.smm_usd_ton != null ? String(Math.round(sc.smm_usd_ton)) : null);
+    setFleteStr(sc.flete_usd != null ? String(Math.round(sc.flete_usd)) : null);
+  };
+
+  /** Confrontación: si el pedido del escenario ya cerró, TRM real vs asumida. */
+  const confrontacion = (sc: ImportScenario): { trmReal: number; delta: number } | null => {
+    if (!sc.import_id || sc.trm == null) return null;
+    const pedido = pedidos.find((p) => p.id === sc.import_id);
+    if (!pedido || !['entregado', 'cerrado'].includes(pedido.estado)) return null;
+    const abonos = payRows.filter((x) => x.import_id === sc.import_id && Number(x.amount_usd) > 0 && Number(x.trm) > 0);
+    const usd = abonos.reduce((s, a) => s + Number(a.amount_usd), 0);
+    if (usd <= 0) return null;
+    const trmReal = abonos.reduce((s, a) => s + Number(a.amount_usd) * Number(a.trm), 0) / usd;
+    return { trmReal, delta: trmReal - sc.trm };
+  };
+
   return (
     <div className="space-y-4">
       {/* ── Cabecera + perillas ── */}
@@ -193,12 +248,34 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
                 Simulación — no toca la contabilidad ni crea pedidos
               </Badge>
             </div>
-            {tocado && (
-              <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5" onClick={volverAHoy}>
-                <RotateCcw className="h-3.5 w-3.5" /> Volver a hoy
+            <div className="flex items-center gap-1.5">
+              {tocado && (
+                <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5" onClick={volverAHoy}>
+                  <RotateCcw className="h-3.5 w-3.5" /> Volver a hoy
+                </Button>
+              )}
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setSaving((v) => !v)}>
+                <BookmarkPlus className="h-3.5 w-3.5" /> Guardar escenario
               </Button>
-            )}
+            </div>
           </div>
+          {saving && (
+            <div className="flex items-end gap-2 flex-wrap rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+              <div className="flex-1 min-w-[180px]">
+                <label className="text-[11px] text-muted-foreground block mb-1">Nombre</label>
+                <Input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: si el dólar toca 3.000"
+                  className="h-8 text-xs" autoFocus />
+              </div>
+              <div className="flex-[2] min-w-[220px]">
+                <label className="text-[11px] text-muted-foreground block mb-1">Notas (opcional)</label>
+                <Input value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Por qué este escenario"
+                  className="h-8 text-xs" />
+              </div>
+              <Button size="sm" className="h-8 text-xs" onClick={handleGuardar} disabled={!nombre.trim() || save.isPending}>
+                Guardar
+              </Button>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-3 max-w-xl">
             <div>
               <label className="text-[11px] text-muted-foreground block mb-1">
@@ -364,6 +441,75 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
           )}
         </CardContent>
       </Card>
+
+      {/* ── Escenarios guardados: volver a ellos y confrontarlos ── */}
+      {scenarios.length > 0 && (
+        <Card>
+          <CardContent className="py-4 px-5 space-y-2">
+            <button type="button" onClick={() => setVerGuardados((v) => !v)}
+              className="flex items-center gap-2 text-sm font-semibold w-full text-left">
+              <ChevronDown className={cn('h-4 w-4 transition-transform', verGuardados && 'rotate-180')} />
+              Escenarios guardados ({scenarios.length})
+            </button>
+            {verGuardados && (
+              <div className="space-y-1.5 pt-1">
+                {scenarios.map((sc) => {
+                  const conf = confrontacion(sc);
+                  return (
+                    <div key={sc.id} className="rounded-lg border border-border/60 px-3 py-2 flex items-center gap-3 flex-wrap text-xs">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{sc.nombre}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(sc.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                          {sc.snapshot?.vigente?.label ? ` · ${sc.snapshot.vigente.label}` : ''}
+                          {sc.notas ? ` · ${sc.notas}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {sc.trm != null && <Badge variant="secondary" className="text-[10px] font-mono">TRM {fmtNum(sc.trm)}</Badge>}
+                        {sc.smm_usd_ton != null && <Badge variant="secondary" className="text-[10px] font-mono">SMM {fmtNum(sc.smm_usd_ton)}</Badge>}
+                        {sc.flete_usd != null && <Badge variant="secondary" className="text-[10px] font-mono">Flete {fmtNum(sc.flete_usd)}</Badge>}
+                        {sc.snapshot?.vigente?.cajaParaCerrar != null && (
+                          <Badge variant="outline" className="text-[10px] font-mono" title="Caja para cerrar que daba este escenario al guardarlo">
+                            {fmtCop(sc.snapshot.vigente.cajaParaCerrar)}
+                          </Badge>
+                        )}
+                        {conf && (
+                          <Badge
+                            className={cn('text-[10px] font-mono gap-1',
+                              Math.abs(conf.delta) <= 50 ? 'bg-success/15 text-success border-success/30'
+                                : conf.delta > 0 ? 'bg-destructive/10 text-destructive border-destructive/30'
+                                  : 'bg-success/15 text-success border-success/30')}
+                            variant="outline"
+                            title={`El pedido cerró: TRM ponderada real ${fmtNum(conf.trmReal)} vs ${fmtNum(sc.trm)} de tu escenario`}
+                          >
+                            <CheckCircle2 className="h-3 w-3" />
+                            Real: {fmtNum(conf.trmReal)} ({conf.delta >= 0 ? '+' : ''}{fmtNum(conf.delta)})
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1"
+                          onClick={() => cargarEscenario(sc)} title="Poner estas perillas en el escenario de arriba">
+                          <Upload className="h-3 w-3" /> Cargar
+                        </Button>
+                        <button type="button"
+                          onClick={() => { if (window.confirm(`¿Borrar el escenario "${sc.nombre}"?`)) remove.mutate(sc.id); }}
+                          className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:text-destructive">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-[10px] text-muted-foreground">
+                  Cuando el contenedor de un escenario cierre, acá aparece la TRM real lograda contra la que asumiste.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
