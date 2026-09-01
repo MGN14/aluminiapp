@@ -52,6 +52,8 @@ export interface PedidoComparable {
   fechas: ImportFechas;
   /** De dónde salió la TRM, para poder mostrarlo y auditarlo. */
   trmFuente?: TrmFuente;
+  /** Nota del pedido (imports.notas) — la memoria de por qué costó lo que costó. */
+  notas?: string | null;
 }
 
 /** 'ponderada' = promedio de los abonos reales (la buena) · 'causacion' = la

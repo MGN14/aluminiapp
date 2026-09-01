@@ -238,6 +238,7 @@ export default function Importaciones() {
           arancel_pct: r.arancel_pct,
           iva_pct: r.iva_pct,
           costs: r.import_costs,
+          notas: r.notas ?? null,
           fechas: {
             estado: r.estado,
             fecha_anticipo: fechaDe(r, 'produccion') ?? r.fecha_anticipo,

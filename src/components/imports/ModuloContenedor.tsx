@@ -23,6 +23,7 @@ import { escenarioVigente, type EscenarioVigente } from '@/lib/importScenario';
 import { driversDelta, type DriversResult } from '@/lib/importDrivers';
 import type { PedidoComparable } from '@/lib/importComparison';
 import { useManualAbonos, type ManualAbono } from '@/hooks/useManualAbonos';
+import { useImportItems } from '@/hooks/useImportItems';
 
 // ── formato (fuentes legibles: nada por debajo de 12px en datos) ──
 const fmt0 = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
@@ -96,6 +97,20 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   );
   const totalManualUsd = manualesComoAbono.reduce((s, a) => s + a.amount_usd, 0);
 
+  // PESO: el del packing list real manda sobre el digitado en el pedido.
+  // La proveedora despacha de más o de menos, y eso mueve el COP/kg sin que
+  // el precio se haya movido (Nico en su HTML: "despachó más kilos de los
+  // pedidos"). Se avisa cuando difieren para no confundir efecto peso con
+  // efecto precio.
+  const { landed: landedPedido } = useImportItems(pedido.id, trmVal);
+  const kgPedido = pedido.cantidad_ton != null ? Number(pedido.cantidad_ton) * 1000 : null;
+  const kgPacking = landedPedido?.totals.peso_total_kg && landedPedido.totals.peso_total_kg > 0
+    ? landedPedido.totals.peso_total_kg : null;
+  const kg = kgPacking ?? kgPedido;
+  const difPesoPct = kgPacking != null && kgPedido != null && kgPedido > 0
+    ? (kgPacking / kgPedido - 1) * 100 : null;
+  const kgParaImpuestos = kg;
+
   const esc: EscenarioVigente | null = useMemo(() => {
     if (Number(pedido.monto_total_usd) <= 0) return null;
     return escenarioVigente({
@@ -105,12 +120,11 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
       trmSimulada: trmVal,
       arancelPct: Number(pedido.arancel_pct ?? 5),
       ivaPct: Number(pedido.iva_pct ?? 19),
-      cantidadKg: pedido.cantidad_ton != null ? Number(pedido.cantidad_ton) * 1000 : null,
+      cantidadKg: kgParaImpuestos,
     });
-  }, [pedido, reales, manualesComoAbono, trmVal]);
+  }, [pedido, reales, manualesComoAbono, trmVal, kgParaImpuestos]);
 
   const totalSinIva = esc ? sinIva(esc.breakdown) : null;
-  const kg = pedido.cantidad_ton != null ? Number(pedido.cantidad_ton) * 1000 : null;
   const copKg = totalSinIva != null && kg ? totalSinIva / kg : null;
   const trmEfectiva = esc && esc.totalUsd > 0 ? (esc.pagadoCop + esc.saldoUsd * trmVal) / esc.totalUsd : null;
   const mercanciaCop = esc ? esc.pagadoCop + esc.saldoUsd * trmVal : null;
@@ -220,6 +234,12 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   {kg != null ? `${numF(kg)} kg · ` : ''}mercancía {usdF(esc.totalUsd)} · flete {usdF(fleteUsdDe(pedido.costs))} ·
                   TRM efectiva {numF(trmEfectiva)} · sin IVA
                 </p>
+                {difPesoPct != null && Math.abs(difPesoPct) >= 0.5 && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1.5 leading-relaxed">
+                    Pediste {numF(kgPedido)} kg y el packing trae {numF(kgPacking)} ({pctS(difPesoPct)}):
+                    el COP/kg se mueve por <b>peso</b>, no por precio.
+                  </p>
+                )}
               </div>
               <div>
                 <Row l={`Mercancía · ${usdF(esc.totalUsd)}`} v={cop(mercanciaCop)} />
@@ -231,7 +251,10 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                 <Row l={<b className="text-foreground">COSTO TOTAL IMPORTADO · sin IVA</b>} v={<b>{cop(totalSinIva)}</b>} big />
                 {copKg != null && (
                   <Row l="Costo por kilo"
-                    sub={copKgAnterior != null && anterior ? `${anterior.label}: ${numF(copKgAnterior)}` : undefined}
+                    sub={[
+                      copKgAnterior != null && anterior ? `${anterior.label}: ${numF(copKgAnterior)}` : null,
+                      kgPacking != null ? 'sobre el peso REAL del packing' : 'sobre el peso digitado (falta packing)',
+                    ].filter(Boolean).join(' · ')}
                     v={<span className={cn(copKgAnterior != null && copKg <= copKgAnterior ? 'text-success' : copKgAnterior != null ? 'text-destructive' : '')}>
                       {numF(copKg)} COP/kg{copKgAnterior != null ? ` (${pctS((copKg / copKgAnterior - 1) * 100)})` : ''}
                     </span>} big />

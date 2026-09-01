@@ -8,11 +8,11 @@
  * COP/kg · IVA · Δ% contra el contenedor anterior de la cadena.
  */
 
-import { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { History } from 'lucide-react';
+import { History, ChevronDown } from 'lucide-react';
 import { computeImportBreakdown } from '@/lib/importCosting';
 import type { PedidoComparable } from '@/lib/importComparison';
 import { cop, numF, pctS, sinIva, fleteUsdDe, type PayRow } from './ModuloContenedor';
@@ -25,6 +25,7 @@ interface Props {
 }
 
 export default function HistorialContenedores({ pedidos, payRows, trmVal }: Props) {
+  const [abierta, setAbierta] = useState<string | null>(null);
   const filas = useMemo(() => {
     const out = pedidos.map((p) => {
       const abonos = payRows.filter((x) => x.import_id === p.id && Number(x.amount_usd) > 0 && Number(x.trm) > 0);
@@ -48,7 +49,7 @@ export default function HistorialContenedores({ pedidos, payRows, trmVal }: Prop
       const total = sinIva(bd);
       const kg = p.cantidad_ton != null ? Number(p.cantidad_ton) * 1000 : null;
       return {
-        id: p.id, label: p.label, cerrado,
+        id: p.id, label: p.label, cerrado, notas: p.notas ?? null,
         smm: p.precio_smm_cerrado_usd_ton != null ? Number(p.precio_smm_cerrado_usd_ton) : null,
         trm: trmFila,
         flete: fleteUsdDe(p.costs),
@@ -93,8 +94,15 @@ export default function HistorialContenedores({ pedidos, payRows, trmVal }: Prop
             </thead>
             <tbody>
               {filas.map((f) => (
-                <tr key={f.id} className="border-t border-border/50 text-right hover:bg-muted/30">
+                <React.Fragment key={f.id}>
+                <tr
+                  className={cn('border-t border-border/50 text-right hover:bg-muted/30', f.notas && 'cursor-pointer')}
+                  onClick={() => f.notas && setAbierta(abierta === f.id ? null : f.id)}>
                   <td className="px-3 py-2 text-left">
+                    {f.notas && (
+                      <ChevronDown className={cn('h-3.5 w-3.5 inline-block mr-1 text-muted-foreground transition-transform',
+                        abierta === f.id && 'rotate-180')} />
+                    )}
                     <span className="font-bold">{f.label}</span>
                     {!f.cerrado && <Badge variant="outline" className="ml-1.5 text-[10px]">proy.</Badge>}
                   </td>
@@ -110,6 +118,14 @@ export default function HistorialContenedores({ pedidos, payRows, trmVal }: Prop
                     {f.delta == null ? '—' : pctS(f.delta)}
                   </td>
                 </tr>
+                {abierta === f.id && f.notas && (
+                  <tr className="bg-muted/30">
+                    <td colSpan={9} className="px-3 py-2.5 text-left text-[13px] text-muted-foreground leading-relaxed whitespace-pre-line">
+                      <b className="text-foreground">{f.label}</b> · {f.notas}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

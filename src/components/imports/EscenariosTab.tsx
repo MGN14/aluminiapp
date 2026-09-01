@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildComparativo, type PedidoComparable, type EscenarioOverrides } from '@/lib/importComparison';
+import { IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
 import { escenarioVigente } from '@/lib/importScenario';
 import { computeImportBreakdown, type ImportCostLine } from '@/lib/importCosting';
 import { useImportItems } from '@/hooks/useImportItems';
@@ -31,6 +32,7 @@ import ModuloContenedor, {
   cop, copM, usdF, numF, pctS, sinIva, fleteUsdDe, type PayRow,
 } from './ModuloContenedor';
 import HistorialContenedores from './HistorialContenedores';
+import ImpactoListaPrecios from './ImpactoListaPrecios';
 
 interface Props {
   pedidos: PedidoComparable[];
@@ -41,9 +43,39 @@ interface Props {
   hoy: string;
 }
 
-/** Fecha que ordena la cadena de contenedores (llegada real > estimada > anticipo). */
+/**
+ * Orden CRONOLOGICO de la cadena (viejo → nuevo): cuándo arrancó cada pedido.
+ * Se usa para el histórico y para saber cuál es "el anterior" de cada uno.
+ * La fecha de anticipo es la estable — la de llegada se corre todo el tiempo.
+ */
 const fechaOrden = (p: PedidoComparable): string =>
-  p.fechas.fecha_entregado ?? p.fechas.fecha_arribo_real ?? p.fechas.fecha_estimada_llegada ?? p.fechas.fecha_anticipo ?? '';
+  p.fechas.fecha_anticipo ?? p.fechas.fecha_embarque ?? p.fechas.fecha_estimada_llegada ?? p.fechas.fecha_entregado ?? '';
+
+/**
+ * Qué tan cerca de bodega está un pedido. MAYOR = más cerca.
+ *
+ * El ESTADO manda sobre la fecha (reporte de Nico 2026-08-31: el tablero
+ * marcaba 2026-3 como próximo cuando 2026-2 ya venía en tránsito y 2026-3
+ * seguía listo en fábrica en China). Un contenedor embarcado está
+ * objetivamente más cerca que uno esperando embarque, sin importar qué diga
+ * una ETA que nadie actualizó. IMPORT_ESTADOS_ORDER es el orden canónico de
+ * la app: produccion → listo_fabrica → transito → aduana → entregado.
+ */
+const avanceDe = (p: PedidoComparable): number => {
+  const i = IMPORT_ESTADOS_ORDER.indexOf(p.estado as never);
+  if (i >= 0) return i;
+  // Estados viejos (cotizacion, anticipo) o desconocidos: antes de producción.
+  return -1;
+};
+
+/** Orden "próximo a llegar" primero: más avanzado, y a igual estado, ETA más cercana. */
+const porProximidad = (a: PedidoComparable, b: PedidoComparable): number => {
+  const d = avanceDe(b) - avanceDe(a);
+  if (d !== 0) return d;
+  const ea = a.fechas.fecha_estimada_llegada ?? '9999-12-31';
+  const eb = b.fechas.fecha_estimada_llegada ?? '9999-12-31';
+  return ea.localeCompare(eb);
+};
 
 function Perilla({ label, unit, value, onChange, min, max, step, chips, refs }: {
   label: string; unit: string; value: number; onChange: (v: number) => void;
@@ -91,7 +123,9 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
   // EN CURSO ordenados por llegada: el PRIMERO es el próximo al último
   // entregado — y ese es el default que Nico quiere ver arriba y abierto.
   const enCurso = useMemo(
-    () => cadena.filter((p) => !['entregado', 'cerrado'].includes(p.estado) && Number(p.monto_total_usd) > 0),
+    () => cadena
+      .filter((p) => !['entregado', 'cerrado'].includes(p.estado) && Number(p.monto_total_usd) > 0)
+      .sort(porProximidad),
     [cadena],
   );
   const proximo = enCurso[0] ?? null;
@@ -435,6 +469,16 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
 
       {/* ═══ Histórico de contenedores ═══ */}
       <HistorialContenedores pedidos={cadena} payRows={payRows} trmVal={trmVal} />
+
+      {/* ═══ Impacto en la lista de precios — la conclusión del tablero ═══ */}
+      {proximo && hayPacking && (landed?.items.length ?? 0) > 0 && (
+        <ImpactoListaPrecios
+          label={proximo.label}
+          items={landed!.items}
+          smmActual={smmVal}
+          smmPiso={proximo.precio_smm_cerrado_usd_ton != null ? Number(proximo.precio_smm_cerrado_usd_ton) : null}
+        />
+      )}
 
       {/* ═══ Costo por referencia del próximo ═══ */}
       {proximo && hayPacking && (landed?.items.length ?? 0) > 0 && (
