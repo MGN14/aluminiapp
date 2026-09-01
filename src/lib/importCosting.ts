@@ -91,6 +91,18 @@ export function computeImportBreakdown(params: {
    * como estimación.
    */
   trmMixta?: { pagadoUsd: number; pagadoCop: number } | null;
+  /**
+   * TRM de LIQUIDACION ADUANERA — la que usa la DIAN para arancel e IVA.
+   *
+   * Corrección de Nico (2026-08-31): "el iva y el arancel se calculan sobre el
+   * último TRM vigente del viernes, no el promedio que hayamos pagado". Es
+   * así: la aduana convierte la base gravable a la TRM vigente, sin importar
+   * a qué dólar compraste los giros. La TRM mixta sigue mandando en el COSTO
+   * de la mercancía (eso sí es lo que te salió), pero NO en los impuestos.
+   *
+   * Si no se pasa, se usa `trm` (comportamiento previo).
+   */
+  trmAduana?: number | null;
 }): ImportBreakdown {
   const { mercanciaUsd, costs, arancelPct, ivaPct } = params;
   const mixta = params.trmMixta && params.trmMixta.pagadoUsd > 0 && params.trmMixta.pagadoCop > 0
@@ -129,11 +141,11 @@ export function computeImportBreakdown(params: {
   const pisoAplicado = fobUsdKg != null && fobUsdKg < pisoFobUsdKg;
   const mercanciaAduanaUsd = pisoAplicado ? pisoFobUsdKg * cantidadKg! : mercanciaUsd;
   const cifAduanaUsd = mercanciaAduanaUsd + flete.usd + seguro.usd;
-  // El extra del piso FOB (mercancía flooreada − real) no fue pagado por
-  // nadie: queda expuesto a la TRM vigente, como el saldo.
-  const cifAduanaCop = trm
-    ? mercanciaCop(mercanciaUsd)! + Math.max(0, mercanciaAduanaUsd - mercanciaUsd) * trm
-      + flete.usd * trm + flete.cop + seguro.usd * trm + seguro.cop
+  // BASE GRAVABLE: TODO a la TRM de aduana — la DIAN no sabe ni le importa a
+  // qué dólar compraste los giros. Nada de TRM mixta acá.
+  const trmAdu = Number(params.trmAduana) > 0 ? Number(params.trmAduana) : trm;
+  const cifAduanaCop = trmAdu
+    ? cifAduanaUsd * trmAdu + flete.cop + seguro.cop
     : null;
 
   const arancelRealCop = (trm ? arancelReal.usd * trm : 0) + arancelReal.cop;

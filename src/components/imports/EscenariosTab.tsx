@@ -28,6 +28,9 @@ import { computeImportBreakdown, type ImportCostLine } from '@/lib/importCosting
 import { useImportItems } from '@/hooks/useImportItems';
 import { useImportScenarios, type ImportScenario } from '@/hooks/useImportScenarios';
 import { useManualAbonos } from '@/hooks/useManualAbonos';
+import { useAjustesEscenario } from '@/hooks/useAjustesEscenario';
+import { computeLandedCost } from '@/lib/landedCost';
+import { scalePacking } from '@/lib/scalePacking';
 import ModuloContenedor, {
   cop, copM, usdF, numF, pctS, sinIva, fleteUsdDe, type PayRow,
 } from './ModuloContenedor';
@@ -143,11 +146,16 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
   const [trm, setTrm] = useState<number | null>(null);
   const [smm, setSmm] = useState<number | null>(null);
   const [flete, setFlete] = useState<number | null>(null);
+  // TRM de LIQUIDACION ADUANERA — distinta de la de compra de dólares. La DIAN
+  // liquida arancel e IVA sobre la TRM vigente (la del último viernes), no
+  // sobre el promedio al que compraste los giros (corrección de Nico).
+  const [trmAdu, setTrmAdu] = useState<number | null>(null);
   const trmVal = trm ?? (trmHoy != null ? Math.round(trmHoy) : 3500);
   const smmVal = smm ?? Math.round(Number(smmRef ?? 3500));
   const fleteVal = flete ?? Math.round(fleteRef ?? 5700);
-  const tocado = trm != null || smm != null || flete != null;
-  const volverAHoy = () => { setTrm(null); setSmm(null); setFlete(null); };
+  const trmAduanaVal = trmAdu ?? (trmHoy != null ? Math.round(trmHoy) : trmVal);
+  const tocado = trm != null || smm != null || flete != null || trmAdu != null;
+  const volverAHoy = () => { setTrm(null); setSmm(null); setFlete(null); setTrmAdu(null); };
 
   const smmReposicion = useMemo(() => {
     const base = ultimoEntregado?.precio_smm_cerrado_usd_ton;
@@ -173,11 +181,11 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
       { tipo: 'flete', monto: fleteVal, moneda: 'USD', trm: null } as ImportCostLine,
     ];
     return computeImportBreakdown({
-      mercanciaUsd: colSiguiente.mercanciaUsd, costs: costsEff, trm: trmVal,
+      mercanciaUsd: colSiguiente.mercanciaUsd, costs: costsEff, trm: trmVal, trmAduana: trmAduanaVal,
       arancelPct: Number(ultimoEntregado.arancel_pct ?? 5), ivaPct: Number(ultimoEntregado.iva_pct ?? 19),
       cantidadKg: colSiguiente.toneladas != null ? colSiguiente.toneladas * 1000 : null,
     });
-  }, [colSiguiente, ultimoEntregado, fleteVal, trmVal]);
+  }, [colSiguiente, ultimoEntregado, fleteVal, trmVal, trmAduanaVal]);
   const totalSiguienteSinIva = sinIva(bdSiguiente);
   const copKgSiguiente = totalSiguienteSinIva != null && colSiguiente?.toneladas
     ? totalSiguienteSinIva / (colSiguiente.toneladas * 1000) : null;
@@ -204,6 +212,10 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
 
   // ── CAJA: SOLO la del próximo, con saldo + TODO lo de aduanas ──
   const { abonos: manualesTodos } = useManualAbonos();
+  // Ajustes manuales del próximo (mercancía/peso/unidades corregidos): los
+  // comparte con su ModuloContenedor, así la caja y la tabla de referencias
+  // hablan del mismo despacho.
+  const ajustesProximo = useAjustesEscenario(proximo?.id ?? null);
   const escProximo = useMemo(() => {
     if (!proximo || Number(proximo.monto_total_usd) <= 0) return null;
     const reales = payRows.filter((p) => p.import_id === proximo.id && Number(p.amount_usd) > 0 && Number(p.trm) > 0)
@@ -211,12 +223,13 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
     const manuales = manualesTodos.filter((m) => m.import_id === proximo.id)
       .map((m) => ({ amount_usd: m.cop / m.trm, trm: m.trm }));
     return escenarioVigente({
-      mercanciaUsd: Number(proximo.monto_total_usd), costs: proximo.costs,
-      abonos: [...reales, ...manuales], trmSimulada: trmVal,
+      mercanciaUsd: ajustesProximo.mercanciaUsd ?? Number(proximo.monto_total_usd), costs: proximo.costs,
+      abonos: [...reales, ...manuales], trmSimulada: trmVal, trmAduana: trmAduanaVal,
       arancelPct: Number(proximo.arancel_pct ?? 5), ivaPct: Number(proximo.iva_pct ?? 19),
-      cantidadKg: proximo.cantidad_ton != null ? Number(proximo.cantidad_ton) * 1000 : null,
+      cantidadKg: ajustesProximo.pesoKg
+        ?? (proximo.cantidad_ton != null ? Number(proximo.cantidad_ton) * 1000 : null),
     });
-  }, [proximo, payRows, manualesTodos, trmVal]);
+  }, [proximo, payRows, manualesTodos, trmVal, trmAduanaVal, ajustesProximo.mercanciaUsd, ajustesProximo.pesoKg]);
 
   const caja = useMemo(() => {
     if (!escProximo) return null;
@@ -230,8 +243,21 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
     return { saldo, arancel, iva, otros, total: saldo + arancel + iva + otros };
   }, [escProximo]);
 
-  // ── Costo por referencia del próximo bajo el escenario ──
-  const { landed, hayPacking } = useImportItems(proximo?.id ?? null, trmVal);
+  // ── Costo por referencia del próximo, sobre el packing ESCALADO ──
+  // Si Nico corrigió mercancía/peso/unidades, la tabla y el margen tienen que
+  // salir del reprorrateo, no del packing original (si no, el flete unitario
+  // que se ve acá no coincide con el del módulo de arriba).
+  const { effectiveItems, costs: costsProximo, hayPacking } = useImportItems(proximo?.id ?? null, trmVal);
+  const landed = useMemo(() => {
+    const base = effectiveItems ?? [];
+    if (base.length === 0) return null;
+    const esc = scalePacking(base, {
+      mercanciaUsd: ajustesProximo.mercanciaUsd,
+      pesoKg: ajustesProximo.pesoKg,
+      unidades: ajustesProximo.unidades,
+    });
+    return computeLandedCost(esc.items, costsProximo ?? [], trmVal);
+  }, [effectiveItems, costsProximo, trmVal, ajustesProximo.mercanciaUsd, ajustesProximo.pesoKg, ajustesProximo.unidades]);
   const [verRefs, setVerRefs] = useState(false);
   const [buscar, setBuscar] = useState('');
   const refsFiltradas = useMemo(() => {
@@ -328,6 +354,22 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
               ]} />
           </div>
 
+          <div className="flex items-end gap-3 flex-wrap border-t border-border pt-3">
+            <div>
+              <label className="text-[13px] font-semibold block mb-1">
+                TRM de aduana <span className="text-[11px] font-normal text-muted-foreground">(liquidación DIAN)</span>
+              </label>
+              <Input inputMode="numeric" value={new Intl.NumberFormat('es-CO').format(trmAduanaVal)}
+                onChange={(e) => { const n = Number(e.target.value.replace(/[.,\s]/g, '')); if (Number.isFinite(n) && n > 0) setTrmAdu(n); }}
+                className={cn('h-9 w-32 font-mono font-bold tabular-nums text-[15px]', trmAdu != null && 'border-primary')} />
+            </div>
+            <p className="text-[11px] text-muted-foreground flex-1 min-w-[260px] leading-relaxed pb-1.5">
+              El arancel y el IVA se liquidan sobre <b>esta</b> TRM — la vigente del último viernes —
+              no sobre el promedio al que compraste los dólares. La perilla de arriba es para comprar el saldo;
+              esta es para calcular los impuestos.
+            </p>
+          </div>
+
           {saving && (
             <div className="flex items-end gap-2 flex-wrap rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
               <div className="flex-1 min-w-[180px]">
@@ -352,7 +394,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
       ) : (
         enCurso.map((p, i) => (
           <ModuloContenedor key={p.id} pedido={p} anterior={anteriorDe(p)} payRows={payRows}
-            trmVal={trmVal} trmHoy={trmHoy} esProximo={i === 0} />
+            trmVal={trmVal} trmHoy={trmHoy} esProximo={i === 0} trmAduana={trmAduanaVal} />
         ))
       )}
 

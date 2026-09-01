@@ -24,8 +24,14 @@ export interface EscenarioVigenteInput {
   mercanciaUsd: number;
   costs: ImportCostLine[] | undefined;
   abonos: AbonoVigente[];
-  /** TRM del escenario (arranca en la de hoy; Nico la mueve). */
+  /** TRM del escenario para COMPRAR el saldo (arranca en la de hoy). */
   trmSimulada: number | null;
+  /**
+   * TRM de LIQUIDACION ADUANERA (la vigente del viernes). La DIAN liquida
+   * arancel e IVA sobre esta, no sobre lo que promediaste comprando dólares.
+   * Sin ella se usa trmSimulada.
+   */
+  trmAduana?: number | null;
   arancelPct: number;
   ivaPct: number;
   cantidadKg?: number | null;
@@ -64,6 +70,8 @@ export function escenarioVigente(input: EscenarioVigenteInput): EscenarioVigente
   const saldoUsd = Math.max(0, totalUsd - pagadoUsd);
   const trm = n0(input.trmSimulada) > 0 ? Number(input.trmSimulada) : null;
 
+  const trmAduana = n0(input.trmAduana) > 0 ? Number(input.trmAduana) : trm;
+
   const breakdown = computeImportBreakdown({
     mercanciaUsd: totalUsd,
     costs: input.costs,
@@ -72,6 +80,7 @@ export function escenarioVigente(input: EscenarioVigenteInput): EscenarioVigente
     ivaPct: input.ivaPct,
     cantidadKg: input.cantidadKg ?? null,
     trmMixta: pagadoUsd > 0 ? { pagadoUsd, pagadoCop } : null,
+    trmAduana,
   });
 
   const saldoCopSimulado = trm != null ? saldoUsd * trm : null;
@@ -101,7 +110,10 @@ export function escenarioVigente(input: EscenarioVigenteInput): EscenarioVigente
   if (breakdown.pisoAplicado) {
     supuestos.push(`Impuestos liquidados sobre el piso FOB (${breakdown.pisoFobUsdKg} USD/kg): el precio real quedó por debajo.`);
   }
-  supuestos.push('Estimación para preparar caja — la DIAN liquida a la TRM del día de nacionalización.');
+  if (trmAduana != null) {
+    supuestos.push(`Arancel e IVA sobre la TRM de aduana (${Math.round(trmAduana).toLocaleString('es-CO')}) — la DIAN liquida a la TRM vigente, no al promedio que pagaste.`);
+  }
+  supuestos.push('Estimación para preparar caja — la liquidación real puede mover la TRM del día de nacionalización.');
 
   return {
     totalUsd, pagadoUsd, pagadoCop, trmPonderadaPagado, saldoUsd, saldoCopSimulado,

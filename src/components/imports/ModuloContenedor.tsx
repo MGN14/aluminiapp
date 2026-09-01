@@ -16,14 +16,17 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ChevronDown, Plus, Trash2, Link2Off } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, Link2Off, Pencil, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { computeImportBreakdown, type ImportBreakdown } from '@/lib/importCosting';
+import { computeLandedCost } from '@/lib/landedCost';
+import { scalePacking, totalesDe } from '@/lib/scalePacking';
 import { escenarioVigente, type EscenarioVigente } from '@/lib/importScenario';
 import { driversDelta, type DriversResult } from '@/lib/importDrivers';
 import type { PedidoComparable } from '@/lib/importComparison';
 import { useManualAbonos, type ManualAbono } from '@/hooks/useManualAbonos';
 import { useImportItems } from '@/hooks/useImportItems';
+import { useAjustesEscenario } from '@/hooks/useAjustesEscenario';
 
 // ── formato (fuentes legibles: nada por debajo de 12px en datos) ──
 const fmt0 = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
@@ -68,11 +71,15 @@ interface Props {
   trmHoy: number | null;
   /** true = es el próximo a llegar (se muestra expandido y destacado). */
   esProximo: boolean;
+  /** TRM de liquidación aduanera (la vigente del viernes). */
+  trmAduana: number;
 }
 
-export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, trmHoy, esProximo }: Props) {
+export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, trmHoy, esProximo, trmAduana }: Props) {
   const [abierto, setAbierto] = useState(esProximo);
   const [nuevoAbono, setNuevoAbono] = useState(false);
+  const [editando, setEditando] = useState(false);
+  const ajustes = useAjustesEscenario(pedido.id);
   const [fa, setFa] = useState(() => new Date().toISOString().slice(0, 10));
   const [da, setDa] = useState('');
   const [ca, setCa] = useState('');
@@ -97,32 +104,71 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   );
   const totalManualUsd = manualesComoAbono.reduce((s, a) => s + a.amount_usd, 0);
 
-  // PESO: el del packing list real manda sobre el digitado en el pedido.
-  // La proveedora despacha de más o de menos, y eso mueve el COP/kg sin que
-  // el precio se haya movido (Nico en su HTML: "despachó más kilos de los
-  // pedidos"). Se avisa cuando difieren para no confundir efecto peso con
-  // efecto precio.
-  const { landed: landedPedido } = useImportItems(pedido.id, trmVal);
+  // MERCANCIA: el ajuste manual manda sobre la factura del pedido. La china
+  // despacha de más y la factura definitiva llega después de montar el pedido
+  // (Nico 2026-08-31) — el tablero tiene que poder trabajar con el número real
+  // sin esperar a que alguien corrija la contabilidad.
+  const mercanciaBase = Number(pedido.monto_total_usd) || 0;
+  const mercanciaUsdEff = ajustes.mercanciaUsd ?? mercanciaBase;
+
+  // PACKING ESCALADO a lo realmente despachado.
+  //
+  // No alcanza con corregir el total: el flete se prorratea por peso, el
+  // arancel por valor y otros por cantidad. Si la fábrica manda más unidades,
+  // el flete UNITARIO baja. Por eso se escala el packing (lib/scalePacking) y
+  // se deja que computeLandedCost vuelva a prorratear sobre la base nueva.
+  const { effectiveItems, costs: costsPedido } = useImportItems(pedido.id, trmVal);
+  const packingBase = useMemo(() => totalesDe(effectiveItems ?? []), [effectiveItems]);
+  const hayPackingReal = packingBase.pesoKg > 0 || packingBase.unidades > 0;
+
+  const escala = useMemo(
+    () => scalePacking(effectiveItems ?? [], {
+      mercanciaUsd: ajustes.mercanciaUsd,
+      pesoKg: ajustes.pesoKg,
+      unidades: ajustes.unidades,
+    }),
+    [effectiveItems, ajustes.mercanciaUsd, ajustes.pesoKg, ajustes.unidades],
+  );
+
+  /** Landed recalculado con el packing escalado — acá vive el reprorrateo. */
+  const landedEscalado = useMemo(
+    () => (escala.items.length > 0 ? computeLandedCost(escala.items, costsPedido ?? [], trmVal) : null),
+    [escala.items, costsPedido, trmVal],
+  );
+
   const kgPedido = pedido.cantidad_ton != null ? Number(pedido.cantidad_ton) * 1000 : null;
-  const kgPacking = landedPedido?.totals.peso_total_kg && landedPedido.totals.peso_total_kg > 0
-    ? landedPedido.totals.peso_total_kg : null;
-  const kg = kgPacking ?? kgPedido;
-  const difPesoPct = kgPacking != null && kgPedido != null && kgPedido > 0
-    ? (kgPacking / kgPedido - 1) * 100 : null;
+  const kgPacking = hayPackingReal && packingBase.pesoKg > 0 ? packingBase.pesoKg : null;
+  // Orden de mando: ajuste manual > packing real > lo digitado en el pedido.
+  const kg = ajustes.pesoKg ?? kgPacking ?? kgPedido;
+  const unidades = escala.efectivo.unidades > 0 ? escala.efectivo.unidades : null;
+  const fuentePeso = ajustes.pesoKg != null ? 'peso corregido a mano'
+    : kgPacking != null ? 'peso REAL del packing' : 'peso digitado (falta packing)';
+  const difPesoPct = kg != null && kgPedido != null && kgPedido > 0
+    ? (kg / kgPedido - 1) * 100 : null;
+
+  /** Flete unitario antes y después del escalado — el efecto que pidió ver Nico. */
+  const fleteUnit = useMemo(() => {
+    if (!landedEscalado || !escala.escalado || packingBase.unidades <= 0) return null;
+    const fleteTotal = (costsPedido ?? []).filter((c) => c.tipo === 'flete')
+      .reduce((s, c) => s + (c.moneda === 'USD' ? Number(c.monto) * trmVal : Number(c.monto)), 0);
+    if (fleteTotal <= 0) return null;
+    return { antes: fleteTotal / packingBase.unidades, despues: fleteTotal / escala.efectivo.unidades };
+  }, [landedEscalado, escala, costsPedido, packingBase.unidades, trmVal]);
   const kgParaImpuestos = kg;
 
   const esc: EscenarioVigente | null = useMemo(() => {
-    if (Number(pedido.monto_total_usd) <= 0) return null;
+    if (mercanciaUsdEff <= 0) return null;
     return escenarioVigente({
-      mercanciaUsd: Number(pedido.monto_total_usd),
+      mercanciaUsd: mercanciaUsdEff,
       costs: pedido.costs,
       abonos: [...reales, ...manualesComoAbono],
       trmSimulada: trmVal,
       arancelPct: Number(pedido.arancel_pct ?? 5),
       ivaPct: Number(pedido.iva_pct ?? 19),
       cantidadKg: kgParaImpuestos,
+      trmAduana,
     });
-  }, [pedido, reales, manualesComoAbono, trmVal, kgParaImpuestos]);
+  }, [pedido, mercanciaUsdEff, reales, manualesComoAbono, trmVal, kgParaImpuestos, trmAduana]);
 
   const totalSinIva = esc ? sinIva(esc.breakdown) : null;
   const copKg = totalSinIva != null && kg ? totalSinIva / kg : null;
@@ -163,13 +209,13 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
       {
         totalCop: totalSinIva,
         smmUsdTon: pedido.precio_smm_cerrado_usd_ton != null ? Number(pedido.precio_smm_cerrado_usd_ton) : null,
-        tons: pedido.cantidad_ton != null ? Number(pedido.cantidad_ton) : null,
+        tons: kg != null ? kg / 1000 : null,
         trm: trmEfectiva,
         fleteUsd: fleteUsdDe(pedido.costs),
         usdTotal: esc.totalUsd + (fleteUsdDe(pedido.costs) ?? 0) + seguroUsdDe(pedido.costs),
       },
     );
-  }, [totalSinIva, totalAnteriorSinIva, anterior, pedido, esc, trmEfectiva]);
+  }, [totalSinIva, totalAnteriorSinIva, anterior, pedido, esc, trmEfectiva, kg]);
 
   const escalera = useMemo(() => {
     if (!esc || esc.saldoUsd <= 0) return [];
@@ -230,22 +276,114 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                     {pctS(deltaPctTotal)} vs. {anterior.label} ({cop(totalAnteriorSinIva)})
                   </p>
                 )}
-                <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                  {kg != null ? `${numF(kg)} kg · ` : ''}mercancía {usdF(esc.totalUsd)} · flete {usdF(fleteUsdDe(pedido.costs))} ·
-                  TRM efectiva {numF(trmEfectiva)} · sin IVA
+                <p className="text-xs text-muted-foreground mt-2 leading-relaxed flex items-center gap-1.5 flex-wrap">
+                  <span>
+                    {kg != null ? `${numF(kg)} kg · ` : ''}mercancía {usdF(esc.totalUsd)} · flete {usdF(fleteUsdDe(pedido.costs))} ·
+                    TRM efectiva {numF(trmEfectiva)} · sin IVA
+                  </span>
+                  <button type="button" onClick={() => setEditando((v) => !v)}
+                    className="inline-flex items-center gap-1 text-primary hover:underline shrink-0"
+                    title="Corregir la mercancía facturada y el peso para este escenario">
+                    <Pencil className="h-3 w-3" /> corregir
+                  </button>
                 </p>
+
+                {ajustes.tocado && (
+                  <p className="text-[11px] text-primary mt-1 flex items-center gap-1.5 flex-wrap">
+                    <b>Ajustado a mano</b> — solo en este tablero.
+                    {ajustes.mercanciaUsd != null && ` Factura ${numF(mercanciaBase)} → ${numF(ajustes.mercanciaUsd)} USD.`}
+                    {ajustes.pesoKg != null && ` Peso ${numF(kgPacking ?? kgPedido)} → ${numF(ajustes.pesoKg)} kg.`}
+                    {escala.escalado && escala.factores.cantidad !== 1 && ` Unidades ${numF(packingBase.unidades)} → ${numF(escala.efectivo.unidades)}.`}
+                    <button type="button" onClick={ajustes.limpiar}
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+                      <RotateCcw className="h-3 w-3" /> volver al dato del pedido
+                    </button>
+                  </p>
+                )}
+
+                {editando && (
+                  <div className="mt-2 rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+                    <div className="flex items-end gap-3 flex-wrap">
+                      <div>
+                        <label className="text-[11px] text-muted-foreground block mb-1">Mercancía facturada (USD)</label>
+                        <Input inputMode="numeric" defaultValue={numF(mercanciaUsdEff)}
+                          onBlur={(e) => {
+                            const n = Number(e.target.value.replace(/[.,\s]/g, ''));
+                            ajustes.setAjuste({ mercanciaUsd: Number.isFinite(n) && n > 0 && n !== mercanciaBase ? n : null });
+                          }}
+                          className="h-8 w-36 text-[13px] font-mono tabular-nums" />
+                        <p className="text-[10px] text-muted-foreground mt-0.5">pedido: {numF(mercanciaBase)}</p>
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-muted-foreground block mb-1">Peso real (kg)</label>
+                        <Input inputMode="numeric" defaultValue={numF(kg)}
+                          onBlur={(e) => {
+                            const n = Number(e.target.value.replace(/[.,\s]/g, ''));
+                            const ref = kgPacking ?? kgPedido;
+                            ajustes.setAjuste({ pesoKg: Number.isFinite(n) && n > 0 && n !== ref ? n : null });
+                          }}
+                          className="h-8 w-32 text-[13px] font-mono tabular-nums" />
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {kgPacking != null ? `packing: ${numF(kgPacking)}` : `pedido: ${numF(kgPedido)}`}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-muted-foreground block mb-1">Unidades despachadas</label>
+                        <Input inputMode="numeric" defaultValue={numF(unidades)}
+                          onBlur={(e) => {
+                            const n = Number(e.target.value.replace(/[.,\s]/g, ''));
+                            const ref = packingBase.unidades;
+                            ajustes.setAjuste({ unidades: Number.isFinite(n) && n > 0 && n !== ref ? n : null });
+                          }}
+                          className="h-8 w-32 text-[13px] font-mono tabular-nums"
+                          disabled={!hayPackingReal} />
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {hayPackingReal
+                            ? (ajustes.unidades == null && ajustes.pesoKg != null
+                              ? 'derivadas del peso' : `packing: ${numF(packingBase.unidades)}`)
+                            : 'necesita packing cargado'}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setEditando(false)}>Listo</Button>
+                    </div>
+
+                    {fleteUnit && (
+                      <div className="rounded-md bg-background border border-border px-3 py-2">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          <b className="text-foreground">Se reprorrateó todo:</b> el flete se reparte entre{' '}
+                          {numF(escala.efectivo.unidades)} unidades en vez de {numF(packingBase.unidades)}, así que
+                          baja de <span className="font-mono">{cop(fleteUnit.antes)}</span> a{' '}
+                          <span className="font-mono text-success">{cop(fleteUnit.despues)}</span> por unidad.
+                          El arancel se recalcula sobre el valor nuevo y el costo por kilo sobre el peso nuevo.
+                        </p>
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Poné lo que la fábrica despachó de verdad y la app <b>vuelve a prorratear</b> flete, arancel
+                      y aduanas sobre esa base — no es solo cambiar el total. <b>No toca la contabilidad</b>:
+                      para dejarlo permanente, editá el pedido en la pestaña Pedidos.
+                    </p>
+                  </div>
+                )}
+
                 {difPesoPct != null && Math.abs(difPesoPct) >= 0.5 && (
                   <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1.5 leading-relaxed">
-                    Pediste {numF(kgPedido)} kg y el packing trae {numF(kgPacking)} ({pctS(difPesoPct)}):
+                    El pedido dice {numF(kgPedido)} kg y estás costeando con {numF(kg)} ({pctS(difPesoPct)}):
                     el COP/kg se mueve por <b>peso</b>, no por precio.
                   </p>
                 )}
               </div>
               <div>
-                <Row l={`Mercancía · ${usdF(esc.totalUsd)}`} v={cop(mercanciaCop)} />
+                <Row l={`Mercancía · ${usdF(esc.totalUsd)}`}
+                  sub={ajustes.mercanciaUsd != null ? 'corregida a mano' : undefined}
+                  v={cop(mercanciaCop)} />
                 <Row l="Flete + seguro" v={cop(fleteSeguroCop)} />
                 <Row l={esc.breakdown.usaArancelReal ? 'Arancel (liquidación real)' : `Arancel ${Number(pedido.arancel_pct ?? 5)}%`}
-                  sub={esc.breakdown.pisoAplicado ? `sobre piso FOB ${esc.breakdown.pisoFobUsdKg} USD/kg` : undefined}
+                  sub={[
+                    esc.breakdown.usaArancelReal ? null : `a TRM de aduana ${numF(trmAduana)}`,
+                    esc.breakdown.pisoAplicado ? `piso FOB ${esc.breakdown.pisoFobUsdKg} USD/kg` : null,
+                  ].filter(Boolean).join(' · ') || undefined}
                   v={cop(esc.breakdown.arancelCop)} tone={esc.breakdown.usaArancelReal ? 'text-success' : undefined} />
                 <Row l="Aduanas + transporte + otros" v={cop(esc.breakdown.otrosCop)} />
                 <Row l={<b className="text-foreground">COSTO TOTAL IMPORTADO · sin IVA</b>} v={<b>{cop(totalSinIva)}</b>} big />
@@ -253,7 +391,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   <Row l="Costo por kilo"
                     sub={[
                       copKgAnterior != null && anterior ? `${anterior.label}: ${numF(copKgAnterior)}` : null,
-                      kgPacking != null ? 'sobre el peso REAL del packing' : 'sobre el peso digitado (falta packing)',
+                      `sobre el ${fuentePeso}`,
                     ].filter(Boolean).join(' · ')}
                     v={<span className={cn(copKgAnterior != null && copKg <= copKgAnterior ? 'text-success' : copKgAnterior != null ? 'text-destructive' : '')}>
                       {numF(copKg)} COP/kg{copKgAnterior != null ? ` (${pctS((copKg / copKgAnterior - 1) * 100)})` : ''}
@@ -268,7 +406,8 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   <span className="text-lg font-bold tabular-nums text-amber-800 dark:text-amber-300">{cop(esc.breakdown.ivaCop)}</span>
                 </div>
                 <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 mt-1.5 leading-relaxed">
-                  {Number(pedido.iva_pct ?? 19)}% sobre (base + arancel), con lo pagado a sus TRMs y el saldo a {numF(trmVal)}.
+                  {Number(pedido.iva_pct ?? 19)}% sobre (base + arancel), liquidado a la <b>TRM de aduana {numF(trmAduana)}</b> —
+                  la DIAN usa la TRM vigente, no el promedio al que compraste los dólares.
                   Se recupera como descontable, pero hay que tener la caja el día de nacionalizar.
                 </p>
               </div>
