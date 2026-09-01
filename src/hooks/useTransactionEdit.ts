@@ -76,6 +76,20 @@ export function useTransactionEdit(
 
       if (error) throw error;
 
+      // Sincronizar el cache de la lista de Conciliación — TODAS las variantes
+      // año/extracto, POST-commit. Sin esto el clic en una sugerencia se
+      // "des-hacía" al salir y volver (bug Nico 2026-09-01): el patch optimista
+      // del padre ocurre al momento del clic, pero cualquier refetch concurrente
+      // (barrido de reglas al abrir, confirmar una sugerencia de factura, etc.
+      // invalidan ['conciliacion']) lee la DB ANTES de que este write debounced
+      // commitee y pisa el cache con la fila vieja — que queda "fresca" por el
+      // staleTime de 10 min y encima persiste en localStorage. Este patch corre
+      // DESPUÉS del commit, así que siempre gana.
+      queryClient.setQueriesData<Transaction[]>(
+        { queryKey: ['conciliacion', 'transactions'] },
+        (prev) => prev?.map((tx) => (tx.id === localTransaction.id ? { ...tx, ...updates } : tx)),
+      );
+
       // Invalidar queries que derivan de transactions. El staleTime global
       // de 60s hace que sin esto, "Relación de pagos" sirva cache viejo
       // si el usuario navega ahí dentro de ese minuto.

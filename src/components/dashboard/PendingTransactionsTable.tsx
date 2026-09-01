@@ -65,6 +65,11 @@ export function PendingTransactionsTable({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  // La página de Conciliación cachea su lista 10 min (y la persiste). Todo
+  // write directo a transactions desde el Dashboard debe marcarla stale, o
+  // al entrar a /transactions la fila aparece como estaba ANTES del cambio.
+  const invalidateConciliacion = () =>
+    queryClient.invalidateQueries({ queryKey: ['conciliacion', 'transactions'] });
   // IDs "pinned" — transacciones que el usuario tocó en esta sesión.
   // Se mantienen VISIBLES en la lista aunque ya no califiquen como
   // pendientes (porque acabás de asignarles beneficiario), para que el
@@ -112,7 +117,8 @@ export function PendingTransactionsTable({
         .eq('id', transactionId);
 
       if (error) throw error;
-      
+
+      invalidateConciliacion();
       // Trigger refetch
       onTransactionUpdated();
     } catch (error) {
@@ -167,7 +173,8 @@ export function PendingTransactionsTable({
       if (isBanco) {
         toast({ title: 'Asignado a Banco' });
       }
-      
+
+      invalidateConciliacion();
       onTransactionUpdated();
     } catch (error) {
       console.error('Error updating responsible:', error);
@@ -329,6 +336,7 @@ export function PendingTransactionsTable({
         }
       }
 
+      invalidateConciliacion();
       onTransactionUpdated();
     } catch (error) {
       console.error('Error updating invoice:', error);
@@ -351,6 +359,7 @@ export function PendingTransactionsTable({
         .eq('id', transactionId);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['credits'] });
+      invalidateConciliacion();
       toast(res === 'deleted'
         ? { title: 'Crédito desvinculado', description: 'El pago creado desde la conciliación se borró y las cuotas se recalcularon.' }
         : { title: 'Crédito desvinculado', description: 'El pago manual del crédito se conserva; solo se soltó el vínculo con el extracto.' });
