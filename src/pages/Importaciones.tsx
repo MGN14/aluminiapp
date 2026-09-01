@@ -186,8 +186,8 @@ export default function Importaciones() {
     queryFn: async () => {
       const { data: rows } = await (supabase as any)
         .from('import_payments')
-        .select('import_id, amount_usd, trm');
-      return (rows ?? []) as { import_id: string; amount_usd: number | null; trm: number | null }[];
+        .select('import_id, amount_usd, trm, fecha');
+      return (rows ?? []) as { import_id: string; amount_usd: number | null; trm: number | null; fecha: string | null }[];
     },
   });
   const trmByImport = useMemo(() => {
