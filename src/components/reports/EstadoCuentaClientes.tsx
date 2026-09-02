@@ -58,6 +58,19 @@ function formatCurrency(value: number): string {
   }).format(Math.round(value));
 }
 
+/** Mensaje legible de CUALQUIER error — los de Supabase (PostgrestError) son
+ *  objetos planos, no instancias de Error: `instanceof Error` los tapaba y el
+ *  usuario veía "Error desconocido" en vez de la causa real. */
+function errMsg(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const e = err as { message?: string; details?: string; hint?: string; code?: string };
+    const partes = [e.message, e.details, e.hint, e.code ? `(${e.code})` : null].filter(Boolean);
+    if (partes.length) return partes.join(' — ');
+  }
+  return String(err);
+}
+
 const currentYear = new Date().getFullYear();
 const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
@@ -647,9 +660,10 @@ export default function EstadoCuentaClientes() {
       queryClient.invalidateQueries({ queryKey: ['estado-cuenta-nits'] });
       onMutated();
     } catch (err) {
+      console.error('merge_responsibles falló:', err);
       toast({
         title: 'No se pudo unir',
-        description: err instanceof Error ? err.message : 'Error desconocido',
+        description: errMsg(err),
         variant: 'destructive',
       });
     } finally {
