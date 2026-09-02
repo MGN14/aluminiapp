@@ -604,9 +604,12 @@ export async function calculateAllClientReceivables(
     delete (a as Partial<Accum>)._lines;
     clients.push(a);
   }
-  // Mostrar solo clientes con actividad
+  // Mostrar solo clientes con actividad. "Banco" NO es un cliente: es el
+  // beneficiario de movimientos generados por el banco (intereses, etc.) —
+  // aparecía en el estado de cuenta como cliente con "anticipo" (2026-09-02).
   const visible = clients.filter(c =>
-    c.facturado_venta > 0 || c.cxc_inicial > 0 || c.cobrado_banco > 0 || c.cobrado_efectivo > 0 || c.anticipos_total > 0,
+    normalizeName(c.client_name) !== 'banco' &&
+    (c.facturado_venta > 0 || c.cxc_inicial > 0 || c.cobrado_banco > 0 || c.cobrado_efectivo > 0 || c.anticipos_total > 0),
   );
   visible.sort((a, b) => b.saldo_neto - a.saldo_neto);
 

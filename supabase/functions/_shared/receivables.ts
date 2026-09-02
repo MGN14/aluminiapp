@@ -430,7 +430,10 @@ export async function computeReceivables(db: Db, userId: string, year: number): 
       invoiceById.set(l.id, rest);
     }
     delete (a as Partial<Accum>)._lines;
-    if (a.facturado_venta > 0 || a.cxc_inicial > 0 || a.cobrado_banco > 0 || a.cobrado_efectivo > 0 || a.anticipos_total > 0) {
+    // "Banco" NO es un cliente (beneficiario de movimientos generados por el
+    // banco) — gemelo del filtro en src/lib/clientReceivables.ts.
+    if (normalizeName(a.client_name) !== "banco" &&
+        (a.facturado_venta > 0 || a.cxc_inicial > 0 || a.cobrado_banco > 0 || a.cobrado_efectivo > 0 || a.anticipos_total > 0)) {
       clients.push(a);
     }
   }

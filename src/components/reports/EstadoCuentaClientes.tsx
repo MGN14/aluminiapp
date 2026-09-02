@@ -23,7 +23,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import { useCollectionData, useInvalidateCollection } from '@/hooks/useCollectionData';
 import { normalizeName, type ClientReceivable, type InvoiceLine } from '@/lib/clientReceivables';
+import { findLikelyDuplicateClients, type DuplicatePair } from '@/lib/duplicateClients';
 import { isOperativo } from '@/types/transaction';
+import { useToast } from '@/hooks/use-toast';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -36,8 +38,13 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import {
+  AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   HandCoins, Wallet, CheckCircle2, ChevronDown, ChevronRight, Search, Download,
   AlertCircle, Loader2, Share2, Truck, Banknote, ExternalLink, ShieldQuestion,
+  GitMerge, X,
 } from 'lucide-react';
 import { ClientDrilldown } from './AccountsReceivableReport';
 import VincularPagoModal from './VincularPagoModal';
@@ -456,9 +463,25 @@ function useRemisionesCliente(client: ClientReceivable, year: number, isGerencia
 // ============================================================================
 // Componente principal
 // ============================================================================
+const DUP_DISMISSED_KEY = 'aluminia.estadoCuenta.dupDismissed.v1';
+
+function loadDismissedPairs(): string[] {
+  try {
+    const raw = localStorage.getItem(DUP_DISMISSED_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pairKey(p: DuplicatePair): string {
+  return [p.a.client_id, p.b.client_id].sort().join('|');
+}
+
 export default function EstadoCuentaClientes() {
   const { user } = useAuth();
   const { isGerencial } = useModuleContext();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [year, setYear] = useState(currentYear);
   const [estado, setEstado] = useState<EstadoFilter>('todos');
@@ -466,6 +489,10 @@ export default function EstadoCuentaClientes() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showPagadasByClient, setShowPagadasByClient] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
+  // Unión de posibles duplicados (mismo tercero con dos nombres).
+  const [mergePair, setMergePair] = useState<DuplicatePair | null>(null);
+  const [merging, setMerging] = useState(false);
+  const [dismissedPairs, setDismissedPairs] = useState<string[]>(loadDismissedPairs);
 
   // Modales de acción por factura — mismos de Cobranza, mismo cableado.
   const [vincularInvoice, setVincularInvoice] = useState<{ id: string; invoice_number: string; counterparty_name: string | null; pending: number; total_amount: number } | null>(null);
@@ -585,6 +612,50 @@ export default function EstadoCuentaClientes() {
   }, [clients, estado, search, nitById]);
 
   const sinConciliar = data?.sin_conciliar ?? { count: 0, monto: 0 };
+
+  // Posibles duplicados: mismo tercero con dos nombres (el creado al
+  // remisionar "como lo conocemos" vs la razón social que llega al facturar).
+  const duplicados = useMemo(
+    () => findLikelyDuplicateClients(clients).filter((p) => !dismissedPairs.includes(pairKey(p))),
+    [clients, dismissedPairs],
+  );
+
+  const dismissPair = (p: DuplicatePair) => {
+    const next = [...dismissedPairs, pairKey(p)];
+    setDismissedPairs(next);
+    try { localStorage.setItem(DUP_DISMISSED_KEY, JSON.stringify(next)); } catch { /* modo privado */ }
+  };
+
+  /** Ejecuta la unión real (RPC merge_responsibles: reasigna todo y absorbe
+   *  el otro como alias). canonicalId = el nombre que queda. */
+  const unirPar = async (pair: DuplicatePair, canonicalId: string) => {
+    const legacy = pair.a.client_id === canonicalId ? pair.b : pair.a;
+    setMerging(true);
+    try {
+      const { error } = await (supabase.rpc as any)('merge_responsibles', {
+        p_legacy_id: legacy.client_id,
+        p_canonical_id: canonicalId,
+      });
+      if (error) throw error;
+      const canonical = pair.a.client_id === canonicalId ? pair.a : pair.b;
+      toast({
+        title: 'Beneficiarios unidos',
+        description: `"${legacy.client_name}" quedó absorbido en "${canonical.client_name}" — facturas, pagos, remisiones y cotizaciones reasignadas.`,
+      });
+      setMergePair(null);
+      queryClient.invalidateQueries({ queryKey: ['estado-cuenta-resp-canon'] });
+      queryClient.invalidateQueries({ queryKey: ['estado-cuenta-nits'] });
+      onMutated();
+    } catch (err) {
+      toast({
+        title: 'No se pudo unir',
+        description: err instanceof Error ? err.message : 'Error desconocido',
+        variant: 'destructive',
+      });
+    } finally {
+      setMerging(false);
+    }
+  };
 
   const togglePagadas = (clientId: string) => {
     setShowPagadasByClient((prev) =>
@@ -758,6 +829,45 @@ export default function EstadoCuentaClientes() {
           </div>
         )}
 
+        {/* Posibles duplicados: el cliente creado al remisionar vs el que
+            crea la facturación — unir con un clic (RPC merge_responsibles). */}
+        {duplicados.length > 0 && (
+          <div className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 space-y-1.5">
+            <p className="text-xs font-semibold flex items-center gap-1.5">
+              <GitMerge className="h-3.5 w-3.5 text-warning" />
+              Estos parecen el MISMO cliente con dos nombres:
+            </p>
+            {duplicados.map((p) => {
+              const ambosUuid = isUuidClient(p.a.client_id) && isUuidClient(p.b.client_id);
+              return (
+                <div key={pairKey(p)} className="flex items-center gap-2 text-xs flex-wrap">
+                  <span className="font-medium">{p.a.client_name}</span>
+                  <span className="text-muted-foreground">↔</span>
+                  <span className="font-medium">{p.b.client_name}</span>
+                  <span className="text-[10px] text-muted-foreground">({Math.round(p.score * 100)}% parecido)</span>
+                  {ambosUuid ? (
+                    <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1" onClick={() => setMergePair(p)}>
+                      <GitMerge className="h-3 w-3" />
+                      Unir
+                    </Button>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground italic">
+                      uno no tiene tercero creado — asignale el beneficiario a sus facturas en Conciliación y quedan unidos
+                    </span>
+                  )}
+                  <button
+                    className="text-muted-foreground hover:text-destructive"
+                    title="No son el mismo — no volver a mostrar"
+                    onClick={() => dismissPair(p)}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Tabla por cliente */}
         <Card>
           <CardContent className="p-0">
@@ -876,6 +986,48 @@ export default function EstadoCuentaClientes() {
           onOpenChange={(v) => { if (!v) setPaymentLinkInvoice(null); }}
           invoice={paymentLinkInvoice}
         />
+
+        {/* Unión de duplicados: elegir cuál nombre queda como principal */}
+        <AlertDialog open={!!mergePair} onOpenChange={(o) => { if (!o && !merging) setMergePair(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <GitMerge className="h-4 w-4 text-warning" />
+                Unir beneficiarios
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Se juntan facturas, pagos, remisiones, cotizaciones y saldos de los dos
+                en UNO solo — el otro queda como alias para siempre. Elegí cuál nombre
+                sobrevive:
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {mergePair && (
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start h-auto py-2 text-left"
+                  disabled={merging}
+                  onClick={() => unirPar(mergePair, mergePair.a.client_id)}
+                >
+                  {merging ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-success" />}
+                  Dejar «{mergePair.a.client_name}»
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start h-auto py-2 text-left"
+                  disabled={merging}
+                  onClick={() => unirPar(mergePair, mergePair.b.client_id)}
+                >
+                  {merging ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-success" />}
+                  Dejar «{mergePair.b.client_name}»
+                </Button>
+              </div>
+            )}
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={merging}>Cancelar</AlertDialogCancel>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </TooltipProvider>
   );
