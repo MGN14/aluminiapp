@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyClientCreditFIFO, type InvoiceLine } from './clientReceivables';
+import { applyClientCreditFIFO, buildCanonicalMaps, type InvoiceLine } from './clientReceivables';
 
 // Factory: línea de factura con defaults. `effective_pending` arranca en NaN
 // para verificar que el helper SIEMPRE lo setea.
@@ -112,5 +112,91 @@ describe('applyClientCreditFIFO — imputación de pagos (Art. 1653-1654 CC)', (
     applyClientCreditFIFO(lines, Math.max(0, credito - cxc));
     expect(lines.find(l => l.id === 'FV1')!.effective_pending).toBe(30);
     expect(lines.find(l => l.id === 'FV2')!.effective_pending).toBe(30);
+  });
+});
+
+// ============================================================================
+// buildCanonicalMaps — canonicalización de responsables (fix 2026-09-01:
+// clientes que aparecían DOBLES, uno en CxC y otro en anticipos, pese a las
+// uniones hechas en Conciliación).
+// ============================================================================
+describe('buildCanonicalMaps — uniones de terceros', () => {
+  it('alias del canónico pliega al responsible legacy con ese nombre', () => {
+    const { canonical } = buildCanonicalMaps(
+      [
+        { id: 'a-eje', name: 'Aluminios del Eje Cafetero SAS' },
+        { id: 'b-jh', name: 'Aluminios JH' },
+      ],
+      [{ responsible_id: 'a-eje', alias: 'Aluminios JH' }],
+    );
+    expect(canonical.get('b-jh')).toBe('a-eje');
+    expect(canonical.get('a-eje')).toBe('a-eje');
+  });
+
+  it('dos responsibles con el MISMO nombre normalizado se funden (variantes S.A.S / SAS / tildes)', () => {
+    const { canonical } = buildCanonicalMaps(
+      [
+        { id: 'r2', name: 'LA BODEGA DEL ALUMINIO S.A.S' },
+        { id: 'r1', name: 'La Bodega del Aluminio SAS' },
+      ],
+      [],
+    );
+    // Determinístico: gana el menor id sin importar el orden de entrada.
+    expect(canonical.get('r1')).toBe('r1');
+    expect(canonical.get('r2')).toBe('r1');
+  });
+
+  it('el orden de entrada NO cambia el resultado (era orden-dependiente sin .order en la query)', () => {
+    const resp = [
+      { id: 'r1', name: 'Polyacril Commerce SAS' },
+      { id: 'r2', name: 'POLYACRIL COMMERCE S.A.S' },
+    ];
+    const a = buildCanonicalMaps(resp, []);
+    const b = buildCanonicalMaps([...resp].reverse(), []);
+    expect(a.canonical.get('r2')).toBe('r1');
+    expect(b.canonical.get('r2')).toBe('r1');
+  });
+
+  it('self-alias de un duplicado no arma flip-flop: el ciclo se resuelve al menor id para AMBOS', () => {
+    // Cada beneficiario nuevo se crea con alias = su propio nombre
+    // (ResponsibleManagement); con un duplicado eso armaba un ciclo A↔B.
+    const { canonical } = buildCanonicalMaps(
+      [
+        { id: 'r1', name: 'Serjunico SAS' },
+        { id: 'r2', name: 'SERJUNICO S.A.S' },
+      ],
+      [
+        { responsible_id: 'r1', alias: 'Serjunico SAS' },
+        { responsible_id: 'r2', alias: 'SERJUNICO S.A.S' },
+      ],
+    );
+    expect(canonical.get('r1')).toBe(canonical.get('r2'));
+  });
+
+  it('cadenas A→B→C se siguen hasta el final', () => {
+    const { canonical } = buildCanonicalMaps(
+      [
+        { id: 'a', name: 'Nombre A' },
+        { id: 'b', name: 'Nombre B' },
+        { id: 'c', name: 'Nombre C' },
+      ],
+      [
+        { responsible_id: 'b', alias: 'Nombre A' }, // A → B
+        { responsible_id: 'c', alias: 'Nombre B' }, // B → C
+      ],
+    );
+    expect(canonical.get('a')).toBe('c');
+    expect(canonical.get('b')).toBe('c');
+  });
+
+  it('aliasToCanonical resuelve el nombre del alias al canónico (facturas a nombre del alias ya no crean cliente __name: aparte)', () => {
+    const { aliasToCanonical, respByNormName } = buildCanonicalMaps(
+      [{ id: 'a-eje', name: 'Aluminios del Eje Cafetero SAS' }],
+      [{ responsible_id: 'a-eje', alias: 'ALUMINIOS JH DEL EJE CAFETERO' }],
+    );
+    // Simula clientIdFromName: primero por nombre de responsible, después por alias.
+    const n = 'aluminios jh del eje cafetero';
+    expect(respByNormName.get(n)).toBeUndefined();
+    expect(aliasToCanonical.get(n)).toBe('a-eje');
   });
 });

@@ -110,6 +110,85 @@ export function applyClientCreditFIFO(lines: InvoiceLine[], totalCredit: number)
 /** Saldos menores a esto se consideran 0 (residuos por decimales de retención). */
 const PAID_EPSILON = 1;
 
+export interface CanonicalMaps {
+  /** responsible_id → id canónico FINAL (cadenas seguidas; ciclos → menor id). */
+  canonical: Map<string, string>;
+  /** nombre normalizado → responsible_id (el primero en orden estable por id). */
+  respByNormName: Map<string, string>;
+  /** alias normalizado → responsible_id canónico del dueño del alias. */
+  aliasToCanonical: Map<string, string>;
+}
+
+/**
+ * Canonicalización de responsables — TODAS las vías por las que dos
+ * identidades son EL MISMO tercero (fix 2026-09-01: clientes que aparecían
+ * DOBLES — uno en CxC con las facturas y otro en anticipos con los pagos —
+ * pese a las uniones hechas en Conciliación):
+ *
+ *   1. responsible_aliases: el alias "Aluminios JH" del canónico pliega al
+ *      responsible legacy que se llama así.
+ *   2. Mismo nombre normalizado: dos responsibles "La Bodega SAS" / "LA
+ *      BODEGA S.A.S" son el mismo tercero — el segundo se pliega al primero
+ *      (orden estable por id). Antes el mapa se quedaba con el último y el
+ *      resultado dependía del orden de la query (que ni siquiera tenía .order).
+ *   3. Cadenas (A→B→C) se siguen hasta el final; los ciclos que arma el
+ *      self-alias de un duplicado se resuelven al MENOR id — determinístico.
+ *
+ * Duplicada A PROPÓSITO en supabase/functions/_shared/receivables.ts (gemelo
+ * Deno del score IA / reporte semanal / Wompi / MCP) — si cambiás esto,
+ * cambiá el gemelo igual.
+ */
+export function buildCanonicalMaps(
+  responsiblesIn: Array<{ id: string; name: string }>,
+  aliasesIn: Array<{ responsible_id: string; alias: string }>,
+): CanonicalMaps {
+  const responsibles = [...responsiblesIn].sort((a, b) => a.id.localeCompare(b.id));
+  const aliases = [...aliasesIn].sort((a, b) =>
+    a.responsible_id === b.responsible_id
+      ? a.alias.localeCompare(b.alias)
+      : a.responsible_id.localeCompare(b.responsible_id));
+
+  const rawCanonical = new Map<string, string>();
+  responsibles.forEach((r) => rawCanonical.set(r.id, r.id));
+
+  const respByNormName = new Map<string, string>();
+  for (const r of responsibles) {
+    const n = normalizeName(r.name);
+    if (!n) continue;
+    const first = respByNormName.get(n);
+    if (first && first !== r.id) rawCanonical.set(r.id, first);
+    else if (!first) respByNormName.set(n, r.id);
+  }
+
+  for (const a of aliases) {
+    const legacyId = respByNormName.get(normalizeName(a.alias));
+    if (legacyId && legacyId !== a.responsible_id) rawCanonical.set(legacyId, a.responsible_id);
+  }
+
+  const resolve = (id: string): string => {
+    const seen: string[] = [];
+    let cur = id;
+    for (;;) {
+      const next = rawCanonical.get(cur);
+      if (!next || next === cur) return cur;
+      if (seen.includes(cur)) return [...seen].sort()[0];
+      seen.push(cur);
+      cur = next;
+    }
+  };
+  const canonical = new Map<string, string>();
+  responsibles.forEach((r) => canonical.set(r.id, resolve(r.id)));
+
+  const aliasToCanonical = new Map<string, string>();
+  for (const a of aliases) {
+    const n = normalizeName(a.alias);
+    if (!n) continue;
+    const canon = canonical.get(a.responsible_id) ?? a.responsible_id;
+    if (!aliasToCanonical.has(n)) aliasToCanonical.set(n, canon);
+  }
+  return { canonical, respByNormName, aliasToCanonical };
+}
+
 export interface ClientReceivable {
   /** ID canónico: responsible_id o `__name:<normalizado>` si el cliente solo aparece por counterparty_name. */
   client_id: string;
@@ -186,9 +265,9 @@ export async function calculateAllClientReceivables(
     cashIngresos,
   ] = await Promise.all([
     fetchAll<{ id: string; name: string }>((a, b) =>
-      supabase.from('responsibles').select('id, name').range(a, b)),
+      supabase.from('responsibles').select('id, name').order('id').range(a, b)),
     fetchAll<{ responsible_id: string; alias: string }>((a, b) =>
-      supabase.from('responsible_aliases' as never).select('responsible_id, alias').range(a, b)),
+      supabase.from('responsible_aliases' as never).select('responsible_id, alias').order('responsible_id').order('alias').range(a, b)),
     fetchAll<Record<string, unknown>>((a, b) =>
       supabase
         .from('invoices')
@@ -231,36 +310,23 @@ export async function calculateAllClientReceivables(
   ]);
 
   // ===========================================================================
-  // 1. Map "alias responsible → canonical responsible". Si un responsible "Aluminios JH"
-  //    aparece como alias de "Aluminios del Eje", todas sus facturas/pagos se
-  //    atribuyen al canónico.
+  // 1. Canonicalización de responsables (aliases + nombres duplicados +
+  //    cadenas) — lógica compartida y testeada en buildCanonicalMaps.
   // ===========================================================================
-  const canonicalOf = new Map<string, string>();
-  responsibles.forEach(r => canonicalOf.set(r.id, r.id));
-
-  const respByNormName = new Map<string, string>();
-  responsibles.forEach(r => {
-    const n = normalizeName(r.name);
-    if (n) respByNormName.set(n, r.id);
-  });
-
-  for (const a of aliases) {
-    const legacyId = respByNormName.get(normalizeName(a.alias));
-    if (legacyId && legacyId !== a.responsible_id) {
-      canonicalOf.set(legacyId, a.responsible_id);
-    }
-  }
+  const { canonical: canonicalOf, respByNormName, aliasToCanonical } = buildCanonicalMaps(responsibles, aliases);
 
   const idToName = new Map(responsibles.map(r => [r.id, r.name]));
   const fallbackClientByKey = new Map<string, string>();
 
   // Resuelve un client_id canónico a partir de un nombre suelto (counterparty
-  // sin responsible_id, o responsible_name de initial_state_details).
+  // sin responsible_id, o responsible_name de initial_state_details). También
+  // por ALIAS: una factura a nombre de "Aluminios JH" (alias del canónico)
+  // antes creaba un cliente __name: aparte — el mismo tercero partido en dos.
   const clientIdFromName = (name: string | null | undefined): string | null => {
     if (!name) return null;
     const n = normalizeName(name);
     if (!n) return null;
-    const respId = respByNormName.get(n);
+    const respId = respByNormName.get(n) ?? aliasToCanonical.get(n);
     if (respId) return canonicalOf.get(respId) ?? respId;
     const key = `__name:${n}`;
     fallbackClientByKey.set(key, name);
