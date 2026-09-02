@@ -508,6 +508,44 @@ function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas,
       {isExpanded && (
         <TableRow className="hover:bg-transparent">
           <TableCell colSpan={9} className="p-0">
+            <ClientDrilldown
+              client={client}
+              showPagadas={showPagadas}
+              onTogglePagadas={onTogglePagadas}
+              onVincularInvoice={onVincularInvoice}
+              onAcordarInvoice={onAcordarInvoice}
+              onLinkPagoInvoice={onLinkPagoInvoice}
+              onAcordarCliente={onAcordarCliente}
+            />
+          </TableCell>
+        </TableRow>
+      )}
+    </React.Fragment>
+  );
+}
+
+// ============================================================================
+// Drill-down de UN cliente: facturas pendientes con acciones + resumen del
+// cálculo del saldo + facturas cubiertas. Exportado para que el Estado de
+// cuenta de clientes (EstadoCuentaClientes.tsx) muestre EXACTAMENTE el mismo
+// detalle — una sola implementación, cero drift entre módulos.
+// ============================================================================
+export interface ClientDrilldownProps {
+  client: ClientReceivable;
+  showPagadas: boolean;
+  onTogglePagadas: () => void;
+  onVincularInvoice: (inv: InvoiceLine) => void;
+  onAcordarInvoice: (inv: InvoiceLine) => void;
+  onLinkPagoInvoice: (inv: InvoiceLine) => void;
+  onAcordarCliente: () => void;
+}
+
+export function ClientDrilldown({ client, showPagadas, onTogglePagadas, onVincularInvoice, onAcordarInvoice, onLinkPagoInvoice, onAcordarCliente }: ClientDrilldownProps) {
+  const facturado = client.facturado_venta;
+  const anticipos = client.anticipos_total;
+  const cxcInicial = client.cxc_inicial;
+  const saldo = client.saldo_neto;
+  return (
             <div className="bg-muted/10 border-l-2 border-l-primary px-6 py-4 space-y-3">
               <p className="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Receipt className="h-4 w-4 text-primary" />
@@ -609,10 +647,6 @@ function ClientRow({ client, isExpanded, onToggle, showPagadas, onTogglePagadas,
                 </div>
               )}
             </div>
-          </TableCell>
-        </TableRow>
-      )}
-    </React.Fragment>
   );
 }
 

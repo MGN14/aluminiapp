@@ -30,8 +30,9 @@ import { invoiceRetenciones } from './invoiceBalance';
 import { isOperativo } from '@/types/transaction';
 
 // Normalización fuerte de nombres (copiada de PaymentsLogReport para mantener
-// criterio idéntico de matching).
-function normalizeName(s: string): string {
+// criterio idéntico de matching). Exportada para que los módulos que crucen
+// datos por nombre (Estado de cuenta clientes) usen EL MISMO criterio.
+export function normalizeName(s: string): string {
   return s
     .toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')

@@ -5,11 +5,12 @@ import AccountsReceivableReport from '@/components/reports/AccountsReceivableRep
 import AccountsPayableReport from '@/components/reports/AccountsPayableReport';
 import CashFlowReport from '@/components/reports/CashFlowReport';
 import PaymentsLogReport from '@/components/reports/PaymentsLogReport';
+import EstadoCuentaClientes from '@/components/reports/EstadoCuentaClientes';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Loader2, Crown, TrendingUp, ArrowDownUp, HandCoins, ReceiptText, Wallet, ListChecks } from 'lucide-react';
+import { Lock, Loader2, Crown, TrendingUp, ArrowDownUp, HandCoins, ReceiptText, Wallet, ListChecks, Users } from 'lucide-react';
 
-type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp' | 'caja' | 'pagos';
+type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp' | 'caja' | 'pagos' | 'clientes';
 
 const BRAND = 'oklch(0.43 0.14 155)';
 const INK = '#1d1d1f';
@@ -71,6 +72,14 @@ const TABS: Record<ReportTab, {
     color: 'oklch(0.50 0.14 290)',
     bg: 'linear-gradient(135deg, oklch(0.55 0.16 290 / 0.18), oklch(0.65 0.12 280 / 0.06))',
     border: '1px solid oklch(0.55 0.16 290 / 0.22)',
+  },
+  clientes: {
+    title: 'Clientes — estado de cuenta',
+    hint: 'Quién te debe, a quién le debés factura (anticipos) y quién está al día.',
+    icon: Users,
+    color: 'oklch(0.48 0.13 200)',
+    bg: 'linear-gradient(135deg, oklch(0.55 0.13 200 / 0.18), oklch(0.65 0.10 210 / 0.06))',
+    border: '1px solid oklch(0.55 0.13 200 / 0.22)',
   },
 };
 
@@ -209,6 +218,7 @@ export default function Reports({ tab = 'pyg' }: Props) {
         {tab === 'cxp' && <AccountsPayableReport />}
         {tab === 'caja' && <CashFlowReport />}
         {tab === 'pagos' && <PaymentsLogReport />}
+        {tab === 'clientes' && <EstadoCuentaClientes />}
       </div>
     </AppLayout>
   );

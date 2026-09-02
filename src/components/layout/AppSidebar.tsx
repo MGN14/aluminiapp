@@ -9,7 +9,6 @@ import {
   ArrowLeftRight,
   Package,
   BarChart3,
-  Receipt,
   Users,
   HandCoins,
   ShieldCheck,
@@ -22,7 +21,6 @@ import {
   ClipboardList,
   Zap,
   Wallet,
-  ListChecks,
   Coins,
   CreditCard,
   Sparkles,
@@ -116,11 +114,11 @@ const reportItems: NavItem[] = [
   { title: 'Presupuesto vs Real', url: '/reportes/presupuesto', icon: Target, permKey: 'presupuesto' },
   { title: 'Rentabilidad', url: '/reportes/rentabilidad', icon: Coins, permKey: 'rentabilidad' },
   { title: 'Punto de equilibrio', url: '/reportes/punto-equilibrio', icon: Target, permKey: 'punto_equilibrio' },
-  { title: 'Anticipos', url: '/reportes/anticipos', icon: Receipt, permKey: 'anticipos' },
-  { title: 'Módulo de Cobranza', url: '/reportes/cuentas-por-cobrar', icon: Users, hideInGerencial: true, permKey: 'cuentas_por_cobrar' },
+  // Clientes unifica Anticipos + Cobranza + Relación de pagos (2026-09-01);
+  // las rutas viejas siguen vivas como sub-vistas enlazadas desde el módulo.
+  { title: 'Clientes — estado de cuenta', url: '/reportes/clientes', icon: Users, permKey: 'relacion_pagos' },
   { title: 'Lo que debo', url: '/reportes/cuentas-por-pagar', icon: HandCoins, permKey: 'cuentas_por_pagar' },
   { title: 'Flujo de caja', url: '/reportes/flujo-caja', icon: Wallet, permKey: 'flujo_caja' },
-  { title: 'Relación de pagos', url: '/reportes/relacion-pagos', icon: ListChecks, permKey: 'relacion_pagos' },
   { title: 'Bodega (operación)', url: '/reportes/bodega', icon: Boxes, adminOnly: true },
 ];
 

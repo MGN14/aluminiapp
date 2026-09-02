@@ -29,6 +29,7 @@ const PAGE_PLACEHOLDERS: Record<string, string> = {
   'reportes/estado-resultados': 'Explícame este reporte',
   'reportes/anticipos': '¿Cómo van mis anticipos?',
   'reportes/cuentas-por-cobrar': '¿Quién me debe plata?',
+  'reportes/clientes': '¿Quién me debe y a quién le debo factura?',
   'reportes/cuentas-por-pagar': '¿Cuánto debo a proveedores?',
   'reportes/flujo-caja': '¿Cómo está mi flujo de caja?',
   'financial-health': '¿Tengo riesgo con la DIAN?',

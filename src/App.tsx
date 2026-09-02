@@ -144,8 +144,21 @@ const persister = createSyncStoragePersister({
  * este filtro es la red: si alguien vuelve a cachear un Map, simplemente no se
  * persiste (se refetchea) en vez de romper la app al recargar.
  */
-const esSerializable = (data: unknown): boolean =>
-  !(data instanceof Map || data instanceof Set || data instanceof Date);
+const esRaroParaJson = (v: unknown): boolean =>
+  v instanceof Map || v instanceof Set || v instanceof Date;
+
+const esSerializable = (data: unknown): boolean => {
+  if (esRaroParaJson(data)) return false;
+  // Un nivel adentro: { receivables, scoresByClient: Map } pasaba el chequeo
+  // superficial y se persistía con el Map hecho "{}" — al recargar,
+  // scoresByClient.get(...) tumbaba Cobranza/Estado de cuenta.
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    for (const v of Object.values(data as Record<string, unknown>)) {
+      if (esRaroParaJson(v)) return false;
+    }
+  }
+  return true;
+};
 
 const persistOptions = {
   persister,
@@ -280,6 +293,13 @@ const App = () => (
               <Route
                 path="/reportes/relacion-pagos"
                 element={<RequireModule moduleKey="relacion_pagos"><Reports tab="pagos" /></RequireModule>}
+              />
+              {/* Estado de cuenta unificado (CxC + anticipos + al día). Las rutas
+                  viejas (anticipos / cuentas-por-cobrar / relacion-pagos) siguen
+                  vivas como sub-vistas enlazadas desde acá — nada se pierde. */}
+              <Route
+                path="/reportes/clientes"
+                element={<RequireModule moduleKey="relacion_pagos"><Reports tab="clientes" /></RequireModule>}
               />
               {/* Reportes de bodega (tiempos, rotación, durabilidad) — solo admin (tiene precios) */}
               <Route
