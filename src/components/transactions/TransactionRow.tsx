@@ -33,6 +33,7 @@ import { useConciliacionHistorial } from '@/hooks/useConciliacionHistorial';
 import { useBankInvoiceMatches } from '@/hooks/useBankInvoiceMatches';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { linkCreditPayment, unlinkCreditPayment, parseCreditNameFromNotes, CREDIT_NOTE_MARKER_REGEX } from '@/lib/creditLink';
+import { linkImportPayment, unlinkImportPayment, parseImportNameFromNotes, IMPORT_NOTE_MARKER_REGEX, errMsg } from '@/lib/importLink';
 import { fetchDatosVentasProbable, sugerirClienteParaPago } from '@/lib/ventasProbable';
 import {
   sugerirBeneficiario, sugerirCategoria, alertaCategoriaInusual, alertaMontoInusual,
@@ -184,6 +185,7 @@ export default function TransactionRow({
     newTags: InvoiceTag[],
     autoMatches?: import('./InvoiceSelector').AutoMatchResult[],
     creditLink?: import('./InvoiceSelector').CreditLinkInfo,
+    importLink?: import('./InvoiceSelector').ImportLinkInfo,
   ) => {
     // Build notes from tags
     const tagMarkers: Record<InvoiceTag, string> = {
@@ -193,24 +195,27 @@ export default function TransactionRow({
       anticipo: '[Anticipo]',
     };
 
-    // Clean existing markers from notes — conservando el marcador de crédito
-    // existente: cambiar un tag no debe "soltar" visualmente un crédito que
-    // sigue vinculado en credit_payments.
+    // Clean existing markers from notes — conservando los marcadores de
+    // crédito/importación existentes: cambiar un tag no debe "soltar"
+    // visualmente un vínculo que sigue vivo en la base.
     const existingCreditMarker = (localTransaction.notes || '').match(/\[Crédito - [^\]]+\]/)?.[0] ?? '';
+    const existingImportMarker = (localTransaction.notes || '').match(/\[Importación - [^\]]+\]/)?.[0] ?? '';
     let cleanNotes = (localTransaction.notes || '')
       .replace(/\[N\/A - Sin factura\]/g, '')
       .replace(/\[IVA a favor - Pago DIAN\]/g, '')
       .replace(/\[Retefuente - Sin factura\]/g, '')
       .replace(/\[Anticipo\]/g, '')
       .replace(/\[Crédito - [^\]]+\]/g, '')
+      .replace(/\[Importación - [^\]]+\]/g, '')
       .trim();
 
     // Add new markers
     const markers = newTags.map(t => tagMarkers[t]).join('');
     const creditMarker = creditLink ? `[Crédito - ${creditLink.creditName}]` : existingCreditMarker;
-    const finalNotes = [markers, creditMarker, cleanNotes].filter(Boolean).join('') || null;
+    const importMarker = importLink ? `[Importación - ${importLink.importLabel}]` : existingImportMarker;
+    const finalNotes = [markers, creditMarker, importMarker, cleanNotes].filter(Boolean).join('') || null;
 
-    // Si vino un creditLink, también pisamos categoría/responsable con los defaults del crédito
+    // Si vino un creditLink/importLink, también pisamos categoría/responsable
     const fieldUpdate: Record<string, unknown> = {
       invoice_id: newInvoiceId,
       notes: finalNotes,
@@ -219,6 +224,15 @@ export default function TransactionRow({
     if (creditLink) {
       if (creditLink.defaultCategoryId) fieldUpdate.category_id = creditLink.defaultCategoryId;
       if (creditLink.defaultResponsibleId) fieldUpdate.responsible_id = creditLink.defaultResponsibleId;
+    }
+    if (importLink) {
+      if (importLink.defaultResponsibleId && !localTransaction.responsible_id) {
+        fieldUpdate.responsible_id = importLink.defaultResponsibleId;
+      }
+      if (!localTransaction.category_id) {
+        const provCat = categories.find(c => /proveedor/i.test(c.name));
+        if (provCat) fieldUpdate.category_id = provCat.id;
+      }
     }
     updateField(fieldUpdate);
 
@@ -272,10 +286,75 @@ export default function TransactionRow({
         console.error('Error linking credit:', err);
         toast({
           title: 'No se pudo vincular el crédito',
-          description: err instanceof Error ? err.message : 'Error desconocido',
+          description: errMsg(err),
           variant: 'destructive',
         });
       }
+    }
+
+    // Vincular giro al exterior → abono del contenedor. Mismo dedupe que
+    // créditos: si la tx ya respalda un abono no duplica; si el abono ya
+    // estaba registrado a mano en Importaciones, lo adopta.
+    if (importLink && user) {
+      try {
+        const result = await linkImportPayment({
+          userId: user.id,
+          importId: importLink.importId,
+          transactionId: localTransaction.id,
+          txDate: localTransaction.date,
+          txCopAbs: Math.abs(Number(localTransaction.amount ?? 0)),
+        });
+        if (result.outcome === 'adopted') {
+          toast({
+            title: 'Vinculado al abono que ya habías registrado',
+            description: `Este giro es el mismo abono manual del ${result.manualFecha} (USD ${result.manualUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}). No se registró doble.`,
+          });
+        } else if (result.outcome === 'already_linked') {
+          toast({
+            title: 'Este giro ya respalda un abono',
+            description: 'Está vinculado a un contenedor (este u otro). No se registró un abono adicional.',
+          });
+        } else {
+          toast({
+            title: `Abono registrado en "${importLink.importLabel}"`,
+            description: `USD ${result.usd.toLocaleString('en-US', { minimumFractionDigits: 2 })} con TRM ${result.trm.toLocaleString('es-CO')} del día del giro.`,
+          });
+        }
+        queryClient.invalidateQueries({ queryKey: ['import_payments'] });
+        queryClient.invalidateQueries({ queryKey: ['import_liquidation'] });
+        queryClient.invalidateQueries({ queryKey: ['imports'] });
+        queryClient.invalidateQueries({ queryKey: ['import-payments-available-tx'] });
+      } catch (err) {
+        console.error('Error linking import:', err);
+        // Revertir el marcador: el abono NO quedó creado (ej. sin TRM del día).
+        const revertNotes = (localTransaction.notes || '').replace(IMPORT_NOTE_MARKER_REGEX, '').trim() || null;
+        updateField({ notes: revertNotes });
+        toast({
+          title: 'No se pudo vincular la importación',
+          description: errMsg(err),
+          variant: 'destructive',
+        });
+      }
+    }
+  };
+
+  /** X del chip de importación: suelta el vínculo (borra el abono si nació
+   *  de la conciliación; si era manual adoptado, solo lo desengancha). */
+  const handleUnlinkImport = async () => {
+    try {
+      const res = await unlinkImportPayment(localTransaction.id);
+      const cleaned = (localTransaction.notes || '').replace(IMPORT_NOTE_MARKER_REGEX, '').trim() || null;
+      updateField({ notes: cleaned });
+      queryClient.invalidateQueries({ queryKey: ['import_payments'] });
+      queryClient.invalidateQueries({ queryKey: ['import_liquidation'] });
+      queryClient.invalidateQueries({ queryKey: ['imports'] });
+      queryClient.invalidateQueries({ queryKey: ['import-payments-available-tx'] });
+      toast(res === 'deleted'
+        ? { title: 'Importación desvinculada', description: 'El abono creado desde la conciliación se borró del contenedor.' }
+        : { title: 'Importación desvinculada', description: 'El abono manual se conserva en el contenedor; solo se soltó el vínculo con el extracto.' });
+    } catch (err) {
+      console.error('Error unlinking import:', err);
+      toast({ title: 'No se pudo desvincular', description: errMsg(err), variant: 'destructive' });
     }
   };
 
@@ -451,6 +530,10 @@ export default function TransactionRow({
   const derivedInvoiceId = localTransaction.invoice_id || null;
   const derivedCreditName = useMemo(
     () => parseCreditNameFromNotes(localTransaction.notes),
+    [localTransaction.notes],
+  );
+  const derivedImportName = useMemo(
+    () => parseImportNameFromNotes(localTransaction.notes),
     [localTransaction.notes],
   );
   const derivedTags = useMemo((): InvoiceTag[] => {
@@ -645,6 +728,8 @@ export default function TransactionRow({
             responsibleName={responsibles.find(r => r.id === localTransaction.responsible_id)?.name ?? null}
             creditName={derivedCreditName}
             onUnlinkCredit={derivedCreditName ? handleUnlinkCredit : undefined}
+            importName={derivedImportName}
+            onUnlinkImport={derivedImportName ? handleUnlinkImport : undefined}
             onChange={handleInvoiceChange}
           />
           {/* Sugerencia del motor: "¿este ingreso es la factura X de Y?" —

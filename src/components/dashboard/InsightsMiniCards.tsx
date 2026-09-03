@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
-import { ArrowRight, AlertTriangle, Zap, ShieldCheck, Info, Upload, Brain, Repeat, Sparkles } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Zap, ShieldCheck, Info, Upload, Brain, Repeat, Sparkles, Ship, X } from 'lucide-react';
 import { PeriodSelection } from './UnifiedPeriodFilter';
 import { supabase } from '@/integrations/supabase/client';
 import nicoAvatar from '@/assets/nico-avatar.png';
@@ -78,17 +78,85 @@ interface Props {
   hasTransactions: boolean;
 }
 
+/** Giros al exterior del año sin vincular a ningún contenedor de Importaciones. */
+interface GirosSinVincular {
+  count: number;
+  totalCop: number;
+  txIds: string[];
+}
+
+const GIROS_DISMISSED_KEY = 'aluminia.dashboard.girosImportDismissed.v1';
+
+function loadGirosDismissed(): string[] {
+  try {
+    const raw = localStorage.getItem(GIROS_DISMISSED_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function InsightsMiniCards({ periodSelection, hasTransactions }: Props) {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [patternsCount, setPatternsCount] = useState(0);
+  const [giros, setGiros] = useState<GirosSinVincular | null>(null);
 
   useEffect(() => {
     if (!hasTransactions) { setLoading(false); return; }
     fetchInsights();
+    fetchGirosSinVincular();
     // Trigger memory update in background
     triggerMemoryUpdate();
   }, [periodSelection.type, periodSelection.month, periodSelection.quarter, periodSelection.year, hasTransactions]);
+
+  /** Giros al exterior (patrón bancario de transferencia internacional) que no
+   *  respaldan ningún abono de importación — la plata salió pero ningún
+   *  contenedor la tiene registrada (caso real: saldo USD 102k fantasma). */
+  const fetchGirosSinVincular = async () => {
+    try {
+      const year = periodSelection.year;
+      const { data: txs, error } = await supabase
+        .from('transactions')
+        .select('id, amount, description')
+        .eq('type', 'egreso')
+        .is('deleted_at', null)
+        .gte('date', `${year}-01-01`)
+        .lte('date', `${year}-12-31`)
+        .or('description.ilike.%ENVIO DE DINERO AL EXTERIOR%,description.ilike.%TRANSF INTERNACIONAL%')
+        .limit(500);
+      if (error || !txs?.length) { setGiros(null); return; }
+
+      const { data: linked } = await supabase
+        .from('import_payments' as never)
+        .select('transaction_id')
+        .not('transaction_id', 'is', null);
+      const linkedIds = new Set((((linked as unknown) as { transaction_id: string }[]) ?? []).map(r => r.transaction_id));
+      const dismissed = new Set(loadGirosDismissed());
+
+      const pendientes = (txs as Array<{ id: string; amount: number | null }>)
+        .filter(t => !linkedIds.has(t.id) && !dismissed.has(t.id));
+      if (pendientes.length === 0) { setGiros(null); return; }
+      setGiros({
+        count: pendientes.length,
+        totalCop: pendientes.reduce((s, t) => s + Math.abs(Number(t.amount ?? 0)), 0),
+        txIds: pendientes.map(t => t.id),
+      });
+    } catch {
+      setGiros(null);
+    }
+  };
+
+  /** "No son de importación": descarta los giros actuales — si aparece un giro
+   *  NUEVO sin vincular, la alerta vuelve sola. */
+  const dismissGiros = () => {
+    if (!giros) return;
+    try {
+      const next = Array.from(new Set([...loadGirosDismissed(), ...giros.txIds]));
+      localStorage.setItem(GIROS_DISMISSED_KEY, JSON.stringify(next));
+    } catch { /* modo privado */ }
+    setGiros(null);
+  };
 
   const triggerMemoryUpdate = async () => {
     try {
@@ -165,10 +233,41 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
     );
   }
 
-  if (insights.length === 0) return null;
+  if (insights.length === 0 && !giros) return null;
 
   return (
     <div className="space-y-3 animate-fade-in">
+      {/* Giros al exterior sin contenedor: plata que salió del banco y ningún
+          abono de importación la registra. Se vincula desde Conciliación
+          (sección "Importaciones abiertas" del selector de factura). */}
+      {giros && (
+        <Card className="border-l-4 border-l-warning bg-warning/5">
+          <CardContent className="py-3 px-4 flex items-center gap-3">
+            <Ship className="h-4 w-4 text-warning shrink-0" />
+            <p className="text-xs text-muted-foreground flex-1 min-w-0">
+              <span className="font-semibold text-foreground">
+                {giros.count} giro{giros.count === 1 ? '' : 's'} al exterior sin vincular a ningún contenedor
+              </span>
+              {' — '}
+              {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(giros.totalCop)} que ningún abono de importación registra.
+            </p>
+            <Link to="/transactions" className="shrink-0">
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
+                Vincular <ArrowRight className="h-3 w-3" />
+              </Button>
+            </Link>
+            <button
+              className="shrink-0 text-muted-foreground hover:text-destructive"
+              title="No son de importación — no volver a mostrar estos giros"
+              onClick={dismissGiros}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </CardContent>
+        </Card>
+      )}
+
+      {insights.length > 0 && (<>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-full overflow-hidden border border-success/30 flex-shrink-0">
@@ -215,6 +314,7 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
           );
         })}
       </div>
+      </>)}
     </div>
   );
 }

@@ -4,9 +4,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { FileText, Search, X, ShieldCheck, Receipt, Plus, Wallet, CreditCard } from 'lucide-react';
+import { FileText, Search, X, ShieldCheck, Receipt, Plus, Wallet, CreditCard, Ship } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { suggestPaymentSplit, summarizeCredit, type AmortizationType } from '@/lib/amortization';
+import { fetchTrmForDate } from '@/hooks/useImportPayments';
 import { invoiceRetenciones } from '@/lib/invoiceBalance';
 import { calculateAllClientReceivables } from '@/lib/clientReceivables';
 import { normalizeCompanyName } from '@/lib/stringUtils';
@@ -36,6 +37,14 @@ export interface CreditLinkInfo {
   defaultResponsibleId: string | null;
 }
 
+/** Giro al exterior → abono de un contenedor. El padre hace el INSERT vía
+ *  lib/importLink (guard anti-duplicado + adopción de abonos manuales). */
+export interface ImportLinkInfo {
+  importId: string;
+  importLabel: string;
+  defaultResponsibleId: string | null;
+}
+
 interface InvoiceSelectorProps {
   invoiceId: string | null;
   tags: InvoiceTag[];
@@ -53,8 +62,20 @@ interface InvoiceSelectorProps {
   creditName?: string | null;
   /** Quitar el vínculo con el crédito (la X del chip). */
   onUnlinkCredit?: () => void;
-  onChange: (invoiceId: string | null, tags: InvoiceTag[], autoMatches?: AutoMatchResult[], creditLink?: CreditLinkInfo) => void;
+  /** Contenedor ya vinculado a esta transacción (marcador [Importación - X]). */
+  importName?: string | null;
+  /** Quitar el vínculo con la importación (la X del chip). */
+  onUnlinkImport?: () => void;
+  onChange: (invoiceId: string | null, tags: InvoiceTag[], autoMatches?: AutoMatchResult[], creditLink?: CreditLinkInfo, importLink?: ImportLinkInfo) => void;
   className?: string;
+}
+
+interface ImportOption {
+  id: string;
+  label: string;
+  proveedor: string;
+  saldoUsd: number;
+  responsibleId: string | null;
 }
 
 export interface AutoMatchResult {
@@ -90,10 +111,12 @@ const TAG_CONFIG: Record<InvoiceTag, { label: string; icon: typeof FileText; col
   anticipo: { label: 'Anticipo', icon: Wallet, colorClass: 'text-warning', description: 'Pago anticipado sin factura' },
 };
 
-export default function InvoiceSelector({ invoiceId, tags, transactionType, transactionAmount, transactionDate, transactionId, responsibleId, responsibleName, creditName, onUnlinkCredit, onChange, className }: InvoiceSelectorProps) {
+export default function InvoiceSelector({ invoiceId, tags, transactionType, transactionAmount, transactionDate, transactionId, responsibleId, responsibleName, creditName, onUnlinkCredit, importName, onUnlinkImport, onChange, className }: InvoiceSelectorProps) {
   const [open, setOpen] = useState(false);
   const [invoices, setInvoices] = useState<InvoiceOption[]>([]);
   const [credits, setCredits] = useState<CreditOption[]>([]);
+  const [importsOpen, setImportsOpen] = useState<ImportOption[]>([]);
+  const [trmHoy, setTrmHoy] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [loaded, setLoaded] = useState(false);
   const { toast } = useToast();
@@ -288,8 +311,36 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
         };
       });
       setCredits(enrichedCreds);
+
+      // Importaciones abiertas — un giro al exterior se concilia acá mismo
+      // al contenedor, sin repetir el trabajo en Importaciones (Nico 2026-09-03).
+      try {
+        const [{ data: imps }, trm] = await Promise.all([
+          (supabase.from('imports' as never) as any)
+            .select('id, ref_pedido, proveedor_nombre, estado, saldo_pendiente_usd, responsible_id, cerrada'),
+          fetchTrmForDate(new Date().toISOString().slice(0, 10)),
+        ]);
+        const rows = ((imps ?? []) as Array<{
+          id: string; ref_pedido: string | null; proveedor_nombre: string; estado: string;
+          saldo_pendiente_usd: number | null; responsible_id: string | null; cerrada: boolean;
+        }>)
+          .filter((r) => r.estado !== 'cancelado' && !r.cerrada)
+          .map((r) => ({
+            id: r.id,
+            label: r.ref_pedido?.trim() || r.proveedor_nombre,
+            proveedor: r.proveedor_nombre,
+            saldoUsd: Number(r.saldo_pendiente_usd ?? 0),
+            responsibleId: r.responsible_id,
+          }))
+          .sort((a, b) => b.saldoUsd - a.saldoUsd);
+        setImportsOpen(rows);
+        setTrmHoy(trm);
+      } catch {
+        setImportsOpen([]);
+      }
     } else {
       setCredits([]);
+      setImportsOpen([]);
     }
 
     setLoaded(true);
@@ -501,7 +552,19 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     setSearch('');
   };
 
-  const hasAnySelection = !!invoiceId || tags.length > 0 || !!creditName;
+  const selectImport = (imp: ImportOption) => {
+    // El padre hace el INSERT del abono (lib/importLink) + marcador en notas.
+    const newTags = tags.filter(t => t !== 'na' && t !== 'anticipo');
+    onChange(null, newTags, undefined, undefined, {
+      importId: imp.id,
+      importLabel: imp.label,
+      defaultResponsibleId: imp.responsibleId,
+    });
+    setOpen(false);
+    setSearch('');
+  };
+
+  const hasAnySelection = !!invoiceId || tags.length > 0 || !!creditName || !!importName;
 
   // IVA y Retefuente NO son tipos de factura — son atributos tributarios del
   // pago y viven en has_iva/has_retefuente (toggles en el detalle de la
@@ -537,6 +600,23 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
               className="shrink-0 hover:text-destructive opacity-60 hover:opacity-100"
               onClick={(e) => { e.stopPropagation(); onUnlinkCredit(); }}
               aria-label="Desvincular crédito"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </span>
+      )}
+
+      {/* Chip de importación vinculada (giro al exterior → abono de contenedor) */}
+      {importName && (
+        <span className="inline-flex items-center gap-1 text-xs rounded-md px-1.5 py-0.5 min-w-0 flex-1 bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/20 font-medium">
+          <Ship className="h-3 w-3 shrink-0" />
+          <span className="truncate" title={`Abono vinculado a la importación ${importName}`}>{importName}</span>
+          {onUnlinkImport && (
+            <button
+              className="shrink-0 hover:text-destructive opacity-60 hover:opacity-100"
+              onClick={(e) => { e.stopPropagation(); onUnlinkImport(); }}
+              aria-label="Desvincular importación"
             >
               <X className="h-3 w-3" />
             </button>
@@ -653,6 +733,45 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
                       {c.nextCuotaAmount && (
                         <span className="font-medium shrink-0 text-cyan-700">
                           {formatCurrency(c.nextCuotaAmount)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Importaciones abiertas (solo egresos): un giro al exterior se
+                concilia de una vez al contenedor. */}
+            {transactionType === 'egreso' && importsOpen.length > 0 && (
+              <>
+                <div className="px-3 py-1.5 text-[10px] text-muted-foreground uppercase tracking-wider bg-muted/30 border-b border-border">
+                  Importaciones abiertas
+                </div>
+                {importsOpen.map((imp) => {
+                  const usdTx = trmHoy && transactionAmount != null ? Math.abs(transactionAmount) / trmHoy : null;
+                  const matchesSaldo = usdTx != null && imp.saldoUsd > 0
+                    ? Math.abs(imp.saldoUsd - usdTx) / imp.saldoUsd <= 0.15
+                    : false;
+                  return (
+                    <button
+                      key={imp.id}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/50 flex items-center gap-2 border-b border-border/50"
+                      onClick={() => selectImport(imp)}
+                    >
+                      <Ship className="h-3.5 w-3.5 shrink-0 text-violet-700" />
+                      <span className="font-medium shrink-0">{imp.label}</span>
+                      <span className="text-muted-foreground truncate flex-1">
+                        {imp.proveedor !== imp.label ? `${imp.proveedor} · ` : ''}saldo USD {imp.saldoUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                      </span>
+                      {importName === imp.label && (
+                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-success/15 text-success font-semibold shrink-0">
+                          ✓ Vinculado
+                        </span>
+                      )}
+                      {matchesSaldo && (
+                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary font-semibold shrink-0">
+                          ≈ Saldo
                         </span>
                       )}
                     </button>

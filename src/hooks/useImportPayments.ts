@@ -99,6 +99,11 @@ export function useImportPayments(importId: string | null | undefined) {
     queryClient.invalidateQueries({ queryKey: ['import_payments', importId] });
     queryClient.invalidateQueries({ queryKey: ['import_liquidation', importId] });
     queryClient.invalidateQueries({ queryKey: ['imports', user?.id] });
+    // El dropdown "Vincular a movimiento bancario" es UNA lista compartida por
+    // todos los contenedores. Sin esta invalidación, el movimiento recién
+    // vinculado seguía apareciendo como opción (y uno borrado no volvía)
+    // hasta que expirara el cache — bug reportado por Nico 2026-09-03.
+    queryClient.invalidateQueries({ queryKey: ['import-payments-available-tx'] });
   };
 
   const create = useMutation({
