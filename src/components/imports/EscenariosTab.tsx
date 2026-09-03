@@ -235,18 +235,24 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
     if (!proximo || Number(proximo.monto_total_usd) <= 0) return null;
     const reales = payRows.filter((p) => p.import_id === proximo.id && Number(p.amount_usd) > 0 && Number(p.trm) > 0)
       .map((p) => ({ amount_usd: Number(p.amount_usd), trm: Number(p.trm) }));
+    // Los "sin conectar" son plata REAL ya pagada (otro negocio, directo a
+    // China): restan del saldo y de la caja para cerrar. Mismo criterio que
+    // ModuloContenedor — si no, la caja pediría dólares ya girados.
+    const manuales = manualesTodos.filter((m) => m.import_id === proximo.id)
+      .map((m) => ({ amount_usd: m.cop / m.trm, trm: m.trm }));
+    const manualUsd = manuales.reduce((s, m) => s + m.amount_usd, 0);
     return escenarioVigente({
       mercanciaUsd: Number(proximo.monto_total_usd), costs: proximo.costs,
-      // Solo abonos REALES + saldo de Pedidos: el mismo número en todas
-      // partes (los manuales del tablero ya no restan — fix 36k vs 41k).
-      abonos: reales,
-      saldoUsdReal: proximo.saldo_pendiente_usd != null ? Number(proximo.saldo_pendiente_usd) : null,
+      abonos: [...reales, ...manuales],
+      saldoUsdReal: proximo.saldo_pendiente_usd != null
+        ? Math.max(0, Number(proximo.saldo_pendiente_usd) - manualUsd)
+        : null,
       trmSimulada: trmVal, trmAduana: trmAduanaVal,
       arancelPct: Number(proximo.arancel_pct ?? 5), ivaPct: Number(proximo.iva_pct ?? 19),
       cantidadKg: (proximo.peso_real_kg != null ? Number(proximo.peso_real_kg) : null)
         ?? (proximo.cantidad_ton != null ? Number(proximo.cantidad_ton) * 1000 : null),
     });
-  }, [proximo, payRows, trmVal, trmAduanaVal]);
+  }, [proximo, payRows, manualesTodos, trmVal, trmAduanaVal]);
 
   const caja = useMemo(() => {
     if (!escProximo) return null;

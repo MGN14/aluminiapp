@@ -254,17 +254,22 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
     return escenarioVigente({
       mercanciaUsd: mercanciaUsdEff,
       costs: pedido.costs,
-      // Solo abonos REALES: el saldo tiene que ser EL MISMO de Pedidos. Los
-      // manuales del tablero se listan aparte y NO restan (fix 36k vs 41k).
-      abonos: reales,
-      saldoUsdReal: pedido.saldo_pendiente_usd != null ? Number(pedido.saldo_pendiente_usd) : null,
+      // Reales + manuales: los "sin conectar" son plata REAL (pagos de otro
+      // negocio directo a China que jamás pasarán por contabilidad) y SÍ
+      // restan del saldo del tablero (corrección Nico 2026-09-03). El ancla
+      // a Pedidos queda en saldoUsdReal: saldo tablero = Pedidos − manuales,
+      // y el puente se muestra explícito en la sección de abonos.
+      abonos: [...reales, ...manualesComoAbono],
+      saldoUsdReal: pedido.saldo_pendiente_usd != null
+        ? Math.max(0, Number(pedido.saldo_pendiente_usd) - totalManualUsd)
+        : null,
       trmSimulada: trmVal,
       arancelPct: Number(pedido.arancel_pct ?? 5),
       ivaPct: Number(pedido.iva_pct ?? 19),
       cantidadKg: kgParaImpuestos,
       trmAduana: trmAduanaEff,
     });
-  }, [pedido, mercanciaUsdEff, reales, trmVal, kgParaImpuestos, trmAduanaEff]);
+  }, [pedido, mercanciaUsdEff, reales, manualesComoAbono, totalManualUsd, trmVal, kgParaImpuestos, trmAduanaEff]);
 
   const totalSinIva = esc ? sinIva(esc.breakdown) : null;
   const copKg = totalSinIva != null && kg ? totalSinIva / kg : null;
@@ -594,7 +599,10 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
             </p>
             <div className="grid lg:grid-cols-2 gap-x-8 gap-y-2">
               <div>
-                <Row l="USD que falta comprar" v={usdF(esc.saldoUsd)} big tone={esc.saldoUsd > 0 ? 'text-destructive' : 'text-success'} />
+                <Row l="USD que falta comprar" v={usdF(esc.saldoUsd)} big tone={esc.saldoUsd > 0 ? 'text-destructive' : 'text-success'}
+                  sub={totalManualUsd > 0 && pedido.saldo_pendiente_usd != null
+                    ? `Pedidos dice ${numF(Number(pedido.saldo_pendiente_usd))} − ${numF(totalManualUsd)} pagados por fuera`
+                    : undefined} />
                 <Row l={`Ese saldo a la TRM del escenario (${numF(trmVal)})`} v={cop(esc.saldoCopSimulado)} />
                 <Row l="Exposición viva · cada 100 pesos de TRM" v={`± ${copM(esc.saldoUsd * 100).replace('+', '')}`} />
               </div>
@@ -653,10 +661,12 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   </div>
                   <p className="text-[11px] text-muted-foreground mb-2 leading-relaxed">
                     Plata que ya se movió pero no está en la contabilidad (giros de terceros, compras sin conciliar).
-                    <b>NO restan del saldo</b> — el saldo de arriba es EL MISMO de Pedidos
-                    (fix 2026-09-03: acá se veían 36k y allá 41k). Para que cuenten,
-                    conectalos: en Conciliación, el giro al exterior se vincula al
-                    contenedor con un clic.
+                    <b>SÍ restan del saldo de este tablero</b> — es plata que ya se pagó
+                    (giros de otro negocio directo a China que no pasan por contabilidad).
+                    Por eso el saldo de arriba es menor que el de Pedidos: la diferencia
+                    es exactamente esto. Si alguno SÍ salió de tu banco, no lo anotes acá:
+                    conectalo en Conciliación (el giro se vincula al contenedor con un clic)
+                    y va a contar en los dos lados.
                   </p>
                   {manuales.length > 0 && (
                     <table className="w-full text-[13px] mb-2">
@@ -679,10 +689,11 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                           <td className="py-1.5 text-right font-mono tabular-nums">{numF(totalManualUsd)} USD</td>
                           <td />
                         </tr>
-                        {esc && totalManualUsd > 0 && (
+                        {esc && totalManualUsd > 0 && pedido.saldo_pendiente_usd != null && (
                           <tr className="text-[11px] text-muted-foreground">
                             <td className="py-1" colSpan={6}>
-                              Si se conectaran, el saldo bajaría de {numF(esc.saldoUsd)} a ~{numF(Math.max(0, esc.saldoUsd - totalManualUsd))} USD.
+                              Ya descontados: Pedidos dice {numF(Number(pedido.saldo_pendiente_usd))} USD y acá quedan{' '}
+                              <b className="text-foreground">{numF(esc.saldoUsd)}</b>.
                             </td>
                           </tr>
                         )}

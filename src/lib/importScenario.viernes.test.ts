@@ -28,14 +28,26 @@ describe('escenarioVigente — saldoUsdReal manda (mismo número que Pedidos)', 
     arancelPct: 5,
     ivaPct: 19,
   };
-  it('con saldoUsdReal, el saldo es EXACTAMENTE el de Pedidos aunque los abonos digan otra cosa', () => {
+  it('saldoUsdReal manda sobre mercancía − abonos (ancla a Pedidos)', () => {
     const esc = escenarioVigente({
       ...base,
-      abonos: [{ amount_usd: 84_000, trm: 3150 }, { amount_usd: 5_000, trm: 3100 }],
+      abonos: [{ amount_usd: 84_000, trm: 3150 }],
       saldoUsdReal: 41_000,
     });
     expect(esc.saldoUsd).toBe(41_000);
     expect(esc.saldoCopSimulado).toBe(41_000 * 3141);
+  });
+
+  it('los pagos por fuera de contabilidad SÍ bajan el saldo: el caller pasa Pedidos − manuales', () => {
+    // Regla de Nico 2026-09-03: un giro de otro negocio directo a China es
+    // plata pagada aunque nunca pase por el banco. Pedidos dice 41.041;
+    // 5.000 se pagaron por fuera → el tablero muestra 36.041.
+    const esc = escenarioVigente({
+      ...base,
+      abonos: [{ amount_usd: 84_000, trm: 3150 }, { amount_usd: 5_000, trm: 3100 }],
+      saldoUsdReal: Math.max(0, 41_041 - 5_000),
+    });
+    expect(esc.saldoUsd).toBe(36_041);
   });
   it('sin saldoUsdReal cae al cálculo mercancía − abonos (fallback)', () => {
     const esc = escenarioVigente({ ...base, abonos: [{ amount_usd: 84_000, trm: 3150 }] });
