@@ -232,6 +232,8 @@ export default function Importaciones() {
           label: r.ref_pedido || r.proveedor_nombre || 'Pedido',
           estado: r.estado,
           cantidad_ton: r.cantidad_ton,
+          peso_real_kg: r.peso_real_kg ?? null,
+          unidades_reales: r.unidades_reales ?? null,
           precio_smm_cerrado_usd_ton: r.precio_smm_cerrado_usd_ton,
           monto_total_usd: r.monto_total_usd,
           trm, trmFuente: fuente,

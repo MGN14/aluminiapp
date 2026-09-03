@@ -7,9 +7,12 @@
  * simulador del que sigue → caja del próximo → histórico → escenarios
  * guardados.
  *
- * REGLAS: solo lectura sobre lo contable (jamás escribe en imports/
- * import_costs/import_payments/transactions) y no crea pedidos. Lo único
- * que escribe es de este tablero: import_manual_abonos e import_scenarios.
+ * REGLAS: no escribe en import_costs/import_payments/transactions ni crea
+ * pedidos. Escribe lo suyo (import_manual_abonos, import_scenarios) y — desde
+ * 2026-09-03, pedido de Nico — las correcciones REALES del contenedor
+ * (mercancía → imports.monto_total_usd, peso/unidades → peso_real_kg/
+ * unidades_reales): editar acá actualiza Pedidos y el saldo, sin doble
+ * digitación. Las perillas TRM/SMM/flete siguen siendo juego, no contabilidad.
  */
 
 import { useMemo, useState } from 'react';
@@ -28,9 +31,8 @@ import { computeImportBreakdown, type ImportCostLine } from '@/lib/importCosting
 import { useImportItems } from '@/hooks/useImportItems';
 import { useImportScenarios, type ImportScenario } from '@/hooks/useImportScenarios';
 import { useManualAbonos } from '@/hooks/useManualAbonos';
-import { useAjustesEscenario } from '@/hooks/useAjustesEscenario';
 import { computeLandedCost } from '@/lib/landedCost';
-import { scalePacking } from '@/lib/scalePacking';
+import { scalePacking, totalesDe } from '@/lib/scalePacking';
 import ModuloContenedor, {
   cop, copM, usdF, numF, pctS, sinIva, fleteUsdDe, type PayRow,
 } from './ModuloContenedor';
@@ -212,10 +214,9 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
 
   // ── CAJA: SOLO la del próximo, con saldo + TODO lo de aduanas ──
   const { abonos: manualesTodos } = useManualAbonos();
-  // Ajustes manuales del próximo (mercancía/peso/unidades corregidos): los
-  // comparte con su ModuloContenedor, así la caja y la tabla de referencias
-  // hablan del mismo despacho.
-  const ajustesProximo = useAjustesEscenario(proximo?.id ?? null);
+  // Correcciones REALES del próximo (mercancía/peso/unidades): viven en el
+  // PEDIDO (se editan en su ModuloContenedor y escriben imports), así la
+  // caja y la tabla de referencias hablan del mismo despacho que Pedidos.
   const escProximo = useMemo(() => {
     if (!proximo || Number(proximo.monto_total_usd) <= 0) return null;
     const reales = payRows.filter((p) => p.import_id === proximo.id && Number(p.amount_usd) > 0 && Number(p.trm) > 0)
@@ -223,13 +224,13 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
     const manuales = manualesTodos.filter((m) => m.import_id === proximo.id)
       .map((m) => ({ amount_usd: m.cop / m.trm, trm: m.trm }));
     return escenarioVigente({
-      mercanciaUsd: ajustesProximo.mercanciaUsd ?? Number(proximo.monto_total_usd), costs: proximo.costs,
+      mercanciaUsd: Number(proximo.monto_total_usd), costs: proximo.costs,
       abonos: [...reales, ...manuales], trmSimulada: trmVal, trmAduana: trmAduanaVal,
       arancelPct: Number(proximo.arancel_pct ?? 5), ivaPct: Number(proximo.iva_pct ?? 19),
-      cantidadKg: ajustesProximo.pesoKg
+      cantidadKg: (proximo.peso_real_kg != null ? Number(proximo.peso_real_kg) : null)
         ?? (proximo.cantidad_ton != null ? Number(proximo.cantidad_ton) * 1000 : null),
     });
-  }, [proximo, payRows, manualesTodos, trmVal, trmAduanaVal, ajustesProximo.mercanciaUsd, ajustesProximo.pesoKg]);
+  }, [proximo, payRows, manualesTodos, trmVal, trmAduanaVal]);
 
   const caja = useMemo(() => {
     if (!escProximo) return null;
@@ -250,14 +251,20 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
   const { effectiveItems, costs: costsProximo, hayPacking } = useImportItems(proximo?.id ?? null, trmVal);
   const landed = useMemo(() => {
     const base = effectiveItems ?? [];
-    if (base.length === 0) return null;
+    if (base.length === 0 || !proximo) return null;
+    // Mercancía escala solo si el pedido difiere del packing de verdad (>0.5%).
+    const packSum = totalesDe(base);
+    const montoPedido = Number(proximo.monto_total_usd) || 0;
+    const mercanciaOverride = packSum.mercanciaUsd > 0 && montoPedido > 0
+      && Math.abs(montoPedido - packSum.mercanciaUsd) / packSum.mercanciaUsd > 0.005
+      ? montoPedido : null;
     const esc = scalePacking(base, {
-      mercanciaUsd: ajustesProximo.mercanciaUsd,
-      pesoKg: ajustesProximo.pesoKg,
-      unidades: ajustesProximo.unidades,
+      mercanciaUsd: mercanciaOverride,
+      pesoKg: proximo.peso_real_kg != null ? Number(proximo.peso_real_kg) : null,
+      unidades: proximo.unidades_reales != null ? Number(proximo.unidades_reales) : null,
     });
     return computeLandedCost(esc.items, costsProximo ?? [], trmVal);
-  }, [effectiveItems, costsProximo, trmVal, ajustesProximo.mercanciaUsd, ajustesProximo.pesoKg, ajustesProximo.unidades]);
+  }, [effectiveItems, costsProximo, trmVal, proximo]);
   const [verRefs, setVerRefs] = useState(false);
   const [buscar, setBuscar] = useState('');
   const refsFiltradas = useMemo(() => {

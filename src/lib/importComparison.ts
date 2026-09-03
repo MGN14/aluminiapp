@@ -43,6 +43,10 @@ export interface PedidoComparable {
   label: string;
   estado: string;
   cantidad_ton: number | null;
+  /** Peso realmente despachado (kg) — corregido desde Escenarios; manda sobre packing y digitado. */
+  peso_real_kg?: number | null;
+  /** Unidades realmente despachadas — corregidas desde Escenarios. */
+  unidades_reales?: number | null;
   precio_smm_cerrado_usd_ton: number | null;
   monto_total_usd: number | null;
   trm: number | null;

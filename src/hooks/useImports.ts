@@ -69,6 +69,10 @@ export interface ImportRow {
   proveedor_nombre: string;
   estado: ImportEstado;
   cantidad_ton: number | null;
+  /** Peso realmente despachado (kg), corregido desde Escenarios. NULL = packing/digitado. */
+  peso_real_kg: number | null;
+  /** Unidades realmente despachadas, corregidas desde Escenarios. */
+  unidades_reales: number | null;
   precio_smm_cerrado_usd_ton: number | null;
   trm_causacion: number | null;
   monto_total_usd: number | null;

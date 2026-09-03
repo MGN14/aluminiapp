@@ -26,7 +26,10 @@ import { driversDelta, type DriversResult } from '@/lib/importDrivers';
 import type { PedidoComparable } from '@/lib/importComparison';
 import { useManualAbonos, type ManualAbono } from '@/hooks/useManualAbonos';
 import { useImportItems } from '@/hooks/useImportItems';
-import { useAjustesEscenario } from '@/hooks/useAjustesEscenario';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+import { errMsg } from '@/lib/importLink';
 
 // ── formato (fuentes legibles: nada por debajo de 12px en datos) ──
 const fmt0 = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
@@ -79,7 +82,37 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   const [abierto, setAbierto] = useState(esProximo);
   const [nuevoAbono, setNuevoAbono] = useState(false);
   const [editando, setEditando] = useState(false);
-  const ajustes = useAjustesEscenario(pedido.id);
+  const [guardando, setGuardando] = useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Correcciones REALES del contenedor — viven en el pedido, no en el
+  // tablero (Nico 2026-09-03: editar mercancía/peso/unidades acá tiene que
+  // actualizar el pedido en Pedidos y por ende el saldo, que es columna
+  // generada de monto_total_usd).
+  const pesoReal = pedido.peso_real_kg != null ? Number(pedido.peso_real_kg) : null;
+  const unidadesReales = pedido.unidades_reales != null ? Number(pedido.unidades_reales) : null;
+
+  const guardarPedido = async (patch: { monto_total_usd?: number; peso_real_kg?: number | null; unidades_reales?: number | null }) => {
+    setGuardando(true);
+    try {
+      const { error } = await (supabase.from('imports' as never) as any)
+        .update(patch)
+        .eq('id', pedido.id);
+      if (error) throw error;
+      // La lista de Pedidos, este tablero y la liquidación beben de ['imports'].
+      queryClient.invalidateQueries({ queryKey: ['imports'] });
+      queryClient.invalidateQueries({ queryKey: ['import_liquidation'] });
+      toast({
+        title: 'Pedido actualizado',
+        description: 'El cambio quedó en el pedido real — saldo y prorrateos recalculados.',
+      });
+    } catch (err) {
+      toast({ title: 'No se pudo actualizar el pedido', description: errMsg(err), variant: 'destructive' });
+    } finally {
+      setGuardando(false);
+    }
+  };
   const [fa, setFa] = useState(() => new Date().toISOString().slice(0, 10));
   const [da, setDa] = useState('');
   const [ca, setCa] = useState('');
@@ -104,12 +137,11 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   );
   const totalManualUsd = manualesComoAbono.reduce((s, a) => s + a.amount_usd, 0);
 
-  // MERCANCIA: el ajuste manual manda sobre la factura del pedido. La china
-  // despacha de más y la factura definitiva llega después de montar el pedido
-  // (Nico 2026-08-31) — el tablero tiene que poder trabajar con el número real
-  // sin esperar a que alguien corrija la contabilidad.
+  // MERCANCIA: corregirla acá escribe imports.monto_total_usd — la factura
+  // real ES el pedido (la china despacha de más y la definitiva llega después
+  // de montarlo). Ya no hay capa "solo tablero": una sola fuente de verdad.
   const mercanciaBase = Number(pedido.monto_total_usd) || 0;
-  const mercanciaUsdEff = ajustes.mercanciaUsd ?? mercanciaBase;
+  const mercanciaUsdEff = mercanciaBase;
 
   // PACKING ESCALADO a lo realmente despachado.
   //
@@ -121,13 +153,21 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   const packingBase = useMemo(() => totalesDe(effectiveItems ?? []), [effectiveItems]);
   const hayPackingReal = packingBase.pesoKg > 0 || packingBase.unidades > 0;
 
+  // La mercancía escala el packing solo cuando difiere de verdad de lo que
+  // suma el packing (>0.5% — ruido decimal no es "escalado").
+  const mercanciaOverride = useMemo(() => {
+    if (!(packingBase.mercanciaUsd > 0) || mercanciaBase <= 0) return null;
+    return Math.abs(mercanciaBase - packingBase.mercanciaUsd) / packingBase.mercanciaUsd > 0.005
+      ? mercanciaBase : null;
+  }, [packingBase.mercanciaUsd, mercanciaBase]);
+
   const escala = useMemo(
     () => scalePacking(effectiveItems ?? [], {
-      mercanciaUsd: ajustes.mercanciaUsd,
-      pesoKg: ajustes.pesoKg,
-      unidades: ajustes.unidades,
+      mercanciaUsd: mercanciaOverride,
+      pesoKg: pesoReal,
+      unidades: unidadesReales,
     }),
-    [effectiveItems, ajustes.mercanciaUsd, ajustes.pesoKg, ajustes.unidades],
+    [effectiveItems, mercanciaOverride, pesoReal, unidadesReales],
   );
 
   /** Landed recalculado con el packing escalado — acá vive el reprorrateo. */
@@ -139,9 +179,9 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   const kgPedido = pedido.cantidad_ton != null ? Number(pedido.cantidad_ton) * 1000 : null;
   const kgPacking = hayPackingReal && packingBase.pesoKg > 0 ? packingBase.pesoKg : null;
   // Orden de mando: ajuste manual > packing real > lo digitado en el pedido.
-  const kg = ajustes.pesoKg ?? kgPacking ?? kgPedido;
+  const kg = pesoReal ?? kgPacking ?? kgPedido;
   const unidades = escala.efectivo.unidades > 0 ? escala.efectivo.unidades : null;
-  const fuentePeso = ajustes.pesoKg != null ? 'peso corregido a mano'
+  const fuentePeso = pesoReal != null ? 'peso REAL corregido (guardado en el pedido)'
     : kgPacking != null ? 'peso REAL del packing' : 'peso digitado (falta packing)';
   const difPesoPct = kg != null && kgPedido != null && kgPedido > 0
     ? (kg / kgPedido - 1) * 100 : null;
@@ -283,20 +323,20 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   </span>
                   <button type="button" onClick={() => setEditando((v) => !v)}
                     className="inline-flex items-center gap-1 text-primary hover:underline shrink-0"
-                    title="Corregir la mercancía facturada y el peso para este escenario">
+                    title="Corregir la mercancía facturada, el peso y las unidades — se guarda en el PEDIDO (Pedidos y saldo incluidos)">
                     <Pencil className="h-3 w-3" /> corregir
                   </button>
                 </p>
 
-                {ajustes.tocado && (
+                {(pesoReal != null || unidadesReales != null) && (
                   <p className="text-[11px] text-primary mt-1 flex items-center gap-1.5 flex-wrap">
-                    <b>Ajustado a mano</b> — solo en este tablero.
-                    {ajustes.mercanciaUsd != null && ` Factura ${numF(mercanciaBase)} → ${numF(ajustes.mercanciaUsd)} USD.`}
-                    {ajustes.pesoKg != null && ` Peso ${numF(kgPacking ?? kgPedido)} → ${numF(ajustes.pesoKg)} kg.`}
+                    <b>Corregido en el pedido</b> — prorratea con lo real.
+                    {pesoReal != null && ` Peso ${numF(kgPacking ?? kgPedido)} → ${numF(pesoReal)} kg.`}
                     {escala.escalado && escala.factores.cantidad !== 1 && ` Unidades ${numF(packingBase.unidades)} → ${numF(escala.efectivo.unidades)}.`}
-                    <button type="button" onClick={ajustes.limpiar}
+                    <button type="button" disabled={guardando}
+                      onClick={() => guardarPedido({ peso_real_kg: null, unidades_reales: null })}
                       className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-                      <RotateCcw className="h-3 w-3" /> volver al dato del pedido
+                      <RotateCcw className="h-3 w-3" /> volver al packing/digitado
                     </button>
                   </p>
                 )}
@@ -306,21 +346,22 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                     <div className="flex items-end gap-3 flex-wrap">
                       <div>
                         <label className="text-[11px] text-muted-foreground block mb-1">Mercancía facturada (USD)</label>
-                        <Input inputMode="numeric" defaultValue={numF(mercanciaUsdEff)}
+                        <Input inputMode="numeric" defaultValue={numF(mercanciaUsdEff)} disabled={guardando}
                           onBlur={(e) => {
                             const n = Number(e.target.value.replace(/[.,\s]/g, ''));
-                            ajustes.setAjuste({ mercanciaUsd: Number.isFinite(n) && n > 0 && n !== mercanciaBase ? n : null });
+                            if (Number.isFinite(n) && n > 0 && n !== mercanciaBase) guardarPedido({ monto_total_usd: n });
                           }}
                           className="h-8 w-36 text-[13px] font-mono tabular-nums" />
-                        <p className="text-[10px] text-muted-foreground mt-0.5">pedido: {numF(mercanciaBase)}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">se guarda en el pedido — el saldo se recalcula solo</p>
                       </div>
                       <div>
                         <label className="text-[11px] text-muted-foreground block mb-1">Peso real (kg)</label>
-                        <Input inputMode="numeric" defaultValue={numF(kg)}
+                        <Input inputMode="numeric" defaultValue={numF(kg)} disabled={guardando}
                           onBlur={(e) => {
                             const n = Number(e.target.value.replace(/[.,\s]/g, ''));
                             const ref = kgPacking ?? kgPedido;
-                            ajustes.setAjuste({ pesoKg: Number.isFinite(n) && n > 0 && n !== ref ? n : null });
+                            if (!Number.isFinite(n) || n <= 0) return;
+                            guardarPedido({ peso_real_kg: n !== ref ? n : null });
                           }}
                           className="h-8 w-32 text-[13px] font-mono tabular-nums" />
                         <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -329,17 +370,17 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                       </div>
                       <div>
                         <label className="text-[11px] text-muted-foreground block mb-1">Unidades despachadas</label>
-                        <Input inputMode="numeric" defaultValue={numF(unidades)}
+                        <Input inputMode="numeric" defaultValue={numF(unidades)} disabled={guardando || !hayPackingReal}
                           onBlur={(e) => {
                             const n = Number(e.target.value.replace(/[.,\s]/g, ''));
                             const ref = packingBase.unidades;
-                            ajustes.setAjuste({ unidades: Number.isFinite(n) && n > 0 && n !== ref ? n : null });
+                            if (!Number.isFinite(n) || n <= 0) return;
+                            guardarPedido({ unidades_reales: n !== ref ? n : null });
                           }}
-                          className="h-8 w-32 text-[13px] font-mono tabular-nums"
-                          disabled={!hayPackingReal} />
+                          className="h-8 w-32 text-[13px] font-mono tabular-nums" />
                         <p className="text-[10px] text-muted-foreground mt-0.5">
                           {hayPackingReal
-                            ? (ajustes.unidades == null && ajustes.pesoKg != null
+                            ? (unidadesReales == null && pesoReal != null
                               ? 'derivadas del peso' : `packing: ${numF(packingBase.unidades)}`)
                             : 'necesita packing cargado'}
                         </p>
@@ -361,8 +402,8 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
 
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                       Poné lo que la fábrica despachó de verdad y la app <b>vuelve a prorratear</b> flete, arancel
-                      y aduanas sobre esa base — no es solo cambiar el total. <b>No toca la contabilidad</b>:
-                      para dejarlo permanente, editá el pedido en la pestaña Pedidos.
+                      y aduanas sobre esa base — no es solo cambiar el total. <b>Se guarda en el PEDIDO</b>:
+                      la pestaña Pedidos y el saldo pendiente quedan actualizados de una.
                     </p>
                   </div>
                 )}
@@ -376,7 +417,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
               </div>
               <div>
                 <Row l={`Mercancía · ${usdF(esc.totalUsd)}`}
-                  sub={ajustes.mercanciaUsd != null ? 'corregida a mano' : undefined}
+                  sub={mercanciaOverride != null ? 'corregida — guardada en el pedido' : undefined}
                   v={cop(mercanciaCop)} />
                 <Row l="Flete + seguro" v={cop(fleteSeguroCop)} />
                 <Row l={esc.breakdown.usaArancelReal ? 'Arancel (liquidación real)' : `Arancel ${Number(pedido.arancel_pct ?? 5)}%`}
