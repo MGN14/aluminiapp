@@ -261,12 +261,16 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
     if (!escProximo) return null;
     const bd = escProximo.breakdown;
     const saldo = escProximo.saldoCopSimulado ?? 0;
-    // Aduanas COMPLETO: arancel + IVA + agencia/transporte/bancarios. Los que
-    // ya tienen liquidación real cargada no vuelven a pedir caja.
+    // Caja para SACAR el contenedor: arancel + IVA + aduanas/agencia. El
+    // TRANSPORTE queda FUERA a propósito (Nico 2026-09-03: "no me quita caja
+    // como sí es aduanas, IVA y arancel, que sin eso no puedo sacar el
+    // contenedor") — cuesta, pero pasa después de nacionalizar. Los que ya
+    // tienen liquidación real cargada no vuelven a pedir caja.
     const arancel = bd.usaArancelReal ? 0 : (bd.arancelCop ?? 0);
     const iva = bd.usaIvaReal ? 0 : (bd.ivaCop ?? 0);
     const otros = bd.otrosCop ?? 0;
-    return { saldo, arancel, iva, otros, total: saldo + arancel + iva + otros };
+    const transporte = bd.transporteCop ?? 0;
+    return { saldo, arancel, iva, otros, transporte, total: saldo + arancel + iva + otros };
   }, [escProximo]);
 
   // ── Costo por referencia del próximo, sobre el packing ESCALADO ──
@@ -455,15 +459,25 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
                   <span className="text-[14px] font-semibold tabular-nums text-amber-700 dark:text-amber-400">{cop(caja.iva)}</span>
                 </div>
                 <div className="flex items-baseline justify-between gap-3 border-b border-border/50 py-2">
-                  <span className="text-[13px] text-muted-foreground">Agencia + transporte + bancarios</span>
+                  <span className="text-[13px] text-muted-foreground">Aduanas + agencia + bancarios</span>
                   <span className="text-[14px] font-semibold tabular-nums">{cop(caja.otros)}</span>
                 </div>
+                {caja.transporte > 0 && (
+                  <div className="flex items-baseline justify-between gap-3 border-b border-border/50 py-2 opacity-60">
+                    <span className="text-[13px] text-muted-foreground">
+                      Transporte a bodega
+                      <span className="block text-[11px]">no entra: se paga después de nacionalizar</span>
+                    </span>
+                    <span className="text-[14px] font-semibold tabular-nums line-through">{cop(caja.transporte)}</span>
+                  </div>
+                )}
               </div>
               <div className="flex flex-col justify-center py-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Necesito en total</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Necesito para SACARLO</p>
                 <p className="text-[38px] leading-none font-extrabold tabular-nums tracking-tight mt-1">{cop(caja.total)}</p>
                 <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                  A TRM {numF(trmVal)} · para dejar {proximo.label} nacionalizado y en bodega.
+                  A TRM {numF(trmVal)} · sin esto {proximo.label} no sale del puerto.
+                  {caja.transporte > 0 && ` El transporte (${cop(caja.transporte)}) va después y sí sube el costo por kilo.`}
                   {proximo.fechas.fecha_estimada_llegada ? ` Llegada estimada ${proximo.fechas.fecha_estimada_llegada}.` : ''}
                 </p>
               </div>

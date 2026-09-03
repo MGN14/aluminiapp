@@ -156,37 +156,57 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   // el flete UNITARIO baja. Por eso se escala el packing (lib/scalePacking) y
   // se deja que computeLandedCost vuelva a prorratear sobre la base nueva.
   const { effectiveItems, costs: costsPedido, addCost, updateCost } = useImportItems(pedido.id, trmVal);
-  const [editOtros, setEditOtros] = useState(false);
-  const [otrosInput, setOtrosInput] = useState('');
-  // Fila "estimado" de aduanas/transporte que este tablero administra (se
-  // guarda como costo REAL del pedido, tipo nacionalización, en COP).
-  const otrosEstimadoRow = useMemo(
-    () => (costsPedido ?? []).find((c) => c.tipo === 'nacionalizacion' && (c.concepto ?? '').includes('estimado')) ?? null,
-    [costsPedido],
-  );
-  const guardarOtros = async () => {
-    const n = Number(otrosInput.replace(/[.,\s]/g, ''));
+  // Dos renglones que este tablero administra por separado (Nico 2026-09-03):
+  //   aduanas   → PIDE CAJA para sacar el contenedor
+  //   transporte→ cuesta y se prorratea, pero es DESPUÉS de nacionalizar
+  const [editandoCosto, setEditandoCosto] = useState<null | 'nacionalizacion' | 'transporte'>(null);
+  const [costoInput, setCostoInput] = useState('');
+  const filaEstimada = (tipo: 'nacionalizacion' | 'transporte') =>
+    (costsPedido ?? []).find((c) => c.tipo === tipo && (c.concepto ?? '').includes('estimado')) ?? null;
+
+  const guardarCosto = async (tipo: 'nacionalizacion' | 'transporte') => {
+    const n = Number(costoInput.replace(/[.,\s]/g, ''));
     if (!Number.isFinite(n) || n < 0) return;
+    const fila = filaEstimada(tipo);
+    const concepto = tipo === 'nacionalizacion'
+      ? 'Aduana / agencia (estimado desde Escenarios)'
+      : 'Transporte puerto → bodega (estimado desde Escenarios)';
     try {
-      if (otrosEstimadoRow) {
-        await updateCost.mutateAsync({ id: otrosEstimadoRow.id, monto: n, moneda: 'COP' });
+      if (fila) {
+        await updateCost.mutateAsync({ id: fila.id, monto: n, moneda: 'COP' });
       } else if (n > 0) {
         await addCost.mutateAsync({
-          tipo: 'nacionalizacion',
-          concepto: 'Aduana + transporte (estimado desde Escenarios)',
-          monto: n,
-          moneda: 'COP',
-          trm: null,
-          base_asignacion: DEFAULT_BASIS_BY_TIPO.nacionalizacion,
+          tipo, concepto, monto: n, moneda: 'COP', trm: null,
+          base_asignacion: DEFAULT_BASIS_BY_TIPO[tipo],
           orden: (costsPedido ?? []).length,
         });
       }
-      setEditOtros(false);
-      toast({ title: 'Costo guardado en el pedido', description: 'Entra al costo total y al prorrateo por referencia.' });
+      setEditandoCosto(null);
+      toast({
+        title: 'Costo guardado en el pedido',
+        description: tipo === 'transporte'
+          ? 'Entra al costo por kilo y al prorrateo — no a la caja para sacar el contenedor.'
+          : 'Entra al costo y a la caja para sacar el contenedor.',
+      });
     } catch (err) {
       toast({ title: 'No se pudo guardar', description: errMsg(err), variant: 'destructive' });
     }
   };
+
+  const EditorCosto = ({ tipo, label }: { tipo: 'nacionalizacion' | 'transporte'; label: string }) => (
+    <div className="flex items-end gap-2 py-2 border-b border-border/50">
+      <div>
+        <label className="text-[11px] text-muted-foreground block mb-1">{label} (COP)</label>
+        <Input inputMode="numeric" value={costoInput} onChange={(e) => setCostoInput(e.target.value)}
+          placeholder="8.000.000" className="h-8 w-36 text-[13px] font-mono tabular-nums" autoFocus />
+      </div>
+      <Button size="sm" className="h-8 text-xs" onClick={() => guardarCosto(tipo)}
+        disabled={addCost.isPending || updateCost.isPending}>
+        Guardar en el pedido
+      </Button>
+      <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setEditandoCosto(null)}>Cancelar</Button>
+    </div>
+  );
   const packingBase = useMemo(() => totalesDe(effectiveItems ?? []), [effectiveItems]);
   const hayPackingReal = packingBase.pesoKg > 0 || packingBase.unidades > 0;
 
@@ -504,34 +524,40 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                 <Row
                   l={
                     <span className="inline-flex items-center gap-1.5">
-                      Aduanas + transporte + otros
+                      Aduanas + agencia + otros
                       <button
                         type="button"
-                        onClick={() => { setOtrosInput(String(Math.round(esc.breakdown.otrosCop || 0))); setEditOtros((v) => !v); }}
+                        onClick={() => { setCostoInput(String(Math.round(esc.breakdown.otrosCop || 0))); setEditandoCosto(editandoCosto === 'nacionalizacion' ? null : 'nacionalizacion'); }}
                         className="text-primary hover:underline"
-                        title="Estimar o corregir — se guarda como costo del PEDIDO (tipo nacionalización, COP) y entra al prorrateo"
+                        title="Estimar o corregir — se guarda como costo del PEDIDO y SÍ pide caja para sacar el contenedor"
                       >
                         <Pencil className="h-3 w-3" />
                       </button>
                     </span>
                   }
                   v={cop(esc.breakdown.otrosCop)}
-                  sub={otrosEstimadoRow ? 'estimado guardado en el pedido' : undefined}
+                  sub="hay que pagarlo para retirar el contenedor"
                 />
-                {editOtros && (
-                  <div className="flex items-end gap-2 py-2 border-b border-border/50">
-                    <div>
-                      <label className="text-[11px] text-muted-foreground block mb-1">Aduanas + transporte (COP)</label>
-                      <Input inputMode="numeric" value={otrosInput} onChange={(e) => setOtrosInput(e.target.value)}
-                        placeholder="8.000.000" className="h-8 w-36 text-[13px] font-mono tabular-nums" />
-                    </div>
-                    <Button size="sm" className="h-8 text-xs" onClick={guardarOtros}
-                      disabled={addCost.isPending || updateCost.isPending}>
-                      Guardar en el pedido
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setEditOtros(false)}>Cancelar</Button>
-                  </div>
-                )}
+                {editandoCosto === 'nacionalizacion' && <EditorCosto tipo="nacionalizacion" label="Aduanas + agencia" />}
+
+                <Row
+                  l={
+                    <span className="inline-flex items-center gap-1.5">
+                      Transporte puerto → bodega
+                      <button
+                        type="button"
+                        onClick={() => { setCostoInput(String(Math.round(esc.breakdown.transporteCop || 0))); setEditandoCosto(editandoCosto === 'transporte' ? null : 'transporte'); }}
+                        className="text-primary hover:underline"
+                        title="Estimar o corregir — cuesta y se prorratea al aluminio, pero NO pide caja para retirar"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </span>
+                  }
+                  v={cop(esc.breakdown.transporteCop)}
+                  sub="cuesta y sube el COP/kg, pero es después de nacionalizar"
+                />
+                {editandoCosto === 'transporte' && <EditorCosto tipo="transporte" label="Transporte interno" />}
                 <Row l={<b className="text-foreground">COSTO TOTAL IMPORTADO · sin IVA</b>} v={<b>{cop(totalSinIva)}</b>} big />
                 {copKg != null && (
                   <Row l="Costo por kilo"

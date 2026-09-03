@@ -54,7 +54,11 @@ export interface ImportBreakdown {
   usaArancelReal: boolean;
   ivaCop: number | null;
   usaIvaReal: boolean;
+  /** Aduanas + bancarios + otros: PIDEN CAJA para sacar el contenedor. */
   otrosCop: number;
+  /** Transporte interno (puerto → bodega): costo del aluminio, pero NO pide
+   *  caja para retirar — ocurre después de nacionalizar (Nico 2026-09-03). */
+  transporteCop: number;
   totalImportacionCop: number | null;
   /** Precio FOB efectivo del pedido (USD/kg); null si no se pasó cantidad. */
   fobUsdKg: number | null;
@@ -117,6 +121,7 @@ export function computeImportBreakdown(params: {
   const arancelReal = sumImportCosts(costs, 'arancel');
   const ivaReal = sumImportCosts(costs, 'iva_importacion');
   const agencia = sumImportCosts(costs, 'nacionalizacion');
+  const transporte = sumImportCosts(costs, 'transporte');
   const bancarios = sumImportCosts(costs, 'gastos_bancarios');
   const otros = sumImportCosts(costs, 'otro');
 
@@ -160,17 +165,22 @@ export function computeImportBreakdown(params: {
     ? ivaRealCop
     : cifAduanaCop != null && arancelCop != null ? (cifAduanaCop + arancelCop) * (ivaPct / 100) : null;
 
+  // Caja para SACAR el contenedor: aduanas/agencia + bancarios + otros.
   const otrosCop = (trm ? (agencia.usd + bancarios.usd + otros.usd) * trm : 0)
     + agencia.cop + bancarios.cop + otros.cop;
+  // Transporte interno: cuesta y se prorratea al aluminio, pero pasa DESPUÉS
+  // de nacionalizar — no entra a la caja del retiro.
+  const transporteCop = (trm ? transporte.usd * trm : 0) + transporte.cop;
 
   // El total suma el CIF REAL (lo que efectivamente sale de caja hacia el
-  // proveedor) + impuestos (que sí se liquidan sobre la base flooreada).
+  // proveedor) + impuestos (que sí se liquidan sobre la base flooreada) +
+  // aduanas + transporte: el COSTO completo del aluminio puesto en bodega.
   const totalImportacionCop = cifCop != null && arancelCop != null && ivaCop != null
-    ? cifCop + arancelCop + ivaCop + otrosCop
+    ? cifCop + arancelCop + ivaCop + otrosCop + transporteCop
     : null;
 
   return {
     flete, seguro, cifUsd, cifCop, arancelCop, usaArancelReal, ivaCop, usaIvaReal,
-    otrosCop, totalImportacionCop, fobUsdKg, pisoAplicado, pisoFobUsdKg, cifAduanaCop,
+    otrosCop, transporteCop, totalImportacionCop, fobUsdKg, pisoAplicado, pisoFobUsdKg, cifAduanaCop,
   };
 }

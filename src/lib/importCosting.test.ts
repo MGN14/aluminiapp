@@ -126,3 +126,51 @@ describe('sumImportCosts', () => {
     expect(sumImportCosts(costs, 'arancel')).toEqual({ usd: 0, cop: 0 });
   });
 });
+
+describe('transporte: costo del aluminio pero NO caja para sacar el contenedor', () => {
+  // Regla de Nico 2026-09-03: "el transporte va después de la importación...
+  // es un costo atribuible al aluminio, pero no me quita caja como sí es
+  // aduanas, IVA y arancel, que sin eso no puedo sacar el contenedor".
+  const base = {
+    mercanciaUsd: 100_000,
+    trm: 4_000,
+    arancelPct: 5,
+    ivaPct: 19,
+    cantidadKg: 25_000,
+  };
+
+  it('separa transporte de aduanas: otrosCop es la caja, transporteCop no', () => {
+    const bd = computeImportBreakdown({
+      ...base,
+      costs: [
+        { tipo: 'nacionalizacion', monto: 3_000_000, moneda: 'COP' },
+        { tipo: 'transporte', monto: 2_000_000, moneda: 'COP' },
+      ] as never,
+    });
+    expect(bd.otrosCop).toBe(3_000_000);      // pide caja para retirar
+    expect(bd.transporteCop).toBe(2_000_000); // no pide caja
+  });
+
+  it('el transporte SÍ entra al costo total (sube el COP/kg)', () => {
+    const sinTransporte = computeImportBreakdown({ ...base, costs: [] as never });
+    const conTransporte = computeImportBreakdown({
+      ...base,
+      costs: [{ tipo: 'transporte', monto: 2_000_000, moneda: 'COP' }] as never,
+    });
+    expect(conTransporte.totalImportacionCop! - sinTransporte.totalImportacionCop!).toBe(2_000_000);
+  });
+
+  it('un costo de transporte en USD también se separa (convertido a COP)', () => {
+    const bd = computeImportBreakdown({
+      ...base,
+      costs: [{ tipo: 'transporte', monto: 500, moneda: 'USD' }] as never,
+    });
+    expect(bd.transporteCop).toBe(500 * 4_000);
+    expect(bd.otrosCop).toBe(0);
+  });
+
+  it('sin transporte cargado, transporteCop es 0 (no rompe pedidos viejos)', () => {
+    const bd = computeImportBreakdown({ ...base, costs: [] as never });
+    expect(bd.transporteCop).toBe(0);
+  });
+});

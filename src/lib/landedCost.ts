@@ -18,7 +18,7 @@
 export type AllocationBasis = 'peso' | 'valor' | 'cantidad';
 export type ImportCostTipo =
   | 'flete' | 'seguro' | 'arancel' | 'iva_importacion'
-  | 'nacionalizacion' | 'gastos_bancarios' | 'otro';
+  | 'nacionalizacion' | 'transporte' | 'gastos_bancarios' | 'otro';
 
 export interface LandedItemInput {
   id: string;
@@ -226,6 +226,7 @@ export const COST_TIPO_LABEL: Record<ImportCostTipo, string> = {
   arancel: 'Arancel',
   iva_importacion: 'IVA de importación',
   nacionalizacion: 'Nacionalización / aduana',
+  transporte: 'Transporte interno (puerto → bodega)',
   gastos_bancarios: 'Gastos bancarios',
   otro: 'Otro',
 };
@@ -234,6 +235,8 @@ export const COST_TIPO_LABEL: Record<ImportCostTipo, string> = {
 export const DEFAULT_BASIS_BY_TIPO: Record<ImportCostTipo, AllocationBasis> = {
   flete: 'peso',
   nacionalizacion: 'peso',
+  // El camión cobra por lo que carga: prorratea por peso, igual que el flete.
+  transporte: 'peso',
   gastos_bancarios: 'valor',
   arancel: 'valor',
   seguro: 'valor',
