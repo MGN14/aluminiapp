@@ -35,6 +35,14 @@ export interface EscenarioVigenteInput {
   arancelPct: number;
   ivaPct: number;
   cantidadKg?: number | null;
+  /**
+   * Saldo REAL del pedido (imports.saldo_pendiente_usd, columna GENERATED
+   * monto_total_usd − anticipo_pagado_usd). Cuando viene, MANDA sobre
+   * mercancía − Σabonos: así "USD que falta comprar" es EL MISMO número de
+   * la pestaña Pedidos por construcción, sin importar filtros ni abonos
+   * manuales del tablero (fix 36k vs 41k, Nico 2026-09-03).
+   */
+  saldoUsdReal?: number | null;
 }
 
 export interface EscenarioVigente {
@@ -61,13 +69,34 @@ const n0 = (v: unknown): number => {
   return Number.isFinite(x) ? x : 0;
 };
 
+/**
+ * Viernes de liquidación aduanera para una fecha de arribo: la DIAN liquida
+ * arancel e IVA a la TRM vigente, que es la certificada el ÚLTIMO VIERNES
+ * previo a la semana del arribo (Nico 2026-09-03). Ej: arribo martes 02-sep
+ * → viernes 29-ago. Si la fecha ya es lunes, igual retrocede al viernes
+ * anterior. Devuelve YYYY-MM-DD (la TRM se busca con ≤ esa fecha, así un
+ * viernes festivo cae al día hábil anterior solo).
+ */
+export function viernesAduana(fechaArribo: string | null | undefined): string | null {
+  if (!fechaArribo) return null;
+  const d = new Date(fechaArribo + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return null;
+  const desdeLunes = (d.getDay() + 6) % 7; // lunes=0 ... domingo=6
+  d.setDate(d.getDate() - desdeLunes - 3); // lunes de esa semana − 3 = viernes previo
+  return d.toISOString().slice(0, 10);
+}
+
 export function escenarioVigente(input: EscenarioVigenteInput): EscenarioVigente {
   const totalUsd = Math.max(0, n0(input.mercanciaUsd));
   const abonos = (input.abonos ?? []).filter((a) => n0(a.amount_usd) > 0 && n0(a.trm) > 0);
   const pagadoUsd = abonos.reduce((s, a) => s + n0(a.amount_usd), 0);
   const pagadoCop = abonos.reduce((s, a) => s + n0(a.amount_usd) * n0(a.trm), 0);
   const trmPonderadaPagado = pagadoUsd > 0 ? pagadoCop / pagadoUsd : null;
-  const saldoUsd = Math.max(0, totalUsd - pagadoUsd);
+  // El saldo de Pedidos manda cuando está disponible (una sola fuente de
+  // verdad); mercancía − pagado queda solo como fallback.
+  const saldoUsd = input.saldoUsdReal != null && Number.isFinite(Number(input.saldoUsdReal))
+    ? Math.max(0, Number(input.saldoUsdReal))
+    : Math.max(0, totalUsd - pagadoUsd);
   const trm = n0(input.trmSimulada) > 0 ? Number(input.trmSimulada) : null;
 
   const trmAduana = n0(input.trmAduana) > 0 ? Number(input.trmAduana) : trm;

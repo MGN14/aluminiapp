@@ -236,6 +236,7 @@ export default function Importaciones() {
           unidades_reales: r.unidades_reales ?? null,
           precio_smm_cerrado_usd_ton: r.precio_smm_cerrado_usd_ton,
           monto_total_usd: r.monto_total_usd,
+          saldo_pendiente_usd: r.saldo_pendiente_usd ?? null,
           trm, trmFuente: fuente,
           arancel_pct: r.arancel_pct,
           iva_pct: r.iva_pct,

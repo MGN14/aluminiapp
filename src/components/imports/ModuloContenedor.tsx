@@ -26,10 +26,13 @@ import { driversDelta, type DriversResult } from '@/lib/importDrivers';
 import type { PedidoComparable } from '@/lib/importComparison';
 import { useManualAbonos, type ManualAbono } from '@/hooks/useManualAbonos';
 import { useImportItems } from '@/hooks/useImportItems';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { errMsg } from '@/lib/importLink';
+import { viernesAduana } from '@/lib/importScenario';
+import { fetchTrmForDate } from '@/hooks/useImportPayments';
+import { DEFAULT_BASIS_BY_TIPO } from '@/lib/landedCost';
 
 // ── formato (fuentes legibles: nada por debajo de 12px en datos) ──
 const fmt0 = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
@@ -75,7 +78,9 @@ interface Props {
   /** true = es el próximo a llegar (se muestra expandido y destacado). */
   esProximo: boolean;
   /** TRM de liquidación aduanera (la vigente del viernes). */
-  trmAduana: number;
+  /** TRM de aduana FORZADA por la perilla (null = automática: la del último
+   *  viernes previo a la semana del arribo de ESTE contenedor). */
+  trmAduana: number | null;
 }
 
 export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, trmHoy, esProximo, trmAduana }: Props) {
@@ -149,7 +154,38 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   // arancel por valor y otros por cantidad. Si la fábrica manda más unidades,
   // el flete UNITARIO baja. Por eso se escala el packing (lib/scalePacking) y
   // se deja que computeLandedCost vuelva a prorratear sobre la base nueva.
-  const { effectiveItems, costs: costsPedido } = useImportItems(pedido.id, trmVal);
+  const { effectiveItems, costs: costsPedido, addCost, updateCost } = useImportItems(pedido.id, trmVal);
+  const [editOtros, setEditOtros] = useState(false);
+  const [otrosInput, setOtrosInput] = useState('');
+  // Fila "estimado" de aduanas/transporte que este tablero administra (se
+  // guarda como costo REAL del pedido, tipo nacionalización, en COP).
+  const otrosEstimadoRow = useMemo(
+    () => (costsPedido ?? []).find((c) => c.tipo === 'nacionalizacion' && (c.concepto ?? '').includes('estimado')) ?? null,
+    [costsPedido],
+  );
+  const guardarOtros = async () => {
+    const n = Number(otrosInput.replace(/[.,\s]/g, ''));
+    if (!Number.isFinite(n) || n < 0) return;
+    try {
+      if (otrosEstimadoRow) {
+        await updateCost.mutateAsync({ id: otrosEstimadoRow.id, monto: n, moneda: 'COP' });
+      } else if (n > 0) {
+        await addCost.mutateAsync({
+          tipo: 'nacionalizacion',
+          concepto: 'Aduana + transporte (estimado desde Escenarios)',
+          monto: n,
+          moneda: 'COP',
+          trm: null,
+          base_asignacion: DEFAULT_BASIS_BY_TIPO.nacionalizacion,
+          orden: (costsPedido ?? []).length,
+        });
+      }
+      setEditOtros(false);
+      toast({ title: 'Costo guardado en el pedido', description: 'Entra al costo total y al prorrateo por referencia.' });
+    } catch (err) {
+      toast({ title: 'No se pudo guardar', description: errMsg(err), variant: 'destructive' });
+    }
+  };
   const packingBase = useMemo(() => totalesDe(effectiveItems ?? []), [effectiveItems]);
   const hayPackingReal = packingBase.pesoKg > 0 || packingBase.unidades > 0;
 
@@ -196,19 +232,39 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   }, [landedEscalado, escala, costsPedido, packingBase.unidades, trmVal]);
   const kgParaImpuestos = kg;
 
+  // TRM DE ADUANA por contenedor: la DIAN liquida a la TRM vigente = la del
+  // último viernes previo a la semana del ARRIBO de la mercancía (Nico
+  // 2026-09-03). La perilla global solo manda si el usuario la tocó.
+  const fechaArriboRef = pedido.fechas.fecha_arribo_real
+    ?? pedido.fechas.fecha_estimada_llegada
+    ?? new Date().toISOString().slice(0, 10);
+  const viernesLiq = viernesAduana(fechaArriboRef);
+  const { data: trmViernes } = useQuery({
+    queryKey: ['trm-fecha', viernesLiq],
+    enabled: !!viernesLiq,
+    staleTime: 30 * 60_000,
+    queryFn: () => fetchTrmForDate(viernesLiq!),
+  });
+  const trmAduanaEff = trmAduana ?? trmViernes ?? trmVal;
+  const aduanaAuto = trmAduana == null && trmViernes != null;
+  const viernesLabel = viernesLiq ? `${viernesLiq.slice(8, 10)}/${viernesLiq.slice(5, 7)}` : '';
+
   const esc: EscenarioVigente | null = useMemo(() => {
     if (mercanciaUsdEff <= 0) return null;
     return escenarioVigente({
       mercanciaUsd: mercanciaUsdEff,
       costs: pedido.costs,
-      abonos: [...reales, ...manualesComoAbono],
+      // Solo abonos REALES: el saldo tiene que ser EL MISMO de Pedidos. Los
+      // manuales del tablero se listan aparte y NO restan (fix 36k vs 41k).
+      abonos: reales,
+      saldoUsdReal: pedido.saldo_pendiente_usd != null ? Number(pedido.saldo_pendiente_usd) : null,
       trmSimulada: trmVal,
       arancelPct: Number(pedido.arancel_pct ?? 5),
       ivaPct: Number(pedido.iva_pct ?? 19),
       cantidadKg: kgParaImpuestos,
-      trmAduana,
+      trmAduana: trmAduanaEff,
     });
-  }, [pedido, mercanciaUsdEff, reales, manualesComoAbono, trmVal, kgParaImpuestos, trmAduana]);
+  }, [pedido, mercanciaUsdEff, reales, trmVal, kgParaImpuestos, trmAduanaEff]);
 
   const totalSinIva = esc ? sinIva(esc.breakdown) : null;
   const copKg = totalSinIva != null && kg ? totalSinIva / kg : null;
@@ -422,11 +478,41 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                 <Row l="Flete + seguro" v={cop(fleteSeguroCop)} />
                 <Row l={esc.breakdown.usaArancelReal ? 'Arancel (liquidación real)' : `Arancel ${Number(pedido.arancel_pct ?? 5)}%`}
                   sub={[
-                    esc.breakdown.usaArancelReal ? null : `a TRM de aduana ${numF(trmAduana)}`,
+                    esc.breakdown.usaArancelReal ? null : `a TRM de aduana ${numF(trmAduanaEff)}${aduanaAuto ? ` (viernes ${viernesLabel})` : ''}`,
                     esc.breakdown.pisoAplicado ? `piso FOB ${esc.breakdown.pisoFobUsdKg} USD/kg` : null,
                   ].filter(Boolean).join(' · ') || undefined}
                   v={cop(esc.breakdown.arancelCop)} tone={esc.breakdown.usaArancelReal ? 'text-success' : undefined} />
-                <Row l="Aduanas + transporte + otros" v={cop(esc.breakdown.otrosCop)} />
+                <Row
+                  l={
+                    <span className="inline-flex items-center gap-1.5">
+                      Aduanas + transporte + otros
+                      <button
+                        type="button"
+                        onClick={() => { setOtrosInput(String(Math.round(esc.breakdown.otrosCop || 0))); setEditOtros((v) => !v); }}
+                        className="text-primary hover:underline"
+                        title="Estimar o corregir — se guarda como costo del PEDIDO (tipo nacionalización, COP) y entra al prorrateo"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </span>
+                  }
+                  v={cop(esc.breakdown.otrosCop)}
+                  sub={otrosEstimadoRow ? 'estimado guardado en el pedido' : undefined}
+                />
+                {editOtros && (
+                  <div className="flex items-end gap-2 py-2 border-b border-border/50">
+                    <div>
+                      <label className="text-[11px] text-muted-foreground block mb-1">Aduanas + transporte (COP)</label>
+                      <Input inputMode="numeric" value={otrosInput} onChange={(e) => setOtrosInput(e.target.value)}
+                        placeholder="8.000.000" className="h-8 w-36 text-[13px] font-mono tabular-nums" />
+                    </div>
+                    <Button size="sm" className="h-8 text-xs" onClick={guardarOtros}
+                      disabled={addCost.isPending || updateCost.isPending}>
+                      Guardar en el pedido
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setEditOtros(false)}>Cancelar</Button>
+                  </div>
+                )}
                 <Row l={<b className="text-foreground">COSTO TOTAL IMPORTADO · sin IVA</b>} v={<b>{cop(totalSinIva)}</b>} big />
                 {copKg != null && (
                   <Row l="Costo por kilo"
@@ -447,7 +533,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   <span className="text-lg font-bold tabular-nums text-amber-800 dark:text-amber-300">{cop(esc.breakdown.ivaCop)}</span>
                 </div>
                 <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 mt-1.5 leading-relaxed">
-                  {Number(pedido.iva_pct ?? 19)}% sobre (base + arancel), liquidado a la <b>TRM de aduana {numF(trmAduana)}</b> —
+                  {Number(pedido.iva_pct ?? 19)}% sobre (base + arancel), liquidado a la <b>TRM de aduana {numF(trmAduanaEff)}{aduanaAuto ? ` (viernes ${viernesLabel})` : ''}</b> —
                   la DIAN usa la TRM vigente, no el promedio al que compraste los dólares.
                   Se recupera como descontable, pero hay que tener la caja el día de nacionalizar.
                 </p>
@@ -567,7 +653,10 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   </div>
                   <p className="text-[11px] text-muted-foreground mb-2 leading-relaxed">
                     Plata que ya se movió pero no está en la contabilidad (giros de terceros, compras sin conciliar).
-                    Suman al saldo <b>solo en este tablero</b> — no tocan nada contable.
+                    <b>NO restan del saldo</b> — el saldo de arriba es EL MISMO de Pedidos
+                    (fix 2026-09-03: acá se veían 36k y allá 41k). Para que cuenten,
+                    conectalos: en Conciliación, el giro al exterior se vincula al
+                    contenedor con un clic.
                   </p>
                   {manuales.length > 0 && (
                     <table className="w-full text-[13px] mb-2">
@@ -590,6 +679,13 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                           <td className="py-1.5 text-right font-mono tabular-nums">{numF(totalManualUsd)} USD</td>
                           <td />
                         </tr>
+                        {esc && totalManualUsd > 0 && (
+                          <tr className="text-[11px] text-muted-foreground">
+                            <td className="py-1" colSpan={6}>
+                              Si se conectaran, el saldo bajaría de {numF(esc.saldoUsd)} a ~{numF(Math.max(0, esc.saldoUsd - totalManualUsd))} USD.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   )}

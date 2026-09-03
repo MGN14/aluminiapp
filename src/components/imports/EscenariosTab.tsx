@@ -26,7 +26,9 @@ import {
 import { cn } from '@/lib/utils';
 import { buildComparativo, type PedidoComparable, type EscenarioOverrides } from '@/lib/importComparison';
 import { IMPORT_ESTADOS_ORDER } from '@/hooks/useImports';
-import { escenarioVigente } from '@/lib/importScenario';
+import { escenarioVigente, viernesAduana } from '@/lib/importScenario';
+import { useQuery } from '@tanstack/react-query';
+import { fetchTrmForDate } from '@/hooks/useImportPayments';
 import { computeImportBreakdown, type ImportCostLine } from '@/lib/importCosting';
 import { useImportItems } from '@/hooks/useImportItems';
 import { useImportScenarios, type ImportScenario } from '@/hooks/useImportScenarios';
@@ -155,7 +157,19 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
   const trmVal = trm ?? (trmHoy != null ? Math.round(trmHoy) : 3500);
   const smmVal = smm ?? Math.round(Number(smmRef ?? 3500));
   const fleteVal = flete ?? Math.round(fleteRef ?? 5700);
-  const trmAduanaVal = trmAdu ?? (trmHoy != null ? Math.round(trmHoy) : trmVal);
+  // TRM de aduana automática del PRÓXIMO: la del último viernes previo a la
+  // semana de su arribo (regla DIAN, Nico 2026-09-03). La perilla la fuerza.
+  const viernesProx = viernesAduana(
+    proximo?.fechas.fecha_arribo_real ?? proximo?.fechas.fecha_estimada_llegada ?? hoy,
+  );
+  const { data: trmViernesProx } = useQuery({
+    queryKey: ['trm-fecha', viernesProx],
+    enabled: !!viernesProx,
+    staleTime: 30 * 60_000,
+    queryFn: () => fetchTrmForDate(viernesProx!),
+  });
+  const trmAduanaVal = trmAdu ?? (trmViernesProx != null ? Math.round(trmViernesProx) : null)
+    ?? (trmHoy != null ? Math.round(trmHoy) : trmVal);
   const tocado = trm != null || smm != null || flete != null || trmAdu != null;
   const volverAHoy = () => { setTrm(null); setSmm(null); setFlete(null); setTrmAdu(null); };
 
@@ -221,16 +235,18 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
     if (!proximo || Number(proximo.monto_total_usd) <= 0) return null;
     const reales = payRows.filter((p) => p.import_id === proximo.id && Number(p.amount_usd) > 0 && Number(p.trm) > 0)
       .map((p) => ({ amount_usd: Number(p.amount_usd), trm: Number(p.trm) }));
-    const manuales = manualesTodos.filter((m) => m.import_id === proximo.id)
-      .map((m) => ({ amount_usd: m.cop / m.trm, trm: m.trm }));
     return escenarioVigente({
       mercanciaUsd: Number(proximo.monto_total_usd), costs: proximo.costs,
-      abonos: [...reales, ...manuales], trmSimulada: trmVal, trmAduana: trmAduanaVal,
+      // Solo abonos REALES + saldo de Pedidos: el mismo número en todas
+      // partes (los manuales del tablero ya no restan — fix 36k vs 41k).
+      abonos: reales,
+      saldoUsdReal: proximo.saldo_pendiente_usd != null ? Number(proximo.saldo_pendiente_usd) : null,
+      trmSimulada: trmVal, trmAduana: trmAduanaVal,
       arancelPct: Number(proximo.arancel_pct ?? 5), ivaPct: Number(proximo.iva_pct ?? 19),
       cantidadKg: (proximo.peso_real_kg != null ? Number(proximo.peso_real_kg) : null)
         ?? (proximo.cantidad_ton != null ? Number(proximo.cantidad_ton) * 1000 : null),
     });
-  }, [proximo, payRows, manualesTodos, trmVal, trmAduanaVal]);
+  }, [proximo, payRows, trmVal, trmAduanaVal]);
 
   const caja = useMemo(() => {
     if (!escProximo) return null;
@@ -371,9 +387,10 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
                 className={cn('h-9 w-32 font-mono font-bold tabular-nums text-[15px]', trmAdu != null && 'border-primary')} />
             </div>
             <p className="text-[11px] text-muted-foreground flex-1 min-w-[260px] leading-relaxed pb-1.5">
-              El arancel y el IVA se liquidan sobre <b>esta</b> TRM — la vigente del último viernes —
-              no sobre el promedio al que compraste los dólares. La perilla de arriba es para comprar el saldo;
-              esta es para calcular los impuestos.
+              El arancel y el IVA se liquidan sobre <b>esta</b> TRM — no sobre el promedio al que
+              compraste los dólares. <b>Automática por contenedor</b>: la del último viernes previo a la
+              semana del arribo de cada uno{viernesProx ? ` (próximo: viernes ${viernesProx.slice(8, 10)}/${viernesProx.slice(5, 7)})` : ''}.
+              Escribí un valor solo para forzarla{trmAdu != null ? ' — forzada ahora' : ''}.
             </p>
           </div>
 
@@ -401,7 +418,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
       ) : (
         enCurso.map((p, i) => (
           <ModuloContenedor key={p.id} pedido={p} anterior={anteriorDe(p)} payRows={payRows}
-            trmVal={trmVal} trmHoy={trmHoy} esProximo={i === 0} trmAduana={trmAduanaVal} />
+            trmVal={trmVal} trmHoy={trmHoy} esProximo={i === 0} trmAduana={trmAdu} />
         ))
       )}
 

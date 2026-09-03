@@ -49,6 +49,8 @@ export interface PedidoComparable {
   unidades_reales?: number | null;
   precio_smm_cerrado_usd_ton: number | null;
   monto_total_usd: number | null;
+  /** imports.saldo_pendiente_usd (GENERATED) — la fuente única del "falta comprar". */
+  saldo_pendiente_usd?: number | null;
   trm: number | null;
   arancel_pct: number | null;
   iva_pct: number | null;
