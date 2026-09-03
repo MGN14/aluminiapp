@@ -4,7 +4,7 @@ import { afectaResultado } from '@/hooks/usePettyCashMovements';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, Wallet, Receipt, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles, Package } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Receipt, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles, Package, Boxes } from 'lucide-react';
 import { useNico } from '@/hooks/useNicoContext';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import NicoLogo from '@/components/nico/NicoLogo';
@@ -748,7 +748,7 @@ function DashboardContent() {
     ),
     operational: (idx: number) => (
       <DashboardBlock id="operational" customization={customization} index={idx}>
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-5 lg:grid-cols-3">
           {/* Top 3 Clientes */}
           {!operationalData.loading && (
             <TopBuyersCard topBuyers={operationalData.topBuyers} totalComprasBase={operationalData.totalComprasBase} year={periodSelection.year} />
@@ -812,7 +812,11 @@ function DashboardContent() {
                           );
                         })}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{periodRange.label}</p>
+                      <p className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
+                        {invoiceMetrics.itemsFromYearFallback
+                          ? `Sin facturas en ${periodRange.label} — mostrando ${periodSelection.year}`
+                          : periodRange.label}
+                      </p>
                     </>
                   ) : showFallback ? (
                     <>
@@ -845,6 +849,81 @@ function DashboardContent() {
                     <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
                       <Package className="h-9 w-9 text-muted-foreground/25" />
                       <p className="text-sm font-medium text-muted-foreground">Sin facturas de venta en este período</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Top 3 Referencias por UNIDADES — solo aluminio. El ranking sin
+              filtrar lo ganaban la tornillería (19.900 tornillos en una línea)
+              y el vidrio (facturado en m²), que no es lo que Nico vende. */}
+          {invoiceMetrics && (() => {
+            const top = invoiceMetrics.topReferencesByUnits ?? [];
+            const totalU = invoiceMetrics.totalUnidadesRef ?? 0;
+            const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
+            const fmtU = (n: number) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
+
+            return (
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base font-semibold text-foreground">Top 3 Referencias</CardTitle>
+                    <span className="text-[10px] text-muted-foreground">(por unidades)</span>
+                    <span
+                      className="cursor-help"
+                      title={'Unidades facturadas (ventas confirmadas, sin las anuladas por nota crédito), contando solo referencias de tu inventario de aluminio — si no filtráramos, tornillería y vidrio coparían el top siempre.\n\nOjo: una nota crédito parcial descuenta plata pero no unidades.'}
+                    >
+                      <Info className="h-3 w-3 text-muted-foreground" aria-label="Cómo se calcula" />
+                    </span>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <Boxes className="h-4 w-4 text-primary" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {top.length > 0 ? (
+                    <>
+                      <div className="space-y-3">
+                        {top.map((ref, index) => {
+                          const pct = totalU > 0 ? ((ref.unidades / totalU) * 100).toFixed(0) : '0';
+                          return (
+                            <div key={ref.reference} className="flex items-start gap-3">
+                              <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-foreground truncate" title={ref.descripcion ?? ref.reference}>{ref.reference}</p>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {ref.descripcion ?? `${ref.lineas} ${ref.lineas === 1 ? 'línea' : 'líneas'} de factura`}
+                                </p>
+                                {/* Mobile: unidades debajo */}
+                                <p className="text-xs mt-0.5 sm:hidden">
+                                  <span className="font-semibold text-foreground tabular-nums">{fmtU(ref.unidades)} und</span>
+                                  <span className="text-muted-foreground ml-1.5">({pct}%)</span>
+                                </p>
+                              </div>
+                              {/* Desktop: unidades al lado */}
+                              <div className="hidden sm:block text-right shrink-0">
+                                <p className="font-semibold text-sm text-foreground whitespace-nowrap tabular-nums">{fmtU(ref.unidades)} und</p>
+                                <p className="text-[10px] text-muted-foreground">{pct}% · {formatCurrency(ref.importe)}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
+                        {invoiceMetrics.itemsFromYearFallback
+                          ? `Sin facturas en ${periodRange.label} — mostrando ${periodSelection.year}`
+                          : periodRange.label}
+                      </p>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+                      <Boxes className="h-9 w-9 text-muted-foreground/25" />
+                      <p className="text-sm font-medium text-muted-foreground">Sin referencias de aluminio facturadas</p>
+                      <p className="text-[11px] text-muted-foreground/80 max-w-[220px] leading-relaxed">
+                        Cuenta solo las referencias que existen en Inventarios. Si falta alguna, agregala allá y aparece acá.
+                      </p>
                     </div>
                   )}
                 </CardContent>

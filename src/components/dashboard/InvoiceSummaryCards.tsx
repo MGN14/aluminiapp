@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileText, Users, Package, Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { MONTH_LABELS } from '@/lib/constants';
+import { rankAluminumReferencesByUnits, type TopReferenceRow } from '@/lib/topReferences';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -89,6 +90,12 @@ export interface InvoiceFiscalMetrics {
   topClients: [string, number][];
   topReferences: [string, { total: number; qty: number }][];
   totalBaseRef: number;
+  /** Top por UNIDADES, solo referencias de la maestra de aluminio. */
+  topReferencesByUnits: TopReferenceRow[];
+  totalUnidadesRef: number;
+  /** True cuando el período no tenía ítems y se está mostrando el AÑO entero
+   *  (los cards lo dicen en vez de mentir con el label del período). */
+  itemsFromYearFallback: boolean;
 }
 
 interface Props {
@@ -111,6 +118,11 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
   const [retefuenteCompraRate, setRetefuenteCompraRate] = useState(0);
   const [dianPaymentsIva, setDianPaymentsIva] = useState(0);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItemRow[]>([]);
+  // Maestra de aluminio: filtra el ranking por unidades para que no lo ganen
+  // tornillería (19.900 tornillos en una línea) ni vidrio (facturado en m²).
+  const [aluminumRefs, setAluminumRefs] = useState<string[]>([]);
+  // El período no tenía ítems y caímos al año entero (ver más abajo).
+  const [itemsFromYearFallback, setItemsFromYearFallback] = useState(false);
   // IVA de importación pagado en aduana (import_costs tipo 'iva_importacion'):
   // es descontable igual que el IVA de una factura de compra. fecha = entrada
   // a aduana/entrega del contenedor (fallback: created_at del costo).
@@ -316,10 +328,37 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
         // Filter to only period invoices for the card (use period + year depending on data)
         const periodIds = new Set(((periodResult.data as any[]) || []).filter((i: any) => i?.type === 'venta').map((i: any) => i.id as string));
         const periodItems = allItems.filter(item => periodIds.has((item as any).invoice_id));
-        // Fall back to full year if period has no items
-        setInvoiceItems(periodItems.length > 0 ? periodItems : allItems);
+        // Fall back to full year if period has no items. OJO: el fallback se
+        // REPORTA (itemsFromYearFallback) para que los cards no digan el label
+        // del período mostrando datos del año entero.
+        const usingFallback = periodItems.length === 0 && allItems.length > 0;
+        setItemsFromYearFallback(usingFallback);
+        setInvoiceItems(usingFallback ? allItems : periodItems);
       } else {
         setInvoiceItems([]);
+        setItemsFromYearFallback(false);
+      }
+
+      // Maestra de aluminio (paginada: PostgREST corta en 1000 en silencio).
+      try {
+        const refs: string[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data: prods, error: prodErr } = await supabase
+            .from('inventory_products')
+            .select('reference')
+            .eq('active', true)
+            .order('reference')
+            .range(from, from + 999);
+          if (prodErr) throw prodErr;
+          const rows = (prods ?? []) as Array<{ reference: string | null }>;
+          for (const r of rows) if (r.reference) refs.push(r.reference);
+          if (rows.length < 1000) break;
+        }
+        setAluminumRefs(refs);
+      } catch {
+        // Sin maestra el ranking por unidades queda vacío (mejor eso que
+        // mostrar tornillos como si fueran lo más vendido).
+        setAluminumRefs([]);
       }
 
       setLoading(false);
@@ -327,7 +366,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     fetchData();
   }, [periodStart, periodEnd, year, cuatrimestreStart, cuatrimestreEnd]);
 
-  const metrics = useMemo((): Omit<InvoiceFiscalMetrics, 'topReferences' | 'totalBaseRef'> => {
+  const metrics = useMemo((): Omit<InvoiceFiscalMetrics, 'topReferences' | 'totalBaseRef' | 'topReferencesByUnits' | 'totalUnidadesRef' | 'itemsFromYearFallback'> => {
     const ventas = invoices.filter(i => i.type === 'venta');
     const compras = invoices.filter(i => i.type === 'compra');
     const ventasYear = allYearInvoices.filter(i => i.type === 'venta');
@@ -456,14 +495,28 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
       .slice(0, 3);
   }, [invoiceItems]);
 
+  // Top por UNIDADES — solo referencias de la maestra de aluminio, agrupadas
+  // por referencia canónica. Lógica pura y testeada en lib/topReferences.
+  const unitsRanking = useMemo(
+    () => rankAluminumReferencesByUnits(invoiceItems, aluminumRefs),
+    [invoiceItems, aluminumRefs],
+  );
+
   // onMetrics reporting moved to render guard below
 
   const totalBaseRef = invoiceItems.reduce((s, item) => s + item.line_base, 0);
 
   // Always report metrics to parent even when loading or no invoices
   useEffect(() => {
-    if (!loading && onMetrics) onMetrics({ ...metrics, topReferences, totalBaseRef });
-  }, [loading, metrics, topReferences, totalBaseRef, onMetrics]);
+    if (!loading && onMetrics) onMetrics({
+      ...metrics,
+      topReferences,
+      totalBaseRef,
+      topReferencesByUnits: unitsRanking.top,
+      totalUnidadesRef: unitsRanking.totalUnidades,
+      itemsFromYearFallback,
+    });
+  }, [loading, metrics, topReferences, totalBaseRef, unitsRanking, itemsFromYearFallback, onMetrics]);
 
   if (loading) return null;
 
