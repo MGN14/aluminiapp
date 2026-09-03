@@ -43,6 +43,14 @@ export interface EscenarioVigenteInput {
    * manuales del tablero (fix 36k vs 41k, Nico 2026-09-03).
    */
   saldoUsdReal?: number | null;
+  /**
+   * Flete + seguro en USD que se le giran AL MISMO proveedor (Incoterm CIF).
+   * ENTRAN al saldo: es plata que hay que comprar y mandar a China igual que
+   * la mercancía. El Excel de Nico lo dice explícito — "Saldo Con freight
+   * 41.924" vs "Balance no freight 36.114" (2026-09-03). Antes el tablero
+   * solo miraba mercancía y por eso pedía 5.810 USD de menos.
+   */
+  fleteSeguroUsd?: number | null;
 }
 
 export interface EscenarioVigente {
@@ -52,8 +60,14 @@ export interface EscenarioVigente {
   pagadoCop: number;
   /** TRM promedio ponderada de lo pagado (null sin abonos). */
   trmPonderadaPagado: number | null;
+  /** Saldo REAL con el proveedor: mercancía + flete + seguro − pagado. Es lo
+   *  que hay que girar ("Saldo Con freight" del Excel de Nico). */
   saldoUsd: number;
-  /** El saldo a la TRM simulada — la caja que falta para cerrar mercancía. */
+  /** Solo mercancía, sin flete ni seguro ("Balance no freight"). */
+  saldoUsdMercancia: number;
+  /** Flete + seguro pendientes incluidos en saldoUsd (0 si no hay). */
+  fleteSeguroUsd: number;
+  /** El saldo a la TRM simulada — la caja que falta para cerrar con China. */
   saldoCopSimulado: number | null;
   /** Breakdown completo (arancel/IVA con TRM mixta, piso FOB incluido). */
   breakdown: ImportBreakdown;
@@ -94,9 +108,13 @@ export function escenarioVigente(input: EscenarioVigenteInput): EscenarioVigente
   const trmPonderadaPagado = pagadoUsd > 0 ? pagadoCop / pagadoUsd : null;
   // El saldo de Pedidos manda cuando está disponible (una sola fuente de
   // verdad); mercancía − pagado queda solo como fallback.
-  const saldoUsd = input.saldoUsdReal != null && Number.isFinite(Number(input.saldoUsdReal))
+  const saldoUsdMercancia = input.saldoUsdReal != null && Number.isFinite(Number(input.saldoUsdReal))
     ? Math.max(0, Number(input.saldoUsdReal))
     : Math.max(0, totalUsd - pagadoUsd);
+  // Flete y seguro se le giran al MISMO proveedor: son parte de lo que hay
+  // que comprar en dólares, no un costo aparte que aparece después.
+  const fleteSeguroUsd = Math.max(0, n0(input.fleteSeguroUsd));
+  const saldoUsd = Math.max(0, saldoUsdMercancia + fleteSeguroUsd);
   const trm = n0(input.trmSimulada) > 0 ? Number(input.trmSimulada) : null;
 
   const trmAduana = n0(input.trmAduana) > 0 ? Number(input.trmAduana) : trm;
@@ -136,6 +154,9 @@ export function escenarioVigente(input: EscenarioVigenteInput): EscenarioVigente
   if (saldoUsd > 0 && trm != null) {
     supuestos.push(`El saldo (${Math.round(saldoUsd).toLocaleString('es-CO')} USD) se valora a la TRM del escenario (${Math.round(trm).toLocaleString('es-CO')}).`);
   }
+  if (fleteSeguroUsd > 0) {
+    supuestos.push(`El saldo incluye flete y seguro (${Math.round(fleteSeguroUsd).toLocaleString('es-CO')} USD): se giran al mismo proveedor. Sin ellos serían ${Math.round(saldoUsdMercancia).toLocaleString('es-CO')} USD.`);
+  }
   if (breakdown.pisoAplicado) {
     supuestos.push(`Impuestos liquidados sobre el piso FOB (${breakdown.pisoFobUsdKg} USD/kg): el precio real quedó por debajo.`);
   }
@@ -145,7 +166,8 @@ export function escenarioVigente(input: EscenarioVigenteInput): EscenarioVigente
   supuestos.push('Estimación para preparar caja — la liquidación real puede mover la TRM del día de nacionalización.');
 
   return {
-    totalUsd, pagadoUsd, pagadoCop, trmPonderadaPagado, saldoUsd, saldoCopSimulado,
+    totalUsd, pagadoUsd, pagadoCop, trmPonderadaPagado,
+    saldoUsd, saldoUsdMercancia, fleteSeguroUsd, saldoCopSimulado,
     breakdown, impuestosPendientesCop, cajaParaCerrarCop, supuestos,
   };
 }

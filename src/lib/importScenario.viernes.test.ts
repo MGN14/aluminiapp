@@ -38,16 +38,30 @@ describe('escenarioVigente — saldoUsdReal manda (mismo número que Pedidos)', 
     expect(esc.saldoCopSimulado).toBe(41_000 * 3141);
   });
 
-  it('los pagos por fuera de contabilidad SÍ bajan el saldo: el caller pasa Pedidos − manuales', () => {
-    // Regla de Nico 2026-09-03: un giro de otro negocio directo a China es
-    // plata pagada aunque nunca pase por el banco. Pedidos dice 41.041;
-    // 5.000 se pagaron por fuera → el tablero muestra 36.041.
+  it('CASO REAL 2026-2 (Excel de Nico): 41.924 con flete y 36.114 sin flete', () => {
+    // Mercancía 125.028 + flete 5.700 + seguro 110 = 130.838
+    // Pagado: 22.000 + 32.000 + 30.000 (banco) + 4.914 (Pocillos, por fuera)
+    // → Balance no freight 36.114 · Saldo Con freight 41.924
+    const saldoPedidos = 125_028 - 84_000;           // lo que muestra Pedidos
     const esc = escenarioVigente({
       ...base,
-      abonos: [{ amount_usd: 84_000, trm: 3150 }, { amount_usd: 5_000, trm: 3100 }],
-      saldoUsdReal: Math.max(0, 41_041 - 5_000),
+      abonos: [
+        { amount_usd: 22_000, trm: 3150 }, { amount_usd: 32_000, trm: 3150 },
+        { amount_usd: 30_000, trm: 3150 }, { amount_usd: 4_914, trm: 3100 },
+      ],
+      saldoUsdReal: Math.max(0, saldoPedidos - 4_914),  // − pagos por fuera
+      fleteSeguroUsd: 5_700 + 110,
     });
-    expect(esc.saldoUsd).toBe(36_041);
+    expect(esc.saldoUsdMercancia).toBe(36_114);
+    expect(esc.saldoUsd).toBe(41_924);
+    expect(esc.fleteSeguroUsd).toBe(5_810);
+  });
+
+  it('sin flete/seguro, saldoUsd == saldoUsdMercancia', () => {
+    const esc = escenarioVigente({ ...base, abonos: [], saldoUsdReal: 10_000 });
+    expect(esc.saldoUsd).toBe(10_000);
+    expect(esc.saldoUsdMercancia).toBe(10_000);
+    expect(esc.fleteSeguroUsd).toBe(0);
   });
   it('sin saldoUsdReal cae al cálculo mercancía − abonos (fallback)', () => {
     const esc = escenarioVigente({ ...base, abonos: [{ amount_usd: 84_000, trm: 3150 }] });

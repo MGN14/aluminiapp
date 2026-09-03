@@ -36,7 +36,7 @@ import { useManualAbonos } from '@/hooks/useManualAbonos';
 import { computeLandedCost } from '@/lib/landedCost';
 import { scalePacking, totalesDe } from '@/lib/scalePacking';
 import ModuloContenedor, {
-  cop, copM, usdF, numF, pctS, sinIva, fleteUsdDe, type PayRow,
+  cop, copM, usdF, numF, pctS, sinIva, fleteUsdDe, seguroUsdDe, type PayRow,
 } from './ModuloContenedor';
 import HistorialContenedores from './HistorialContenedores';
 import ImpactoListaPrecios from './ImpactoListaPrecios';
@@ -248,6 +248,9 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
         ? Math.max(0, Number(proximo.saldo_pendiente_usd) - manualUsd)
         : null,
       trmSimulada: trmVal, trmAduana: trmAduanaVal,
+      // Flete + seguro también se le giran al proveedor: entran al saldo y
+      // por ende a la caja para cerrar (Excel de Nico: 'Saldo Con freight').
+      fleteSeguroUsd: (fleteUsdDe(proximo.costs) ?? 0) + seguroUsdDe(proximo.costs),
       arancelPct: Number(proximo.arancel_pct ?? 5), ivaPct: Number(proximo.iva_pct ?? 19),
       cantidadKg: (proximo.peso_real_kg != null ? Number(proximo.peso_real_kg) : null)
         ?? (proximo.cantidad_ton != null ? Number(proximo.cantidad_ton) * 1000 : null),

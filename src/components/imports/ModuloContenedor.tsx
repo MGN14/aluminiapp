@@ -122,6 +122,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   const [da, setDa] = useState('');
   const [ca, setCa] = useState('');
   const [ta, setTa] = useState('');
+  const [ua, setUa] = useState('');
 
   const { abonos: manualesTodos, add, remove } = useManualAbonos();
   const manuales = useMemo(
@@ -268,13 +269,17 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
       ivaPct: Number(pedido.iva_pct ?? 19),
       cantidadKg: kgParaImpuestos,
       trmAduana: trmAduanaEff,
+      // Flete + seguro se le giran al mismo proveedor: son parte del saldo.
+      fleteSeguroUsd: (fleteUsdDe(pedido.costs) ?? 0) + seguroUsdDe(pedido.costs),
     });
   }, [pedido, mercanciaUsdEff, reales, manualesComoAbono, totalManualUsd, trmVal, kgParaImpuestos, trmAduanaEff]);
 
   const totalSinIva = esc ? sinIva(esc.breakdown) : null;
   const copKg = totalSinIva != null && kg ? totalSinIva / kg : null;
-  const trmEfectiva = esc && esc.totalUsd > 0 ? (esc.pagadoCop + esc.saldoUsd * trmVal) / esc.totalUsd : null;
-  const mercanciaCop = esc ? esc.pagadoCop + esc.saldoUsd * trmVal : null;
+  // TRM efectiva y mercancía en COP van sobre la base SOLO MERCANCÍA (el
+  // flete tiene su propio renglón; meterlo acá inflaría el COP/kg dos veces).
+  const trmEfectiva = esc && esc.totalUsd > 0 ? (esc.pagadoCop + esc.saldoUsdMercancia * trmVal) / esc.totalUsd : null;
+  const mercanciaCop = esc ? esc.pagadoCop + esc.saldoUsdMercancia * trmVal : null;
   const fleteSeguroCop = esc?.breakdown.cifCop != null && mercanciaCop != null ? esc.breakdown.cifCop - mercanciaCop : null;
 
   // ── El anterior, con sus datos reales ──
@@ -332,12 +337,21 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
     }));
   }, [esc, trmHoy, trmVal]);
 
+  /** Guarda el abono manual. Se puede digitar en USD (giro directo a China,
+   *  que es como Nico los conoce: "Pocillos 4.914") o en COP; el otro se
+   *  deriva con la TRM. Antes solo aceptaba COP y el USD salía de COP÷TRM,
+   *  lo que metía un desfase de decenas de dólares contra su Excel. */
   const guardarAbono = () => {
-    const c = Number(ca.replace(/[.,\s]/g, ''));
     const t = Number(ta.replace(/[.,\s]/g, ''));
-    if (!Number.isFinite(c) || c <= 0 || !Number.isFinite(t) || t <= 0) return;
-    add.mutate({ import_id: pedido.id, fecha: fa, descripcion: da.trim(), cop: c, trm: t },
-      { onSuccess: () => { setNuevoAbono(false); setDa(''); setCa(''); setTa(''); } });
+    if (!Number.isFinite(t) || t <= 0) return;
+    const u = Number(ua.replace(/[.,\s]/g, ''));
+    const c = Number(ca.replace(/[.,\s]/g, ''));
+    const copFinal = Number.isFinite(u) && u > 0
+      ? Math.round(u * t * 100) / 100   // USD exacto: COP se deriva
+      : c;
+    if (!Number.isFinite(copFinal) || copFinal <= 0) return;
+    add.mutate({ import_id: pedido.id, fecha: fa, descripcion: da.trim(), cop: copFinal, trm: t },
+      { onSuccess: () => { setNuevoAbono(false); setDa(''); setCa(''); setTa(''); setUa(''); } });
   };
 
   if (!esc) return null;
@@ -600,9 +614,20 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
             <div className="grid lg:grid-cols-2 gap-x-8 gap-y-2">
               <div>
                 <Row l="USD que falta comprar" v={usdF(esc.saldoUsd)} big tone={esc.saldoUsd > 0 ? 'text-destructive' : 'text-success'}
-                  sub={totalManualUsd > 0 && pedido.saldo_pendiente_usd != null
-                    ? `Pedidos dice ${numF(Number(pedido.saldo_pendiente_usd))} − ${numF(totalManualUsd)} pagados por fuera`
-                    : undefined} />
+                  sub={esc.fleteSeguroUsd > 0 ? 'mercancía + flete + seguro — todo se le gira al proveedor' : undefined} />
+                {esc.fleteSeguroUsd > 0 && (
+                  <Row l="Sin flete ni seguro (solo mercancía)" v={usdF(esc.saldoUsdMercancia)} />
+                )}
+                {/* Puente contra Pedidos: por qué este número no es el de allá. */}
+                {pedido.saldo_pendiente_usd != null && (totalManualUsd > 0 || esc.fleteSeguroUsd > 0) && (
+                  <p className="text-[11px] text-muted-foreground py-1.5 leading-relaxed">
+                    Pedidos muestra <b className="text-foreground">{numF(Number(pedido.saldo_pendiente_usd))}</b> (solo
+                    mercancía contra los giros del banco).
+                    {totalManualUsd > 0 && <> Acá se restan además <b className="text-foreground">{numF(totalManualUsd)}</b> pagados por fuera de contabilidad</>}
+                    {esc.fleteSeguroUsd > 0 && <> y se suman <b className="text-foreground">{numF(esc.fleteSeguroUsd)}</b> de flete y seguro que también hay que girar</>}
+                    .
+                  </p>
+                )}
                 <Row l={`Ese saldo a la TRM del escenario (${numF(trmVal)})`} v={cop(esc.saldoCopSimulado)} />
                 <Row l="Exposición viva · cada 100 pesos de TRM" v={`± ${copM(esc.saldoUsd * 100).replace('+', '')}`} />
               </div>
@@ -689,11 +714,11 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                           <td className="py-1.5 text-right font-mono tabular-nums">{numF(totalManualUsd)} USD</td>
                           <td />
                         </tr>
-                        {esc && totalManualUsd > 0 && pedido.saldo_pendiente_usd != null && (
+                        {esc && totalManualUsd > 0 && (
                           <tr className="text-[11px] text-muted-foreground">
                             <td className="py-1" colSpan={6}>
-                              Ya descontados: Pedidos dice {numF(Number(pedido.saldo_pendiente_usd))} USD y acá quedan{' '}
-                              <b className="text-foreground">{numF(esc.saldoUsd)}</b>.
+                              Ya descontados del saldo de arriba ({numF(esc.saldoUsd)} USD con flete,{' '}
+                              {numF(esc.saldoUsdMercancia)} sin flete).
                             </td>
                           </tr>
                         )}
@@ -706,10 +731,14 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                         <Input type="date" value={fa} onChange={(e) => setFa(e.target.value)} className="h-8 w-36 text-xs" /></div>
                       <div className="flex-1 min-w-[110px]"><label className="text-[11px] text-muted-foreground block mb-1">Descripción</label>
                         <Input value={da} onChange={(e) => setDa(e.target.value)} placeholder="Ej: giro Mauricio" className="h-8 text-xs" /></div>
-                      <div><label className="text-[11px] text-muted-foreground block mb-1">COP</label>
-                        <Input inputMode="numeric" value={ca} onChange={(e) => setCa(e.target.value)} placeholder="68.000.000" className="h-8 w-32 text-xs font-mono" /></div>
+                      <div><label className="text-[11px] text-primary font-medium block mb-1">USD</label>
+                        <Input inputMode="numeric" value={ua} onChange={(e) => setUa(e.target.value)} placeholder="4.914" className="h-8 w-24 text-xs font-mono" /></div>
                       <div><label className="text-[11px] text-muted-foreground block mb-1">TRM</label>
                         <Input inputMode="numeric" value={ta} onChange={(e) => setTa(e.target.value)} placeholder="3.400" className="h-8 w-24 text-xs font-mono" /></div>
+                      <div><label className="text-[11px] text-muted-foreground block mb-1">COP <span className="text-[10px]">(si no sabés el USD)</span></label>
+                        <Input inputMode="numeric" value={ca} onChange={(e) => setCa(e.target.value)} placeholder="68.000.000"
+                          disabled={Number(ua.replace(/[.,\s]/g, '')) > 0}
+                          className="h-8 w-32 text-xs font-mono" /></div>
                       <Button size="sm" className="h-8 text-xs" onClick={guardarAbono} disabled={add.isPending}>Anotar</Button>
                     </div>
                   )}
