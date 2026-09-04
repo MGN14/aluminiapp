@@ -2,10 +2,18 @@
  * Pestaña ESCENARIOS — el tablero de decisión de importaciones, con el
  * lenguaje del "Calculador de costo MGN" que Nico construyó a mano.
  *
- * Orquesta: perillas (TRM · SMM · flete) → un ModuloContenedor por cada
- * pedido en curso (el PRÓXIMO A LLEGAR primero y abierto por defecto) →
- * simulador del que sigue → caja del próximo → histórico → escenarios
- * guardados.
+ * ORDEN (rediseño 2026-09-03): cada perilla vive DONDE MANDA. Nico reportó
+ * que movía SMM y flete y "no cambiaba nada abajo" — y era cierto: el
+ * contenedor que ya viene en camino tiene la mercancía facturada y el flete
+ * contratado, así que lo único vivo ahí es el dólar. La UI mostraba tres
+ * perillas globales como si las tres aplicaran a todo.
+ *
+ *   1. Dólar (TRM) + TRM de aduana  → lo único vivo de lo que ya viene
+ *   2. EL QUE LLEGA PRIMERO         → su módulo, arriba de todo
+ *   3. "Lo que todavía se puede mover" → riel VERTICAL de perillas (SMM y
+ *      flete) a la izquierda y a la derecha lo que sí afectan: los otros
+ *      contenedores en curso y "si monto el siguiente hoy" (las 3 mandan)
+ *   4. Caja del próximo → histórico → lista de precios → escenarios
  *
  * REGLAS: no escribe en import_costs/import_payments/transactions ni crea
  * pedidos. Escribe lo suyo (import_manual_abonos, import_scenarios) y — desde
@@ -368,43 +376,42 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
             </div>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-x-6 gap-y-5">
+          {/* SOLO EL DÓLAR: es la única variable viva del contenedor que ya
+              viene en camino (su mercancía está facturada y su flete
+              contratado). SMM y flete se movieron abajo, donde sí mandan
+              — reporte de Nico 2026-09-03: "muevo SMM y flete y no cambia
+              nada arriba". */}
+          <div className="grid lg:grid-cols-[minmax(0,340px)_1fr] gap-x-8 gap-y-4 items-start">
             <Perilla label="Dólar (TRM)" unit="COP/USD" value={trmVal} onChange={setTrm} min={2800} max={4300} step={1}
               chips={[
                 ...(trmHoy != null ? [{ label: `Hoy (${numF(trmHoy)})`, value: Math.round(trmHoy) }, { label: '+100', value: Math.round(trmHoy) + 100 }, { label: '+250', value: Math.round(trmHoy) + 250 }] : []),
                 { label: '3.500', value: 3500 },
               ]}
               refs={ultimoEntregado?.trm != null ? `prom. logrado ${ultimoEntregado.label}: ${numF(Number(ultimoEntregado.trm))}` : undefined} />
-            <Perilla label="SMM (aluminio)" unit="USD/TON" value={smmVal} onChange={setSmm} min={2900} max={4500} step={5}
-              chips={[
-                ...(proximo?.precio_smm_cerrado_usd_ton != null ? [{ label: `${proximo.label} ✓`, value: Math.round(Number(proximo.precio_smm_cerrado_usd_ton)) }] : []),
-                ...(smmReposicion != null ? [{ label: `Reposición hoy (≈${numF(smmReposicion)})`, value: smmReposicion }] : []),
-                ...(ultimoEntregado?.precio_smm_cerrado_usd_ton != null ? [{ label: `${ultimoEntregado.label}`, value: Math.round(Number(ultimoEntregado.precio_smm_cerrado_usd_ton)) }] : []),
-              ]}
-              refs="el SMM que fijás acá manda sobre el LME" />
-            <Perilla label="Flete" unit="USD" value={fleteVal} onChange={setFlete} min={2000} max={9000} step={50}
-              chips={[
-                ...(fleteUsdDe(proximo?.costs) != null ? [{ label: `${proximo?.label}`, value: Math.round(fleteUsdDe(proximo?.costs)!) }] : []),
-                ...(fleteUsdDe(ultimoEntregado?.costs) != null ? [{ label: `${ultimoEntregado?.label}`, value: Math.round(fleteUsdDe(ultimoEntregado?.costs)!) }] : []),
-                { label: 'Pesimista 7.000', value: 7000 },
-              ]} />
-          </div>
 
-          <div className="flex items-end gap-3 flex-wrap border-t border-border pt-3">
-            <div>
-              <label className="text-[13px] font-semibold block mb-1">
-                TRM de aduana <span className="text-[11px] font-normal text-muted-foreground">(liquidación DIAN)</span>
-              </label>
-              <Input inputMode="numeric" value={new Intl.NumberFormat('es-CO').format(trmAduanaVal)}
-                onChange={(e) => { const n = Number(e.target.value.replace(/[.,\s]/g, '')); if (Number.isFinite(n) && n > 0) setTrmAdu(n); }}
-                className={cn('h-9 w-32 font-mono font-bold tabular-nums text-[15px]', trmAdu != null && 'border-primary')} />
+            <div className="space-y-3">
+              <p className="text-[12px] text-muted-foreground leading-relaxed">
+                <b className="text-foreground">Es lo único vivo de lo que ya viene en camino.</b> La
+                mercancía ya está facturada y el flete contratado: mover el dólar cambia el saldo,
+                el costo total y el COP/kg de acá abajo, en vivo.
+                {' '}El SMM y el flete están más abajo, en <b className="text-foreground">lo que todavía se puede mover</b>.
+              </p>
+              <div className="flex items-end gap-3 flex-wrap border-t border-border pt-3">
+                <div>
+                  <label className="text-[12px] font-semibold block mb-1">
+                    TRM de aduana <span className="text-[11px] font-normal text-muted-foreground">(liquidación DIAN)</span>
+                  </label>
+                  <Input inputMode="numeric" value={new Intl.NumberFormat('es-CO').format(trmAduanaVal)}
+                    onChange={(e) => { const n = Number(e.target.value.replace(/[.,\s]/g, '')); if (Number.isFinite(n) && n > 0) setTrmAdu(n); }}
+                    className={cn('h-9 w-32 font-mono font-bold tabular-nums text-[15px]', trmAdu != null && 'border-primary')} />
+                </div>
+                <p className="text-[11px] text-muted-foreground flex-1 min-w-[240px] leading-relaxed pb-1.5">
+                  Arancel e IVA se liquidan sobre <b>esta</b> TRM. <b>Automática por contenedor</b>: la del
+                  último viernes previo a la semana del arribo{viernesProx ? ` (próximo: viernes ${viernesProx.slice(8, 10)}/${viernesProx.slice(5, 7)})` : ''}.
+                  Escribí un valor solo para forzarla{trmAdu != null ? ' — forzada ahora' : ''}.
+                </p>
+              </div>
             </div>
-            <p className="text-[11px] text-muted-foreground flex-1 min-w-[260px] leading-relaxed pb-1.5">
-              El arancel y el IVA se liquidan sobre <b>esta</b> TRM — no sobre el promedio al que
-              compraste los dólares. <b>Automática por contenedor</b>: la del último viernes previo a la
-              semana del arribo de cada uno{viernesProx ? ` (próximo: viernes ${viernesProx.slice(8, 10)}/${viernesProx.slice(5, 7)})` : ''}.
-              Escribí un valor solo para forzarla{trmAdu != null ? ' — forzada ahora' : ''}.
-            </p>
           </div>
 
           {saving && (
@@ -423,16 +430,14 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
         </CardContent>
       </Card>
 
-      {/* ═══ Un módulo por contenedor en curso — el próximo primero ═══ */}
+      {/* ═══ EL QUE LLEGA PRIMERO — arriba de todo (orden pedido por Nico) ═══ */}
       {enCurso.length === 0 ? (
         <Card><CardContent className="py-8 text-center text-[13px] text-muted-foreground">
           No hay pedidos en curso con factura confirmada.
         </CardContent></Card>
       ) : (
-        enCurso.map((p, i) => (
-          <ModuloContenedor key={p.id} pedido={p} anterior={anteriorDe(p)} payRows={payRows}
-            trmVal={trmVal} trmHoy={trmHoy} esProximo={i === 0} trmAduana={trmAdu} />
-        ))
+        <ModuloContenedor pedido={enCurso[0]} anterior={anteriorDe(enCurso[0])} payRows={payRows}
+          trmVal={trmVal} trmHoy={trmHoy} esProximo trmAduana={trmAdu} />
       )}
 
       {/* ═══ CAJA del próximo (saldo + aduanas completo) ═══ */}
@@ -492,11 +497,54 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
         </Card>
       )}
 
-      {/* ═══ Simulador del que sigue ═══ */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          LO QUE TODAVÍA SE PUEDE MOVER — perillas VERTICALES a la izquierda,
+          contenido a la derecha (layout pedido por Nico 2026-09-03). Acá el
+          SMM y el flete SÍ mandan: son pedidos que aún no se cierran.
+          ═══════════════════════════════════════════════════════════════════ */}
+      {(enCurso.length > 1 || colSiguiente) && (
+        <div className="grid lg:grid-cols-[minmax(0,300px)_1fr] gap-x-6 gap-y-4 items-start">
+          {/* Riel de perillas */}
+          <Card className="lg:sticky lg:top-4">
+            <CardContent className="py-4 px-4 space-y-5">
+              <div>
+                <h4 className="text-[13px] font-bold tracking-tight">Lo que todavía se puede mover</h4>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                  Estas dos NO tocan el que ya viene en camino — ese solo se mueve por dólar.
+                  Acá sí: mové y mirá los números de al lado.
+                </p>
+              </div>
+              <Perilla label="SMM (aluminio)" unit="USD/TON" value={smmVal} onChange={setSmm} min={2900} max={4500} step={5}
+                chips={[
+                  ...(smmReposicion != null ? [{ label: `Reposición hoy (≈${numF(smmReposicion)})`, value: smmReposicion }] : []),
+                  ...(ultimoEntregado?.precio_smm_cerrado_usd_ton != null ? [{ label: `${ultimoEntregado.label}`, value: Math.round(Number(ultimoEntregado.precio_smm_cerrado_usd_ton)) }] : []),
+                  ...(proximo?.precio_smm_cerrado_usd_ton != null ? [{ label: `${proximo.label} ✓`, value: Math.round(Number(proximo.precio_smm_cerrado_usd_ton)) }] : []),
+                ]}
+                refs="solo afecta lo que aún no has pedido — el SMM que fijás acá manda sobre el LME" />
+              <Perilla label="Flete" unit="USD" value={fleteVal} onChange={setFlete} min={2000} max={9000} step={50}
+                chips={[
+                  ...(fleteUsdDe(proximo?.costs) != null ? [{ label: `${proximo?.label}`, value: Math.round(fleteUsdDe(proximo?.costs)!) }] : []),
+                  ...(fleteUsdDe(ultimoEntregado?.costs) != null ? [{ label: `${ultimoEntregado?.label}`, value: Math.round(fleteUsdDe(ultimoEntregado?.costs)!) }] : []),
+                  { label: 'Pesimista 7.000', value: 7000 },
+                ]}
+                refs={`con el dólar en ${numF(trmVal)} (perilla de arriba)`} />
+            </CardContent>
+          </Card>
+
+          {/* Contenido: los otros contenedores en curso + si monto hoy */}
+          <div className="space-y-4">
+            {enCurso.slice(1).map((p) => (
+              <ModuloContenedor key={p.id} pedido={p} anterior={anteriorDe(p)} payRows={payRows}
+                trmVal={trmVal} trmHoy={trmHoy} esProximo={false} trmAduana={trmAdu} />
+            ))}
+
       {colSiguiente && (
         <Card>
           <CardContent className="py-4 px-5 space-y-3">
             <h4 className="text-base font-bold tracking-tight">Si monto el siguiente hoy</h4>
+            <p className="text-[11px] text-muted-foreground -mt-2">
+              Acá mandan las tres: dólar, SMM y flete. Nada está cerrado todavía.
+            </p>
             <div className="grid lg:grid-cols-2 gap-x-8 gap-y-3 items-start">
               <div className="rounded-xl border border-border bg-muted/20 px-4 py-3.5">
                 <p className="text-[34px] leading-none font-extrabold tabular-nums tracking-tight">{cop(totalSiguienteSinIva)}</p>
@@ -554,6 +602,9 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
             </div>
           </CardContent>
         </Card>
+      )}
+          </div>
+        </div>
       )}
 
       {/* ═══ Histórico de contenedores ═══ */}
