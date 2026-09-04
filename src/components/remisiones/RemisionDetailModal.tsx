@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon, Trash2 } from 'lucide-react';
+import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon, Trash2, Copy } from 'lucide-react';
 import {
   applyRemisionInventory,
   fetchProductsByRefs,
@@ -258,10 +258,34 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
               )}
             </DialogTitle>
             {remision && !editing && (
-              <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
-                <Pencil className="h-3.5 w-3.5" />
-                Editar
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5"
+                  title="Copia Referencia, Unidades y Costo unitario separados por tabulador — pegá directo en tu Excel de control interno"
+                  onClick={async () => {
+                    // TSV sin encabezado: pega bajo las columnas que ya tiene
+                    // el Excel de Nico. Decimales con coma (Excel es-CO).
+                    const tsv = items
+                      .map((i: any) => [i.reference ?? '', String(Number(i.units ?? 0)).replace('.', ','), String(Number(i.unit_cost ?? 0)).replace('.', ',')].join('\t'))
+                      .join('\n');
+                    try {
+                      await navigator.clipboard.writeText(tsv);
+                      toast({ title: `${items.length} filas copiadas`, description: 'Referencia · Unidades · Costo unit. — pegá directo en tu Excel.' });
+                    } catch {
+                      toast({ title: 'No se pudo copiar', description: 'El navegador bloqueó el portapapeles — probá de nuevo con la pestaña activa.', variant: 'destructive' });
+                    }
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copiar para Excel
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
+                  <Pencil className="h-3.5 w-3.5" />
+                  Editar
+                </Button>
+              </div>
             )}
           </div>
         </DialogHeader>

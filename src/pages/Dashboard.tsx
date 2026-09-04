@@ -22,6 +22,7 @@ import { BilledByClientMonthChart } from '@/components/dashboard/BilledByClientM
 import { CashFlowChart } from '@/components/dashboard/CashFlowChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import InsightsMiniCards from '@/components/dashboard/InsightsMiniCards';
+import TeamActivityCard from '@/components/dashboard/TeamActivityCard';
 import { ReteicaMonthlyCard, ReteicaYearlyCard } from '@/components/dashboard/ReteicaCards';
 import { RetefuenteMonthlyCard, RetefuenteYearlyCard } from '@/components/dashboard/RetefuenteCards';
 import InvoiceSummaryCards, { InvoiceFiscalMetrics } from '@/components/dashboard/InvoiceSummaryCards';
@@ -986,6 +987,13 @@ function DashboardContent() {
       </DashboardBlock>
       );
     },
+    // Historial de acciones del equipo (quién hizo qué) — solo admin; el
+    // propio card se anula para colaboradores.
+    teamActivity: (idx: number) => (
+      <DashboardBlock id="teamActivity" customization={customization} index={idx}>
+        <TeamActivityCard />
+      </DashboardBlock>
+    ),
   };
 
   // ── Loading state ──
