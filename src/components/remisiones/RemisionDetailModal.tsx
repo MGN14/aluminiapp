@@ -259,27 +259,47 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
             </DialogTitle>
             {remision && !editing && (
               <div className="flex items-center gap-1.5">
+                {/* Dos copias separadas por el formato del Excel de control
+                    interno de Nico: referencias van en una zona, unidades +
+                    costo en otra. MISMO orden de filas en ambas, así pegan
+                    alineadas. Decimales con coma (Excel es-CO). */}
                 <Button
                   variant="ghost"
                   size="sm"
                   className="gap-1.5"
-                  title="Copia Referencia, Unidades y Costo unitario separados por tabulador — pegá directo en tu Excel de control interno"
+                  title="Copia SOLO la columna Referencia (una por fila) — pegala en tu Excel"
                   onClick={async () => {
-                    // TSV sin encabezado: pega bajo las columnas que ya tiene
-                    // el Excel de Nico. Decimales con coma (Excel es-CO).
-                    const tsv = items
-                      .map((i: any) => [i.reference ?? '', String(Number(i.units ?? 0)).replace('.', ','), String(Number(i.unit_cost ?? 0)).replace('.', ',')].join('\t'))
-                      .join('\n');
+                    const texto = items.map((i: any) => i.reference ?? '').join('\n');
                     try {
-                      await navigator.clipboard.writeText(tsv);
-                      toast({ title: `${items.length} filas copiadas`, description: 'Referencia · Unidades · Costo unit. — pegá directo en tu Excel.' });
+                      await navigator.clipboard.writeText(texto);
+                      toast({ title: `${items.length} referencias copiadas`, description: 'Una columna. Mismo orden que la tabla.' });
                     } catch {
-                      toast({ title: 'No se pudo copiar', description: 'El navegador bloqueó el portapapeles — probá de nuevo con la pestaña activa.', variant: 'destructive' });
+                      toast({ title: 'No se pudo copiar', description: 'El navegador bloqueó el portapapeles — probá con la pestaña activa.', variant: 'destructive' });
                     }
                   }}
                 >
                   <Copy className="h-3.5 w-3.5" />
-                  Copiar para Excel
+                  Referencias
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5"
+                  title="Copia Unidades y Costo unitario juntas (dos columnas) — mismo orden de filas que Referencias"
+                  onClick={async () => {
+                    const tsv = items
+                      .map((i: any) => [String(Number(i.units ?? 0)).replace('.', ','), String(Number(i.unit_cost ?? 0)).replace('.', ',')].join('\t'))
+                      .join('\n');
+                    try {
+                      await navigator.clipboard.writeText(tsv);
+                      toast({ title: `${items.length} filas copiadas`, description: 'Unidades · Costo unit. (2 columnas). Mismo orden que Referencias.' });
+                    } catch {
+                      toast({ title: 'No se pudo copiar', description: 'El navegador bloqueó el portapapeles — probá con la pestaña activa.', variant: 'destructive' });
+                    }
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Unid. + costo
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
                   <Pencil className="h-3.5 w-3.5" />
