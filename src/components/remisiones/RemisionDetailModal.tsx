@@ -237,6 +237,40 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
   };
 
   const items = (remision as any)?.remision_items || [];
+
+  // ── Copiar para Excel (formato de control interno de Nico) ──
+  // Números con coma decimal (Excel es-CO) y sin símbolo $, para que Excel
+  // los tome como números. Mismo orden de filas en toda copia.
+  const COLS: Array<{ key: string; label: string; right?: boolean; get: (i: any) => string }> = [
+    { key: 'reference', label: 'Referencia', get: (i) => i.reference ?? '' },
+    { key: 'product', label: 'Producto', get: (i) => i.product_name ?? '' },
+    { key: 'units', label: 'Unidades', right: true, get: (i) => String(Number(i.units ?? 0)).replace('.', ',') },
+    { key: 'unit_cost', label: 'Costo unit.', right: true, get: (i) => String(Number(i.unit_cost ?? 0)).replace('.', ',') },
+    { key: 'total', label: 'Total', right: true, get: (i) => String(Number(i.total_cost ?? 0)).replace('.', ',') },
+  ];
+
+  const copiarTexto = async (texto: string, titulo: string, desc?: string) => {
+    try {
+      await navigator.clipboard.writeText(texto);
+      toast({ title: titulo, description: desc });
+    } catch {
+      toast({ title: 'No se pudo copiar', description: 'El navegador bloqueó el portapapeles — probá con la pestaña activa.', variant: 'destructive' });
+    }
+  };
+
+  const copiarColumna = (col: (typeof COLS)[number]) =>
+    copiarTexto(
+      items.map(col.get).join('\n'),
+      `Columna ${col.label} copiada`,
+      `${items.length} filas, mismo orden de la tabla.`,
+    );
+
+  const copiarRemisionCompleta = () =>
+    copiarTexto(
+      [COLS.map((c) => c.label).join('\t'), ...items.map((i: any) => COLS.map((c) => c.get(i)).join('\t'))].join('\n'),
+      'Remisión copiada completa',
+      `${items.length} filas × ${COLS.length} columnas, con encabezados — pegala donde la necesités.`,
+    );
   const totalUnidades = items.reduce((s: number, i: any) => s + Number(i.units), 0);
   const totalValor = remision?.total_manual
     ? Number(remision.total_manual)
@@ -251,6 +285,17 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
           <div className="flex items-center justify-between gap-3">
             <DialogTitle className="flex items-center gap-2 flex-wrap">
               {isLoading ? 'Cargando...' : `Remisión ${(remision as any)?.number}`}
+              {remision && !editing && items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={copiarRemisionCompleta}
+                  className="text-muted-foreground hover:text-primary transition-colors"
+                  title="Copiar la remisión completa (todas las columnas, con encabezados) — para exportar a otros archivos"
+                  aria-label="Copiar remisión completa"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              )}
               {(remision as any)?.quotation?.quote_number && (
                 <Badge variant="outline" className="text-[10px] font-normal" title="Cotización de la que nació esta remisión">
                   Origen: {(remision as any).quotation.quote_number}
@@ -258,54 +303,10 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
               )}
             </DialogTitle>
             {remision && !editing && (
-              <div className="flex items-center gap-1.5">
-                {/* Dos copias separadas por el formato del Excel de control
-                    interno de Nico: referencias van en una zona, unidades +
-                    costo en otra. MISMO orden de filas en ambas, así pegan
-                    alineadas. Decimales con coma (Excel es-CO). */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5"
-                  title="Copia SOLO la columna Referencia (una por fila) — pegala en tu Excel"
-                  onClick={async () => {
-                    const texto = items.map((i: any) => i.reference ?? '').join('\n');
-                    try {
-                      await navigator.clipboard.writeText(texto);
-                      toast({ title: `${items.length} referencias copiadas`, description: 'Una columna. Mismo orden que la tabla.' });
-                    } catch {
-                      toast({ title: 'No se pudo copiar', description: 'El navegador bloqueó el portapapeles — probá con la pestaña activa.', variant: 'destructive' });
-                    }
-                  }}
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  Referencias
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5"
-                  title="Copia Unidades y Costo unitario juntas (dos columnas) — mismo orden de filas que Referencias"
-                  onClick={async () => {
-                    const tsv = items
-                      .map((i: any) => [String(Number(i.units ?? 0)).replace('.', ','), String(Number(i.unit_cost ?? 0)).replace('.', ',')].join('\t'))
-                      .join('\n');
-                    try {
-                      await navigator.clipboard.writeText(tsv);
-                      toast({ title: `${items.length} filas copiadas`, description: 'Unidades · Costo unit. (2 columnas). Mismo orden que Referencias.' });
-                    } catch {
-                      toast({ title: 'No se pudo copiar', description: 'El navegador bloqueó el portapapeles — probá con la pestaña activa.', variant: 'destructive' });
-                    }
-                  }}
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  Unid. + costo
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
-                  <Pencil className="h-3.5 w-3.5" />
-                  Editar
-                </Button>
-              </div>
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
+                <Pencil className="h-3.5 w-3.5" />
+                Editar
+              </Button>
             )}
           </div>
         </DialogHeader>
@@ -382,11 +383,24 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Referencia</TableHead>
-                    <TableHead>Producto</TableHead>
-                    <TableHead className="text-right">Unidades</TableHead>
-                    <TableHead className="text-right">Costo unit.</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
+                    {COLS.map((col) => (
+                      <TableHead key={col.key} className={col.right ? 'text-right' : undefined}>
+                        <span className={`inline-flex items-center gap-1 ${col.right ? 'justify-end w-full' : ''}`}>
+                          {col.label}
+                          {!editing && items.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => copiarColumna(col)}
+                              className="text-muted-foreground/60 hover:text-primary transition-colors"
+                              title={`Copiar la columna ${col.label} completa (${items.length} filas)`}
+                              aria-label={`Copiar columna ${col.label}`}
+                            >
+                              <Copy className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      </TableHead>
+                    ))}
                     {editing && <TableHead className="w-10"></TableHead>}
                   </TableRow>
                 </TableHeader>
