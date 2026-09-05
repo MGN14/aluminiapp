@@ -62,6 +62,10 @@ export default function VincularFacturaModal({ remisionId, remisionNumber, open,
         .from('invoices')
         .select('id, invoice_number, issue_date, total_amount, counterparty_name, display_name, responsible_id')
         .eq('type', 'venta')
+        // Anuladas por nota crédito NO se sugieren ni se pueden vincular
+        // (bug real: 2 NCs y Remisiones seguía sugiriendo esas facturas,
+        // Nico 2026-09-04). Las parciales siguen: tienen saldo vivo.
+        .or('void_type.is.null,void_type.eq.partial')
         .order('issue_date', { ascending: false });
       return data || [];
     },

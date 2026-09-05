@@ -46,7 +46,7 @@ export function useBankInvoiceMatches() {
         .select(`
           id, user_id, transaction_id, invoice_id, confidence, signals, status, suggested_at,
           transactions(date, description, amount),
-          invoices(invoice_number, counterparty_name, total_amount, balance_pending)
+          invoices(invoice_number, counterparty_name, total_amount, balance_pending, void_type)
         `)
         .eq('status', 'pending')
         .order('confidence', { ascending: false })
@@ -56,7 +56,13 @@ export function useBankInvoiceMatches() {
         console.warn('bank match suggestions query failed:', error.message);
         return [];
       }
-      return ((data ?? []) as any[]).map((r: any) => ({
+      return ((data ?? []) as any[])
+        // Sugerencias creadas ANTES de una nota crédito: el matcher SQL ya no
+        // genera nuevas contra facturas anuladas (voided_at IS NULL), pero
+        // las 'pending' viejas quedaban vivas apuntando a facturas que ya no
+        // existen (bug Nico 2026-09-04). Acá se ocultan.
+        .filter((r: any) => r.invoices?.void_type !== 'total')
+        .map((r: any) => ({
         ...r,
         tx_date: r.transactions?.date,
         tx_description: r.transactions?.description,

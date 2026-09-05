@@ -273,7 +273,10 @@ export async function fetchDatosVentasProbable(): Promise<DatosVentasProbable> {
       .select('id, invoice_number, responsible_id, issue_date, balance_pending')
       .eq('type', 'venta')
       .gt('balance_pending', 0)
-      .is('voided_at', null),
+      // Solo excluir anulación TOTAL: una NC parcial deja saldo vivo y esa
+      // factura SÍ es candidata de cobro (antes .is('voided_at', null) las
+      // botaba también).
+      .or('void_type.is.null,void_type.eq.partial'),
     db.from('transactions')
       .select('responsible_id, invoice_id, amount, date')
       .is('deleted_at', null)
@@ -284,6 +287,8 @@ export async function fetchDatosVentasProbable(): Promise<DatosVentasProbable> {
     db.from('invoices')
       .select('id, issue_date, responsible_id')
       .eq('type', 'venta')
+      // Una factura anulada nunca se pagó: no aporta al hábito de pago.
+      .or('void_type.is.null,void_type.eq.partial')
       .order('issue_date', { ascending: false })
       .limit(4000),
   ]);
