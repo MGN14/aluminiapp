@@ -21,6 +21,8 @@
 
 export interface InvoiceLite {
   type: 'venta' | 'compra';
+  /** Para excluir recibos de impuestos cargados como "compra" (DIAN, Hacienda). */
+  counterparty_name?: string | null;
   issue_date: string; // YYYY-MM-DD
   subtotal_base: number;
   iva_amount: number;
@@ -63,6 +65,17 @@ export interface TaxEstimate {
 const fmt = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
+/**
+ * Entidades de impuestos: sus "facturas de compra" son recibos de pago (el
+ * PDF del PSE de la DIAN parseado como factura), no compras con IVA
+ * descontable. Caso real: dos "compras" DIAN - PSE de 111M/113M con 91M/95M
+ * de "IVA" dejaban el IVA May-Ago en $0 por arrastre (Nico 2026-09-17).
+ */
+export function isTaxAuthorityName(name?: string | null): boolean {
+  const n = (name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /\bdian\b|direccion de impuestos|\bimpuestos?\b|secretaria de hacienda|hacienda distrital|tesoreria/.test(n);
+}
+
 const monthOf = (iso: string) => Number(iso.slice(5, 7));
 const yearOf = (iso: string) => Number(iso.slice(0, 4));
 const inPeriod = (iso: string, year: number, months: number[]) =>
@@ -88,7 +101,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 /** Neto de IVA de un período (sin arrastre). */
 function ivaNetoPeriodo(inp: TaxInputs, months: number[]) {
   const ventas = inp.invoices.filter((i) => i.type === 'venta' && inPeriod(i.issue_date, inp.year, months));
-  const compras = inp.invoices.filter((i) => i.type === 'compra' && inPeriod(i.issue_date, inp.year, months));
+  const compras = inp.invoices.filter((i) => i.type === 'compra' && inPeriod(i.issue_date, inp.year, months) && !isTaxAuthorityName(i.counterparty_name));
   const generado = ventas.reduce((s, i) => s + (Number(i.iva_amount) || 0), 0);
   const descFacturas = compras.reduce((s, i) => s + (Number(i.iva_amount) || 0), 0);
   const descImport = inp.importIva
@@ -132,7 +145,7 @@ export function estimateRetefuente(inp: TaxInputs, monthIndex: number): TaxEstim
   const today = inp.today ?? todayIso();
   if (!periodStarted(inp.year, months, today)) return null;
   const ventas = inp.invoices.filter((i) => i.type === 'venta' && inPeriod(i.issue_date, inp.year, months));
-  const compras = inp.invoices.filter((i) => i.type === 'compra' && inPeriod(i.issue_date, inp.year, months));
+  const compras = inp.invoices.filter((i) => i.type === 'compra' && inPeriod(i.issue_date, inp.year, months) && !isTaxAuthorityName(i.counterparty_name));
 
   let autorret = 0;
   if (inp.rates.autorretenedor) {

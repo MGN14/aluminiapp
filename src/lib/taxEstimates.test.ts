@@ -4,7 +4,7 @@
  * pagada en aduana el 26-jul, compras 1,55M).
  */
 import { describe, it, expect } from 'vitest';
-import { estimateIva, estimateRetefuente, estimateIca, estimateForEventId, periodMonths, type TaxInputs } from './taxEstimates';
+import { estimateIva, estimateRetefuente, estimateIca, estimateForEventId, periodMonths, isTaxAuthorityName, type TaxInputs } from './taxEstimates';
 
 const venta = (issue_date: string, base: number, extra: Partial<{ reteica: number; autoret: number }> = {}) => ({
   type: 'venta' as const, issue_date, subtotal_base: base, iva_amount: Math.round(base * 0.19),
@@ -102,5 +102,27 @@ describe('por id de evento', () => {
     expect(estimateForEventId(NICO, 'ret-7')?.monto).toBe(estimateRetefuente(NICO, 7)?.monto);
     expect(estimateForEventId(NICO, 'ica-3')?.monto).toBe(estimateIca(NICO, 3)?.monto);
     expect(estimateForEventId(NICO, 'renta-2025')).toBeNull();
+  });
+});
+
+describe('recibos de la DIAN cargados como compra', () => {
+  it('no cuentan como IVA descontable ni generan arrastre (caso real: May-Ago quedaba en $0)', () => {
+    const inp: TaxInputs = {
+      ...NICO,
+      invoices: [
+        ...NICO.invoices,
+        { type: 'compra', counterparty_name: 'DIAN - PSE', issue_date: '2026-01-29', subtotal_base: 113_406_000, iva_amount: 94_957_000, reteica_amount: 0, autoretefuente_amount: 0 },
+        { type: 'compra', counterparty_name: 'DIAN - PSE', issue_date: '2026-04-20', subtotal_base: 111_172_000, iva_amount: 91_000_000, reteica_amount: 0, autoretefuente_amount: 0 },
+      ],
+    };
+    expect(estimateIva(inp, 1)!.monto).toBe(estimateIva(NICO, 1)!.monto);
+    expect(estimateIva(inp, 1)!.monto).toBeGreaterThan(80_000_000);
+  });
+  it('reconoce DIAN, Hacienda y Tesorería; no a un proveedor normal', () => {
+    expect(isTaxAuthorityName('DIAN - PSE')).toBe(true);
+    expect(isTaxAuthorityName('Secretaría de Hacienda Distrital')).toBe(true);
+    expect(isTaxAuthorityName('Dirección de Impuestos y Aduanas')).toBe(true);
+    expect(isTaxAuthorityName('Aluminios Ferromendez')).toBe(false);
+    expect(isTaxAuthorityName('Shandong')).toBe(false);
   });
 });

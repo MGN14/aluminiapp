@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { isTaxAuthorityName } from '@/lib/taxEstimates';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileText, Users, Package, Info } from 'lucide-react';
@@ -379,7 +380,8 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     // ivaGenerado/ivaDescontable: del cuatrimestre actual (para mostrar detalle)
     const ivaSource = cuatrimestreInvoices.length > 0 ? cuatrimestreInvoices : invoices;
     const ivaVentas = ivaSource.filter(i => i.type === 'venta');
-    const ivaCompras = ivaSource.filter(i => i.type === 'compra');
+    // Recibos de la DIAN cargados como "compra" no son IVA descontable.
+    const ivaCompras = ivaSource.filter(i => i.type === 'compra' && !isTaxAuthorityName(i.counterparty_name));
     const ivaGenerado = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
 
     // IVA de importación por período: descontable como el de una compra DIAN.
@@ -399,7 +401,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     // un cuatrimestre se imputa al siguiente automáticamente (no se pierde).
     // Por eso ivaNeto = YTD, no del cuatrimestre aislado.
     const ivaGeneradoYtd = ventasYear.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaDescontableYtd = comprasYear.reduce((s, i) => s + i.iva_amount, 0) + ivaImportYtd;
+    const ivaDescontableYtd = comprasYear.filter(i => !isTaxAuthorityName(i.counterparty_name)).reduce((s, i) => s + i.iva_amount, 0) + ivaImportYtd;
     const ivaNetoYtd = ivaGeneradoYtd - ivaDescontableYtd;
 
     // ivaNeto que ve el dashboard: saldo VIVO (YTD acumulado, con arrastre).

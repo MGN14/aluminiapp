@@ -12,6 +12,7 @@ import { usePaidObligations } from '@/hooks/usePaidObligations';
 import { usePredictedObligations } from '@/hooks/usePredictedObligations';
 import { TIPO_LABEL, type ObligacionTipo } from '@/lib/dianCalendar2026';
 import { cn } from '@/lib/utils';
+import { urgencyOf, pillLabel, ROW_BG, PILL, fmtCop, fmtFecha, type Urgency } from './cardKit';
 
 const MAX_ITEMS = 5;
 const UPCOMING_WINDOW_DAYS = 45;
@@ -50,47 +51,6 @@ const TIPO_TILE: Record<ObligacionTipo, string> = {
   importacion: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
   otro: 'bg-slate-500/15 text-slate-600 dark:text-slate-300',
 };
-
-type Urgency = 'overdue' | 'critical' | 'soon' | 'week' | 'later';
-
-function urgencyOf(days: number): Urgency {
-  if (days < 0) return 'overdue';
-  if (days <= 1) return 'critical';
-  if (days <= 3) return 'soon';
-  if (days <= 7) return 'week';
-  return 'later';
-}
-
-/** Fondo de la fila: la urgencia se ve antes de leer. */
-const ROW_BG: Record<Urgency, string> = {
-  overdue: 'bg-destructive/10 border-destructive/40 hover:bg-destructive/15',
-  critical: 'bg-destructive/[0.06] border-destructive/30 hover:bg-destructive/10',
-  soon: 'bg-orange-500/[0.07] border-orange-300/70 dark:border-orange-800/60 hover:bg-orange-500/10',
-  week: 'bg-amber-500/[0.06] border-amber-300/60 dark:border-amber-800/50 hover:bg-amber-500/10',
-  later: 'bg-card border-border/60 hover:bg-muted/40',
-};
-
-/** Píldora de días: contraste alto, se lee desde lejos. */
-const PILL: Record<Urgency, string> = {
-  overdue: 'bg-destructive text-destructive-foreground',
-  critical: 'bg-destructive text-destructive-foreground',
-  soon: 'bg-orange-500 text-white',
-  week: 'bg-amber-400 text-amber-950',
-  later: 'bg-muted text-muted-foreground',
-};
-
-function pillLabel(days: number): string {
-  if (days < 0) return `Vencida ${Math.abs(days)}d`;
-  if (days === 0) return 'Hoy';
-  if (days === 1) return 'Mañana';
-  return `${days} días`;
-}
-
-const fmtCop = (n: number) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
-
-const fmtFecha = (d: Date) =>
-  d.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
 
 /** Cuadro de ícono por tipo. */
 function TipoTile({ tipo, className }: { tipo: ObligacionTipo; className?: string }) {

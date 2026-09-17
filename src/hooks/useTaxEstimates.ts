@@ -36,7 +36,7 @@ export function useTaxEstimates(p: Params) {
       const [invRes, settingsRes, manualRes, impRes] = await Promise.all([
         (supabase as any)
           .from('invoices')
-          .select('type, issue_date, subtotal_base, iva_amount, reteica_amount, autoretefuente_amount, void_type')
+          .select('type, counterparty_name, issue_date, subtotal_base, iva_amount, reteica_amount, autoretefuente_amount, void_type')
           .eq('status', 'confirmed')
           .gte('issue_date', from)
           .lte('issue_date', to)
@@ -62,6 +62,7 @@ export function useTaxEstimates(p: Params) {
         .filter((r) => r?.void_type !== 'total' && (r?.type === 'venta' || r?.type === 'compra'))
         .map((r) => ({
           type: r.type,
+          counterparty_name: r.counterparty_name ?? null,
           issue_date: String(r.issue_date),
           subtotal_base: Number(r.subtotal_base) || 0,
           iva_amount: Number(r.iva_amount) || 0,
