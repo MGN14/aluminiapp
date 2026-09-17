@@ -4,7 +4,7 @@
  * pagada en aduana el 26-jul, compras 1,55M).
  */
 import { describe, it, expect } from 'vitest';
-import { estimateIva, estimateRetefuente, estimateIca, estimateForEventId, periodMonths, isTaxAuthorityName, type TaxInputs } from './taxEstimates';
+import { estimateIva, estimateRetefuente, estimateIca, estimateForEventId, periodMonths, type TaxInputs } from './taxEstimates';
 
 const venta = (issue_date: string, base: number, extra: Partial<{ reteica: number; autoret: number }> = {}) => ({
   type: 'venta' as const, issue_date, subtotal_base: base, iva_amount: Math.round(base * 0.19),
@@ -21,7 +21,8 @@ const NICO: TaxInputs = {
   ivaCuatrimestral: true,
   today: '2026-09-16',
   invoices: [
-    venta('2026-02-10', 300_000_000), venta('2026-03-10', 300_000_000), // Ene-Abr: solo generado → se paga, no arrastra
+    // Ene-Abr reales de Nico (sin compras): solo generado → se paga, no arrastra
+    venta('2026-02-10', 98_783_916), venta('2026-03-10', 166_287_256), venta('2026-04-10', 235_528_034),
     venta('2026-05-12', 311_728_571), venta('2026-06-09', 296_106_723),
     venta('2026-07-14', 225_640_756), venta('2026-08-20', 74_962_353, { reteica: 500_000, autoret: 412_000 }),
     compra('2026-07-20', 8_000_000), compra('2026-08-05', 155_000),
@@ -105,24 +106,27 @@ describe('por id de evento', () => {
   });
 });
 
-describe('recibos de la DIAN cargados como compra', () => {
-  it('no cuentan como IVA descontable ni generan arrastre (caso real: May-Ago quedaba en $0)', () => {
-    const inp: TaxInputs = {
-      ...NICO,
-      invoices: [
-        ...NICO.invoices,
-        { type: 'compra', counterparty_name: 'DIAN - PSE', issue_date: '2026-01-29', subtotal_base: 113_406_000, iva_amount: 94_957_000, reteica_amount: 0, autoretefuente_amount: 0 },
-        { type: 'compra', counterparty_name: 'DIAN - PSE', issue_date: '2026-04-20', subtotal_base: 111_172_000, iva_amount: 91_000_000, reteica_amount: 0, autoretefuente_amount: 0 },
-      ],
-    };
-    expect(estimateIva(inp, 1)!.monto).toBe(estimateIva(NICO, 1)!.monto);
-    expect(estimateIva(inp, 1)!.monto).toBeGreaterThan(80_000_000);
+describe('liquidaciones de aduana cargadas como compra DIAN - PSE (contenedores previos al módulo)', () => {
+  const conAduana: TaxInputs = {
+    ...NICO,
+    invoices: [
+      ...NICO.invoices,
+      { type: 'compra', counterparty_name: 'DIAN - PSE', issue_date: '2026-01-29', subtotal_base: 113_406_000, iva_amount: 94_957_000, reteica_amount: 0, autoretefuente_amount: 0 },
+      { type: 'compra', counterparty_name: 'DIAN - PSE', issue_date: '2026-04-20', subtotal_base: 111_172_000, iva_amount: 91_000_000, reteica_amount: 0, autoretefuente_amount: 0 },
+    ],
+  };
+  it('su IVA es descontable: Ene-Abr queda con saldo a favor', () => {
+    const e = estimateIva(conAduana, 0)!;
+    expect(e.monto).toBe(0);
+    expect(e.detalle).toContain('queda saldo a favor');
   });
-  it('reconoce DIAN, Hacienda y Tesorería; no a un proveedor normal', () => {
-    expect(isTaxAuthorityName('DIAN - PSE')).toBe(true);
-    expect(isTaxAuthorityName('Secretaría de Hacienda Distrital')).toBe(true);
-    expect(isTaxAuthorityName('Dirección de Impuestos y Aduanas')).toBe(true);
-    expect(isTaxAuthorityName('Aluminios Ferromendez')).toBe(false);
-    expect(isTaxAuthorityName('Shandong')).toBe(false);
+  it('el saldo a favor cubre May-Ago: se paga $0 (no $88M) y sobra un poco', () => {
+    const e = estimateIva(conAduana, 1)!;
+    expect(e.monto).toBe(0);
+    expect(e.detalle).toContain('saldo a favor');
+    // Ene-Abr: 185,96M de aduana − 95,1M generado = 90,85M a favor; May-Ago
+    // neto 88,26M → queda ≈2,6M a favor para Sep-Dic.
+    const sep = estimateIva(conAduana, 2)!;
+    expect(sep.monto).toBeLessThan(Math.round(155_599_916 * 0.19));
   });
 });

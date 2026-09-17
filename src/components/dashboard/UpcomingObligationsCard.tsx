@@ -190,6 +190,8 @@ export default function UpcomingObligationsCard() {
               const dias = diasRestantes(ev.fecha);
               const u = urgencyOf(dias);
               const hasMonto = ev.monto != null && ev.monto > 0;
+              // Estimado en $0 (saldo a favor cubre el período) ≠ sin dato.
+              const esCeroEstimado = !hasMonto && ev.montoEstimado && ev.monto === 0;
               return (
                 <div
                   key={ev.id}
@@ -218,8 +220,8 @@ export default function UpcomingObligationsCard() {
                     </p>
                   </div>
                   <div className="shrink-0 flex flex-col items-end gap-1">
-                    <span className={cn('text-[14px] font-bold tabular-nums leading-none', hasMonto ? 'text-foreground' : 'text-muted-foreground/60')}>
-                      {hasMonto ? `${ev.montoEstimado ? '≈ ' : ''}${fmtCop(ev.monto!)}` : '—'}
+                    <span className={cn('text-[14px] font-bold tabular-nums leading-none', hasMonto ? 'text-foreground' : esCeroEstimado ? 'text-success' : 'text-muted-foreground/60')}>
+                      {hasMonto ? `${ev.montoEstimado ? '≈ ' : ''}${fmtCop(ev.monto!)}` : esCeroEstimado ? '≈ $0' : '—'}
                     </span>
                     <span className={cn('text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none', PILL[u])}>
                       {pillLabel(dias)}
