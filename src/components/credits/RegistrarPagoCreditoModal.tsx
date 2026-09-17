@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { suggestPaymentSplit, simulateExtraPayment } from '@/lib/amortization';
+import { suggestPaymentSplit, simulateExtraPayment, capitalFijoMensual } from '@/lib/amortization';
 import type { CreditWithSummary, CreditPayment } from '@/hooks/useCredits';
 import { TrendingDown, Pencil } from 'lucide-react';
 
@@ -79,14 +79,31 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
     }
   }, [prefillCuota, editingPayment, prefillExtra, open]);
 
-  // Auto-sugerencia de split cuando cambia monto o isExtra (solo si no hay prefill activo)
+  // Auto-sugerencia de split cuando cambia monto o isExtra.
   useEffect(() => {
     if (!credit) return;
-    if (prefillCuota || editingPayment) return; // respetar prefill explícito
+    if (editingPayment) return; // corrigiendo un pago: no tocar lo que escribió
     const num = parseFloat(amount);
     if (!num || num <= 0) {
       setPrincipalPart('');
       setInterestPart('');
+      return;
+    }
+    if (prefillCuota && !isExtra) {
+      // Cuota pre-llenada: el capital es el del plan (fijo en alemana). Si
+      // Nico cambia el monto al que realmente debitó el banco (interés por
+      // días reales), la diferencia va al INTERÉS y el capital no se corre.
+      // Un pago corto paga primero el interés, como hace el banco.
+      const capPlan = Math.round(prefillCuota.capitalEfectivo);
+      const intPlan = Math.round(prefillCuota.interesEfectivo);
+      if (num >= capPlan + intPlan) {
+        setPrincipalPart(String(capPlan));
+        setInterestPart(String(Math.round(num - capPlan)));
+      } else {
+        const intr = Math.min(Math.round(num), intPlan);
+        setPrincipalPart(String(Math.round(num - intr)));
+        setInterestPart(String(intr));
+      }
       return;
     }
     const split = suggestPaymentSplit(
@@ -94,6 +111,7 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
       Number(credit.credit.interest_rate_monthly),
       num,
       isExtra,
+      capitalFijoMensual(credit.credit),
     );
     setPrincipalPart(split.principal.toString());
     setInterestPart(split.interest.toString());
@@ -198,7 +216,7 @@ export default function RegistrarPagoCreditoModal({ credit, open, onOpenChange, 
               </div>
               {credit.summary.nextCuota && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Próxima cuota teórica</span>
+                  <span className="text-muted-foreground">Próxima cuota estimada</span>
                   <span>{fmt(credit.summary.nextCuota.cuotaTotal)} ({credit.summary.nextCuota.fecha})</span>
                 </div>
               )}

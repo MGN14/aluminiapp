@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { FileText, Search, X, ShieldCheck, Receipt, Plus, Wallet, CreditCard, Ship } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { suggestPaymentSplit, summarizeCredit, type AmortizationType } from '@/lib/amortization';
+import { suggestPaymentSplit, summarizeCredit, capitalFijoMensual, type AmortizationType } from '@/lib/amortization';
 import { fetchTrmForDate } from '@/hooks/useImportPayments';
 import { invoiceRetenciones } from '@/lib/invoiceBalance';
 import { calculateAllClientReceivables } from '@/lib/clientReceivables';
@@ -93,6 +93,8 @@ interface CreditOption {
   default_responsible_id: string | null;
   currentBalance: number;
   nextCuotaAmount: number | null;
+  /** Capital fijo por cuota (alemana); null en francesa/bullet. */
+  capitalFijo: number | null;
 }
 
 function formatCurrency(value: number) {
@@ -308,6 +310,11 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
           default_responsible_id: c.default_responsible_id,
           currentBalance: summary.currentBalance,
           nextCuotaAmount: summary.nextCuota?.cuotaTotal ?? null,
+          capitalFijo: capitalFijoMensual({
+            amortization_type: c.amortization_type,
+            principal: Number(c.principal),
+            term_months: c.term_months,
+          }),
         };
       });
       setCredits(enrichedCreds);
@@ -531,6 +538,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
       credit.interest_rate_monthly,
       amountPaid,
       false,
+      credit.capitalFijo,
     );
     const newBalance = credit.currentBalance - split.principal;
 

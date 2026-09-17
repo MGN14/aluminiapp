@@ -25,7 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, Link2, Search, Calendar, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { suggestPaymentSplit, summarizeCredit, type AmortizationType } from '@/lib/amortization';
+import { suggestPaymentSplit, summarizeCredit, capitalFijoMensual, type AmortizationType } from '@/lib/amortization';
 import { linkCreditPayment } from '@/lib/creditLink';
 
 interface InvoiceCandidate {
@@ -362,6 +362,7 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
         Number(credit.interest_rate_monthly),
         tx.amount,
         false,
+        capitalFijoMensual(credit),
       );
 
       // Dedupe: si la tx ya respalda un pago no duplica, y si el pago ya
@@ -620,6 +621,7 @@ export default function VincularFacturaTxModal({ open, onOpenChange, tx, onSucce
                 Number(credit.interest_rate_monthly),
                 tx.amount,
                 false,
+                capitalFijoMensual(credit),
               );
               return (
                 <div className="rounded-md border bg-muted/30 p-2.5 text-xs space-y-0.5">

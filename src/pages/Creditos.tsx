@@ -276,9 +276,12 @@ export default function Creditos() {
                                         const isPagada = row.estado === 'pagada';
                                         const isParcial = row.estado === 'parcial';
                                         const isPendiente = row.estado === 'pendiente';
-                                        const capitalShow = isPendiente ? row.capitalEfectivo : row.capitalPagado;
-                                        const interesShow = isPendiente ? row.interesEfectivo : row.interesPagado;
-                                        const cuotaShow = isPendiente ? capitalShow + interesShow : row.cuotaTotal;
+                                        // Pagada: lo que REALMENTE se pagó de la cuota (sin el abono extra, que
+                                        // tiene su columna). Pendiente/parcial: la cuota esperada dado el saldo
+                                        // real (en alemana: capital fijo + interés sobre saldo).
+                                        const capitalShow = isPagada ? row.capitalEfectivo : row.capitalPagado;
+                                        const interesShow = isPagada ? row.interesEfectivo : row.interesPagado;
+                                        const cuotaShow = isPagada ? row.pagadoNormal : row.cuotaTotal;
                                         return (
                                           <tr
                                             key={row.cuotaNumero}
@@ -346,7 +349,7 @@ export default function Creditos() {
                                                     // Parcial: pre-llenar solo lo que FALTA (interés teórico
                                                     // primero, el resto a capital).
                                                     const falta = isParcial
-                                                      ? Math.max(0, row.cuotaTotal - row.pagadoEnCuota)
+                                                      ? Math.max(0, row.cuotaTotal - row.pagadoNormal)
                                                       : cuotaShow;
                                                     const intFalta = isParcial
                                                       ? Math.max(0, Math.min(falta, row.interesPagado - row.interesEfectivo))
@@ -390,7 +393,11 @@ export default function Creditos() {
 
                                 {c.summary.scheduleWithStatus.some((r) => r.recalculada || r.estado === 'saldado') && (
                                   <p className="text-[10px] text-muted-foreground italic">
-                                    ★ Cuota recalculada por abono extra (modalidad: reducir plazo). Las cuotas finales pueden quedar saldadas si el saldo llega a cero antes.
+                                    ★ Cuota recalculada por abono extra (modalidad: reducir plazo).
+                                    {c.credit.amortization_type === 'alemana'
+                                      ? ' El capital de cada cuota sigue fijo y solo baja el interés; el crédito termina antes.'
+                                      : ' La cuota se mantiene y baja el capital pendiente; el crédito termina antes.'}
+                                    {' '}El banco liquida el interés por días reales, así que el débito puede variar unos pesos.
                                   </p>
                                 )}
 

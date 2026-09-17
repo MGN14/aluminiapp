@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildAmortization, simulateExtraPayment, summarizeCredit } from './amortization';
+import { buildAmortization, simulateExtraPayment, summarizeCredit, suggestPaymentSplit, capitalFijoMensual } from './amortization';
 
 const CREDITO = {
   principal: 100_000_000,
@@ -143,7 +143,12 @@ describe('asignación de pagos a cuotas — FIFO por cuota impaga (fix 2026-08-1
       interest_paid: 0,
       is_extra: true,
     }]);
-    expect(s.scheduleWithStatus[0].estado).toBe('parcial'); // tocada pero la obligación del mes sigue viva
+    // El abono va a capital: la obligación del mes sigue viva y la fila
+    // sigue mostrando la cuota esperada (no el abono como si fuera la cuota).
+    expect(s.scheduleWithStatus[0].estado).toBe('pendiente');
+    expect(s.scheduleWithStatus[0].abonoExtraCapital).toBe(10_000_000);
+    expect(s.scheduleWithStatus[0].capitalEfectivo).toBeCloseTo(4_166_666.67, 0);
+    expect(s.scheduleWithStatus[0].interesEfectivo).toBeCloseTo(1_330_000, 0);
     expect(s.currentBalance).toBe(90_000_000);
   });
 
@@ -208,5 +213,140 @@ describe('liquidación real del banco y ventana de abonos (fix 2026-08-19 pt.2)'
     expect(s.scheduleWithStatus[1].interesEfectivo).toBeCloseTo(saldoTrasCuota1YAbono * 0.0133, 0);
     // Y el saldo real de la fila 1 ya refleja el abono
     expect(s.scheduleWithStatus[0].saldoRealRestante).toBe(saldoTrasCuota1YAbono);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Crédito REAL de Nico (2026-09-16): $100M, 24 meses, 1.37% MV, ALEMANA,
+// primera cuota 15-ago-2026. Cuota 1 debitada el 19-ago por $5.561.493 y ese
+// mismo día abono extra de $10M. Bancolombia cobró la cuota 2 en $5.384.239.
+// ─────────────────────────────────────────────────────────────────────────────
+const NICO = {
+  principal: 100_000_000,
+  interestRateMonthlyPct: 1.37,
+  termMonths: 24,
+  firstPaymentDate: '2026-08-15',
+  type: 'alemana' as const,
+};
+const CUOTA1 = { payment_date: '2026-08-19', amount_paid: 5_561_493, principal_paid: 4_191_493, interest_paid: 1_370_000, is_extra: false };
+const ABONO1 = { payment_date: '2026-08-19', amount_paid: 10_000_000, principal_paid: 10_000_000, interest_paid: 0, is_extra: true };
+
+describe('alemana + abono extra: el capital sigue FIJO y solo baja el interés (fix 2026-09-16)', () => {
+  const s = summarizeCredit(NICO, [CUOTA1, ABONO1]);
+  const [r1, r2, r3] = s.scheduleWithStatus;
+
+  it('cuota 1 pagada muestra lo que realmente se pagó (no el plan)', () => {
+    expect(r1.estado).toBe('pagada');
+    expect(r1.capitalEfectivo).toBe(4_191_493);
+    expect(r1.interesEfectivo).toBe(1_370_000);
+    expect(r1.pagadoNormal).toBe(5_561_493);
+    expect(r1.abonoExtraCapital).toBe(10_000_000);
+    expect(r1.saldoRealRestante).toBe(85_808_507);
+  });
+
+  it('cuota 2: capital fijo $4.166.667 + interés sobre $85.808.507 = $5.342.244 (antes: $5.479.583)', () => {
+    expect(r2.estado).toBe('pendiente');
+    expect(r2.recalculada).toBe(true);
+    expect(r2.capitalPagado).toBeCloseTo(4_166_666.67, 0);
+    expect(r2.interesPagado).toBeCloseTo(85_808_507 * 0.0137, 0);
+    expect(r2.cuotaTotal).toBeCloseTo(5_342_243.5, 0);
+    expect(r2.cuotaTotal).toBeLessThan(5_400_000);
+  });
+
+  it('la próxima cuota (KPI, modal, conciliación) es la esperada, no la teórica', () => {
+    expect(s.nextCuota?.cuotaNumero).toBe(2);
+    expect(s.nextCuota?.cuotaTotal).toBe(r2.cuotaTotal);
+  });
+
+  it('las cuotas siguientes bajan sólo por el interés (capital constante)', () => {
+    expect(r3.capitalPagado).toBeCloseTo(4_166_666.67, 0);
+    expect(r2.cuotaTotal - r3.cuotaTotal).toBeCloseTo(4_166_666.67 * 0.0137, 0);
+  });
+
+  it('el crédito termina antes: $85.8M / $4.166.667 = 20,6 cuotas → la 22 cierra y 23-24 quedan saldadas', () => {
+    const estados = s.scheduleWithStatus.map((r) => r.estado);
+    expect(estados[21]).toBe('pendiente');
+    expect(s.scheduleWithStatus[21].capitalPagado).toBeCloseTo(85_808_507 - 20 * (100_000_000 / 24), 0);
+    expect(s.scheduleWithStatus[21].saldoRealRestante).toBe(0);
+    expect(estados[22]).toBe('saldado');
+    expect(estados[23]).toBe('saldado');
+  });
+
+  it('registrar el débito REAL del banco ($5.384.239) cierra la cuota 2 y no contamina la 3', () => {
+    const CUOTA2 = { payment_date: '2026-09-15', amount_paid: 5_384_239, principal_paid: 4_166_667, interest_paid: 1_217_572, is_extra: false };
+    const s2 = summarizeCredit(NICO, [CUOTA1, ABONO1, CUOTA2]);
+    expect(s2.scheduleWithStatus[1].estado).toBe('pagada');
+    expect(s2.scheduleWithStatus[1].pagadoNormal).toBe(5_384_239);
+    expect(s2.scheduleWithStatus[2].estado).toBe('pendiente');
+    expect(s2.nextCuota?.cuotaNumero).toBe(3);
+    expect(s2.currentBalance).toBe(81_641_840);
+    // Cuota 3 esperada sobre el saldo real nuevo
+    expect(s2.scheduleWithStatus[2].interesPagado).toBeCloseTo(81_641_840 * 0.0137, 0);
+  });
+
+  it('un débito unos pesos MENOR a la cuota esperada (menos días) también la cierra', () => {
+    const corta = { payment_date: '2026-09-15', amount_paid: 5_300_000, principal_paid: 4_166_667, interest_paid: 1_133_333, is_extra: false };
+    const cuota3 = { payment_date: '2026-10-15', amount_paid: 5_290_000, principal_paid: 4_166_667, interest_paid: 1_123_333, is_extra: false };
+    const s2 = summarizeCredit(NICO, [CUOTA1, ABONO1, corta, cuota3]);
+    expect(s2.scheduleWithStatus[1].estado).toBe('pagada');
+    // Antes: la 2 quedaba "parcial" y el pago de la 3 se partía para rellenarla
+    expect(s2.scheduleWithStatus[2].estado).toBe('pagada');
+    expect(s2.scheduleWithStatus[2].pagadoNormal).toBe(5_290_000);
+    expect(s2.scheduleWithStatus[3].estado).toBe('pendiente');
+  });
+
+  it('un pago a la mitad sigue siendo parcial', () => {
+    const mitad = { payment_date: '2026-09-15', amount_paid: 2_700_000, principal_paid: 1_524_423, interest_paid: 1_175_577, is_extra: false };
+    const s2 = summarizeCredit(NICO, [CUOTA1, ABONO1, mitad]);
+    expect(s2.scheduleWithStatus[1].estado).toBe('parcial');
+    expect(s2.nextCuota?.cuotaNumero).toBe(2);
+    expect(s2.nextCuota?.cuotaTotal).toBeCloseTo(s2.scheduleWithStatus[1].cuotaTotal - 2_700_000, 0);
+  });
+});
+
+describe('francesa y bullet no se rompieron con la cuota esperada', () => {
+  it('francesa: la cuota se mantiene fija tras un abono y el capital sube', () => {
+    const FR = { ...NICO, type: 'francesa' as const };
+    const plan = buildAmortization(FR);
+    const s = summarizeCredit(FR, [
+      { payment_date: '2026-08-15', amount_paid: plan[0].cuotaTotal, principal_paid: plan[0].capitalPagado, interest_paid: plan[0].interesPagado, is_extra: false },
+      ABONO1,
+    ]);
+    const r2 = s.scheduleWithStatus[1];
+    expect(r2.cuotaTotal).toBeCloseTo(plan[1].cuotaTotal, 0);
+    expect(r2.capitalPagado).toBeGreaterThan(plan[1].capitalPagado);
+  });
+
+  it('bullet: sólo interés sobre el saldo real; el capital va en la última', () => {
+    const BU = { ...NICO, termMonths: 3, type: 'bullet' as const };
+    const s = summarizeCredit(BU, [ABONO1]);
+    expect(s.scheduleWithStatus[0].capitalPagado).toBe(0);
+    expect(s.scheduleWithStatus[0].cuotaTotal).toBeCloseTo(100_000_000 * 0.0137, 0);
+    expect(s.scheduleWithStatus[1].cuotaTotal).toBeCloseTo(90_000_000 * 0.0137, 0);
+    expect(s.scheduleWithStatus[2].capitalPagado).toBe(90_000_000);
+  });
+});
+
+describe('suggestPaymentSplit con capital fijo (alemana)', () => {
+  it('el débito del banco se parte con el capital del contrato y el resto a interés', () => {
+    const split = suggestPaymentSplit(85_808_507, 1.37, 5_384_239, false, capitalFijoMensual({ amortization_type: 'alemana', principal: 100_000_000, term_months: 24 }));
+    expect(split.principal).toBeCloseTo(4_166_666.67, 0);
+    expect(split.interest).toBeCloseTo(5_384_239 - 4_166_666.67, 0);
+  });
+
+  it('un pago corto paga primero el interés', () => {
+    const split = suggestPaymentSplit(85_808_507, 1.37, 2_000_000, false, 4_166_666.67);
+    expect(split.interest).toBeCloseTo(85_808_507 * 0.0137, 0);
+    expect(split.principal).toBeCloseTo(2_000_000 - 85_808_507 * 0.0137, 0);
+  });
+
+  it('sin capital fijo (francesa) sigue igual: interés = saldo × tasa', () => {
+    const split = suggestPaymentSplit(85_808_507, 1.37, 5_384_239, false, capitalFijoMensual({ amortization_type: 'francesa', principal: 100_000_000, term_months: 24 }));
+    expect(split.interest).toBeCloseTo(85_808_507 * 0.0137, 0);
+  });
+
+  it('abono extra: todo a capital', () => {
+    const split = suggestPaymentSplit(85_808_507, 1.37, 10_000_000, true, 4_166_666.67);
+    expect(split).toEqual({ principal: 10_000_000, interest: 0 });
   });
 });
