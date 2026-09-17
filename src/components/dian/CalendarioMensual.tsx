@@ -193,7 +193,7 @@ export default function CalendarioMensual({ events, initialDate }: Props) {
                         </p>
                         <p className="text-xs opacity-80 mt-0.5">
                           {ev.periodo}
-                          {ev.monto ? ` · ${fmtMoney(ev.monto)}` : ''}
+                          {ev.monto ? ` · ${ev.montoEstimado ? '≈' : ''}${fmtMoney(ev.monto)}` : ''}
                           {paid && <span className="ml-1 font-semibold">· ✓ Pagada</span>}
                         </p>
                       </div>

@@ -104,6 +104,11 @@ export interface CalendarEvent {
   fecha: Date;
   periodo: string;
   monto?: number | null;
+  /** True cuando `monto` es una estimación calculada por la app (IVA, retefuente,
+   *  ICA) y no un valor declarado — se muestra con ≈. */
+  montoEstimado?: boolean;
+  /** Desglose corto de la estimación (tooltip / línea secundaria). */
+  detalle?: string;
   origen: 'dian' | 'ica' | 'negocio' | 'credito' | 'cobro_cliente' | 'importacion';
   // For negocio events: ID of the business_obligation row (needed to toggle `completadas`).
   obligationId?: string;

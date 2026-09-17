@@ -3,6 +3,7 @@ import { useFiscalConfig } from '@/hooks/useFiscalConfig';
 import { useBusinessObligations } from '@/hooks/useBusinessObligations';
 import { useCredits } from '@/hooks/useCredits';
 import { useImports } from '@/hooks/useImports';
+import { useTaxEstimates } from '@/hooks/useTaxEstimates';
 import {
   VENCIMIENTOS_IVA_2026,
   VENCIMIENTOS_IVA_CUATRIMESTRAL_2026,
@@ -48,6 +49,15 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
   const regimen = config?.regimen ?? 'comun';
   const nivelIngresos = config?.nivel_ingresos ?? 'mas_92k_uvt';
   const ivaCuatrimestral = regimen === 'comun' && nivelIngresos === 'menos_92k_uvt';
+
+  // Monto estimado de IVA / retefuente / ICA con las facturas del año (el
+  // calendario es 2026). Renta queda en "—".
+  const { estimate: taxEstimate } = useTaxEstimates({
+    year: 2026,
+    ivaCuatrimestral,
+    autorretenedor,
+    agenteRetencion,
+  });
 
   const events: CalendarEvent[] = useMemo(() => {
     const list: CalendarEvent[] = [];
@@ -115,6 +125,16 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
           });
         });
       }
+    }
+
+    // Estimaciones sobre los eventos DIAN/ICA ya armados.
+    for (const ev of list) {
+      if (ev.origen !== 'dian' && ev.origen !== 'ica') continue;
+      const est = taxEstimate(ev.id);
+      if (!est) continue;
+      ev.monto = est.monto;
+      ev.montoEstimado = true;
+      ev.detalle = est.parcial ? `${est.detalle} · hasta hoy` : est.detalle;
     }
 
     const base = new Date();
@@ -190,7 +210,7 @@ export function useUpcomingObligations(urgentWindowDays = 15): UseUpcomingObliga
     }
 
     return list;
-  }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral, creditsData, importsData]);
+  }, [nitDigit, effectiveRentaType, obligations, responsableIva, agenteRetencion, autorretenedor, responsableIca, regimen, ivaCuatrimestral, creditsData, importsData, taxEstimate]);
 
   // Incluye vencidas (d < 0) — no desaparecen al pasar la fecha; solo el
   // checkbox de "pagada" las saca. El caller filtra por isPaid().
