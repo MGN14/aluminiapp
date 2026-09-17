@@ -3,7 +3,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
-import { ArrowRight, AlertTriangle, Zap, ShieldCheck, Info, Upload, Brain, Repeat, Sparkles, Ship, X } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Zap, ShieldCheck, Info, Upload, Brain, Repeat, Sparkles } from 'lucide-react';
+import GirosSinVincularCard, { type GiroSinVincular } from './GirosSinVincularCard';
 import { PeriodSelection } from './UnifiedPeriodFilter';
 import { supabase } from '@/integrations/supabase/client';
 import nicoAvatar from '@/assets/nico-avatar.png';
@@ -82,7 +83,7 @@ interface Props {
 interface GirosSinVincular {
   count: number;
   totalCop: number;
-  txIds: string[];
+  rows: GiroSinVincular[];
 }
 
 const GIROS_DISMISSED_KEY = 'aluminia.dashboard.girosImportDismissed.v1';
@@ -118,7 +119,7 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
       const year = periodSelection.year;
       const { data: txs, error } = await supabase
         .from('transactions')
-        .select('id, amount, description')
+        .select('id, date, amount, description, notes')
         .eq('type', 'egreso')
         .is('deleted_at', null)
         .gte('date', `${year}-01-01`)
@@ -134,28 +135,34 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
       const linkedIds = new Set((((linked as unknown) as { transaction_id: string }[]) ?? []).map(r => r.transaction_id));
       const dismissed = new Set(loadGirosDismissed());
 
-      const pendientes = (txs as Array<{ id: string; amount: number | null }>)
-        .filter(t => !linkedIds.has(t.id) && !dismissed.has(t.id));
+      const pendientes = (txs as Array<{ id: string; date: string; amount: number | null; description: string | null; notes: string | null }>)
+        .filter(t => !linkedIds.has(t.id) && !dismissed.has(t.id))
+        .sort((a, b) => a.date.localeCompare(b.date));
       if (pendientes.length === 0) { setGiros(null); return; }
       setGiros({
         count: pendientes.length,
         totalCop: pendientes.reduce((s, t) => s + Math.abs(Number(t.amount ?? 0)), 0),
-        txIds: pendientes.map(t => t.id),
+        rows: pendientes.map(t => ({ id: t.id, date: t.date, amount: Number(t.amount ?? 0), description: t.description, notes: t.notes })),
       });
     } catch {
       setGiros(null);
     }
   };
 
-  /** "No son de importación": descarta los giros actuales — si aparece un giro
-   *  NUEVO sin vincular, la alerta vuelve sola. */
-  const dismissGiros = () => {
+  /** "No es de importación": descarta esos giros (uno o todos) — si aparece un
+   *  giro NUEVO sin vincular, la alerta vuelve sola. */
+  const dismissGiros = (ids: string[]) => {
     if (!giros) return;
     try {
-      const next = Array.from(new Set([...loadGirosDismissed(), ...giros.txIds]));
+      const next = Array.from(new Set([...loadGirosDismissed(), ...ids]));
       localStorage.setItem(GIROS_DISMISSED_KEY, JSON.stringify(next));
     } catch { /* modo privado */ }
-    setGiros(null);
+    const rest = giros.rows.filter(r => !ids.includes(r.id));
+    setGiros(rest.length === 0 ? null : {
+      count: rest.length,
+      totalCop: rest.reduce((s, t) => s + Math.abs(t.amount), 0),
+      rows: rest,
+    });
   };
 
   const triggerMemoryUpdate = async () => {
@@ -238,33 +245,14 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
   return (
     <div className="space-y-3 animate-fade-in">
       {/* Giros al exterior sin contenedor: plata que salió del banco y ningún
-          abono de importación la registra. Se vincula desde Conciliación
-          (sección "Importaciones abiertas" del selector de factura). */}
+          abono de importación la registra. Se vinculan o descartan acá mismo. */}
       {giros && (
-        <Card className="border-l-4 border-l-warning bg-warning/5">
-          <CardContent className="py-3 px-4 flex items-center gap-3">
-            <Ship className="h-4 w-4 text-warning shrink-0" />
-            <p className="text-xs text-muted-foreground flex-1 min-w-0">
-              <span className="font-semibold text-foreground">
-                {giros.count} giro{giros.count === 1 ? '' : 's'} al exterior sin vincular a ningún contenedor
-              </span>
-              {' — '}
-              {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(giros.totalCop)} que ningún abono de importación registra.
-            </p>
-            <Link to="/transactions" className="shrink-0">
-              <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
-                Vincular <ArrowRight className="h-3 w-3" />
-              </Button>
-            </Link>
-            <button
-              className="shrink-0 text-muted-foreground hover:text-destructive"
-              title="No son de importación — no volver a mostrar estos giros"
-              onClick={dismissGiros}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </CardContent>
-        </Card>
+        <GirosSinVincularCard
+          giros={giros.rows}
+          totalCop={giros.totalCop}
+          onDismiss={dismissGiros}
+          onLinked={fetchGirosSinVincular}
+        />
       )}
 
       {insights.length > 0 && (<>

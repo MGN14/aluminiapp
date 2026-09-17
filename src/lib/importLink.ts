@@ -37,6 +37,48 @@ export function errMsg(err: unknown): string {
   return String(err);
 }
 
+/** Notas de la transacción con el marcador `[Importación - X]` (reemplaza
+ *  uno anterior si lo había). Es lo que lee `parseImportNameFromNotes` para
+ *  pintar el chip en Conciliación. */
+export function withImportMarker(notes: string | null | undefined, importLabel: string): string {
+  const base = (notes ?? '').replace(IMPORT_NOTE_MARKER_REGEX, '').trim();
+  const marker = `[Importación - ${importLabel}]`;
+  return base ? `${base} ${marker}` : marker;
+}
+
+/** Contenedor al que se le puede vincular un giro (no cancelado ni cerrado). */
+export interface OpenImport {
+  id: string;
+  /** Referencia del pedido, o el proveedor si no tiene. */
+  label: string;
+  proveedor: string;
+  estado: string;
+  saldoUsd: number;
+  responsibleId: string | null;
+}
+
+/** Importaciones abiertas, con más saldo primero. Misma lista que muestra el
+ *  selector de Conciliación bajo "Importaciones abiertas". */
+export async function fetchOpenImports(): Promise<OpenImport[]> {
+  const { data, error } = await (supabase.from('imports' as never) as any)
+    .select('id, ref_pedido, proveedor_nombre, estado, saldo_pendiente_usd, responsible_id, cerrada');
+  if (error) throw error;
+  return ((data ?? []) as Array<{
+    id: string; ref_pedido: string | null; proveedor_nombre: string; estado: string;
+    saldo_pendiente_usd: number | null; responsible_id: string | null; cerrada: boolean;
+  }>)
+    .filter((r) => r.estado !== 'cancelado' && !r.cerrada)
+    .map((r) => ({
+      id: r.id,
+      label: r.ref_pedido?.trim() || r.proveedor_nombre,
+      proveedor: r.proveedor_nombre,
+      estado: r.estado,
+      saldoUsd: Number(r.saldo_pendiente_usd ?? 0),
+      responsibleId: r.responsible_id,
+    }))
+    .sort((a, b) => b.saldoUsd - a.saldoUsd);
+}
+
 /** Ventanas para reconocer que un abono manual y un giro son EL MISMO pago. */
 const ADOPT_MAX_DAYS = 20;
 const ADOPT_COP_TOLERANCE = 0.02;
