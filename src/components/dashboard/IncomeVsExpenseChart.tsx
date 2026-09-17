@@ -1,25 +1,14 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  ReferenceLine,
-} from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { Card, CardContent } from '@/components/ui/card';
+import { BarChart3 } from 'lucide-react';
 import { CHART_COLORS } from '@/lib/chartColors';
+import { ChartFilterBar, useChartFilterBool, useChartFilterParam, type FilterControlSpec } from '@/components/dashboard/ChartFilterBar';
 import {
-  ChartFilterBar,
-  useChartFilterBool,
-  useChartFilterParam,
-  type FilterControlSpec,
-} from '@/components/dashboard/ChartFilterBar';
+  ChartHeader, ChartLegend, ChartDataTable, ChartEmpty, TipBox, TipRow,
+  CHART_HEIGHT, BAR_MAX, BAR_RADIUS, gridProps, xAxisProps, yAxisProps, hoverCursor, fmtCopFull, fmtCopShort,
+} from './chartKit';
 
 interface MonthlyData {
   month: string;
@@ -38,52 +27,31 @@ type ViewMode = 'monthly' | 'accumulated';
 
 const CHART_ID = 'inc';
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function formatCurrencyShort(value: number) {
-  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(value) >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value.toFixed(0)}`;
-}
-
 function formatDelta(curr: number, prev: number) {
   if (prev === 0) return curr === 0 ? '—' : '+∞';
   const pct = ((curr - prev) / Math.abs(prev)) * 100;
-  const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(1)}%`;
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
 }
 
 interface EnrichedRow extends MonthlyData {
   neto: number;
-  ingresosVsAvg: number;
-  egresosVsAvg: number;
   ingresosVsPrev: string;
   egresosVsPrev: string;
 }
 
 export function IncomeVsExpenseChart({ data, periodLabel }: IncomeVsExpenseChartProps) {
   const navigate = useNavigate();
-
-  const [seriesMode, setSeriesMode] = useChartFilterParam<SeriesMode>(
-    CHART_ID, 'series', 'both', ['both', 'ingresos', 'egresos'],
-  );
-  const [viewMode, setViewMode] = useChartFilterParam<ViewMode>(
-    CHART_ID, 'view', 'monthly', ['monthly', 'accumulated'],
-  );
+  const [seriesMode, setSeriesMode] = useChartFilterParam<SeriesMode>(CHART_ID, 'series', 'both', ['both', 'ingresos', 'egresos']);
+  const [viewMode, setViewMode] = useChartFilterParam<ViewMode>(CHART_ID, 'view', 'monthly', ['monthly', 'accumulated']);
   const [showNet, setShowNet] = useChartFilterBool(CHART_ID, 'net', false);
+  const [showTable, setShowTable] = useChartFilterBool(CHART_ID, 'table', false);
 
   const averages = useMemo(() => {
     if (data.length === 0) return { ingresos: 0, egresos: 0 };
-    const totIn = data.reduce((s, d) => s + d.ingresos, 0);
-    const totEg = data.reduce((s, d) => s + d.egresos, 0);
-    return { ingresos: totIn / data.length, egresos: totEg / data.length };
+    return {
+      ingresos: data.reduce((s, d) => s + d.ingresos, 0) / data.length,
+      egresos: data.reduce((s, d) => s + d.egresos, 0) / data.length,
+    };
   }, [data]);
 
   const chartData: EnrichedRow[] = useMemo(() => {
@@ -94,38 +62,23 @@ export function IncomeVsExpenseChart({ data, periodLabel }: IncomeVsExpenseChart
       const ingresos = viewMode === 'accumulated' ? (accIn += d.ingresos) : d.ingresos;
       const egresos = viewMode === 'accumulated' ? (accEg += d.egresos) : d.egresos;
       return {
-        ...d,
-        ingresos,
-        egresos,
-        neto: ingresos - egresos,
-        ingresosVsAvg: d.ingresos - averages.ingresos,
-        egresosVsAvg: d.egresos - averages.egresos,
+        ...d, ingresos, egresos, neto: ingresos - egresos,
         ingresosVsPrev: prev ? formatDelta(d.ingresos, prev.ingresos) : '—',
         egresosVsPrev: prev ? formatDelta(d.egresos, prev.egresos) : '—',
       };
     });
-  }, [data, viewMode, averages]);
+  }, [data, viewMode]);
 
   const showIngresos = seriesMode === 'both' || seriesMode === 'ingresos';
   const showEgresos = seriesMode === 'both' || seriesMode === 'egresos';
 
   const controls: FilterControlSpec[] = [
-    {
-      kind: 'toggle', id: 'series', label: 'Series', value: seriesMode, onChange: setSeriesMode,
-      options: [
-        { value: 'both', label: 'Ambos' },
-        { value: 'ingresos', label: 'Ingresos' },
-        { value: 'egresos', label: 'Egresos' },
-      ],
-    },
-    {
-      kind: 'toggle', id: 'view', label: 'Vista', value: viewMode, onChange: setViewMode,
-      options: [
-        { value: 'monthly', label: 'Mensual' },
-        { value: 'accumulated', label: 'Acumulado' },
-      ],
-    },
-    { kind: 'switch', id: 'net', label: 'Utilidad neta', value: showNet, onChange: setShowNet },
+    { kind: 'toggle', id: 'series', label: 'Series', value: seriesMode, onChange: setSeriesMode,
+      options: [{ value: 'both', label: 'Ambos' }, { value: 'ingresos', label: 'Ingresos' }, { value: 'egresos', label: 'Egresos' }] },
+    { kind: 'toggle', id: 'view', label: 'Vista', value: viewMode, onChange: setViewMode,
+      options: [{ value: 'monthly', label: 'Mensual' }, { value: 'accumulated', label: 'Acumulado' }] },
+    { kind: 'switch', id: 'net', label: 'Línea de neto', value: showNet, onChange: setShowNet },
+    { kind: 'switch', id: 'table', label: 'Ver como tabla', value: showTable, onChange: setShowTable },
   ];
 
   const handleBarClick = (type: 'ingreso' | 'egreso') => (payload: { monthKey?: string }) => {
@@ -133,145 +86,74 @@ export function IncomeVsExpenseChart({ data, periodLabel }: IncomeVsExpenseChart
     navigate(`/transactions?month=${payload.monthKey}&type=${type}`);
   };
 
-  if (data.length === 0) {
-    return (
-      <Card className="rounded-2xl border border-border shadow-sm">
-        <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
-          <div>
-            <CardTitle className="text-[17px] font-bold tracking-tight">Ingresos vs Egresos</CardTitle>
-            <p className="text-sm text-muted-foreground">Comparación mes a mes • {periodLabel}</p>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[280px] flex items-center justify-center text-muted-foreground">
-            Sin datos para graficar
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const legend = [
+    ...(showIngresos ? [{ color: CHART_COLORS.income, label: 'Ingresos', shape: 'rect' as const }] : []),
+    ...(showEgresos ? [{ color: CHART_COLORS.expense, label: 'Egresos', shape: 'rect' as const }] : []),
+    ...(showNet ? [{ color: CHART_COLORS.projection, label: 'Neto', shape: 'line' as const }] : []),
+    ...(viewMode === 'monthly' && showIngresos ? [{ color: CHART_COLORS.income, label: 'Prom. ingresos', shape: 'dash' as const, value: fmtCopShort(averages.ingresos) }] : []),
+    ...(viewMode === 'monthly' && showEgresos ? [{ color: CHART_COLORS.expense, label: 'Prom. egresos', shape: 'dash' as const, value: fmtCopShort(averages.egresos) }] : []),
+  ];
 
   return (
     <Card className="rounded-2xl border border-border shadow-sm">
-      <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
-        <div className="flex-1 min-w-0">
-          <CardTitle className="text-[17px] font-bold tracking-tight">Ingresos vs Egresos</CardTitle>
-          <p className="text-sm text-muted-foreground truncate">
-            {viewMode === 'accumulated' ? 'Acumulado' : 'Mes a mes'} • {periodLabel}
-          </p>
-        </div>
-        <ChartFilterBar chartId={CHART_ID} controls={controls} />
-      </CardHeader>
+      <ChartHeader
+        icon={BarChart3}
+        title="Ingresos vs Egresos"
+        subtitle={`${viewMode === 'accumulated' ? 'Acumulado' : 'Mes a mes'} · ${periodLabel} · movimientos del banco`}
+        right={<ChartFilterBar chartId={CHART_ID} controls={controls} />}
+      />
       <CardContent>
-        <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 5 }} barCategoryGap="15%">
-            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-            <XAxis dataKey="month" tick={{ fontSize: 11 }} className="text-muted-foreground" axisLine={false} tickLine={false} />
-            <YAxis tickFormatter={formatCurrencyShort} tick={{ fontSize: 11 }} className="text-muted-foreground" axisLine={false} tickLine={false} width={60} />
-            <Tooltip
-              cursor={{ fill: 'hsl(var(--muted))', fillOpacity: 0.25 }}
-              content={({ active, payload, label }) => {
-                if (!active || !payload?.length) return null;
-                const row = payload[0].payload as EnrichedRow;
-                return (
-                  <div className="rounded-lg border bg-card p-3 text-xs shadow-md" style={{ minWidth: 200 }}>
-                    <p className="font-semibold text-foreground mb-2">{label}</p>
-                    <div className="space-y-1.5">
-                      {showIngresos && (
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-2 w-2 rounded-sm" style={{ background: CHART_COLORS.income }} />
-                            Ingresos
-                          </span>
-                          <span className="font-medium text-foreground tabular-nums">{formatCurrency(row.ingresos)}</span>
-                        </div>
-                      )}
-                      {showIngresos && viewMode === 'monthly' && (
-                        <>
-                          <div className="flex items-center justify-between gap-3 pl-3.5 text-muted-foreground">
-                            <span>vs mes ant.</span>
-                            <span className="tabular-nums">{row.ingresosVsPrev}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-3 pl-3.5 text-muted-foreground">
-                            <span>vs promedio</span>
-                            <span className="tabular-nums">
-                              {row.ingresosVsAvg >= 0 ? '+' : ''}{formatCurrencyShort(row.ingresosVsAvg)}
-                            </span>
-                          </div>
-                        </>
-                      )}
-                      {showEgresos && (
-                        <div className="flex items-center justify-between gap-3 pt-1">
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-2 w-2 rounded-sm" style={{ background: CHART_COLORS.expense }} />
-                            Egresos
-                          </span>
-                          <span className="font-medium text-foreground tabular-nums">{formatCurrency(row.egresos)}</span>
-                        </div>
-                      )}
-                      {showEgresos && viewMode === 'monthly' && (
-                        <>
-                          <div className="flex items-center justify-between gap-3 pl-3.5 text-muted-foreground">
-                            <span>vs mes ant.</span>
-                            <span className="tabular-nums">{row.egresosVsPrev}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-3 pl-3.5 text-muted-foreground">
-                            <span>vs promedio</span>
-                            <span className="tabular-nums">
-                              {row.egresosVsAvg >= 0 ? '+' : ''}{formatCurrencyShort(row.egresosVsAvg)}
-                            </span>
-                          </div>
-                        </>
-                      )}
-                      {showNet && (
-                        <div className="flex items-center justify-between gap-3 pt-1.5 mt-1.5 border-t border-border">
-                          <span className="font-medium">Neto</span>
-                          <span className="font-semibold tabular-nums" style={{ color: row.neto >= 0 ? CHART_COLORS.income : CHART_COLORS.expense }}>
-                            {formatCurrency(row.neto)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              }}
-            />
-            <Legend
-              formatter={value => value === 'ingresos' ? 'Ingresos' : value === 'egresos' ? 'Egresos' : 'Utilidad neta'}
-              iconType="square" wrapperStyle={{ fontSize: 12 }}
-            />
-            {viewMode === 'monthly' && showIngresos && (
-              <ReferenceLine y={averages.ingresos} stroke={CHART_COLORS.incomeAvg} strokeDasharray="6 4" strokeWidth={1.5} strokeOpacity={0.6} ifOverflow="extendDomain" />
-            )}
-            {viewMode === 'monthly' && showEgresos && (
-              <ReferenceLine y={averages.egresos} stroke={CHART_COLORS.expenseAvg} strokeDasharray="6 4" strokeWidth={1.5} strokeOpacity={0.6} ifOverflow="extendDomain" />
-            )}
-            {showIngresos && (
-              <Bar dataKey="ingresos" name="ingresos" fill={CHART_COLORS.income} radius={[4, 4, 0, 0]} maxBarSize={40} onClick={handleBarClick('ingreso')} cursor="pointer" />
-            )}
-            {showEgresos && (
-              <Bar dataKey="egresos" name="egresos" fill={CHART_COLORS.expense} radius={[4, 4, 0, 0]} maxBarSize={40} onClick={handleBarClick('egreso')} cursor="pointer" />
-            )}
-            {showNet && (
-              <Line type="monotone" dataKey="neto" name="neto" stroke="oklch(0.55 0.12 250)" strokeWidth={2} dot={{ r: 3, strokeWidth: 0, fill: 'oklch(0.55 0.12 250)' }} activeDot={{ r: 5 }} />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
-        {viewMode === 'monthly' && (
-          <div className="flex items-center justify-center gap-6 mt-2 text-xs text-muted-foreground">
-            {showIngresos && (
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 border-t-2 border-dashed" style={{ borderColor: CHART_COLORS.incomeAvg }} />
-                <span>Prom. Ingresos · {formatCurrencyShort(averages.ingresos)}</span>
-              </div>
-            )}
-            {showEgresos && (
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 border-t-2 border-dashed" style={{ borderColor: CHART_COLORS.expenseAvg }} />
-                <span>Prom. Egresos · {formatCurrencyShort(averages.egresos)}</span>
-              </div>
-            )}
-          </div>
+        {data.length === 0 ? (
+          <ChartEmpty>Sin movimientos para graficar</ChartEmpty>
+        ) : showTable ? (
+          <ChartDataTable
+            rows={chartData}
+            rowKey={(r) => r.monthKey}
+            columns={[
+              { key: 'month', header: 'Mes', render: (r) => <span className="font-medium text-foreground">{r.month}</span> },
+              { key: 'ing', header: 'Ingresos', align: 'right', render: (r) => fmtCopFull(r.ingresos) },
+              { key: 'egr', header: 'Egresos', align: 'right', render: (r) => fmtCopFull(r.egresos) },
+              { key: 'neto', header: 'Neto', align: 'right', render: (r) => <span className={r.neto >= 0 ? 'text-success font-semibold' : 'text-destructive font-semibold'}>{fmtCopFull(r.neto)}</span> },
+            ]}
+            footer={{ month: 'Total', monthKey: '__total', ingresos: chartData.reduce((s, r) => s + r.ingresos, 0), egresos: chartData.reduce((s, r) => s + r.egresos, 0), neto: chartData.reduce((s, r) => s + r.neto, 0), ingresosVsPrev: '', egresosVsPrev: '' }}
+          />
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+              <ComposedChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }} barGap={2} barCategoryGap="28%">
+                <CartesianGrid {...gridProps} />
+                <XAxis dataKey="month" {...xAxisProps} />
+                <YAxis tickFormatter={fmtCopShort} {...yAxisProps} />
+                <Tooltip
+                  cursor={hoverCursor}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const row = payload[0].payload as EnrichedRow;
+                    return (
+                      <TipBox title={String(label)}>
+                        {showIngresos && <TipRow color={CHART_COLORS.income} label="Ingresos" value={fmtCopFull(row.ingresos)} sub={viewMode === 'monthly' ? row.ingresosVsPrev : undefined} />}
+                        {showEgresos && <TipRow color={CHART_COLORS.expense} label="Egresos" value={fmtCopFull(row.egresos)} sub={viewMode === 'monthly' ? row.egresosVsPrev : undefined} />}
+                        <TipRow label="Neto" value={<span className={row.neto >= 0 ? 'text-success' : 'text-destructive'}>{fmtCopFull(row.neto)}</span>} className="pt-1.5 mt-1 border-t border-border" />
+                      </TipBox>
+                    );
+                  }}
+                />
+                {viewMode === 'monthly' && showIngresos && (
+                  <ReferenceLine y={averages.ingresos} stroke={CHART_COLORS.income} strokeDasharray="6 4" strokeWidth={1.5} strokeOpacity={0.55} ifOverflow="extendDomain" />
+                )}
+                {viewMode === 'monthly' && showEgresos && (
+                  <ReferenceLine y={averages.egresos} stroke={CHART_COLORS.expense} strokeDasharray="6 4" strokeWidth={1.5} strokeOpacity={0.55} ifOverflow="extendDomain" />
+                )}
+                {showIngresos && <Bar dataKey="ingresos" name="Ingresos" fill={CHART_COLORS.income} radius={BAR_RADIUS} maxBarSize={BAR_MAX} onClick={handleBarClick('ingreso')} cursor="pointer" />}
+                {showEgresos && <Bar dataKey="egresos" name="Egresos" fill={CHART_COLORS.expense} radius={BAR_RADIUS} maxBarSize={BAR_MAX} onClick={handleBarClick('egreso')} cursor="pointer" />}
+                {showNet && (
+                  <Line type="monotone" dataKey="neto" name="Neto" stroke={CHART_COLORS.projection} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+                    dot={{ r: 4, fill: CHART_COLORS.projection, stroke: 'hsl(var(--card))', strokeWidth: 2 }} activeDot={{ r: 6, stroke: 'hsl(var(--card))', strokeWidth: 2 }} />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+            <ChartLegend items={legend} />
+          </>
         )}
       </CardContent>
     </Card>

@@ -70,6 +70,14 @@
     --chart-3: 227 7% 39.8%;
     --chart-4: 84 18.9% 82.8%;
     --chart-5: 70 18.8% 76.9%;
+    /* Paleta de gráficas (dataviz): 8 slots categóricos en orden fijo (CVD-safe),
+       ingreso/egreso, rampa ordinal azul (cartera por edades), gris de "Otros".
+       Validada con scripts/validate_palette.js — no cambiar a ojo. */
+    --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100;
+    --viz-5: #e87ba4; --viz-6: #008300; --viz-7: #4a3aa7; --viz-8: #e34948;
+    --viz-income: #008300; --viz-expense: #e34948; --viz-neutral: #898781;
+    --viz-ord-1: #86b6ef; --viz-ord-2: #5598e7; --viz-ord-3: #2a78d6; --viz-ord-4: #1c5cab; --viz-ord-5: #104281;
+    --viz-grid: #e5e4de; --viz-axis: #c3c2b7; --viz-ink-muted: #898781;
     --sidebar: 248 0.3% 98.4%;
     --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
     --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
@@ -150,6 +158,11 @@
     --chart-3: 70 18.8% 76.9%;
     --chart-4: 304 26.5% 62.7%;
     --chart-5: 16 24.6% 64.5%;
+    --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
+    --viz-5: #d55181; --viz-6: #0ca30c; --viz-7: #9085e9; --viz-8: #e66767;
+    --viz-income: #0ca30c; --viz-expense: #e66767; --viz-neutral: #898781;
+    --viz-ord-1: #184f95; --viz-ord-2: #256abf; --viz-ord-3: #3987e5; --viz-ord-4: #6da7ec; --viz-ord-5: #9ec5f4;
+    --viz-grid: #2c2c2a; --viz-axis: #383835; --viz-ink-muted: #898781;
     --sidebar: 266 4% 20.8%;
     --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
     --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);

@@ -9,6 +9,7 @@ export type DashboardModule =
   | 'chartsCashflow'
   | 'chartsFlow'
   | 'chartsBilling'
+  | 'chartsAging'
   | 'pendingTable'
   | 'teamActivity';
 
@@ -33,8 +34,9 @@ const DEFAULT_MODULES: ModuleConfig[] = [
   { id: 'chartsCashflow', label: 'Saldo en el tiempo', visible: true, order: 5, pinned: false },
   { id: 'chartsFlow', label: 'Gráficos de flujo', visible: true, order: 6, pinned: false },
   { id: 'chartsBilling', label: 'Gráficos de facturación', visible: true, order: 7, pinned: false },
-  { id: 'pendingTable', label: 'Transacciones pendientes', visible: true, order: 8, pinned: false },
-  { id: 'teamActivity', label: 'Actividad del equipo (quién hizo qué)', visible: true, order: 9, pinned: false },
+  { id: 'chartsAging', label: 'Cartera por edades (a quién cobrar)', visible: true, order: 8, pinned: false },
+  { id: 'pendingTable', label: 'Transacciones pendientes', visible: true, order: 9, pinned: false },
+  { id: 'teamActivity', label: 'Actividad del equipo (quién hizo qué)', visible: true, order: 10, pinned: false },
 ];
 
 const STORAGE_KEY = 'dashboard-customization';
@@ -43,8 +45,8 @@ const STORAGE_KEY = 'dashboard-customization';
 // SÍ personalizaron antes pierden la personalización — trade-off aceptable
 // para que todos vean pendientes arriba sin tener que hacer "Personalizar").
 const VERSION_KEY = 'dashboard-customization-version';
-// v5: se agregó el bloque teamActivity (historial de acciones del equipo).
-const CURRENT_VERSION = '5';
+// v6: se agregó el bloque chartsAging (cartera por edades).
+const CURRENT_VERSION = '6';
 
 function loadModules(): ModuleConfig[] {
   try {

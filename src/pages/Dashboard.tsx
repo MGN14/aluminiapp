@@ -22,6 +22,7 @@ import { IncomeVsExpenseChart } from '@/components/dashboard/IncomeVsExpenseChar
 import { ExpensesByCategoryChart } from '@/components/dashboard/ExpensesByCategoryChart';
 import { BilledByMonthChart } from '@/components/dashboard/BilledByMonthChart';
 import { BilledByClientMonthChart } from '@/components/dashboard/BilledByClientMonthChart';
+import { ReceivablesAgingChart } from '@/components/dashboard/ReceivablesAgingChart';
 import { CashFlowChart } from '@/components/dashboard/CashFlowChart';
 import { GMFAccumulatedCard, isGMFTransaction } from '@/components/dashboard/GMFAccumulatedCard';
 import InsightsMiniCards from '@/components/dashboard/InsightsMiniCards';
@@ -883,6 +884,11 @@ function DashboardContent() {
           <BilledByMonthChart data={billedByMonthData} prevYearData={prevBilledByMonthData} year={periodSelection.year} />
           <BilledByClientMonthChart salesInvoices={salesInvoices} year={periodSelection.year} />
         </div>
+      </DashboardBlock>
+    ),
+    chartsAging: (idx: number) => (
+      <DashboardBlock id="chartsAging" customization={customization} index={idx}>
+        <ReceivablesAgingChart year={periodSelection.year} />
       </DashboardBlock>
     ),
     pendingTable: (idx: number) => {

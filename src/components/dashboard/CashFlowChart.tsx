@@ -3,7 +3,9 @@ import {
   ComposedChart, Area, Line, Scatter, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { Activity } from 'lucide-react';
+import { ChartHeader, ChartLegend, ChartDataTable, ChartEmpty, TipBox, TipRow, CHART_HEIGHT, gridProps, xAxisProps, yAxisProps, fmtCopFull, fmtCopShort } from './chartKit';
 import { CHART_COLORS } from '@/lib/chartColors';
 import { parseLocalDate } from '@/lib/dateUtils';
 import {
@@ -28,16 +30,6 @@ type Granularity = 'daily' | 'weekly' | 'monthly';
 
 const CHART_ID = 'cash';
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(value);
-}
-function formatCurrencyShort(value: number) {
-  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(value) >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value.toFixed(0)}`;
-}
 function isoDay(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -71,6 +63,7 @@ export function CashFlowChart({ transactions, periodStart, periodEnd, periodLabe
   );
   const [showZones, setShowZones] = useChartFilterBool(CHART_ID, 'zones', true);
   const [showForecast, setShowForecast] = useChartFilterBool(CHART_ID, 'forecast', true);
+  const [showTable, setShowTable] = useChartFilterBool(CHART_ID, 'table', false);
 
   // Forecast diario (próximos 60 días). Solo se muestra si granularity=daily.
   const forecast = useCashflowForecastDaily(60);
@@ -200,107 +193,91 @@ export function CashFlowChart({ transactions, periodStart, periodEnd, periodLabe
     },
     { kind: 'switch', id: 'zones', label: 'Zonas color', value: showZones, onChange: setShowZones },
     ...(granularity === 'daily' ? [{ kind: 'switch' as const, id: 'forecast', label: 'Proyección 60d', value: showForecast, onChange: setShowForecast }] : []),
+    { kind: 'switch' as const, id: 'table', label: 'Ver como tabla', value: showTable, onChange: setShowTable },
   ];
 
-  if (rows.length === 0) {
-    return (
-      <Card className="rounded-2xl border border-border shadow-sm">
-        <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
-          <div>
-            <CardTitle className="text-[17px] font-bold tracking-tight">Saldo en el tiempo</CardTitle>
-            <p className="text-sm text-muted-foreground">Flujo de caja • {periodLabel}</p>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[280px] flex items-center justify-center text-muted-foreground">Sin datos de saldo bancario para este período</div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const subtitle = `Flujo de caja ${granularity === 'daily' ? 'diario' : granularity === 'weekly' ? 'semanal' : 'mensual'} · ${periodLabel} · promedio ${fmtCopShort(avgBalance)}`;
+  const legend = [
+    { color: CHART_COLORS.projection, label: 'Saldo', shape: 'line' as const },
+    ...(granularity === 'daily' && showForecast ? [{ color: CHART_COLORS.projection, label: 'Proyección 60 días', shape: 'dash' as const }] : []),
+    ...(showZones ? [{ color: CHART_COLORS.income, label: 'Sube', shape: 'rect' as const }, { color: CHART_COLORS.expense, label: 'Baja', shape: 'rect' as const }] : []),
+    { color: CHART_COLORS.neutral, label: 'Promedio', shape: 'dash' as const, value: fmtCopShort(avgBalance) },
+  ];
 
   return (
     <Card className="rounded-2xl border border-border shadow-sm">
-      <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
-        <div className="flex-1 min-w-0">
-          <CardTitle className="text-[17px] font-bold tracking-tight">Saldo en el tiempo</CardTitle>
-          <p className="text-sm text-muted-foreground truncate">
-            Flujo de caja {granularity === 'daily' ? 'diario' : granularity === 'weekly' ? 'semanal' : 'mensual'} • {periodLabel}
-          </p>
-        </div>
-        <ChartFilterBar chartId={CHART_ID} controls={controls} />
-      </CardHeader>
+      <ChartHeader icon={Activity} title="Saldo en el tiempo" subtitle={subtitle} right={<ChartFilterBar chartId={CHART_ID} controls={controls} />} />
       <CardContent>
-        <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={rowsWithForecast} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
-            <defs>
-              <linearGradient id="cashflow-positive" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={CHART_COLORS.income} stopOpacity={0.32} />
-                <stop offset="100%" stopColor={CHART_COLORS.income} stopOpacity={0.02} />
-              </linearGradient>
-              <linearGradient id="cashflow-negative" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={CHART_COLORS.expense} stopOpacity={0.32} />
-                <stop offset="100%" stopColor={CHART_COLORS.expense} stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} className="text-muted-foreground" axisLine={false} tickLine={false} minTickGap={20} />
-            <YAxis tickFormatter={formatCurrencyShort} tick={{ fontSize: 11 }} className="text-muted-foreground" axisLine={false} tickLine={false} width={60} />
-            <Tooltip
-              cursor={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
-              content={({ active, payload, label }) => {
-                if (!active || !payload?.length) return null;
-                const row = payload[0].payload as CashRow;
-                const isUp = row.delta >= 0;
-                return (
-                  <div className="rounded-lg border bg-card p-3 text-xs shadow-md" style={{ minWidth: 200 }}>
-                    <p className="font-semibold text-foreground mb-2">{label}</p>
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Saldo</span><span className="font-medium text-foreground tabular-nums">{formatCurrency(row.balance)}</span></div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">Δ vs anterior</span>
-                        <span className="tabular-nums font-medium" style={{ color: isUp ? CHART_COLORS.income : CHART_COLORS.expense }}>
-                          {isUp ? '▲' : '▼'} {formatCurrencyShort(Math.abs(row.delta))}
-                        </span>
-                      </div>
-                      {row.markerKind && (
-                        <div className="flex items-center justify-between gap-3 pt-1 mt-1 border-t border-border">
-                          <span className="text-muted-foreground">Mov. clave</span>
-                          <span className="tabular-nums" style={{ color: row.markerKind === 'in' ? CHART_COLORS.income : CHART_COLORS.expense }}>
-                            {row.markerKind === 'in' ? '+' : '−'}{formatCurrencyShort(Math.abs(row.markerAmount))}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              }}
-            />
-            <ReferenceLine y={avgBalance} stroke="hsl(220, 9%, 46%)" strokeDasharray="4 4" strokeWidth={1.25} strokeOpacity={0.55} ifOverflow="extendDomain"
-              label={{ value: `Prom. ${formatCurrencyShort(avgBalance)}`, position: 'right', fill: 'hsl(220, 9%, 46%)', fontSize: 10 }} />
-            {showZones && (<>
-              <Area type="monotone" dataKey="positiveArea" stroke="none" fill="url(#cashflow-positive)" isAnimationActive={false} connectNulls={false} />
-              <Area type="monotone" dataKey="negativeArea" stroke="none" fill="url(#cashflow-negative)" isAnimationActive={false} connectNulls={false} />
-            </>)}
-            <Line type="monotone" dataKey="balance" name="Saldo" stroke={CHART_COLORS.income} strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 0 }} connectNulls={false} />
-            {granularity === 'daily' && showForecast && (
-              <Line type="monotone" dataKey="projectedBalance" name="Proyección" stroke="oklch(0.6 0.2 250)" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls={false} />
-            )}
-            {granularity === 'daily' && (
-              <Scatter dataKey="marker" fill={CHART_COLORS.income}
-                shape={(props: { cx?: number; cy?: number; payload?: CashRow }) => {
-                  const { cx, cy, payload } = props;
-                  if (cx == null || cy == null || !payload?.markerKind) return <g />;
-                  const color = payload.markerKind === 'in' ? CHART_COLORS.income : CHART_COLORS.expense;
-                  return (
-                    <g>
-                      <circle cx={cx} cy={cy} r={5} fill={color} fillOpacity={0.18} />
-                      <circle cx={cx} cy={cy} r={2.5} fill={color} />
-                    </g>
-                  );
-                }} />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
+        {rows.length === 0 ? (
+          <ChartEmpty>Sin datos de saldo bancario para este período</ChartEmpty>
+        ) : showTable ? (
+          <ChartDataTable
+            rows={rowsWithForecast.filter((r) => !Number.isNaN(r.balance) || r.projectedBalance != null)}
+            rowKey={(r) => r.bucketKey}
+            columns={[
+              { key: 'f', header: granularity === 'monthly' ? 'Mes' : granularity === 'weekly' ? 'Semana' : 'Día', render: (r) => <span className="font-medium text-foreground">{r.label}{r.bucketKey.startsWith('forecast-') ? ' (proy.)' : ''}</span> },
+              { key: 's', header: 'Saldo', align: 'right', render: (r) => fmtCopFull(Number.isNaN(r.balance) ? (r.projectedBalance ?? 0) : r.balance) },
+              { key: 'd', header: 'Variación', align: 'right', render: (r) => <span className={r.delta >= 0 ? 'text-success' : 'text-destructive'}>{r.delta >= 0 ? '+' : '−'}{fmtCopShort(Math.abs(r.delta))}</span> },
+            ]}
+          />
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+              <ComposedChart data={rowsWithForecast} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
+                <defs>
+                  <linearGradient id="cashflow-positive" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={CHART_COLORS.income} stopOpacity={0.14} />
+                    <stop offset="100%" stopColor={CHART_COLORS.income} stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="cashflow-negative" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={CHART_COLORS.expense} stopOpacity={0.14} />
+                    <stop offset="100%" stopColor={CHART_COLORS.expense} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...gridProps} />
+                <XAxis dataKey="label" {...xAxisProps} minTickGap={24} />
+                <YAxis tickFormatter={fmtCopShort} {...yAxisProps} />
+                <Tooltip
+                  cursor={{ stroke: CHART_COLORS.axis, strokeWidth: 1 }}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const row = payload[0].payload as CashRow;
+                    const isUp = row.delta >= 0;
+                    const esProy = row.bucketKey.startsWith('forecast-');
+                    const saldo = esProy ? (row.projectedBalance ?? 0) : row.balance;
+                    return (
+                      <TipBox title={`${label}${esProy ? ' · proyección' : ''}`}>
+                        <TipRow color={CHART_COLORS.projection} label={esProy ? 'Saldo proyectado' : 'Saldo'} value={fmtCopFull(saldo)} />
+                        <TipRow label="Variación" value={<span className={isUp ? 'text-success' : 'text-destructive'}>{isUp ? '+' : '−'}{fmtCopShort(Math.abs(row.delta))}</span>} muted />
+                        {row.markerKind && <TipRow label="Movimiento clave" value={<span className={row.markerKind === 'in' ? 'text-success' : 'text-destructive'}>{row.markerKind === 'in' ? '+' : '−'}{fmtCopShort(Math.abs(row.markerAmount))}</span>} muted className="pt-1.5 mt-1 border-t border-border" />}
+                      </TipBox>
+                    );
+                  }}
+                />
+                <ReferenceLine y={avgBalance} stroke={CHART_COLORS.neutral} strokeDasharray="5 4" strokeWidth={1.5} strokeOpacity={0.6} ifOverflow="extendDomain" />
+                {showZones && (<>
+                  <Area type="monotone" dataKey="positiveArea" stroke="none" fill="url(#cashflow-positive)" isAnimationActive={false} connectNulls={false} />
+                  <Area type="monotone" dataKey="negativeArea" stroke="none" fill="url(#cashflow-negative)" isAnimationActive={false} connectNulls={false} />
+                </>)}
+                <Line type="monotone" dataKey="balance" name="Saldo" stroke={CHART_COLORS.projection} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" dot={false}
+                  activeDot={{ r: 6, fill: CHART_COLORS.projection, stroke: 'hsl(var(--card))', strokeWidth: 2 }} connectNulls={false} />
+                {granularity === 'daily' && showForecast && (
+                  <Line type="monotone" dataKey="projectedBalance" name="Proyección" stroke={CHART_COLORS.projection} strokeWidth={2} strokeDasharray="5 5" strokeLinecap="round" dot={false} connectNulls={false} />
+                )}
+                {granularity === 'daily' && (
+                  <Scatter dataKey="marker" fill={CHART_COLORS.income}
+                    shape={(props: { cx?: number; cy?: number; payload?: CashRow }) => {
+                      const { cx, cy, payload } = props;
+                      if (cx == null || cy == null || !payload?.markerKind) return <g />;
+                      const color = payload.markerKind === 'in' ? CHART_COLORS.income : CHART_COLORS.expense;
+                      return <circle cx={cx} cy={cy} r={4.5} fill={color} stroke="hsl(var(--card))" strokeWidth={2} />;
+                    }} />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+            <ChartLegend items={legend} />
+          </>
+        )}
       </CardContent>
     </Card>
   );
