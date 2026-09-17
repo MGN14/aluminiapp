@@ -92,10 +92,10 @@ export function BilledByClientMonthChart({ salesInvoices, year }: BilledByClient
 
   if (clientKeys.length === 0) {
     return (
-      <Card className="border-0 shadow-sm">
+      <Card className="rounded-2xl border border-border shadow-sm">
         <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
           <div>
-            <CardTitle className="text-lg">Facturado por cliente por mes</CardTitle>
+            <CardTitle className="text-[17px] font-bold tracking-tight">Facturado por cliente por mes</CardTitle>
             <p className="text-sm text-muted-foreground">Año {year}</p>
           </div>
         </CardHeader>
@@ -113,10 +113,10 @@ export function BilledByClientMonthChart({ salesInvoices, year }: BilledByClient
   };
 
   return (
-    <Card className="border-0 shadow-sm">
+    <Card className="rounded-2xl border border-border shadow-sm">
       <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
         <div className="flex-1 min-w-0">
-          <CardTitle className="text-lg">Facturado por cliente por mes</CardTitle>
+          <CardTitle className="text-[17px] font-bold tracking-tight">Facturado por cliente por mes</CardTitle>
           <p className="text-sm text-muted-foreground truncate">Top {topN} clientes • Año {year}</p>
         </div>
         <ChartFilterBar chartId={CHART_ID} controls={controls} />

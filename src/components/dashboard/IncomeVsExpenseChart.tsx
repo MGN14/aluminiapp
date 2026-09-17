@@ -135,10 +135,10 @@ export function IncomeVsExpenseChart({ data, periodLabel }: IncomeVsExpenseChart
 
   if (data.length === 0) {
     return (
-      <Card className="border-0 shadow-sm">
+      <Card className="rounded-2xl border border-border shadow-sm">
         <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
           <div>
-            <CardTitle className="text-lg">Ingresos vs Egresos</CardTitle>
+            <CardTitle className="text-[17px] font-bold tracking-tight">Ingresos vs Egresos</CardTitle>
             <p className="text-sm text-muted-foreground">Comparación mes a mes • {periodLabel}</p>
           </div>
         </CardHeader>
@@ -152,10 +152,10 @@ export function IncomeVsExpenseChart({ data, periodLabel }: IncomeVsExpenseChart
   }
 
   return (
-    <Card className="border-0 shadow-sm">
+    <Card className="rounded-2xl border border-border shadow-sm">
       <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
         <div className="flex-1 min-w-0">
-          <CardTitle className="text-lg">Ingresos vs Egresos</CardTitle>
+          <CardTitle className="text-[17px] font-bold tracking-tight">Ingresos vs Egresos</CardTitle>
           <p className="text-sm text-muted-foreground truncate">
             {viewMode === 'accumulated' ? 'Acumulado' : 'Mes a mes'} • {periodLabel}
           </p>
@@ -258,7 +258,7 @@ export function IncomeVsExpenseChart({ data, periodLabel }: IncomeVsExpenseChart
           </ComposedChart>
         </ResponsiveContainer>
         {viewMode === 'monthly' && (
-          <div className="flex items-center justify-center gap-6 mt-2 text-[11px] text-muted-foreground">
+          <div className="flex items-center justify-center gap-6 mt-2 text-xs text-muted-foreground">
             {showIngresos && (
               <div className="flex items-center gap-1.5">
                 <div className="w-6 border-t-2 border-dashed" style={{ borderColor: CHART_COLORS.incomeAvg }} />

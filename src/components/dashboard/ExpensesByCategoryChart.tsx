@@ -91,10 +91,10 @@ export function ExpensesByCategoryChart({ data, periodLabel, periodStart, period
 
   if (data.length === 0) {
     return (
-      <Card className="border-0 shadow-sm">
+      <Card className="rounded-2xl border border-border shadow-sm">
         <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
           <div>
-            <CardTitle className="text-lg">¿En qué se va la plata?</CardTitle>
+            <CardTitle className="text-[17px] font-bold tracking-tight">¿En qué se va la plata?</CardTitle>
             <p className="text-sm text-muted-foreground">Egresos por categoría • {periodLabel}</p>
           </div>
         </CardHeader>
@@ -122,10 +122,10 @@ export function ExpensesByCategoryChart({ data, periodLabel, periodStart, period
   };
 
   return (
-    <Card className="border-0 shadow-sm">
+    <Card className="rounded-2xl border border-border shadow-sm">
       <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
         <div className="flex-1 min-w-0">
-          <CardTitle className="text-lg">¿En qué se va la plata?</CardTitle>
+          <CardTitle className="text-[17px] font-bold tracking-tight">¿En qué se va la plata?</CardTitle>
           <p className="text-sm text-muted-foreground truncate">Egresos por categoría • {periodLabel}</p>
         </div>
         <ChartFilterBar chartId={CHART_ID} controls={controls} />
@@ -162,7 +162,7 @@ export function ExpensesByCategoryChart({ data, periodLabel, periodStart, period
               <button key={entry.categoryKey}
                 onClick={() => navigateToCategory(entry.categoryKey, entry.category)}
                 disabled={entry.categoryKey === '__otros__'}
-                className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:cursor-default disabled:hover:text-muted-foreground"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:cursor-default disabled:hover:text-muted-foreground"
                 aria-label={`Ver transacciones de ${entry.category}`}>
                 <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: getCategoryColor(entry.categoryKey) }} />
                 <span className="truncate max-w-[140px]">{entry.category}</span>

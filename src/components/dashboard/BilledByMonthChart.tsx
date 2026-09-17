@@ -101,10 +101,10 @@ export function BilledByMonthChart({ data, prevYearData, purchaseData, year }: B
   const hasData = data.some(p => p.total > 0);
   if (!hasData) {
     return (
-      <Card className="border-0 shadow-sm">
+      <Card className="rounded-2xl border border-border shadow-sm">
         <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
           <div>
-            <CardTitle className="text-lg">Total facturado por mes</CardTitle>
+            <CardTitle className="text-[17px] font-bold tracking-tight">Total facturado por mes</CardTitle>
             <p className="text-sm text-muted-foreground">Año {year}</p>
           </div>
         </CardHeader>
@@ -121,10 +121,10 @@ export function BilledByMonthChart({ data, prevYearData, purchaseData, year }: B
   };
 
   return (
-    <Card className="border-0 shadow-sm">
+    <Card className="rounded-2xl border border-border shadow-sm">
       <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
         <div className="flex-1 min-w-0">
-          <CardTitle className="text-lg">Total facturado por mes</CardTitle>
+          <CardTitle className="text-[17px] font-bold tracking-tight">Total facturado por mes</CardTitle>
           <p className="text-sm text-muted-foreground truncate">
             Facturas confirmadas • Año {year}{compareYoY && hasPrev && ` vs ${year - 1}`}
           </p>

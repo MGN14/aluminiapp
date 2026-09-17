@@ -4,7 +4,10 @@ import { afectaResultado } from '@/hooks/usePettyCashMovements';
 import { useSearchParams } from 'react-router-dom';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown, Wallet, Receipt, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles, Package, Boxes } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Receipt, ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Info, CheckCircle, Sparkles, Package, Boxes, Landmark } from 'lucide-react';
+import { MetricCard, SectionHeader, RankRow, DashCard } from '@/components/dashboard/cardKit';
+import IcaPorPagarCard from '@/components/dashboard/IcaPorPagarCard';
+import IvaPorPagarCard from '@/components/dashboard/IvaPorPagarCard';
 import { useNico } from '@/hooks/useNicoContext';
 import { useModuleContext } from '@/hooks/useModuleContext';
 import NicoLogo from '@/components/nico/NicoLogo';
@@ -554,7 +557,7 @@ function DashboardContent() {
         e.currentTarget.style.transform = 'translateY(0)';
       };
       const metricLabelStyle: React.CSSProperties = {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: 600,
         letterSpacing: '0.8px',
         textTransform: 'uppercase',
@@ -591,7 +594,7 @@ function DashboardContent() {
               <p className={metricValueClass} style={metricValueStyle(BRAND)}>{formatCurrency(metrics.totalIngresos)}</p>
               <div className="flex items-center gap-1.5" style={{ marginTop: 10 }}>
                 <ArrowUpRight style={{ width: 12, height: 12, color: BRAND }} />
-                <span style={{ fontSize: 12, color: '#6e6e73' }}>{periodRange.label}</span>
+                <span style={{ fontSize: 13, color: '#6e6e73' }}>{periodRange.label}</span>
               </div>
             </div>
 
@@ -605,7 +608,7 @@ function DashboardContent() {
               <p className={metricValueClass} style={metricValueStyle(DANGER)}>{formatCurrency(metrics.totalEgresos)}</p>
               <div className="flex items-center gap-1.5" style={{ marginTop: 10 }}>
                 <ArrowDownRight style={{ width: 12, height: 12, color: DANGER }} />
-                <span style={{ fontSize: 12, color: '#6e6e73' }}>{periodRange.label}</span>
+                <span style={{ fontSize: 13, color: '#6e6e73' }}>{periodRange.label}</span>
               </div>
             </div>
 
@@ -627,7 +630,7 @@ function DashboardContent() {
                 </div>
               </div>
               <p className={metricValueClass} style={metricValueStyle(isPositive ? BRAND : DANGER)}>{formatCurrency(neto)}</p>
-              <span style={{ fontSize: 12, color: '#6e6e73', marginTop: 10, display: 'block' }}>
+              <span style={{ fontSize: 13, color: '#6e6e73', marginTop: 10, display: 'block' }}>
                 {periodRange.label} · antes de impuestos
               </span>
             </div>
@@ -652,34 +655,8 @@ function DashboardContent() {
             cuatrimestreEnd={cuatrimestre.end}
             onMetrics={handleInvoiceMetrics}
           />
-          {/* IVA Neto */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {(invoiceMetrics?.ivaNeto ?? 0) >= 0 ? 'IVA por Pagar' : 'IVA a Favor'}
-              </CardTitle>
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${(invoiceMetrics?.ivaNeto ?? 0) >= 0 ? 'bg-destructive/10' : 'bg-success/10'}`}>
-                <Receipt className={`h-4 w-4 ${(invoiceMetrics?.ivaNeto ?? 0) >= 0 ? 'text-destructive' : 'text-success'}`} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-xl font-bold ${(invoiceMetrics?.ivaNeto ?? 0) >= 0 ? 'text-destructive' : 'text-success'}`}>
-                {formatCurrency(Math.abs(invoiceMetrics?.ivaNeto ?? 0))}
-              </div>
-              <div className="flex items-center text-xs text-muted-foreground mt-1 gap-1">
-                <Calendar className="h-3 w-3" />
-                Acumulado año {periodSelection.year}
-              </div>
-              <div className="flex items-start gap-1 mt-3 p-2 bg-muted/40 rounded-lg text-[10px] text-muted-foreground">
-                <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                <span>
-                  Saldo vivo a hoy = IVA generado YTD − IVA descontable YTD.
-                  Incluye el saldo a favor arrastrado de cuatrimestres anteriores
-                  (en Colombia se imputa automáticamente al siguiente cuatrimestre).
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+          {/* IVA del período que toca declarar (mismo motor que el calendario) */}
+          <IvaPorPagarCard />
           {/* Impuesto de Renta Estimado */}
           {(() => {
             const dianIngresos = periodTransactions.filter(tx => (tx.amount ?? 0) > 0).reduce((s, tx) => s + (tx.amount ?? 0), 0);
@@ -691,43 +668,26 @@ function DashboardContent() {
             // especial. Si el cliente quiere precisión fiscal, usa Informe DIAN.
             const rentaEstimada = dianNeto > 0 ? dianNeto * 0.35 : 0;
             return (
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Impuesto de Renta Estimado</CardTitle>
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-accent/10">
-                    <Receipt className="h-4 w-4 text-accent-foreground" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-xl font-bold text-foreground">
-                    {formatCurrency(rentaEstimada)}
-                  </div>
-                  <div className="flex items-center text-xs text-muted-foreground mt-1 gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {periodRange.label}
-                  </div>
-                  <div className="flex items-start gap-1 mt-3 p-2 bg-muted/40 rounded-lg text-[10px] text-muted-foreground">
-                    <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                    <span>Aproximado. Verifica este valor con tu contador.</span>
-                  </div>
-                </CardContent>
-              </Card>
+              <MetricCard
+                icon={Landmark}
+                tileClassName="bg-purple-500/15 text-purple-600 dark:text-purple-400"
+                title="Impuesto de Renta Estimado"
+                value={formatCurrency(rentaEstimada)}
+                subtitle={periodRange.label}
+                note="Aproximado: 35% sobre ingresos − egresos del periodo. Verificá este valor con tu contador."
+              />
             );
           })()}
           {/* Pendientes Conciliar */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Pendientes Conciliar</CardTitle>
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${metrics.pendingReconcile > 0 ? 'bg-destructive/10' : 'bg-success/10'}`}>
-                <AlertCircle className={`h-4 w-4 ${metrics.pendingReconcile > 0 ? 'text-destructive' : 'text-success'}`} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-xl font-bold ${metrics.pendingReconcile > 0 ? 'text-destructive' : 'text-success'}`}>{metrics.pendingReconcile}</div>
-              <div className="text-xs text-muted-foreground mt-1">{periodRange.label}</div>
-              <Link to="/transactions" className="text-xs hover:underline mt-1 inline-block text-primary">Ver transacciones →</Link>
-            </CardContent>
-          </Card>
+          <MetricCard
+            icon={AlertCircle}
+            tone={metrics.pendingReconcile > 0 ? 'alarm' : 'success'}
+            title="Pendientes Conciliar"
+            value={metrics.pendingReconcile}
+            valueClassName={metrics.pendingReconcile > 0 ? 'text-destructive' : 'text-success'}
+            subtitle={periodRange.label}
+            link={{ to: '/transactions', label: 'Ver transacciones' }}
+          />
           {/* Retefuente - siempre mes anterior */}
           <RetefuenteMonthlyCard total={invoiceMetrics?.retefuenteNextPayment ?? 0} periodLabel={`Pago correspondiente a ${invoiceMetrics?.nextPaymentMonthLabel ?? ''}`} transactionCount={0} />
           {/* RETEICA - siempre mes anterior, solo si > 0 */}
@@ -737,6 +697,8 @@ function DashboardContent() {
           {/* Reteica Acumulada */}
           {(invoiceMetrics?.reteicaYear ?? 0) > 0 && <ReteicaYearlyCard total={invoiceMetrics?.reteicaYear ?? 0} year={periodSelection.year} transactionCount={invoiceMetrics?.reteicaYearCount ?? 0} />}
           <GMFAccumulatedCard total={gmfMetrics.total} year={gmfMetrics.year} transactionCount={gmfMetrics.transactionCount} />
+          {/* ICA del bimestre que viene a pagar (12º cuadro, Nico 2026-09-17) */}
+          <IcaPorPagarCard />
           {/* CxC & Anticipos */}
           {!operationalData.loading && (
             <>
@@ -757,7 +719,6 @@ function DashboardContent() {
           {/* Top 3 Referencias (con fallback honesto a Top 3 Facturas por valor) */}
           {invoiceMetrics && (() => {
             const hasRefs = (invoiceMetrics.topReferences?.length ?? 0) > 0;
-            const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
 
             // Fallback cuando no hay invoice_items: top 3 facturas individuales por valor.
             // Etiquetado distinto ("Top 3 Facturas" + "(por valor)") para no engañar al usuario.
@@ -769,77 +730,47 @@ function DashboardContent() {
               .sort((a, b) => (b.total_amount || 0) - (a.total_amount || 0))
               .slice(0, 3);
             const showFallback = !hasRefs && topInvoices.length > 0;
+            const periodoNota = invoiceMetrics.itemsFromYearFallback
+              ? `Sin facturas en ${periodRange.label} — mostrando ${periodSelection.year}`
+              : periodRange.label;
 
             return (
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base font-semibold text-foreground">
-                      {hasRefs ? 'Top 3 Referencias' : 'Top 3 Facturas'}
-                    </CardTitle>
-                    <span className="text-[10px] text-muted-foreground">
-                      {hasRefs ? '(por base gravable)' : '(por valor)'}
-                    </span>
-                  </div>
-                  <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Package className="h-4 w-4 text-primary" />
-                  </div>
-                </CardHeader>
-                <CardContent>
+              <DashCard className="cursor-default">
+                <CardContent className="p-4 sm:p-5 h-full flex flex-col">
+                  <SectionHeader
+                    icon={Package}
+                    title={hasRefs ? 'Top 3 Referencias' : 'Top 3 Facturas'}
+                    subtitle={hasRefs ? `Por base gravable · ${periodoNota}` : `Por valor · ${periodRange.label}`}
+                    className="mb-3"
+                  />
                   {hasRefs ? (
-                    <>
-                      <div className="space-y-3">
-                        {invoiceMetrics.topReferences.map(([name, { total, qty }], index) => {
-                          const pct = (invoiceMetrics.totalBaseRef ?? 0) > 0
-                            ? ((total / invoiceMetrics.totalBaseRef) * 100).toFixed(0) : '0';
-                          return (
-                            <div key={name} className="flex items-start gap-3">
-                              <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm text-foreground truncate">{name}</p>
-                                <p className="text-[10px] text-muted-foreground">{qty} {qty === 1 ? 'unidad' : 'unidades'}</p>
-                                {/* Mobile: monto debajo */}
-                                <p className="text-xs mt-0.5 sm:hidden">
-                                  <span className="font-semibold text-foreground tabular-nums">{formatCurrency(total)}</span>
-                                  <span className="text-muted-foreground ml-1.5">({pct}%)</span>
-                                </p>
-                              </div>
-                              {/* Desktop: monto al lado */}
-                              <div className="hidden sm:block text-right shrink-0">
-                                <p className="font-semibold text-sm text-foreground whitespace-nowrap tabular-nums">{formatCurrency(total)}</p>
-                                <p className="text-[10px] text-muted-foreground">{pct}% del total</p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
-                        {invoiceMetrics.itemsFromYearFallback
-                          ? `Sin facturas en ${periodRange.label} — mostrando ${periodSelection.year}`
-                          : periodRange.label}
-                      </p>
-                    </>
+                    <div className="space-y-2">
+                      {invoiceMetrics.topReferences.map(([name, { total, qty }], index) => {
+                        const pct = (invoiceMetrics.totalBaseRef ?? 0) > 0
+                          ? ((total / invoiceMetrics.totalBaseRef) * 100).toFixed(0) : '0';
+                        return (
+                          <RankRow
+                            key={name}
+                            rank={index + 1}
+                            title={name}
+                            subtitle={`${qty} ${qty === 1 ? 'unidad' : 'unidades'}`}
+                            value={formatCurrency(total)}
+                            valueSub={`${pct}% del total`}
+                          />
+                        );
+                      })}
+                    </div>
                   ) : showFallback ? (
                     <>
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         {topInvoices.map((inv, index) => (
-                          <div key={inv.id ?? index} className="flex items-start gap-3">
-                            <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-foreground truncate">{resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver)}</p>
-                              <p className="text-[10px] text-muted-foreground">
-                                {parseLocalDate(inv.issue_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
-                              </p>
-                              {/* Mobile: monto debajo */}
-                              <p className="text-xs mt-0.5 sm:hidden font-semibold text-foreground tabular-nums">
-                                {formatCurrency(inv.total_amount || 0)}
-                              </p>
-                            </div>
-                            {/* Desktop: monto al lado */}
-                            <p className="hidden sm:block font-semibold text-sm text-foreground whitespace-nowrap shrink-0 tabular-nums">
-                              {formatCurrency(inv.total_amount || 0)}
-                            </p>
-                          </div>
+                          <RankRow
+                            key={inv.id ?? index}
+                            rank={index + 1}
+                            title={resolveCounterpartyName(inv.counterparty_name, inv.responsible_id, counterpartyResolver)}
+                            subtitle={parseLocalDate(inv.issue_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                            value={formatCurrency(inv.total_amount || 0)}
+                          />
                         ))}
                       </div>
                       <p className="text-xs text-muted-foreground mt-3 pt-2 border-t border-border leading-relaxed">
@@ -853,7 +784,7 @@ function DashboardContent() {
                     </div>
                   )}
                 </CardContent>
-              </Card>
+              </DashCard>
             );
           })()}
 
@@ -863,72 +794,57 @@ function DashboardContent() {
           {invoiceMetrics && (() => {
             const top = invoiceMetrics.topReferencesByUnits ?? [];
             const totalU = invoiceMetrics.totalUnidadesRef ?? 0;
-            const RANK_COLORS = ['text-yellow-500', 'text-muted-foreground', 'text-amber-700'];
             const fmtU = (n: number) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
+            const periodoNota = invoiceMetrics.itemsFromYearFallback
+              ? `Sin facturas en ${periodRange.label} — mostrando ${periodSelection.year}`
+              : periodRange.label;
 
             return (
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base font-semibold text-foreground">Top 3 Referencias</CardTitle>
-                    <span className="text-[10px] text-muted-foreground">(por unidades)</span>
-                    <span
-                      className="cursor-help"
-                      title={'Unidades facturadas (ventas confirmadas, sin las anuladas por nota crédito), contando solo referencias de tu inventario de aluminio — si no filtráramos, tornillería y vidrio coparían el top siempre.\n\nOjo: una nota crédito parcial descuenta plata pero no unidades.'}
-                    >
-                      <Info className="h-3 w-3 text-muted-foreground" aria-label="Cómo se calcula" />
-                    </span>
-                  </div>
-                  <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Boxes className="h-4 w-4 text-primary" />
-                  </div>
-                </CardHeader>
-                <CardContent>
+              <DashCard className="cursor-default">
+                <CardContent className="p-4 sm:p-5 h-full flex flex-col">
+                  <SectionHeader
+                    icon={Boxes}
+                    tileClassName="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    title="Top 3 Referencias"
+                    subtitle={`Por unidades · solo aluminio · ${periodoNota}`}
+                    right={
+                      <span
+                        className="cursor-help"
+                        title={'Unidades facturadas (ventas confirmadas, sin las anuladas por nota crédito), contando solo referencias de tu inventario de aluminio — si no filtráramos, tornillería y vidrio coparían el top siempre.\n\nOjo: una nota crédito parcial descuenta plata pero no unidades.'}
+                      >
+                        <Info className="h-4 w-4 text-muted-foreground" aria-label="Cómo se calcula" />
+                      </span>
+                    }
+                    className="mb-3"
+                  />
                   {top.length > 0 ? (
-                    <>
-                      <div className="space-y-3">
-                        {top.map((ref, index) => {
-                          const pct = totalU > 0 ? ((ref.unidades / totalU) * 100).toFixed(0) : '0';
-                          return (
-                            <div key={ref.reference} className="flex items-start gap-3">
-                              <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm text-foreground truncate" title={ref.descripcion ?? ref.reference}>{ref.reference}</p>
-                                <p className="text-[10px] text-muted-foreground truncate">
-                                  {ref.descripcion ?? `${ref.lineas} ${ref.lineas === 1 ? 'línea' : 'líneas'} de factura`}
-                                </p>
-                                {/* Mobile: unidades debajo */}
-                                <p className="text-xs mt-0.5 sm:hidden">
-                                  <span className="font-semibold text-foreground tabular-nums">{fmtU(ref.unidades)} und</span>
-                                  <span className="text-muted-foreground ml-1.5">({pct}%)</span>
-                                </p>
-                              </div>
-                              {/* Desktop: unidades al lado */}
-                              <div className="hidden sm:block text-right shrink-0">
-                                <p className="font-semibold text-sm text-foreground whitespace-nowrap tabular-nums">{fmtU(ref.unidades)} und</p>
-                                <p className="text-[10px] text-muted-foreground">{pct}% · {formatCurrency(ref.importe)}</p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">
-                        {invoiceMetrics.itemsFromYearFallback
-                          ? `Sin facturas en ${periodRange.label} — mostrando ${periodSelection.year}`
-                          : periodRange.label}
-                      </p>
-                    </>
+                    <div className="space-y-2">
+                      {top.map((ref, index) => {
+                        const pct = totalU > 0 ? ((ref.unidades / totalU) * 100).toFixed(0) : '0';
+                        return (
+                          <RankRow
+                            key={ref.reference}
+                            rank={index + 1}
+                            title={ref.reference}
+                            titleAttr={ref.descripcion ?? ref.reference}
+                            subtitle={ref.descripcion ?? `${ref.lineas} ${ref.lineas === 1 ? 'línea' : 'líneas'} de factura`}
+                            value={`${fmtU(ref.unidades)} und`}
+                            valueSub={`${pct}% · ${formatCurrency(ref.importe)}`}
+                          />
+                        );
+                      })}
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
                       <Boxes className="h-9 w-9 text-muted-foreground/25" />
                       <p className="text-sm font-medium text-muted-foreground">Sin referencias de aluminio facturadas</p>
-                      <p className="text-[11px] text-muted-foreground/80 max-w-[220px] leading-relaxed">
+                      <p className="text-xs text-muted-foreground/80 max-w-[220px] leading-relaxed">
                         Cuenta solo las referencias que existen en Inventarios. Si falta alguna, agregala allá y aparece acá.
                       </p>
                     </div>
                   )}
                 </CardContent>
-              </Card>
+              </DashCard>
             );
           })()}
         </div>

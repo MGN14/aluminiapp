@@ -456,18 +456,25 @@ export function PendingTransactionsTable({
   };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            Total Pendientes ({pendingCount})
-          </CardTitle>
-          {pendingCount > 0 && (
-            <p className="text-sm text-muted-foreground mt-1">
-              Monto total: <span className="font-semibold text-foreground">{formatCurrency(pendingTotal)}</span>
-            </p>
-          )}
+    <Card className="rounded-2xl border border-border shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <span className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${pendingCount > 0 ? 'bg-destructive/15 text-destructive' : 'bg-success/15 text-success'}`}>
+            <Clock className="h-5 w-5" strokeWidth={2.25} />
+          </span>
+          <div className="min-w-0">
+            <CardTitle className="text-[17px] font-bold tracking-tight leading-tight">
+              Pendientes por conciliar
+              <span className={`ml-2 text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full align-middle ${pendingCount > 0 ? 'bg-destructive text-destructive-foreground' : 'bg-success text-success-foreground'}`}>
+                {pendingCount}
+              </span>
+            </CardTitle>
+            {pendingCount > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Monto total: <span className="font-bold text-foreground tabular-nums">{formatCurrency(pendingTotal)}</span>
+              </p>
+            )}
+          </div>
         </div>
         <Link to="/transactions">
           <Button variant="outline" size="sm">
@@ -506,17 +513,17 @@ export function PendingTransactionsTable({
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono text-[11px] text-muted-foreground">
+                        <span className="font-mono text-xs text-muted-foreground">
                           {parseLocalDate(tx.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                         </span>
                         {conciliada ? (
-                          <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-[10px] px-2 py-0 h-5">Conciliada</Badge>
+                          <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-[11px] font-semibold px-2 py-0 h-5">Conciliada</Badge>
                         ) : tieneRespSinResto ? (
-                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-[10px] px-2 py-0 h-5">
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-[11px] font-semibold px-2 py-0 h-5">
                             Falta {!tx.category_id ? 'categoría' : 'factura'}
                           </Badge>
                         ) : (
-                          <Badge variant="destructive" className="text-[10px] px-2 py-0 h-5">Pendiente</Badge>
+                          <Badge variant="destructive" className="text-[11px] font-semibold px-2 py-0 h-5">Pendiente</Badge>
                         )}
                         {tx.operative_receivable_assigned && (
                           <TooltipProvider delayDuration={150}>
@@ -524,7 +531,7 @@ export function PendingTransactionsTable({
                               <TooltipTrigger asChild>
                                 <Badge
                                   variant="outline"
-                                  className="text-[10px] px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
+                                  className="text-[11px] font-semibold px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
                                 >
                                   <CheckCircle2 className="h-2.5 w-2.5" />
                                   Conciliado
@@ -700,7 +707,7 @@ export function PendingTransactionsTable({
                               <TooltipTrigger asChild>
                                 <Badge
                                   variant="outline"
-                                  className="text-[10px] px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
+                                  className="text-[11px] font-semibold px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
                                 >
                                   <CheckCircle2 className="h-2.5 w-2.5" />
                                   Conciliado

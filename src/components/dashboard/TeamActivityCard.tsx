@@ -11,7 +11,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { SectionHeader } from './cardKit';
 import { Badge } from '@/components/ui/badge';
 import { History } from 'lucide-react';
 import { format } from 'date-fns';
@@ -102,33 +103,27 @@ export default function TeamActivityCard() {
   if (!isAdmin) return null;
 
   return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <div className="flex items-center gap-2">
-          <CardTitle className="text-base font-semibold text-foreground">Actividad del equipo</CardTitle>
-          <span className="text-[10px] text-muted-foreground">(quién hizo qué, con hora exacta)</span>
-        </div>
-        <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-          <History className="h-4 w-4 text-primary" />
-        </div>
+    <Card className="rounded-2xl border border-border shadow-sm">
+      <CardHeader className="pb-3">
+        <SectionHeader icon={History} title="Actividad del equipo" subtitle="Quién hizo qué, con hora exacta" />
       </CardHeader>
       <CardContent>
         {!rows?.length ? (
           <div className="flex flex-col items-center justify-center py-6 text-center gap-1.5">
             <History className="h-8 w-8 text-muted-foreground/25" />
             <p className="text-sm font-medium text-muted-foreground">Sin actividad registrada todavía</p>
-            <p className="text-[11px] text-muted-foreground/80 max-w-[280px] leading-relaxed">
+            <p className="text-xs text-muted-foreground/80 max-w-[280px] leading-relaxed">
               Desde ahora, cada remisión o factura que alguien del equipo cree, edite o
               elimine queda anotada acá con su hora.
             </p>
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             {rows.map((r) => {
               const nombre = nombreDe(r);
               return (
-                <div key={r.id} className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-[11px] font-bold text-primary uppercase">
+                <div key={r.id} className="flex items-start gap-3 rounded-xl border border-border/60 bg-card px-3 py-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 text-xs font-bold text-primary uppercase">
                     {nombre.slice(0, 1)}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -137,11 +132,11 @@ export default function TeamActivityCard() {
                       {VERBO[r.action]} {ENTIDAD[r.entity_type] ?? r.entity_type}{' '}
                       <span className="font-medium">{r.entity_label || '(sin etiqueta)'}</span>
                     </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {format(new Date(r.created_at), "EEE d MMM · h:mm a", { locale: es })}
                     </p>
                   </div>
-                  <Badge variant="outline" className={`text-[9px] px-1.5 py-0 shrink-0 ${ACTION_BADGE[r.action]}`}>
+                  <Badge variant="outline" className={`text-[11px] font-semibold px-2 py-0.5 shrink-0 ${ACTION_BADGE[r.action]}`}>
                     {r.action === 'creo' ? 'Nuevo' : r.action === 'edito' ? 'Editado' : 'Eliminado'}
                   </Badge>
                 </div>

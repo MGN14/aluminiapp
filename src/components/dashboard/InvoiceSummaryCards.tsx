@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
+import { MetricCard } from './cardKit';
+import { isCustomsDuplicate } from '@/lib/taxEstimates';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileText, Users, Package, Info } from 'lucide-react';
@@ -379,7 +381,8 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     // ivaGenerado/ivaDescontable: del cuatrimestre actual (para mostrar detalle)
     const ivaSource = cuatrimestreInvoices.length > 0 ? cuatrimestreInvoices : invoices;
     const ivaVentas = ivaSource.filter(i => i.type === 'venta');
-    const ivaCompras = ivaSource.filter(i => i.type === 'compra');
+    // Recibo DIAN de aduana + costeo del mismo contenedor = un solo IVA (lib/taxEstimates).
+    const ivaCompras = ivaSource.filter(i => i.type === 'compra' && !isCustomsDuplicate(i, importIvaRows));
     const ivaGenerado = ivaVentas.reduce((s, i) => s + i.iva_amount, 0);
 
     // IVA de importación por período: descontable como el de una compra DIAN.
@@ -399,7 +402,7 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
     // un cuatrimestre se imputa al siguiente automáticamente (no se pierde).
     // Por eso ivaNeto = YTD, no del cuatrimestre aislado.
     const ivaGeneradoYtd = ventasYear.reduce((s, i) => s + i.iva_amount, 0);
-    const ivaDescontableYtd = comprasYear.reduce((s, i) => s + i.iva_amount, 0) + ivaImportYtd;
+    const ivaDescontableYtd = comprasYear.filter(i => !isCustomsDuplicate(i, importIvaRows)).reduce((s, i) => s + i.iva_amount, 0) + ivaImportYtd;
     const ivaNetoYtd = ivaGeneradoYtd - ivaDescontableYtd;
 
     // ivaNeto que ve el dashboard: saldo VIVO (YTD acumulado, con arrastre).
@@ -526,45 +529,22 @@ export default function InvoiceSummaryCards({ periodStart, periodEnd, periodLabe
 
   return (
     <TooltipProvider>
-      {/* Total Facturado Ventas */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Facturado Ventas
-          </CardTitle>
-          <div className="p-2 rounded-lg bg-success/10">
-            <FileText className="h-4 w-4 text-success" />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xl font-bold text-success">
-            {formatCurrency(metrics.totalFacturadoVentas)}
-          </div>
-          <div className="text-xs text-muted-foreground mt-1">
-            {metrics.ventasCount} factura{metrics.ventasCount !== 1 ? 's' : ''} • {periodLabel}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Total Facturado Compras */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">
-            Facturado Compras
-          </CardTitle>
-          <div className="p-2 rounded-lg bg-destructive/10">
-            <FileText className="h-4 w-4 text-destructive" />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xl font-bold text-destructive">
-            {formatCurrency(metrics.totalFacturadoCompras)}
-          </div>
-          <div className="text-xs text-muted-foreground mt-1">
-            {metrics.comprasCount} factura{metrics.comprasCount !== 1 ? 's' : ''} • {periodLabel}
-          </div>
-        </CardContent>
-      </Card>
+      <MetricCard
+        icon={FileText}
+        tone="success"
+        title="Facturado Ventas"
+        value={formatCurrency(metrics.totalFacturadoVentas)}
+        valueClassName="text-success"
+        subtitle={`${metrics.ventasCount} factura${metrics.ventasCount !== 1 ? 's' : ''} · ${periodLabel}`}
+      />
+      <MetricCard
+        icon={FileText}
+        tone="alarm"
+        title="Facturado Compras"
+        value={formatCurrency(metrics.totalFacturadoCompras)}
+        valueClassName="text-destructive"
+        subtitle={`${metrics.comprasCount} factura${metrics.comprasCount !== 1 ? 's' : ''} · ${periodLabel}`}
+      />
 
     </TooltipProvider>
   );

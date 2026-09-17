@@ -8,7 +8,8 @@
 import type { ReactNode } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowRight, type LucideIcon } from 'lucide-react';
+import { ArrowRight, Info, type LucideIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
 export type Tone = 'default' | 'alarm' | 'warn' | 'success' | 'muted';
@@ -181,6 +182,84 @@ export function DashLoading({ lines = 3 }: { lines?: number }) {
         {Array.from({ length: lines }).map((_, i) => <Skeleton key={i} className="h-11 w-full rounded-xl" />)}
       </CardContent>
     </Card>
+  );
+}
+
+
+/**
+ * Tarjeta de MÉTRICA (Facturado, IVA, Retefuente, 4x1000…): etiqueta en
+ * mayúsculas chicas, número grande, subtítulo, nota opcional y link opcional.
+ */
+export function MetricCard({ icon, tone = 'default', tileClassName, title, value, valueClassName, subtitle, note, link, children, className }: {
+  icon: LucideIcon; tone?: Tone; tileClassName?: string; title: string; value: ReactNode; valueClassName?: string;
+  subtitle?: ReactNode; note?: ReactNode; link?: { to: string; label: string }; children?: ReactNode; className?: string;
+}) {
+  return (
+    <DashCard tone={tone} className={cn(!link && 'cursor-default', className)}>
+      <CardContent className="p-4 sm:p-5 h-full flex flex-col">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+            <p className={cn('text-2xl font-extrabold tracking-tight tabular-nums leading-tight mt-1.5 break-words', valueClassName ?? 'text-foreground')}>{value}</p>
+            {subtitle && <p className="text-xs text-muted-foreground mt-1.5">{subtitle}</p>}
+          </div>
+          <DashTile icon={icon} tone={tone} className={tileClassName} />
+        </div>
+        {children}
+        {note && (
+          <div className="mt-3 flex items-start gap-1.5 rounded-xl border border-border/60 bg-card/60 px-3 py-2 text-[11px] text-muted-foreground leading-snug">
+            <Info className="h-3.5 w-3.5 mt-px shrink-0" />
+            <span>{note}</span>
+          </div>
+        )}
+        {link && (
+          <Link to={link.to} className="mt-auto pt-3 flex items-center gap-1 text-xs text-primary/80 hover:text-primary font-semibold transition-colors">
+            {link.label} <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        )}
+      </CardContent>
+    </DashCard>
+  );
+}
+
+/** Encabezado de tarjetas de LISTA o GRÁFICA: título 17px bold + subtítulo + cuadro de ícono. */
+export function SectionHeader({ icon, tone = 'default', tileClassName, title, subtitle, right, className }: {
+  icon: LucideIcon; tone?: Tone; tileClassName?: string; title: ReactNode; subtitle?: ReactNode; right?: ReactNode; className?: string;
+}) {
+  return (
+    <div className={cn('flex items-start justify-between gap-3', className)}>
+      <div className="flex items-start gap-3 min-w-0">
+        <DashTile icon={icon} tone={tone} className={tileClassName} />
+        <div className="min-w-0">
+          <p className="text-[17px] font-bold tracking-tight text-foreground leading-tight">{title}</p>
+          {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+        </div>
+      </div>
+      {right && <div className="shrink-0">{right}</div>}
+    </div>
+  );
+}
+
+const RANK_STYLE = ['bg-amber-400 text-amber-950', 'bg-slate-300 text-slate-900 dark:bg-slate-600 dark:text-slate-100', 'bg-amber-700/80 text-white'];
+
+/** Fila de ranking (Top 3): medalla, nombre, detalle y valor. */
+export function RankRow({ rank, title, subtitle, value, valueSub, titleAttr }: {
+  rank: number; title: ReactNode; subtitle?: ReactNode; value: ReactNode; valueSub?: ReactNode; titleAttr?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 border border-border/60 bg-card hover:bg-muted/40 transition-colors">
+      <span className={cn('h-8 w-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-extrabold', RANK_STYLE[rank - 1] ?? 'bg-muted text-muted-foreground')}>
+        {rank}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-foreground leading-tight truncate" title={titleAttr}>{title}</p>
+        {subtitle && <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
+      </div>
+      <div className="shrink-0 text-right">
+        <p className="text-[14px] font-bold tabular-nums leading-none text-foreground whitespace-nowrap">{value}</p>
+        {valueSub && <p className="text-[11px] text-muted-foreground mt-1 whitespace-nowrap">{valueSub}</p>}
+      </div>
+    </div>
   );
 }
 

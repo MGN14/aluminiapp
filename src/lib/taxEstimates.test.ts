@@ -4,7 +4,7 @@
  * pagada en aduana el 26-jul, compras 1,55M).
  */
 import { describe, it, expect } from 'vitest';
-import { estimateIva, estimateRetefuente, estimateIca, estimateForEventId, periodMonths, type TaxInputs } from './taxEstimates';
+import { estimateIva, estimateRetefuente, estimateIca, estimateForEventId, periodMonths, isCustomsDuplicate, type TaxInputs } from './taxEstimates';
 
 const venta = (issue_date: string, base: number, extra: Partial<{ reteica: number; autoret: number }> = {}) => ({
   type: 'venta' as const, issue_date, subtotal_base: base, iva_amount: Math.round(base * 0.19),
@@ -124,9 +124,38 @@ describe('liquidaciones de aduana cargadas como compra DIAN - PSE (contenedores 
     const e = estimateIva(conAduana, 1)!;
     expect(e.monto).toBe(0);
     expect(e.detalle).toContain('saldo a favor');
+    expect(e.saldoAFavor).toBeGreaterThan(2_000_000);
+    expect(e.saldoAFavor).toBeLessThan(3_500_000);
     // Ene-Abr: 185,96M de aduana − 95,1M generado = 90,85M a favor; May-Ago
     // neto 88,26M → queda ≈2,6M a favor para Sep-Dic.
     const sep = estimateIva(conAduana, 2)!;
     expect(sep.monto).toBeLessThan(Math.round(155_599_916 * 0.19));
+  });
+});
+
+describe('recibo DIAN de aduana + costeo del mismo contenedor: el IVA se descuenta UNA vez', () => {
+  const reciboJulio = { type: 'compra' as const, counterparty_name: 'DIAN', issue_date: '2026-07-26', subtotal_base: 22_279_000, iva_amount: 88_893_000, reteica_amount: 0, autoretefuente_amount: 0 };
+  it('el recibo cae a ±60 días del IVA de importación del costeo → duplicado', () => {
+    expect(isCustomsDuplicate(reciboJulio, [{ fecha: '2026-07-09' }])).toBe(true);
+    expect(isCustomsDuplicate(reciboJulio, [{ fecha: '2026-01-15' }])).toBe(false);
+    expect(isCustomsDuplicate({ ...reciboJulio, counterparty_name: 'Shandong' }, [{ fecha: '2026-07-09' }])).toBe(false);
+  });
+  it('May-Ago no cambia por el recibo duplicado (sin él daba $0; con él daría 88M a favor)', () => {
+    const base: TaxInputs = {
+      ...NICO,
+      invoices: [
+        ...NICO.invoices,
+        { type: 'compra', counterparty_name: 'DIAN - PSE', issue_date: '2026-01-29', subtotal_base: 113_406_000, iva_amount: 94_957_000, reteica_amount: 0, autoretefuente_amount: 0 },
+        { type: 'compra', counterparty_name: 'DIAN - PSE', issue_date: '2026-04-20', subtotal_base: 111_172_000, iva_amount: 91_000_000, reteica_amount: 0, autoretefuente_amount: 0 },
+      ],
+    };
+    const conDup = { ...base, invoices: [...base.invoices, reciboJulio] };
+    expect(estimateIva(conDup, 1)!.monto).toBe(estimateIva(base, 1)!.monto);
+    expect(estimateIva(conDup, 1)!.saldoAFavor).toBeCloseTo(estimateIva(base, 1)!.saldoAFavor!, 0);
+    expect(estimateIva(conDup, 1)!.saldoAFavor!).toBeLessThan(5_000_000);
+  });
+  it('a la DIAN no se le practica retención en compras', () => {
+    const inp = { ...NICO, invoices: [...NICO.invoices, reciboJulio], retefuenteManual: [] };
+    expect(estimateRetefuente(inp, 6)!.monto).toBe(estimateRetefuente({ ...NICO, retefuenteManual: [] }, 6)!.monto);
   });
 });

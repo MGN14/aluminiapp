@@ -64,10 +64,43 @@ export interface TaxEstimate {
   detalle: string;
   /** El período aún no termina: el número crece hasta el cierre. */
   parcial: boolean;
+  /** Solo IVA: saldo a favor que queda para el siguiente período (si el
+   *  descontable + arrastre superó lo generado). */
+  saldoAFavor?: number;
 }
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+
+/** Entidad de impuestos (DIAN / Hacienda): sus "facturas de compra" son
+ *  recibos de pago, típicamente la liquidación de aduana de un contenedor. */
+export function isTaxAuthorityName(name?: string | null): boolean {
+  const n = (name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /\bdian\b|direccion de impuestos|secretaria de hacienda|hacienda distrital|tesoreria/.test(n);
+}
+
+const DAY_MS = 86_400_000;
+const CUSTOMS_DUP_WINDOW_DAYS = 60;
+
+/**
+ * Un recibo DIAN cargado como factura de compra que cae a ±60 días de un
+ * IVA de importación registrado en el costeo de un contenedor es EL MISMO
+ * pago de aduana contado dos veces: se descuenta una sola vez, la del
+ * costeo (está atada al contenedor y al giro real del banco).
+ *
+ * Caso real 2026-09-17: recibo "DIAN 2026-1" (IVA 88,9M) creado a mano el
+ * mismo día que el costeo de 2026-1 ya tenía 82,8M → saldo a favor
+ * fantasma de ~62M. Los recibos de contenedores ANTERIORES al módulo (sin
+ * costeo) sí cuentan: son la única fuente de ese IVA descontable.
+ */
+export function isCustomsDuplicate(
+  inv: { type: string; counterparty_name?: string | null; issue_date: string },
+  importIva: Array<{ fecha: string }>,
+): boolean {
+  if (inv.type !== 'compra' || !isTaxAuthorityName(inv.counterparty_name)) return false;
+  const t = new Date(inv.issue_date + 'T12:00:00').getTime();
+  return importIva.some((r) => Math.abs(new Date(r.fecha + 'T12:00:00').getTime() - t) <= CUSTOMS_DUP_WINDOW_DAYS * DAY_MS);
+}
 
 const monthOf = (iso: string) => Number(iso.slice(5, 7));
 const yearOf = (iso: string) => Number(iso.slice(0, 4));
@@ -94,7 +127,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 /** Neto de IVA de un período (sin arrastre). */
 function ivaNetoPeriodo(inp: TaxInputs, months: number[]) {
   const ventas = inp.invoices.filter((i) => i.type === 'venta' && inPeriod(i.issue_date, inp.year, months));
-  const compras = inp.invoices.filter((i) => i.type === 'compra' && inPeriod(i.issue_date, inp.year, months));
+  const compras = inp.invoices.filter((i) => i.type === 'compra' && inPeriod(i.issue_date, inp.year, months) && !isCustomsDuplicate(i, inp.importIva));
   const generado = ventas.reduce((s, i) => s + (Number(i.iva_amount) || 0), 0);
   const descFacturas = compras.reduce((s, i) => s + (Number(i.iva_amount) || 0), 0);
   const descImport = inp.importIva
@@ -128,8 +161,9 @@ export function estimateIva(inp: TaxInputs, index: number): TaxEstimate | null {
     partes.push(`− descontable ${fmt(descontable)}${cur.descImport > 0 ? ` (importación ${fmt(cur.descImport)})` : ''}`);
   }
   if (arrastre < 0) partes.push(`− saldo a favor ${fmt(-arrastre)}`);
-  if (cur.neto + arrastre < 0) partes.push(`→ queda saldo a favor ${fmt(-(cur.neto + arrastre))}`);
-  return { monto, detalle: partes.join(' '), parcial: !periodEnded(inp.year, months, today) };
+  const saldoAFavor = cur.neto + arrastre < 0 ? -(cur.neto + arrastre) : 0;
+  if (saldoAFavor > 0) partes.push(`→ queda saldo a favor ${fmt(saldoAFavor)}`);
+  return { monto, detalle: partes.join(' '), parcial: !periodEnded(inp.year, months, today), saldoAFavor };
 }
 
 /** Retefuente a pagar del mes `monthIndex` (0-based). */
@@ -138,7 +172,8 @@ export function estimateRetefuente(inp: TaxInputs, monthIndex: number): TaxEstim
   const today = inp.today ?? todayIso();
   if (!periodStarted(inp.year, months, today)) return null;
   const ventas = inp.invoices.filter((i) => i.type === 'venta' && inPeriod(i.issue_date, inp.year, months));
-  const compras = inp.invoices.filter((i) => i.type === 'compra' && inPeriod(i.issue_date, inp.year, months));
+  // Sin recibos de impuestos: a la DIAN no se le practica retención.
+  const compras = inp.invoices.filter((i) => i.type === 'compra' && inPeriod(i.issue_date, inp.year, months) && !isTaxAuthorityName(i.counterparty_name));
 
   let autorret = 0;
   if (inp.rates.autorretenedor) {

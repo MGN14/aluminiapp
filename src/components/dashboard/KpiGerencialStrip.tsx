@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
-import { ArrowRight, Gauge, Timer, RefreshCcw, Target, TrendingUp } from 'lucide-react';
+import { DashCard, DashTile, type Tone } from './cardKit';
+import { ArrowRight, Gauge, Timer, RefreshCcw, Target, TrendingUp, type LucideIcon } from 'lucide-react';
 import { useInformeBancoData, type SemaforoColor } from '@/hooks/useInformeBancoData';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useDataOwner } from '@/hooks/useDataOwner';
@@ -43,7 +44,7 @@ function semaforoYoY(pct: number | null): SemaforoColor {
 }
 
 interface KpiDef {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
   label: string;
   value: string;
   hint: string;
@@ -104,6 +105,8 @@ function StripContent() {
     },
   ];
 
+  const TONE: Record<SemaforoColor, Tone> = { green: 'success', yellow: 'warn', red: 'alarm' };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-2.5">
@@ -112,30 +115,29 @@ function StripContent() {
         </p>
         <Link
           to="/informe-banco"
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
         >
-          Ver informe completo <ArrowRight className="h-3 w-3" />
+          Ver informe completo <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        {kpis.map((k) => {
-          const Icon = k.icon;
-          return (
-            <Card key={k.label} className="border-0 shadow-sm">
+        {kpis.map((k) => (
+          <Link key={k.label} to="/informe-banco" className="block group">
+            <DashCard tone={TONE[k.semaforo]}>
               <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-medium text-muted-foreground leading-tight">{k.label}</p>
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground leading-tight">{k.label}</p>
+                  <DashTile icon={k.icon} tone={TONE[k.semaforo]} size="sm" />
                 </div>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <span className={`h-2 w-2 rounded-full shrink-0 ${SEMAFORO_DOT[k.semaforo]}`} />
-                  <p className="text-lg font-bold text-foreground tabular-nums leading-none">{k.value}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${SEMAFORO_DOT[k.semaforo]}`} />
+                  <p className="text-2xl font-extrabold tracking-tight text-foreground tabular-nums leading-none">{k.value}</p>
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1.5 leading-snug">{k.hint}</p>
+                <p className="text-xs text-muted-foreground mt-2 leading-snug">{k.hint}</p>
               </CardContent>
-            </Card>
-          );
-        })}
+            </DashCard>
+          </Link>
+        ))}
       </div>
     </div>
   );

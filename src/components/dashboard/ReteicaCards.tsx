@@ -1,14 +1,7 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Receipt, Calendar, MapPin, Percent } from 'lucide-react';
+import { Building2 } from 'lucide-react';
+import { MetricCard, fmtCop } from './cardKit';
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+const PINK_TILE = 'bg-pink-500/15 text-pink-600 dark:text-pink-400';
 
 interface ReteicaMonthlyCardProps {
   total: number;
@@ -18,55 +11,20 @@ interface ReteicaMonthlyCardProps {
   rate?: number;
 }
 
-export function ReteicaMonthlyCard({ 
-  total, 
-  periodLabel, 
-  transactionCount,
-  city,
-  rate,
-}: ReteicaMonthlyCardProps) {
+export function ReteicaMonthlyCard({ total, periodLabel, transactionCount, city, rate }: ReteicaMonthlyCardProps) {
+  const extra = [
+    city,
+    rate !== undefined && rate > 0 ? `${(rate * 100).toFixed(3)}%` : null,
+    transactionCount > 0 ? `${transactionCount} venta${transactionCount !== 1 ? 's' : ''} con ReteICA` : null,
+  ].filter(Boolean).join(' · ');
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          ReteICA por Pagar
-        </CardTitle>
-        <div className="p-2 rounded-lg bg-accent/10">
-          <Receipt className="h-4 w-4 text-accent" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-xl font-bold text-foreground">
-          {formatCurrency(total)}
-        </div>
-        <div className="flex items-center text-xs text-muted-foreground mt-1">
-          <Calendar className="h-3 w-3 mr-1" />
-          {periodLabel}
-        </div>
-        {/* City and rate info */}
-        {(city || rate) && (
-          <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
-            {city && (
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3 w-3" />
-                {city}
-              </span>
-            )}
-            {rate !== undefined && rate > 0 && (
-              <span className="flex items-center gap-1">
-                <Percent className="h-3 w-3" />
-                {(rate * 100).toFixed(3)}%
-              </span>
-            )}
-          </div>
-        )}
-        {transactionCount > 0 && (
-          <div className="text-[10px] text-muted-foreground mt-1">
-            {transactionCount} venta{transactionCount !== 1 ? 's' : ''} con ReteICA
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <MetricCard
+      icon={Building2}
+      tileClassName={PINK_TILE}
+      title="ReteICA por Pagar"
+      value={fmtCop(total)}
+      subtitle={<>{periodLabel}{extra && ` · ${extra}`}</>}
+    />
   );
 }
 
@@ -76,35 +34,19 @@ interface ReteicaYearlyCardProps {
   transactionCount: number;
 }
 
-export function ReteicaYearlyCard({ 
-  total, 
-  year, 
-  transactionCount 
-}: ReteicaYearlyCardProps) {
+export function ReteicaYearlyCard({ total, year, transactionCount }: ReteicaYearlyCardProps) {
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          ReteICA Acumulado
-        </CardTitle>
-        <div className="p-2 rounded-lg bg-accent/10">
-          <Receipt className="h-4 w-4 text-accent" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-xl font-bold text-foreground">
-          {formatCurrency(total)}
-        </div>
-        <div className="flex items-center text-xs text-muted-foreground mt-1">
-          <Calendar className="h-3 w-3 mr-1" />
+    <MetricCard
+      icon={Building2}
+      tileClassName={PINK_TILE}
+      title="ReteICA Acumulado"
+      value={fmtCop(total)}
+      subtitle={
+        <>
           Año {year}
-        </div>
-        {transactionCount > 0 && (
-          <div className="text-[10px] text-muted-foreground mt-1">
-            {transactionCount} venta{transactionCount !== 1 ? 's' : ''} con ReteICA
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          {transactionCount > 0 && ` · ${transactionCount} venta${transactionCount !== 1 ? 's' : ''} con ReteICA`}
+        </>
+      }
+    />
   );
 }

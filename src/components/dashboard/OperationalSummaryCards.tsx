@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { invoiceRetenciones } from '@/lib/invoiceBalance';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent } from '@/components/ui/card';
+import { MetricCard, SectionHeader, RankRow, DashCard } from './cardKit';
 import { Receipt, Banknote, ShoppingCart, Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
@@ -204,94 +205,77 @@ export function useOperationalData(year: number): OperationalData {
 
 export function CxCCard({ totalCxC, cxcCount, year }: { totalCxC: number; cxcCount: number; year: number }) {
   return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">Lo que me deben</CardTitle>
-        <div className="w-8 h-8 rounded-xl bg-destructive/10 flex items-center justify-center">
-          <Receipt className="h-4 w-4 text-destructive" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-xl font-bold text-destructive">{formatCurrency(totalCxC)}</div>
-        <div className="text-xs text-muted-foreground mt-1">{cxcCount} factura{cxcCount !== 1 ? 's' : ''} pendientes • {year}</div>
-        <Link to="/reportes/cuentas-por-cobrar" className="text-xs hover:underline mt-1 inline-block text-primary">Ver detalle →</Link>
-      </CardContent>
-    </Card>
+    <MetricCard
+      icon={Receipt}
+      tone="alarm"
+      title="Lo que me deben"
+      value={formatCurrency(totalCxC)}
+      valueClassName="text-destructive"
+      subtitle={`${cxcCount} factura${cxcCount !== 1 ? 's' : ''} pendiente${cxcCount !== 1 ? 's' : ''} · ${year}`}
+      link={{ to: '/reportes/cuentas-por-cobrar', label: 'Ver detalle' }}
+    />
   );
 }
 
 export function AnticiposCard({ totalAnticipos, anticiposCount, year }: { totalAnticipos: number; anticiposCount: number; year: number }) {
   return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">Anticipos</CardTitle>
-        <div className="w-8 h-8 rounded-xl bg-warning/10 flex items-center justify-center">
-          <Banknote className="h-4 w-4 text-warning" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-xl font-bold text-warning">{formatCurrency(totalAnticipos)}</div>
-        <div className="text-xs text-muted-foreground mt-1">{anticiposCount} transacción{anticiposCount !== 1 ? 'es' : ''} • {year}</div>
-        <Link to="/reportes/anticipos" className="text-xs hover:underline mt-1 inline-block text-primary">Ver detalle →</Link>
-      </CardContent>
-    </Card>
+    <MetricCard
+      icon={Banknote}
+      tone="warn"
+      title="Anticipos"
+      value={formatCurrency(totalAnticipos)}
+      valueClassName="text-warning"
+      subtitle={`${anticiposCount} transacción${anticiposCount !== 1 ? 'es' : ''} · ${year}`}
+      link={{ to: '/reportes/anticipos', label: 'Ver detalle' }}
+    />
   );
 }
 
 export function TopBuyersCard({ topBuyers, totalComprasBase, year }: { topBuyers: [string, number][]; totalComprasBase: number; year: number }) {
   return (
     <TooltipProvider>
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-base font-semibold text-foreground">Top 3 Clientes</CardTitle>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Clientes con mayor facturación de venta confirmada (base, sin IVA) en {year}.</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="w-8 h-8 rounded-xl bg-success/10 flex items-center justify-center">
-            <ShoppingCart className="h-4 w-4 text-success" />
-          </div>
-        </CardHeader>
-        <CardContent>
+      <DashCard tone="success" className="cursor-default">
+        <CardContent className="p-4 sm:p-5 h-full flex flex-col">
+          <SectionHeader
+            icon={ShoppingCart}
+            tone="success"
+            title="Top 3 Clientes"
+            subtitle={`Base facturada (sin IVA) · ${year}`}
+            right={
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Clientes con mayor facturación de venta confirmada (base, sin IVA) en {year}.</p>
+                </TooltipContent>
+              </Tooltip>
+            }
+            className="mb-3"
+          />
           {topBuyers.length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {topBuyers.map(([name, total], index) => {
                 const pct = totalComprasBase > 0 ? ((total / totalComprasBase) * 100).toFixed(0) : '0';
                 return (
-                  <div key={name} className="flex items-start gap-3">
-                    <span className={`font-bold text-lg w-6 text-center shrink-0 leading-tight ${RANK_COLORS[index]}`}>{index + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground truncate">{name}</p>
-                      {/* Mobile: monto debajo */}
-                      <p className="text-xs mt-0.5 sm:hidden">
-                        <span className="font-semibold text-foreground tabular-nums">{formatCurrency(total)}</span>
-                        <span className="text-muted-foreground ml-1.5">({pct}%)</span>
-                      </p>
-                    </div>
-                    {/* Desktop: monto al lado */}
-                    <div className="hidden sm:block text-right shrink-0">
-                      <span className="font-semibold text-sm text-foreground whitespace-nowrap tabular-nums">{formatCurrency(total)}</span>
-                      <span className="text-xs text-muted-foreground ml-1">({pct}%)</span>
-                    </div>
-                  </div>
+                  <RankRow
+                    key={name}
+                    rank={index + 1}
+                    title={name}
+                    value={formatCurrency(total)}
+                    valueSub={`${pct}% del total`}
+                  />
                 );
               })}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-4 text-center">
+            <div className="flex flex-col items-center justify-center py-6 text-center">
               <ShoppingCart className="h-8 w-8 text-muted-foreground/40 mb-2" />
               <p className="text-sm text-muted-foreground">Aún no hay facturas de venta confirmadas.</p>
             </div>
           )}
-          <div className="text-xs text-muted-foreground mt-4 pt-2 border-t border-border">{year}</div>
         </CardContent>
-      </Card>
+      </DashCard>
     </TooltipProvider>
   );
 }
