@@ -234,8 +234,14 @@ export default function Creditos() {
                                 {/* Costo total del crédito y costos adicionales */}
                                 <div className="grid grid-cols-3 gap-3 text-xs p-2 rounded-lg bg-amber-50/40 dark:bg-amber-950/10 border border-amber-200">
                                   <div>
-                                    <p className="text-muted-foreground">Intereses teóricos totales</p>
-                                    <p className="font-semibold text-amber-700">{fmt(c.summary.totalInterestScheduled)}</p>
+                                    <p className="text-muted-foreground">Intereses proyectados</p>
+                                    <p className="font-semibold text-amber-700">{fmt(c.summary.totalInterestProjected)}</p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Plan original {fmt(c.summary.totalInterestScheduled)}
+                                      {c.summary.interestSavedVsPlan > 500 && (
+                                        <span className="text-success font-medium"> · ahorrás {fmt(c.summary.interestSavedVsPlan)}</span>
+                                      )}
+                                    </p>
                                   </div>
                                   {c.summary.additionalCostsAmount > 0 && (
                                     <div>
@@ -250,7 +256,7 @@ export default function Creditos() {
                                     <p className="text-muted-foreground">Costo total del crédito</p>
                                     <p className="font-bold">{fmt(c.summary.totalCreditCost)}</p>
                                     <p className="text-[10px] text-muted-foreground">
-                                      Sobre principal: +{((c.summary.totalCreditCost / Number(c.credit.principal) - 1) * 100).toFixed(1)}%
+                                      Sobre principal: +{((c.summary.totalCreditCost / Number(c.credit.principal) - 1) * 100).toFixed(1)}% · con lo pagado y lo que falta sobre el saldo real
                                     </p>
                                   </div>
                                 </div>

@@ -351,7 +351,9 @@ export default function TransactionRow({
       queryClient.invalidateQueries({ queryKey: ['import-payments-available-tx'] });
       toast(res === 'deleted'
         ? { title: 'Importación desvinculada', description: 'El abono creado desde la conciliación se borró del contenedor.' }
-        : { title: 'Importación desvinculada', description: 'El abono manual se conserva en el contenedor; solo se soltó el vínculo con el extracto.' });
+        : res === null
+          ? { title: 'Etiqueta quitada', description: 'Este giro solo estaba etiquetado (pedido anterior al módulo); no había abono que borrar.' }
+          : { title: 'Importación desvinculada', description: 'El abono manual se conserva en el contenedor; solo se soltó el vínculo con el extracto.' });
     } catch (err) {
       console.error('Error unlinking import:', err);
       toast({ title: 'No se pudo desvincular', description: errMsg(err), variant: 'destructive' });

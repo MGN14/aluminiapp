@@ -417,7 +417,9 @@ export function PendingTransactionsTable({
       invalidateConciliacion();
       toast(res === 'deleted'
         ? { title: 'Importación desvinculada', description: 'El abono creado desde la conciliación se borró del contenedor.' }
-        : { title: 'Importación desvinculada', description: 'El abono manual se conserva; solo se soltó el vínculo con el extracto.' });
+        : res === null
+          ? { title: 'Etiqueta quitada', description: 'Este giro solo estaba etiquetado (pedido anterior al módulo); no había abono que borrar.' }
+          : { title: 'Importación desvinculada', description: 'El abono manual se conserva; solo se soltó el vínculo con el extracto.' });
       onTransactionUpdated();
     } catch (error) {
       console.error('Error unlinking import:', error);

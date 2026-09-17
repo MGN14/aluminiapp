@@ -157,11 +157,17 @@ export interface AmortizationSummary {
   percentPaid: number;
   /** Próxima cuota teórica pendiente (la que viene). */
   nextCuota: AmortizationRow | null;
-  /** Total intereses TEÓRICOS del schedule (suma de la columna interes). */
+  /** Total intereses del PLAN ORIGINAL (suma de la columna interés del schedule). */
   totalInterestScheduled: number;
+  /** Intereses PROYECTADOS con lo que pasó de verdad: los ya pagados + los
+   *  esperados de las cuotas pendientes sobre el saldo real. Baja con cada
+   *  abono extra (el plan original no). */
+  totalInterestProjected: number;
+  /** Cuánto se ahorra vs. el plan original (abonos extra). 0 si no hay ahorro. */
+  interestSavedVsPlan: number;
   /** Costo único de costos adicionales (Fogafin, comisión, etc.) sobre el principal. */
   additionalCostsAmount: number;
-  /** Costo total del crédito = principal × (1 + additionalCostsPct/100) + intereses teóricos. */
+  /** Costo total del crédito = principal + intereses PROYECTADOS + costos adicionales. */
   totalCreditCost: number;
 }
 
@@ -179,7 +185,6 @@ export function summarizeCredit(
 
   const totalInterestScheduled = schedule.reduce((s, r) => s + r.interesPagado, 0);
   const additionalCostsAmount = input.principal * (additionalCostsPct / 100);
-  const totalCreditCost = input.principal + totalInterestScheduled + additionalCostsAmount;
 
   // Schedule con estado por cuota considerando pagos efectivos.
   //
@@ -374,6 +379,17 @@ export function summarizeCredit(
       }
     : null;
 
+  // Intereses proyectados: lo ya pagado (real) + lo esperado de lo pendiente.
+  // Reporte Nico 2026-09-16: "abono 20M y el costo total del crédito no
+  // cambió" — antes el costo usaba los intereses del plan original.
+  const totalInterestProjected = scheduleWithStatus.reduce((acc, r) => {
+    if (r.estado === 'saldado') return acc;
+    if (r.estado === 'pendiente') return acc + r.interesPagado;
+    return acc + r.interesEfectivo;
+  }, 0);
+  const interestSavedVsPlan = Math.max(0, totalInterestScheduled - totalInterestProjected);
+  const totalCreditCost = input.principal + totalInterestProjected + additionalCostsAmount;
+
   return {
     schedule,
     scheduleWithStatus,
@@ -384,6 +400,8 @@ export function summarizeCredit(
     percentPaid: r2(percentPaid),
     nextCuota,
     totalInterestScheduled: r2(totalInterestScheduled),
+    totalInterestProjected: r2(totalInterestProjected),
+    interestSavedVsPlan: r2(interestSavedVsPlan),
     additionalCostsAmount: r2(additionalCostsAmount),
     totalCreditCost: r2(totalCreditCost),
   };

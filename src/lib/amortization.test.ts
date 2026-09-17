@@ -350,3 +350,28 @@ describe('suggestPaymentSplit con capital fijo (alemana)', () => {
     expect(split).toEqual({ principal: 10_000_000, interest: 0 });
   });
 });
+
+describe('intereses proyectados y costo total siguen los abonos (fix 2026-09-16 pt.2)', () => {
+  it('sin pagos, proyectado = plan original', () => {
+    const s = summarizeCredit(NICO, [], 4.85);
+    expect(s.totalInterestProjected).toBeCloseTo(s.totalInterestScheduled, 0);
+    expect(s.interestSavedVsPlan).toBe(0);
+    expect(s.totalCreditCost).toBeCloseTo(100_000_000 + s.totalInterestScheduled + 4_850_000, 0);
+  });
+
+  it('con 2 abonos de $10M el proyectado baja y el costo total también', () => {
+    const CUOTA2 = { payment_date: '2026-09-15', amount_paid: 5_384_239, principal_paid: 4_166_667, interest_paid: 1_217_572, is_extra: false };
+    const ABONO2 = { payment_date: '2026-09-17', amount_paid: 10_000_000, principal_paid: 10_000_000, interest_paid: 0, is_extra: true };
+    const s = summarizeCredit(NICO, [CUOTA1, ABONO1, CUOTA2, ABONO2], 4.85);
+    // Pagado real: 1.370.000 + 1.217.572. Pendiente: capital fijo sobre 71.641.840.
+    const saldo = 71_641_840;
+    const capital = 100_000_000 / 24;
+    let futuro = 0;
+    let rest = saldo;
+    while (rest > 0.5) { futuro += rest * 0.0137; rest -= Math.min(capital, rest); }
+    expect(s.totalInterestProjected).toBeCloseTo(1_370_000 + 1_217_572 + futuro, -1);
+    expect(s.totalInterestProjected).toBeLessThan(s.totalInterestScheduled - 5_000_000);
+    expect(s.interestSavedVsPlan).toBeCloseTo(s.totalInterestScheduled - s.totalInterestProjected, 0);
+    expect(s.totalCreditCost).toBeCloseTo(100_000_000 + s.totalInterestProjected + 4_850_000, 0);
+  });
+});

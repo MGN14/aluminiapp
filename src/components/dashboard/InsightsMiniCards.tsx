@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
 import { ArrowRight, AlertTriangle, Zap, ShieldCheck, Info, Upload, Brain, Repeat, Sparkles } from 'lucide-react';
 import GirosSinVincularCard, { type GiroSinVincular } from './GirosSinVincularCard';
+import { parseImportNameFromNotes } from '@/lib/importLink';
 import { PeriodSelection } from './UnifiedPeriodFilter';
 import { supabase } from '@/integrations/supabase/client';
 import nicoAvatar from '@/assets/nico-avatar.png';
@@ -136,7 +137,9 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
       const dismissed = new Set(loadGirosDismissed());
 
       const pendientes = (txs as Array<{ id: string; date: string; amount: number | null; description: string | null; notes: string | null }>)
-        .filter(t => !linkedIds.has(t.id) && !dismissed.has(t.id))
+        // Un giro etiquetado [Importación - X] sin abono es de un pedido
+        // anterior al módulo: ya está explicado, no se cuenta.
+        .filter(t => !linkedIds.has(t.id) && !dismissed.has(t.id) && !parseImportNameFromNotes(t.notes))
         .sort((a, b) => a.date.localeCompare(b.date));
       if (pendientes.length === 0) { setGiros(null); return; }
       setGiros({

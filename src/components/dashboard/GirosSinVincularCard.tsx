@@ -28,6 +28,9 @@ interface Props {
   onLinked: () => void;
 }
 
+/** Valor sentinela del selector: etiquetar sin contenedor. */
+const LABEL_ONLY = '__label_only__';
+
 const fmtCop = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 const fmtUsd = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -75,6 +78,31 @@ export default function GirosSinVincularCard({ giros, totalCop, onDismiss, onLin
     })();
     return () => { cancelled = true; };
   }, [open, imports, toast]);
+
+  /** Giro de un pedido ANTERIOR al módulo (ej. 2025-6): no hay contenedor al
+   *  cual crear el abono, pero queda etiquetado en las notas del movimiento
+   *  (chip en Conciliación) y la alerta deja de contarlo — en cualquier
+   *  dispositivo, porque vive en la base y no en este navegador. */
+  const handleLabelOnly = async (giro: GiroSinVincular) => {
+    const ref = window.prompt('Referencia del pedido (ej. 2025-6). Solo etiqueta el giro, no crea contenedor:');
+    const label = (ref ?? '').trim();
+    if (!label) return;
+    setLinkingId(giro.id);
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .update({ notes: withImportMarker(giro.notes, label) })
+        .eq('id', giro.id);
+      if (error) throw error;
+      toast({ title: `Giro etiquetado como "${label}"`, description: 'Quedó como chip en Conciliación. No se creó ningún abono.' });
+      queryClient.invalidateQueries({ queryKey: ['conciliacion'] });
+      onLinked();
+    } catch (err) {
+      toast({ title: 'No se pudo etiquetar el giro', description: errMsg(err), variant: 'destructive' });
+    } finally {
+      setLinkingId(null);
+    }
+  };
 
   const handleLink = async (giro: GiroSinVincular, imp: OpenImport) => {
     if (!user) return;
@@ -175,13 +203,12 @@ export default function GirosSinVincularCard({ giros, totalCop, onDismiss, onLin
                       <td className="p-2 min-w-[220px]">
                         {imports === null ? (
                           <span className="text-muted-foreground">Cargando…</span>
-                        ) : imports.length === 0 ? (
-                          <span className="text-muted-foreground">No hay contenedores abiertos en Importaciones.</span>
                         ) : (
                           <Select
                             disabled={busy}
                             value=""
                             onValueChange={(id) => {
+                              if (id === LABEL_ONLY) { void handleLabelOnly(g); return; }
                               const imp = imports.find((i) => i.id === id);
                               if (imp) void handleLink(g, imp);
                             }}
@@ -204,6 +231,9 @@ export default function GirosSinVincularCard({ giros, totalCop, onDismiss, onLin
                                   </SelectItem>
                                 );
                               })}
+                              <SelectItem value={LABEL_ONLY} className="text-xs text-muted-foreground">
+                                ✎ Pedido anterior al módulo (solo etiquetar)
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                         )}
@@ -225,7 +255,8 @@ export default function GirosSinVincularCard({ giros, totalCop, onDismiss, onLin
             </table>
             <p className="px-2 py-1.5 text-[10px] text-muted-foreground border-t">
               Al vincular, el abono queda en el contenedor con USD = COP ÷ TRM del día del giro. Si ya lo habías
-              registrado a mano en Importaciones, se adopta ese abono (no se duplica). Para soltarlo: la X del chip en Conciliación.
+              registrado a mano en Importaciones, se adopta ese abono (no se duplica). Un giro de un pedido anterior al
+              módulo se etiqueta sin crear contenedor. Para soltar cualquiera: la X del chip en Conciliación.
             </p>
           </div>
         )}
