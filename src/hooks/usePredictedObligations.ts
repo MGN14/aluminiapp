@@ -18,6 +18,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import type { NewBusinessObligation } from '@/hooks/useBusinessObligations';
+import { planObligationsFromPattern, coveredByManualObligation, type PatternTx } from '@/lib/obligationPlan';
 
 export interface PredictedObligation {
   pattern_key: string;
@@ -31,7 +32,27 @@ export interface PredictedObligation {
   source: string; // 'conciliado' | 'texto' | 'factura'
 }
 
-const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+/** Patrón conciliado: `egreso|resp:<uuid>|cat:<uuid>` → sus pagos reales. */
+const PATTERN_KEY_RE = /^egreso\|resp:([0-9a-f-]{36})\|cat:([0-9a-f-]{36})$/;
+
+async function fetchPatternTxs(patternKey: string): Promise<PatternTx[]> {
+  const m = patternKey.match(PATTERN_KEY_RE);
+  if (!m) return [];
+  const since = new Date();
+  since.setMonth(since.getMonth() - 6);
+  const { data } = await supabase
+    .from('transactions')
+    .select('date, amount')
+    .eq('type', 'egreso')
+    .is('deleted_at', null)
+    .eq('responsible_id', m[1])
+    .eq('category_id', m[2])
+    .gte('date', since.toISOString().slice(0, 10))
+    .order('date');
+  return ((data ?? []) as Array<{ date: string; amount: number | null }>)
+    .map((r) => ({ date: r.date, amount: Math.abs(Number(r.amount ?? 0)) }))
+    .filter((r) => r.amount > 0);
+}
 
 const DISPLAY_MIN_OCCURRENCES = 4;
 const DISPLAY_MIN_CONFIDENCE = 0.5;
@@ -49,16 +70,15 @@ export function usePredictedObligations() {
       const [memRes, patRes, oblRes] = await Promise.all([
         (supabase as any).from('business_memory').select('metric_value').eq('metric_key', 'predictions').maybeSingle(),
         (supabase as any).from('business_patterns').select('pattern_key, status').not('pattern_key', 'is', null),
-        (supabase as any).from('business_obligations').select('nombre, activa'),
+        (supabase as any).from('business_obligations').select('nombre, activa, dia_mes, monto_estimado'),
       ]);
 
       const raw = Array.isArray(memRes.data?.metric_value) ? memRes.data.metric_value : [];
       const statusByKey = new Map<string, string>(
         ((patRes.data ?? []) as Array<{ pattern_key: string; status: string }>).map((r) => [r.pattern_key, r.status]),
       );
-      const obligationNames = ((oblRes.data ?? []) as Array<{ nombre: string; activa: boolean }>)
-        .filter((o) => o.activa)
-        .map((o) => norm(o.nombre));
+      const manuales = ((oblRes.data ?? []) as Array<{ nombre: string; activa: boolean; dia_mes: number; monto_estimado: number | null }>)
+        .filter((o) => o.activa);
 
       return (raw as PredictedObligation[])
         // Solo EGRESOS: los ingresos recurrentes son territorio de cobranza
@@ -71,12 +91,10 @@ export function usePredictedObligations() {
           const st = p.pattern_key ? statusByKey.get(p.pattern_key) : undefined;
           return st !== 'dismissed' && st !== 'confirmed' && st !== 'archived';
         })
-        // Dedup contra obligaciones manuales: si ya existe una con nombre
-        // parecido, el predicho no aporta (la manual es la verdad).
-        .filter((p) => {
-          const d = norm(p.description);
-          return !obligationNames.some((n) => n && (d.includes(n) || n.includes(d)));
-        })
+        // Dedup contra obligaciones manuales: nombre parecido, o misma plata
+        // y fecha cercana (MiPlanilla vs "Nómina — Compensar"). La manual es
+        // la verdad; el predicho no aporta.
+        .filter((p) => !coveredByManualObligation(p, manuales))
         .filter((p) => (p.occurrences ?? 0) >= DISPLAY_MIN_OCCURRENCES
           && (p.confidence ?? 0) >= DISPLAY_MIN_CONFIDENCE
           && p.days_until >= 0
@@ -92,35 +110,40 @@ export function usePredictedObligations() {
     qc.invalidateQueries({ queryKey: ['business-patterns'] });
   };
 
-  /** F3 — "Sí, es fijo": obligación real desde el patrón + patrón confirmed. */
+  /** F3 — "Sí, es fijo": obligación real desde el patrón + patrón confirmed.
+   *  Día, monto y meses salen de los pagos REALES (lib/obligationPlan): una
+   *  nómina quincenal crea dos filas (15 y 30), una mensual una sola con su
+   *  día típico — no el de la proyección. */
   const confirm = useMutation({
     mutationFn: async (p: PredictedObligation) => {
-      const dia = Number(p.estimated_date.slice(8, 10)) || 1;
-      // Frecuencia ~mensual (25-35d) → todos los meses; si no, arranca con el
-      // mes de la próxima fecha y el usuario ajusta en Configurar obligaciones.
-      const mensual = p.frequency_days >= 25 && p.frequency_days <= 35;
-      const meses = mensual
-        ? ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
-        : [String(Number(p.estimated_date.slice(5, 7)))];
-      const nueva: NewBusinessObligation & { user_id: string } = {
+      const txs = await fetchPatternTxs(p.pattern_key);
+      const planes = planObligationsFromPattern(p, txs);
+      const filas: Array<NewBusinessObligation & { user_id: string }> = planes.map((pl) => ({
         user_id: user!.id,
-        nombre: p.description.substring(0, 120),
-        tipo: 'otro',
-        dia_mes: Math.min(dia, 28),
-        monto_estimado: p.estimated_amount,
-        meses,
+        nombre: pl.nombre,
+        tipo: pl.tipo,
+        dia_mes: pl.dia_mes,
+        monto_estimado: pl.monto_estimado,
+        meses: pl.meses,
         activa: true,
-        notas: `Creada desde patrón detectado (${p.occurrences} pagos, cada ~${p.frequency_days}d).`,
-      } as never;
-      const { error } = await (supabase as any).from('business_obligations').insert(nueva);
+        notas: pl.notas,
+      }));
+      const { error } = await (supabase as any).from('business_obligations').insert(filas);
       if (error) throw error;
       const { error: patError } = await (supabase as any)
         .from('business_patterns')
         .update({ status: 'confirmed' })
         .eq('pattern_key', p.pattern_key);
       if (patError) throw patError;
+      return planes;
     },
-    onSuccess: () => { invalidate(); toast.success('Obligación fija creada — editala en Visita DIAN → Configurar obligaciones'); },
+    onSuccess: (planes) => {
+      invalidate();
+      const detalle = planes.map((pl) => `día ${pl.dia_mes}`).join(' y ');
+      toast.success(planes.length > 1
+        ? `Nómina quincenal: creadas ${planes.length} obligaciones (${detalle}) — editalas en Visita DIAN → Configurar obligaciones`
+        : `Obligación fija creada (${detalle}) — editala en Visita DIAN → Configurar obligaciones`);
+    },
     onError: (e) => toast.error(`No se pudo crear: ${(e as Error).message}`),
   });
 
