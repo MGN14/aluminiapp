@@ -6,7 +6,7 @@ import { HandCoins, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
 import { useExpectedPayments, type ExpectedPayment } from '@/hooks/useExpectedPayments';
 import { parseLocalDate } from '@/lib/dateUtils';
 import AcordarPagoModal from '@/components/expected-payments/AcordarPagoModal';
-import { DashCard, DashHeader, DashBig, DashRow, DashFooter, DashEmpty, DashLoading, UrgencyPill, Pill, urgencyOf, fmtCop, fmtFecha } from './cardKit';
+import { DashCard, DashHeader, DashBig, DashItem, DashFooter, DashEmpty, DashLoading, UrgencyPill, Pill, urgencyOf, fmtCop, fmtFecha } from './cardKit';
 
 const MAX_ITEMS = 5;
 
@@ -80,54 +80,33 @@ export default function UpcomingPaymentsCard() {
             const dueDate = parseLocalDate(p.due_date);
             const u = urgencyOf(p.days_until);
             return (
-              <DashRow key={p.id} urgency={u} title={p.notes ?? undefined}>
-                <span className="h-9 w-9 rounded-xl bg-success/15 text-success flex items-center justify-center shrink-0 text-[11px] font-bold">
-                  {initials(p.responsible_name)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-foreground leading-tight truncate">{p.responsible_name ?? '(sin cliente)'}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                    {fmtFecha(dueDate)}
-                    {p.invoice_number && ` · Fact. ${p.invoice_number}`}
-                    {p.notes && ` · ${p.notes}`}
-                  </p>
-                </div>
-                <div className="shrink-0 flex flex-col items-end gap-1">
-                  <span className="text-[14px] font-bold tabular-nums leading-none text-foreground">{fmtCop(p.amount)}</span>
-                  <UrgencyPill days={p.days_until} overdueWord="Hace" />
-                </div>
-                <div className="flex flex-col gap-0.5 shrink-0">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0 text-success hover:bg-success/15 rounded-md"
-                    title="Marcar como cobrado"
-                    onClick={() => markCumplido.mutate(p.id)}
-                    disabled={markCumplido.isPending}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.5} />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
-                    title="Editar fecha / monto / nota"
-                    onClick={() => setEditing(p)}
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md"
-                    title="Borrar cobro acordado"
-                    onClick={() => handleRemove(p)}
-                    disabled={remove.isPending}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              </DashRow>
+              <DashItem
+                key={p.id}
+                urgency={u}
+                titleAttr={p.notes ?? undefined}
+                leading={
+                  <span className="h-7 w-7 rounded-lg bg-success/15 text-success flex items-center justify-center shrink-0 text-[11px] font-bold">
+                    {initials(p.responsible_name)}
+                  </span>
+                }
+                title={p.responsible_name ?? '(sin cliente)'}
+                subtitle={<>{fmtFecha(dueDate)}{p.invoice_number && ` · Fact. ${p.invoice_number}`}{p.notes && ` · ${p.notes}`}</>}
+                value={fmtCop(p.amount)}
+                pill={<UrgencyPill days={p.days_until} overdueWord="Hace" />}
+                actions={
+                  <span className="flex items-center gap-0.5 shrink-0">
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-success hover:bg-success/15 rounded-md" title="Marcar como cobrado" onClick={() => markCumplido.mutate(p.id)} disabled={markCumplido.isPending}>
+                      <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md" title="Editar fecha / monto / nota" onClick={() => setEditing(p)}>
+                      <Pencil className="h-3 w-3" />
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md" title="Borrar cobro acordado" onClick={() => handleRemove(p)} disabled={remove.isPending}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </span>
+                }
+              />
             );
           })}
         </div>

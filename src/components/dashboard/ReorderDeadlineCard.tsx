@@ -1,11 +1,9 @@
-import { CardContent } from '@/components/ui/card';
-import { Link } from 'react-router-dom';
 import { CalendarClock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
-import { DashCard, DashHeader, DashBig, DashFooter, DashLoading, Pill, PILL, urgencyOf, type Tone } from './cardKit';
+import { MetricCard, DashLoading, Pill, PILL, urgencyOf, type Tone } from './cardKit';
 
 /**
  * Card del Dashboard: SOLO la fecha límite para montar el próximo pedido
@@ -25,50 +23,28 @@ export default function ReorderDeadlineCard() {
     : dias <= 7 ? 'alarm'
     : dias <= 15 ? 'warn'
     : 'default';
-  const bigColor =
+  const valueColor =
     tone === 'alarm' ? 'text-destructive'
     : tone === 'warn' ? 'text-amber-600 dark:text-amber-400'
     : 'text-foreground';
 
   return (
-    <Link to="/importaciones" className="block group h-full">
-      <DashCard tone={tone}>
-        <CardContent className="p-4 sm:p-5 h-full flex flex-col">
-          <DashHeader
-            icon={CalendarClock}
-            tone={tone}
-            title="Montar próximo pedido"
-            subtitle={
-              fecha
-                ? (dias != null
-                    ? dias <= 0 ? 'Es HOY — cada día corre la llegada' : `Quedan ${dias} día${dias !== 1 ? 's' : ''} para decidir`
-                    : 'Fecha límite para no quebrar stock')
-                : 'Falta consumo o stock por variante para proyectar el quiebre.'
-            }
-            right={
-              fecha && dias != null
-                ? <Pill className={PILL[urgencyOf(dias)]}>{dias <= 0 ? 'Hoy' : `${dias} días`}</Pill>
-                : undefined
-            }
-          >
-            {fecha ? (
-              <DashBig className={bigColor}>
-                {format(parseLocalDate(fecha), "d 'de' MMMM", { locale: es })}
-              </DashBig>
-            ) : (
-              <p className="text-base font-bold text-foreground mt-0.5">Sin fecha todavía</p>
-            )}
-          </DashHeader>
-
-          {fecha && (
-            <p className="text-xs text-muted-foreground leading-snug rounded-xl border border-border/60 bg-card/60 px-3 py-2">
-              Fecha límite para montar el pedido sin quebrar stock: quiebre proyectado por variante menos el tiempo de tránsito y aduana.
-            </p>
-          )}
-
-          <DashFooter>Ver detalle en Importaciones</DashFooter>
-        </CardContent>
-      </DashCard>
-    </Link>
+    <MetricCard
+      icon={CalendarClock}
+      tone={tone}
+      title="Montar próximo pedido"
+      badge={fecha && dias != null ? <Pill className={PILL[urgencyOf(dias)]}>{dias <= 0 ? 'Hoy' : `${dias} días`}</Pill> : undefined}
+      value={fecha ? format(parseLocalDate(fecha), "d 'de' MMMM", { locale: es }) : 'Sin fecha todavía'}
+      valueClassName={fecha ? valueColor : 'text-foreground text-lg'}
+      subtitle={
+        fecha
+          ? (dias != null
+              ? dias <= 0 ? 'Es HOY: cada día que pasa corre la llegada' : `Quedan ${dias} día${dias !== 1 ? 's' : ''} para decidir`
+              : 'Fecha límite para no quebrar stock')
+          : 'Falta consumo o stock por variante para proyectar el quiebre.'
+      }
+      note={fecha ? 'Quiebre proyectado por variante, menos tránsito y aduana.' : undefined}
+      link={{ to: '/importaciones', label: 'Ver detalle en Importaciones' }}
+    />
   );
 }

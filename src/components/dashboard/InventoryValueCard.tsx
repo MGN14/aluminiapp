@@ -3,7 +3,7 @@ import { CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import { Boxes } from 'lucide-react';
 import { fetchVariantValuation } from '@/lib/variantInventory';
-import { DashCard, DashHeader, DashBig, DashRow, DashFooter, DashEmpty, DashLoading, Pill, fmtCop, fmtNum } from './cardKit';
+import { DashCard, DashHeader, DashBig, DashItem, DashChip, DashFooter, DashEmpty, DashLoading, Pill, fmtCop, fmtNum } from './cardKit';
 
 const EMERALD_TILE = 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400';
 
@@ -62,26 +62,20 @@ export default function InventoryValueCard() {
               {topPorValor.map((v) => {
                 const share = totalValor > 0 ? (v.valor / totalValor) * 100 : 0;
                 return (
-                  <DashRow key={v.variant_reference}>
-                    {/* Solo la referencia — el nombre apretaba la card (Nico 2026-08-02). */}
-                    <span className={`h-9 min-w-9 px-2 rounded-xl flex items-center justify-center shrink-0 text-[11px] font-bold tracking-tight ${EMERALD_TILE}`}>
-                      {v.variant_reference}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-foreground leading-tight truncate">{fmtNum(v.stock)} unidades</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">{share.toLocaleString('es-CO', { maximumFractionDigits: 1 })}% de la bodega</p>
-                    </div>
-                    <div className="shrink-0 flex flex-col items-end gap-1">
-                      <span className="text-[14px] font-bold tabular-nums leading-none text-foreground">{fmtCop(v.valor)}</span>
-                      <Pill className="bg-muted text-muted-foreground">Top {topPorValor.indexOf(v) + 1}</Pill>
-                    </div>
-                  </DashRow>
+                  <DashItem
+                    key={v.variant_reference}
+                    leading={<DashChip className={EMERALD_TILE}>{v.variant_reference}</DashChip>}
+                    title={`${fmtNum(v.stock)} unidades`}
+                    subtitle={`${share.toLocaleString('es-CO', { maximumFractionDigits: 1 })}% de la bodega`}
+                    value={fmtCop(v.valor)}
+                    pill={<Pill className="bg-muted text-muted-foreground">Top {topPorValor.indexOf(v) + 1}</Pill>}
+                  />
                 );
               })}
             </div>
           )}
 
-          <DashFooter note="Las 3 referencias con más plata parada">Ver inventario por variante</DashFooter>
+          <DashFooter note="Top 3 por plata parada">Ver inventario por variante</DashFooter>
         </CardContent>
       </DashCard>
     </Link>

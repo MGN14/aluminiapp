@@ -133,12 +133,55 @@ export function DashRow({ children, urgency = 'later', className, title }: { chi
   );
 }
 
-/** Pie: nota chica a la izquierda (opcional) + link a la derecha. */
+/**
+ * Fila de lista en DOS líneas — pensada para tarjetas angostas (4 columnas
+ * ≈ 300 px, Nico 2026-09-17: "los textos no se ven, están muy apretados"):
+ *   línea 1: [leading] título ················ valor
+ *   línea 2:           detalle ··············· píldora · acciones
+ * El título y el detalle usan todo el ancho que dejan el chip y el valor.
+ */
+export function DashItem({ leading, title, subtitle, value, pill, actions, urgency = 'later', titleAttr, className, onClick }: {
+  leading?: ReactNode; title: ReactNode; subtitle?: ReactNode; value?: ReactNode; pill?: ReactNode; actions?: ReactNode;
+  urgency?: Urgency; titleAttr?: string; className?: string; onClick?: () => void;
+}) {
+  return (
+    <div
+      className={cn('rounded-xl px-3 py-2.5 border transition-colors', ROW_BG[urgency], onClick && 'cursor-pointer', className)}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
+      <div className="flex items-center gap-2.5 min-w-0">
+        {leading}
+        <p className="text-[13px] font-semibold text-foreground leading-tight truncate flex-1 min-w-0" title={titleAttr ?? (typeof title === 'string' ? title : undefined)}>{title}</p>
+        {value != null && <span className="text-[14px] font-bold tabular-nums leading-none text-foreground shrink-0 whitespace-nowrap">{value}</span>}
+      </div>
+      {(subtitle || pill || actions) && (
+        <div className="flex items-center gap-2 mt-1.5 min-w-0">
+          <p className="text-xs text-muted-foreground leading-snug truncate flex-1 min-w-0">{subtitle}</p>
+          {pill}
+          {actions}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Chip de referencia (2026-2, VR25…) para el `leading` de una fila. */
+export function DashChip({ children, className, title }: { children: ReactNode; className?: string; title?: string }) {
+  return (
+    <span className={cn('inline-flex items-center h-7 px-2 rounded-lg text-[11px] font-bold tracking-tight shrink-0 whitespace-nowrap', className)} title={title}>
+      {children}
+    </span>
+  );
+}
+
+/** Pie: nota chica (opcional) + link. Si no caben en una línea, la nota
+ *  pasa arriba entera en vez de truncarse. */
 export function DashFooter({ note, children }: { note?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-2 pt-3 mt-auto">
-      <span className="text-[10px] text-muted-foreground truncate">{note ?? ''}</span>
-      <span className="flex items-center gap-1 text-xs text-primary/80 group-hover:text-primary font-semibold transition-colors shrink-0">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 pt-3 mt-auto">
+      {note && <span className="text-[11px] text-muted-foreground leading-snug min-w-0">{note}</span>}
+      <span className="flex items-center gap-1 text-xs text-primary/80 group-hover:text-primary font-semibold transition-colors shrink-0 ml-auto">
         {children} <ArrowRight className="h-3.5 w-3.5" />
       </span>
     </div>
@@ -190,8 +233,8 @@ export function DashLoading({ lines = 3 }: { lines?: number }) {
  * Tarjeta de MÉTRICA (Facturado, IVA, Retefuente, 4x1000…): etiqueta en
  * mayúsculas chicas, número grande, subtítulo, nota opcional y link opcional.
  */
-export function MetricCard({ icon, tone = 'default', tileClassName, title, value, valueClassName, subtitle, note, link, children, className }: {
-  icon: LucideIcon; tone?: Tone; tileClassName?: string; title: string; value: ReactNode; valueClassName?: string;
+export function MetricCard({ icon, tone = 'default', tileClassName, title, badge, value, valueClassName, subtitle, note, link, children, className }: {
+  icon: LucideIcon; tone?: Tone; tileClassName?: string; title: string; badge?: ReactNode; value: ReactNode; valueClassName?: string;
   subtitle?: ReactNode; note?: ReactNode; link?: { to: string; label: string }; children?: ReactNode; className?: string;
 }) {
   return (
@@ -199,7 +242,10 @@ export function MetricCard({ icon, tone = 'default', tileClassName, title, value
       <CardContent className="p-4 sm:p-5 h-full flex flex-col">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2 flex-wrap">
+              <span>{title}</span>
+              {badge}
+            </p>
             <p className={cn('text-2xl font-extrabold tracking-tight tabular-nums leading-tight mt-1.5 break-words', valueClassName ?? 'text-foreground')}>{value}</p>
             {subtitle && <p className="text-xs text-muted-foreground mt-1.5">{subtitle}</p>}
           </div>
