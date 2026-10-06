@@ -50,9 +50,9 @@ export interface ImportEstadoHistoryRow {
 }
 
 export interface ImportCostRow {
-  tipo: 'flete' | 'seguro' | 'arancel' | 'iva_importacion' | 'nacionalizacion' | 'gastos_bancarios' | 'otro';
-  /** Texto libre del costo — se usa para reconocer el transporte local a
-   *  bodega ("Transporte Argemiro") dentro de los tipos genéricos. */
+  tipo: 'flete' | 'seguro' | 'arancel' | 'iva_importacion' | 'nacionalizacion' | 'transporte' | 'gastos_bancarios' | 'otro';
+  /** Texto libre del costo. 'estimado' en el concepto = fila escrita desde
+   *  Escenarios (lápiz), no una factura real. */
   concepto?: string | null;
   monto: number;
   moneda: 'USD' | 'COP';

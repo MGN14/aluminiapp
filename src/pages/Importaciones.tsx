@@ -1274,8 +1274,8 @@ export default function Importaciones() {
                     <TableHead className="font-semibold text-right" title="Flete internacional (USD)">Flete</TableHead>
                     <TableHead className="font-semibold text-right" title="Mercancía en pesos: monto USD × TRM (abonos → causación → hoy)">Mercancía COP</TableHead>
                     <TableHead className="font-semibold text-right" title="Arancel + IVA de importación (liquidación real si está cargada; si no, estimado)">Aduana</TableHead>
-                    <TableHead className="font-semibold text-right" title="Agencia de aduanas / nacionalización">Agencia</TableHead>
-                    <TableHead className="font-semibold text-right" title="Transporte local a bodega — costos cuyo concepto diga 'transporte' o 'Argemiro'">Transporte</TableHead>
+                    <TableHead className="font-semibold text-right" title="Agencia de aduanas / nacionalización · 'est.' = estimado desde Escenarios, todavía sin la factura real de la agencia">Agencia</TableHead>
+                    <TableHead className="font-semibold text-right" title="Transporte puerto → bodega (tipo 'Transporte interno' en Costos, o el lápiz de Escenarios)">Transporte</TableHead>
                     <TableHead className="font-semibold text-right" title="CIF COP + arancel + IVA + otros — la misma cuenta del Resumen del pedido">Total imp.</TableHead>
                     <TableHead className="font-semibold" title="La ETA que cargás es la llegada a PUERTO; la app le suma tu promedio de nacionalización para pronosticar la llegada a bodega.">ETA bodega</TableHead>
                   </TableRow>
@@ -1335,13 +1335,26 @@ export default function Importaciones() {
                       const mercanciaCop = trmEst ? Number(row.monto_total_usd ?? 0) * trmEst : null;
                       const impuestosAduanaCop = (bd.arancelCop ?? 0) + (bd.ivaCop ?? 0);
                       const agenciaCop = agencia.cop + (trmEst ? agencia.usd * trmEst : 0);
-                      // Transporte local: se reconoce por el concepto ("Transporte
-                      // Argemiro", "acarreo"...) dentro de otros/gastos.
-                      const transporteCop = (row.import_costs ?? []).reduce((s, c) => {
+                      // ¿La agencia es solo un estimado (lápiz de Escenarios) o ya hay
+                      // factura real? Igual que Aduana, se marca "est." para que no se
+                      // confunda con plata ya pagada (Nico 2026-10-06: "no sé de dónde
+                      // tomó los 21M").
+                      const agenciaRows = (row.import_costs ?? []).filter((c) => c.tipo === 'nacionalizacion');
+                      const agenciaEstimada = agenciaRows.length > 0
+                        && agenciaRows.every((c) => /estimad/i.test(String((c as { concepto?: string | null }).concepto ?? '')));
+                      // Transporte puerto → bodega: el tipo propio 'transporte' (desde
+                      // 2026-09-03), que es lo que suma el motor (bd.transporteCop).
+                      // Fallback SOLO para filas 'otro' viejas con concepto "Transporte
+                      // Argemiro": antes el regex miraba todos los tipos y una fila de
+                      // NACIONALIZACIÓN rotulada "Aduana + transporte" salía en Agencia
+                      // y en Transporte a la vez (2026-2, Nico 2026-10-06).
+                      const transporteLegacyCop = (row.import_costs ?? []).reduce((s, c) => {
+                        if (c.tipo !== 'otro') return s;
                         if (!/transport|argemiro|acarreo|flete\s*local/i.test(String((c as { concepto?: string | null }).concepto ?? ''))) return s;
                         const m = Number(c.monto ?? 0);
                         return s + (c.moneda === 'USD' ? (trmEst ? m * trmEst : 0) : m);
                       }, 0);
+                      const transporteCop = (bd.transporteCop ?? 0) + transporteLegacyCop;
                       // Inicio = primera etapa registrada en el historial (fallback: fecha de cotización).
                       const fechaInicio = (row.import_estado_history ?? [])
                         .map(h => h.fecha).filter(Boolean).sort()[0] ?? row.fecha_cotizacion ?? null;
@@ -1481,10 +1494,21 @@ export default function Importaciones() {
                               </span>
                             ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell className="text-right text-xs font-mono" title={agenciaCop > 0 ? `Agencia / nacionalización: $${Math.round(agenciaCop).toLocaleString('es-CO')} COP` : 'Sin costo de agencia cargado'}>
-                            {agenciaCop > 0 ? fmtCOPShort(agenciaCop) : <span className="text-muted-foreground">—</span>}
+                          <TableCell className="text-right text-xs font-mono" title={agenciaCop > 0
+                            ? (agenciaEstimada
+                                ? `Agencia / nacionalización ESTIMADA desde Escenarios: $${Math.round(agenciaCop).toLocaleString('es-CO')} COP. Cuando llegue la factura de la agencia, cargala en el pedido → Costos (tipo Nacionalización / aduana) y borrá la fila "estimado".`
+                                : `Agencia / nacionalización: $${Math.round(agenciaCop).toLocaleString('es-CO')} COP`)
+                            : 'Sin costo de agencia cargado'}>
+                            {agenciaCop > 0 ? (
+                              <span>
+                                {fmtCOPShort(agenciaCop)}
+                                {agenciaEstimada && <span className="text-muted-foreground font-sans"> est.</span>}
+                              </span>
+                            ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell className="text-right text-xs font-mono" title={transporteCop > 0 ? `Transporte local a bodega: $${Math.round(transporteCop).toLocaleString('es-CO')} COP` : 'Cargalo en Costeo con concepto "transporte" o "Argemiro"'}>
+                          <TableCell className="text-right text-xs font-mono" title={transporteCop > 0
+                            ? `Transporte puerto → bodega: $${Math.round(transporteCop).toLocaleString('es-CO')} COP`
+                            : 'Sin transporte cargado. Cargalo en Escenarios (lápiz "Transporte puerto → bodega") o en el pedido → Costos → Agregar costo → tipo "Transporte interno (puerto → bodega)".'}>
                             {transporteCop > 0 ? fmtCOPShort(transporteCop) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                           <TableCell className="text-right text-xs font-mono font-semibold" title={bd.totalImportacionCop != null ? `Total importación: $${Math.round(bd.totalImportacionCop).toLocaleString('es-CO')} COP (CIF + arancel + IVA + otros)` : 'Sin TRM para calcular'}>
