@@ -2,6 +2,14 @@
 
 Guía para agentes de código (Codex, Claude Code). Leela entera antes de cambiar algo.
 
+Respondé siempre en español de Colombia con voseo, directo y concreto. El dueño es Nico: no usa editor de código, trabaja desde la terminal, Supabase y Vercel, y revisa los cambios en la vista previa de Vercel.
+
+## Dónde trabaja cada agente
+
+- Codex trabaja en su propia copia del repo: `/Users/nicog/Documents/Claude/Projects/ALUMINIA_CHATGPT`.
+- Claude Code trabaja en `/Users/nicog/Documents/Claude/Projects/ALUMINIA/aluminiapp-main` y sus worktrees. No edites esa carpeta.
+- Las dos copias apuntan al mismo GitHub. Antes de empezar una tarea: `git switch main && git pull --ff-only`.
+
 ## Qué es
 
 SaaS financiero y operativo para distribuidoras de aluminio en Colombia: conciliación bancaria, facturas DIAN, cartera, inventario por variante, importaciones, créditos. Está en producción con clientes reales en https://aluminiapp.com. La marca se escribe **AluminIA** (IA en mayúsculas).
@@ -55,3 +63,11 @@ Antes de mergear: `tsc` sin errores nuevos, pruebas en verde y build OK. Hay 3 e
 - Cada cambio visual se revisa en claro y en oscuro, y a 4 columnas del Dashboard (tarjetas de ~300px), que es donde más se aprieta el texto.
 - La app exige login. Para revisar sin credenciales: montar el componente con datos de muestra en una página temporal servida por `npm run dev`, envuelta en `QueryClientProvider` + `AuthProvider` (de `src/hooks/useAuth`) + `MemoryRouter`, y borrarla antes de commitear. Si el navegador no dispara `requestAnimationFrame`, Recharts deja las barras en cero.
 - Commits en español explicando el porqué. Cambios chicos y agrupados: el dueño opera la app en vivo y cada deploy recarga a todos los usuarios.
+
+## Cómo trabajar con Nico
+
+- Cada tarea en una rama nueva desde `main` actualizado. Corré los chequeos, subí la rama (`git push -u origin <rama>`) y pasale el link de la vista previa de Vercel. No hagas merge a `main` hasta que diga "publicá".
+- Para publicar: `git switch main && git pull --ff-only && git merge <rama> && git push origin main`. Vercel despliega solo.
+- Antes de un cambio grande, mostrá la propuesta (qué cambia, en qué pantallas y cómo se va a ver) y esperá su visto bueno.
+- Agregá a cada commit solo los archivos que tocaste (nada de `git add -A`).
+- Al terminar, decí qué cambió, en qué pantallas y qué tiene que revisar en la vista previa.
