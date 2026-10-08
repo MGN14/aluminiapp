@@ -277,8 +277,15 @@ export function useImports() {
       if (estado_fechas) {
         for (const [estado, fecha] of Object.entries(estado_fechas)) {
           if (fecha) await recordEstadoHistory(id, estado as ImportEstado, fecha);
-          else await deleteEstadoHistory(id, estado as ImportEstado);
+          // Vacío = borrar, SALVO el estado que se acaba de registrar arriba
+          // con estado_fecha (si no, se borraba en la misma pasada).
+          else if (!(patch.estado === estado && estado_fecha)) await deleteEstadoHistory(id, estado as ImportEstado);
         }
+      }
+      // Entregado sin fecha de arribo → la del cambio de estado (la columna
+      // legacy la leen la tabla, el inventario y los reportes).
+      if (patch.estado === 'entregado' && estado_fecha && !patch.fecha_arribo_real) {
+        await supabase.from('imports' as never).update({ fecha_arribo_real: estado_fecha } as never).eq('id', id);
       }
       if (patch.estado) {
         await deleteEstadoHistoryBeyond(id, patch.estado as ImportEstado);

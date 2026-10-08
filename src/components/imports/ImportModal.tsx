@@ -221,12 +221,20 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
       setErrMsg('Tenés que elegir o escribir un proveedor');
       return;
     }
+    // Fecha del NUEVO estado: si cambió y su casilla del grid quedó vacía, es
+    // la de "¿En qué fecha cambió?". Antes se guardaba esa fecha y acto
+    // seguido el grid vacío la BORRABA del historial — 2026-2 quedó
+    // "entregado" sin fecha de entrega ni fecha_arribo_real (Nico 2026-10-08).
+    const fechasEfectivas: Record<string, string> = { ...estadoFechas };
+    if (estadoCambio && estado !== 'cancelado' && !fechasEfectivas[estado] && estadoFecha) {
+      fechasEfectivas[estado] = estadoFecha;
+    }
     // Regla de flujo: fechas en orden cronológico según las etapas
     // (cotización ≤ producción ≤ tránsito ≤ aduana ≤ entregado).
     let prevEtapa: { estado: ImportEstado; fecha: string } | null = null;
     for (const et of IMPORT_ESTADOS_ORDER) {
       if (etapaFutura(et)) continue;
-      const f = estadoFechas[et];
+      const f = fechasEfectivas[et];
       if (!f) continue;
       if (prevEtapa && f < prevEtapa.fecha) {
         setErrMsg(
@@ -249,9 +257,9 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
       ...(isEdit ? {} : { anticipo_pagado_usd: anticipo === '' ? 0 : Number(anticipo) }),
       // Columnas legacy mapeadas desde las fechas por estado (respetando la
       // regla de flujo: nada de fechas para etapas que aún no llegaron)
-      fecha_cotizacion: estadoFechas.cotizacion || null,
-      fecha_embarque: (etapaFutura('transito') ? null : estadoFechas.transito) || null,
-      fecha_arribo_real: (estado === 'entregado' || estado === 'cerrado') ? (estadoFechas.entregado || null) : null,
+      fecha_cotizacion: fechasEfectivas.cotizacion || null,
+      fecha_embarque: (etapaFutura('transito') ? null : fechasEfectivas.transito) || null,
+      fecha_arribo_real: (estado === 'entregado' || estado === 'cerrado') ? (fechasEfectivas.entregado || null) : null,
       fecha_estimada_llegada: fechaEta || null,
       ref_pedido: refPedido.trim() || null,
       notas: notas.trim() || null,
@@ -262,7 +270,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
     // historial (así se corrige una fecha mal puesta). Las etapas futuras
     // van vacías → se limpian.
     const fechasFlujo = Object.fromEntries(
-      IMPORT_ESTADOS_ORDER.map(et => [et, etapaFutura(et) ? '' : (estadoFechas[et] ?? '')]),
+      IMPORT_ESTADOS_ORDER.map(et => [et, etapaFutura(et) ? '' : (fechasEfectivas[et] ?? '')]),
     ) as Partial<Record<ImportEstado, string>>;
     try {
       if (isEdit && editing) {

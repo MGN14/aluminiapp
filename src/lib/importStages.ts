@@ -124,3 +124,45 @@ export function computeStageAverages(
   }
   return out;
 }
+
+/**
+ * Fecha de ENTREGA de un contenedor, para ordenarlo entre los entregados y
+ * saber cuál es "el último entregado".
+ *
+ *   1) la entrada a 'entregado' del historial (la buena)
+ *   2) fecha_arribo_real (columna legacy que se llena al entregar)
+ *   3) la ÚLTIMA etapa registrada antes de entregar: la entrega fue después,
+ *      así que es una cota inferior que respeta el orden entre contenedores.
+ *
+ * Caso real (Nico 2026-10-08): 2026-2 quedó "entregado" sin fecha de entrega
+ * (el modal borraba la que acababa de guardar) y los banners lo ordenaban por
+ * su fecha de PRODUCCIÓN (junio) — quedaba antes que 2026-1 (entregado en
+ * julio) y todo se seguía comparando contra 2026-1.
+ */
+export function fechaEntregaImport(r: {
+  fecha_arribo_real?: string | null;
+  import_estado_history?: EstadoHistoryEntry[] | null;
+}): string | null {
+  const hist = r.import_estado_history ?? [];
+  const entregado = hist.find((h) => h.estado === 'entregado')?.fecha;
+  if (entregado) return entregado;
+  if (r.fecha_arribo_real) return r.fecha_arribo_real;
+  const previas = hist
+    .filter((h) => h.estado !== 'cerrado' && h.estado !== 'cancelado' && h.fecha)
+    .map((h) => h.fecha)
+    .sort();
+  return previas.length ? previas[previas.length - 1] : null;
+}
+
+/** Entregados (o cerrados) ordenados por fecha de entrega, el más reciente al FINAL. */
+export function ordenarEntregados<T extends {
+  estado: string;
+  fecha_arribo_real?: string | null;
+  import_estado_history?: EstadoHistoryEntry[] | null;
+}>(rows: T[]): T[] {
+  return rows
+    .filter((r) => r.estado === 'entregado' || r.estado === 'cerrado')
+    .map((r) => ({ r, f: fechaEntregaImport(r) ?? '' }))
+    .sort((a, b) => a.f.localeCompare(b.f))
+    .map((x) => x.r);
+}

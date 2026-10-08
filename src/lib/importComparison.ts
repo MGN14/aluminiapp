@@ -373,9 +373,15 @@ export function buildComparativo(params: {
   const vivos = pedidos.filter((p) => p.estado !== 'cancelado');
   const leadTime = estimateLeadTime(vivos.map((p) => p.fechas));
 
+  // Último entregado = el de entrega más reciente. Sin fecha de entrega cae a
+  // la llegada a aduana (la entrega fue después): antes caía a '' y un
+  // contenedor recién entregado sin fecha quedaba como el MÁS VIEJO
+  // (2026-2 vs 2026-1, Nico 2026-10-08).
+  const fechaEntregaOrden = (p: PedidoComparable) =>
+    p.fechas.fecha_entregado ?? p.fechas.fecha_arribo_real ?? p.fechas.fecha_embarque ?? '';
   const entregados = vivos
     .filter((p) => p.estado === 'entregado' || p.estado === 'cerrado')
-    .sort((a, b) => (b.fechas.fecha_entregado ?? '').localeCompare(a.fechas.fecha_entregado ?? ''));
+    .sort((a, b) => fechaEntregaOrden(b).localeCompare(fechaEntregaOrden(a)));
   const ultimo = entregados[0] ?? null;
 
   const enCurso = vivos

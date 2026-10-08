@@ -270,3 +270,15 @@ describe('la simulacion escala la factura real, no la recalcula', () => {
     expect(r.columnas.find((c) => c.kind === 'hoy')!.trmFuente).toBe('hoy');
   });
 });
+
+describe('buildComparativo — último entregado sin fecha de entrega (fix 2026-10-08)', () => {
+  it('el recién entregado sin fecha_entregado pero con aduana más reciente es la base', () => {
+    const viejo = base({ id: 'p1', label: '2026-1' }); // entregado 2026-03-30
+    const nuevo = base({
+      id: 'p2', label: '2026-2',
+      fechas: { ...base().fechas, fecha_anticipo: '2025-12-01', fecha_arribo_real: '2026-05-10', fecha_entregado: null },
+    });
+    const r = buildComparativo({ pedidos: [nuevo, viejo], hoy: '2026-06-01', trmHoy: 4000, lmeHoy: null, lmeHistoria: [] });
+    expect(r.baseId).toBe('p2');
+  });
+});

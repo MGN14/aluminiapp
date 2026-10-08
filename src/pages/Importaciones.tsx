@@ -21,7 +21,7 @@ import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
 import { useMacroIndicators } from '@/hooks/useMacroIndicators';
 import { buildComparativo, type TrmFuente } from '@/lib/importComparison';
 import EscenariosTab from '@/components/imports/EscenariosTab';
-import { computeTotalDays, computeStageAverages } from '@/lib/importStages';
+import { computeTotalDays, computeStageAverages, fechaEntregaImport } from '@/lib/importStages';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { parseLocalDate } from '@/lib/dateUtils';
@@ -326,7 +326,11 @@ export default function Importaciones() {
     const abiertosPipeline = [...ordered]
       .filter(r => !yaLlego(r))
       .sort((a, b) => (ESTADO_AVANCE[b.estado] ?? 0) - (ESTADO_AVANCE[a.estado] ?? 0) || fechaRef(a).localeCompare(fechaRef(b)));
-    const fechaEntrega = (r: ImportRow) => r.fecha_arribo_real ?? fechaRef(r);
+    // Orden por fecha de ENTREGA (lib/importStages): historial 'entregado' →
+    // fecha_arribo_real → última etapa registrada. Antes caía a la fecha de
+    // PRODUCCIÓN y un contenedor recién entregado sin fecha quedaba "antes"
+    // que el anterior (2026-2 vs 2026-1, Nico 2026-10-08).
+    const fechaEntrega = (r: ImportRow) => fechaEntregaImport(r) ?? fechaRef(r);
     const entregadosOrd = [...entregados].sort((a, b) => fechaEntrega(a).localeCompare(fechaEntrega(b)));
     // Foco por defecto = el ÚLTIMO ENTREGADO (Nico 2026-08-02: "los banners
     // muestran siempre el último entregado") — números REALES de lo que ya
