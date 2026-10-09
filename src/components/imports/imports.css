@@ -167,3 +167,144 @@
   }
   .imports-orders-table td button { white-space: normal; }
 }
+
+
+/* Stronger hierarchy without changing the shared theme or chart palette. */
+.imports-workspace,
+.imports-detail {
+  --muted-foreground: 257 6% 32%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: hsl(var(--foreground));
+  line-height: 1.55;
+}
+.dark .imports-workspace,
+.dark .imports-detail {
+  --muted-foreground: 257 5% 78%;
+}
+.imports-page-hero {
+  padding: 1.5rem;
+  border-radius: 1.25rem;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 8px 24px hsl(var(--foreground) / .12);
+}
+.imports-page-hero h1 {
+  font-size: clamp(1.6rem, 3vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -.045em;
+}
+.imports-page-hero .text-muted-foreground {
+  color: hsl(var(--primary-foreground) / .85);
+}
+.imports-page-hero .w-11 {
+  background: hsl(var(--primary-foreground) / .14);
+}
+.imports-page-hero .w-11 svg {
+  color: hsl(var(--primary-foreground));
+}
+.imports-page-hero > div:last-child button {
+  background: hsl(var(--primary-foreground));
+  color: hsl(var(--primary));
+  font-weight: 700;
+}
+.imports-navigation button {
+  font-weight: 600;
+}
+.imports-navigation button[aria-pressed="true"],
+.imports-detail-tabs [role="tab"][data-state="active"] {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 2px 5px hsl(var(--foreground) / .15);
+}
+.imports-workspace h3,
+.imports-detail [role="tabpanel"] :is(h3, label.font-semibold, span.font-semibold) {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+.imports-metrics > div {
+  border-top: 4px solid hsl(var(--primary));
+  box-shadow: 0 3px 12px hsl(var(--foreground) / .06);
+}
+.imports-metrics .font-mono,
+.imports-detail-metrics .font-mono {
+  font-family: inherit;
+  letter-spacing: -.035em;
+}
+.imports-metrics .text-2xl,
+.imports-detail-metrics p:nth-child(2) {
+  font-size: clamp(1.5rem, 2.2vw, 1.875rem);
+  font-weight: 700;
+}
+.imports-metrics > div:nth-child(3),
+.imports-detail-metrics > div:nth-child(3) {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-color: hsl(var(--primary));
+}
+.imports-metrics > div:nth-child(3) .text-muted-foreground,
+.imports-detail-metrics > div:nth-child(3) .text-muted-foreground {
+  color: hsl(var(--primary-foreground) / .85);
+}
+.imports-metrics > div:nth-child(3) .text-foreground,
+.imports-detail-metrics > div:nth-child(3) .text-foreground {
+  color: hsl(var(--primary-foreground));
+}
+.imports-detail-identity {
+  border-bottom: 2px solid hsl(var(--foreground) / .18);
+  padding-bottom: 1rem;
+}
+.imports-detail-identity h2 {
+  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: -.035em;
+}
+.imports-detail-body {
+  background: hsl(var(--muted) / .55);
+}
+.imports-detail-tabs {
+  background: hsl(var(--card));
+  border-bottom: 2px solid hsl(var(--foreground) / .15);
+}
+.imports-detail [role="tabpanel"] > .rounded-xl,
+.imports-detail [role="tabpanel"] > .border {
+  border-width: 1px;
+  border-left-width: 4px;
+  box-shadow: 0 3px 10px hsl(var(--foreground) / .06);
+}
+.imports-workspace th,
+.imports-detail th {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+  letter-spacing: .01em;
+  border-bottom: 2px solid hsl(var(--foreground) / .2);
+}
+.imports-workspace tbody tr:nth-child(even),
+.imports-detail tbody tr:nth-child(even) {
+  background: hsl(var(--foreground) / .04);
+}
+.imports-orders-table td[data-label="Pedido"] > div:first-child {
+  font-size: .9375rem;
+  font-weight: 700;
+}
+.imports-orders-table td[data-label="Total COP"],
+.imports-stacked-table td[data-label="Costo unitario"] {
+  background: hsl(var(--primary) / .07);
+  font-weight: 700;
+}
+.imports-detail :is(input, textarea, [role="combobox"]) {
+  border-color: hsl(var(--foreground) / .25);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+@media (max-width: 639px) {
+  .imports-page-hero { padding: 1.125rem; }
+  .imports-detail-metrics p:nth-child(2) { font-size: 1.25rem; }
+  .imports-orders-table tbody tr,
+  .imports-payments-table tbody tr,
+  .imports-stacked-table tbody tr {
+    border-top: 3px solid hsl(var(--primary));
+    box-shadow: 0 2px 8px hsl(var(--foreground) / .05);
+  }
+}

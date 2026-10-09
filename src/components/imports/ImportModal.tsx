@@ -491,7 +491,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
       <DialogContent className="imports-detail flex flex-col gap-0 w-[100vw] max-w-none h-[100dvh] max-h-[100dvh] overflow-hidden p-0 rounded-none sm:w-[calc(100vw-3rem)] sm:max-w-[1440px] sm:h-[92dvh] sm:max-h-[92dvh] sm:rounded-2xl">
         {/* ── HEADER: lo que importa, grande y con contraste ─────────────── */}
         <div className="imports-detail-header shrink-0 px-4 sm:px-6 pt-5 pb-4 border-b border-border bg-card pr-12 sm:pr-16">
-          <DialogHeader className="space-y-0 text-left">
+          <DialogHeader className="imports-detail-identity space-y-0 text-left">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0">
                 <DialogTitle className="flex flex-wrap items-center gap-2 text-lg sm:text-xl leading-normal">

@@ -764,7 +764,7 @@ export default function Importaciones() {
     <AppLayout>
       <div className="imports-workspace max-w-[1600px] mx-auto px-0 sm:px-2 py-2 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="imports-page-hero flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
               <Ship className="h-5 w-5 text-primary" />
