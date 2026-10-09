@@ -75,21 +75,21 @@ export default function HistorialContenedores({ pedidos, payRows, trmVal }: Prop
         <div className="flex items-center gap-2">
           <History className="h-4 w-4 text-primary" />
           <h4 className="text-base font-bold tracking-tight">Histórico de contenedores</h4>
-          <Badge variant="secondary" className="text-[11px]">{filas.length} contenedores</Badge>
+          <Badge variant="secondary" className="text-xs">{filas.length} contenedores</Badge>
         </div>
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-[13px]">
             <thead className="bg-muted/60">
               <tr className="text-right">
                 <th className="px-3 py-2 font-semibold text-left">Contenedor</th>
-                <th className="px-3 py-2 font-semibold">SMM<span className="block text-[10px] font-normal text-muted-foreground">USD/TON</span></th>
-                <th className="px-3 py-2 font-semibold">TRM<span className="block text-[10px] font-normal text-muted-foreground">efectiva</span></th>
-                <th className="px-3 py-2 font-semibold">Flete<span className="block text-[10px] font-normal text-muted-foreground">USD</span></th>
-                <th className="px-3 py-2 font-semibold">Mercancía<span className="block text-[10px] font-normal text-muted-foreground">USD</span></th>
-                <th className="px-3 py-2 font-semibold">Total COP<span className="block text-[10px] font-normal text-muted-foreground">sin IVA</span></th>
+                <th className="px-3 py-2 font-semibold">SMM<span className="block text-xs font-normal text-muted-foreground">USD/TON</span></th>
+                <th className="px-3 py-2 font-semibold">TRM<span className="block text-xs font-normal text-muted-foreground">efectiva</span></th>
+                <th className="px-3 py-2 font-semibold">Flete<span className="block text-xs font-normal text-muted-foreground">USD</span></th>
+                <th className="px-3 py-2 font-semibold">Mercancía<span className="block text-xs font-normal text-muted-foreground">USD</span></th>
+                <th className="px-3 py-2 font-semibold">Total COP<span className="block text-xs font-normal text-muted-foreground">sin IVA</span></th>
                 <th className="px-3 py-2 font-semibold">COP/kg</th>
                 <th className="px-3 py-2 font-semibold">IVA</th>
-                <th className="px-3 py-2 font-semibold">Δ% vs<span className="block text-[10px] font-normal text-muted-foreground">anterior</span></th>
+                <th className="px-3 py-2 font-semibold">Δ% vs<span className="block text-xs font-normal text-muted-foreground">anterior</span></th>
               </tr>
             </thead>
             <tbody>
@@ -104,7 +104,7 @@ export default function HistorialContenedores({ pedidos, payRows, trmVal }: Prop
                         abierta === f.id && 'rotate-180')} />
                     )}
                     <span className="font-bold">{f.label}</span>
-                    {!f.cerrado && <Badge variant="outline" className="ml-1.5 text-[10px]">proy.</Badge>}
+                    {!f.cerrado && <Badge variant="outline" className="ml-1.5 text-xs">proy.</Badge>}
                   </td>
                   <td className="px-3 py-2 tabular-nums">{numF(f.smm)}</td>
                   <td className="px-3 py-2 tabular-nums">{numF(f.trm)}</td>
@@ -130,7 +130,7 @@ export default function HistorialContenedores({ pedidos, payRows, trmVal }: Prop
             </tbody>
           </table>
         </div>
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
+        <p className="text-xs text-muted-foreground leading-relaxed">
           Total sin IVA (el IVA es descontable: caja, no costo). Los cerrados usan su TRM real; los que están en curso,
           lo pagado a sus TRMs + el saldo a la TRM del escenario — muévela arriba y esta tabla se recalcula.
         </p>

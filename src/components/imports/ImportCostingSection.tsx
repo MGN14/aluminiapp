@@ -143,18 +143,18 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
     <div className="space-y-5 rounded-lg border border-border p-4 bg-muted/10">
       <div className="flex items-center gap-2 flex-wrap">
         <PackageOpen className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-semibold">Costeo referencia a referencia (landed cost)</h3>
+        <h3 className="text-sm font-semibold">Costeo por referencia</h3>
         {estado && (
           entregadoYa ? (
             <span
-              className="text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-success/10 text-success ring-1 ring-inset ring-success/25"
+              className="text-xs font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-success/10 text-success ring-1 ring-inset ring-success/25"
               title="El contenedor ya llegó: con la liquidación real de aduana digitada, este costo es el que alimenta el inventario y los demás módulos."
             >
               costeo real
             </span>
           ) : (
             <span
-              className="text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-warning/10 text-warning ring-1 ring-inset ring-warning/25"
+              className="text-xs font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-warning/10 text-warning ring-1 ring-inset ring-warning/25"
               title="Mientras el pedido viaja, arancel/IVA/TRM son estimados: este costo es el ESPERADO. Al marcar entregado y digitar la liquidación real de aduana, pasa a ser el costo real que toma el inventario."
             >
               costeo esperado
@@ -185,23 +185,23 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
       {/* ── TRM ── */}
       <div className="flex flex-wrap items-end gap-3 text-xs">
         <div>
-          <Label className="text-[11px] text-muted-foreground">TRM ponderada de abonos</Label>
-          <p className="font-mono font-semibold text-sm">
+          <Label className="text-xs text-muted-foreground">TRM ponderada de abonos</Label>
+          <p className="font-mono tabular-nums font-semibold text-sm">
             {trmPonderada ? `$${trmPonderada.toLocaleString('es-CO', { maximumFractionDigits: 2 })}` : 'Sin abonos aún'}
           </p>
         </div>
         <div className="w-40">
-          <Label className="text-[11px] text-muted-foreground">TRM para simular (opcional)</Label>
+          <Label className="text-xs text-muted-foreground">TRM para simular (opcional)</Label>
           <Input
             type="number" step="0.01" min={0}
             value={trmOverride}
             onChange={(e) => setTrmOverride(e.target.value === '' ? '' : Number(e.target.value))}
             placeholder={trmPonderada ? String(trmPonderada) : 'Ej: 4100'}
-            className="h-8 font-mono"
+            className="h-8 font-mono tabular-nums"
           />
         </div>
         {noTrm && (
-          <p className="text-[11px] text-amber-600 flex items-center gap-1 max-w-xs">
+          <p className="text-xs text-amber-600 flex items-center gap-1 max-w-xs">
             <Info className="h-3.5 w-3.5 shrink-0" />
             Registrá abonos (con TRM) o poné una TRM de simulación para ver el costo en COP.
           </p>
@@ -219,7 +219,7 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
               </span>
             )})
             {effectiveSource === 'proforma' && (
-              <span className="ml-1 font-normal text-[10px]" title="Cuando subas el packing list definitivo, este proforma queda guardado para compararlos">
+              <span className="ml-1 font-normal text-xs" title="Cuando subas el packing list definitivo, este proforma queda guardado para compararlos">
                 — pedido a producción; el definitivo lo reemplaza al llegar
               </span>
             )}
@@ -243,56 +243,56 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
           </p>
         ) : (
           <div className="overflow-x-auto border rounded-lg">
-            <Table>
+            <Table className="imports-stacked-table">
               <TableHeader>
                 <TableRow className="bg-muted/60">
-                  <TableHead className="text-[11px]">Referencia</TableHead>
-                  <TableHead className="text-[11px]">Descripción</TableHead>
-                  <TableHead className="text-[11px]">Color</TableHead>
-                  <TableHead className="text-[11px] text-right">Cantidad</TableHead>
-                  <TableHead className="text-[11px]">Unidad</TableHead>
-                  <TableHead className="text-[11px] text-right">Peso kg</TableHead>
-                  <TableHead className="text-[11px] text-right" title="Bultos/bales del renglón">Bultos</TableHead>
-                  <TableHead className="text-[11px] text-right">FOB USD</TableHead>
+                  <TableHead className="text-xs">Referencia</TableHead>
+                  <TableHead className="text-xs">Descripción</TableHead>
+                  <TableHead className="text-xs">Color</TableHead>
+                  <TableHead className="text-xs text-right">Cantidad</TableHead>
+                  <TableHead className="text-xs">Unidad</TableHead>
+                  <TableHead className="text-xs text-right">Peso kg</TableHead>
+                  <TableHead className="text-xs text-right" title="Bultos/bales del renglón">Bultos</TableHead>
+                  <TableHead className="text-xs text-right">FOB USD</TableHead>
                   <TableHead className="w-8" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {items.map((it) => (
                   <TableRow key={it.id}>
-                    <TableCell className="p-1">
-                      <Input defaultValue={it.reference} className="h-7 text-xs font-mono w-28"
+                    <TableCell data-label="Referencia" className="p-1">
+                      <Input defaultValue={it.reference} className="h-7 text-xs font-mono tabular-nums w-28"
                         onBlur={(e) => e.target.value !== it.reference && updateItem.mutate({ id: it.id, reference: e.target.value })} />
                     </TableCell>
-                    <TableCell className="p-1">
+                    <TableCell data-label="Descripción" className="p-1">
                       <Input defaultValue={it.descripcion ?? ''} className="h-7 text-xs w-36"
                         onBlur={(e) => e.target.value !== (it.descripcion ?? '') && updateItem.mutate({ id: it.id, descripcion: e.target.value || null })} />
                     </TableCell>
-                    <TableCell className="p-1">
+                    <TableCell data-label="Color" className="p-1">
                       <Input defaultValue={it.color ?? ''} className="h-7 text-xs w-16"
                         onBlur={(e) => e.target.value !== (it.color ?? '') && updateItem.mutate({ id: it.id, color: e.target.value || null })} />
                     </TableCell>
-                    <TableCell className="p-1">
-                      <Input type="number" step="0.001" defaultValue={it.cantidad} className="h-7 text-xs font-mono w-20 text-right"
+                    <TableCell data-label="Cantidad" className="p-1">
+                      <Input type="number" step="0.001" defaultValue={it.cantidad} className="h-7 text-xs font-mono tabular-nums w-20 text-right"
                         onBlur={(e) => { if (e.target.value === '') return; const v = Number(e.target.value) || 0; if (v !== it.cantidad) updateItem.mutate({ id: it.id, cantidad: v }); }} />
                     </TableCell>
-                    <TableCell className="p-1">
+                    <TableCell data-label="Unidad" className="p-1">
                       <Input defaultValue={it.unidad} className="h-7 text-xs w-14"
                         onBlur={(e) => e.target.value !== it.unidad && updateItem.mutate({ id: it.id, unidad: e.target.value || 'kg' })} />
                     </TableCell>
-                    <TableCell className="p-1">
-                      <Input type="number" step="0.001" defaultValue={it.peso_kg ?? ''} className="h-7 text-xs font-mono w-20 text-right"
+                    <TableCell data-label="Peso kg" className="p-1">
+                      <Input type="number" step="0.001" defaultValue={it.peso_kg ?? ''} className="h-7 text-xs font-mono tabular-nums w-20 text-right"
                         onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== it.peso_kg) updateItem.mutate({ id: it.id, peso_kg: v }); }} />
                     </TableCell>
-                    <TableCell className="p-1">
-                      <Input type="number" step="1" defaultValue={it.bultos ?? ''} className="h-7 text-xs font-mono w-16 text-right"
+                    <TableCell data-label="Bultos" className="p-1">
+                      <Input type="number" step="1" defaultValue={it.bultos ?? ''} className="h-7 text-xs font-mono tabular-nums w-16 text-right"
                         onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (it.bultos ?? null)) updateItem.mutate({ id: it.id, bultos: v }); }} />
                     </TableCell>
-                    <TableCell className="p-1">
-                      <Input type="number" step="0.01" defaultValue={it.fob_total_usd} className="h-7 text-xs font-mono w-24 text-right"
+                    <TableCell data-label="FOB USD" className="p-1">
+                      <Input type="number" step="0.01" defaultValue={it.fob_total_usd} className="h-7 text-xs font-mono tabular-nums w-24 text-right"
                         onBlur={(e) => Number(e.target.value) !== it.fob_total_usd && updateItem.mutate({ id: it.id, fob_total_usd: Number(e.target.value) || 0 })} />
                     </TableCell>
-                    <TableCell className="p-1">
+                    <TableCell data-label="Acciones" className="p-1">
                       <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
                         onClick={() => removeItem.mutate(it.id)}>
                         <Trash2 className="h-3.5 w-3.5" />
@@ -319,30 +319,30 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
           </div>
           {comparacion.conDiferencia.length > 0 && (
             <div className="overflow-x-auto border rounded-lg border-amber-500/30">
-              <Table>
+              <Table className="imports-stacked-table">
                 <TableHeader>
                   <TableRow className="bg-amber-500/10">
-                    <TableHead className="text-[11px]">Referencia (familia)</TableHead>
-                    <TableHead className="text-[11px] text-right">Pedido (proforma)</TableHead>
-                    <TableHead className="text-[11px] text-right">Embarcado (packing)</TableHead>
-                    <TableHead className="text-[11px] text-right">Δ unds</TableHead>
-                    <TableHead className="text-[11px] text-right">Δ kg</TableHead>
-                    <TableHead className="text-[11px]">Estado</TableHead>
+                    <TableHead className="text-xs">Referencia (familia)</TableHead>
+                    <TableHead className="text-xs text-right">Pedido (proforma)</TableHead>
+                    <TableHead className="text-xs text-right">Embarcado (packing)</TableHead>
+                    <TableHead className="text-xs text-right">Δ unds</TableHead>
+                    <TableHead className="text-xs text-right">Δ kg</TableHead>
+                    <TableHead className="text-xs">Estado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {comparacion.conDiferencia.map((f) => (
                     <TableRow key={f.familia}>
-                      <TableCell className="text-xs font-mono">{f.label}</TableCell>
-                      <TableCell className="text-xs font-mono text-right">{fmtNum(f.proformaCant)}</TableCell>
-                      <TableCell className="text-xs font-mono text-right">{fmtNum(f.packingCant)}</TableCell>
-                      <TableCell className={`text-xs font-mono text-right font-semibold ${f.deltaCant < 0 ? 'text-destructive' : 'text-success'}`}>
+                      <TableCell data-label="Referencia" className="text-xs font-mono tabular-nums">{f.label}</TableCell>
+                      <TableCell data-label="Pedido" className="text-xs font-mono tabular-nums text-right">{fmtNum(f.proformaCant)}</TableCell>
+                      <TableCell data-label="Embarcado" className="text-xs font-mono tabular-nums text-right">{fmtNum(f.packingCant)}</TableCell>
+                      <TableCell data-label="Diferencia unidades" className={`text-xs font-mono tabular-nums text-right font-semibold ${f.deltaCant < 0 ? 'text-destructive' : 'text-success'}`}>
                         {f.deltaCant > 0 ? '+' : ''}{fmtNum(f.deltaCant)}
                       </TableCell>
-                      <TableCell className={`text-xs font-mono text-right ${f.deltaKg < 0 ? 'text-destructive' : 'text-success'}`}>
+                      <TableCell data-label="Diferencia kg" className={`text-xs font-mono tabular-nums text-right ${f.deltaKg < 0 ? 'text-destructive' : 'text-success'}`}>
                         {f.deltaKg > 0 ? '+' : ''}{fmtNum(f.deltaKg)}
                       </TableCell>
-                      <TableCell className="text-[10px] text-muted-foreground">
+                      <TableCell data-label="Estado" className="text-xs text-muted-foreground">
                         {f.estado === 'solo_proforma' ? 'pedida y NO embarcada'
                           : f.estado === 'solo_packing' ? 'vino sin estar en el proforma'
                           : 'cantidad distinta'}
@@ -351,12 +351,12 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
                   ))}
                   <TableRow className="bg-muted/30 font-semibold">
                     <TableCell className="text-xs">Total contenedor</TableCell>
-                    <TableCell className="text-xs font-mono text-right">{fmtNum(comparacion.totales.proformaCant)}</TableCell>
-                    <TableCell className="text-xs font-mono text-right">{fmtNum(comparacion.totales.packingCant)}</TableCell>
-                    <TableCell className={`text-xs font-mono text-right ${comparacion.totales.deltaCant < 0 ? 'text-destructive' : 'text-success'}`}>
+                    <TableCell className="text-xs font-mono tabular-nums text-right">{fmtNum(comparacion.totales.proformaCant)}</TableCell>
+                    <TableCell className="text-xs font-mono tabular-nums text-right">{fmtNum(comparacion.totales.packingCant)}</TableCell>
+                    <TableCell className={`text-xs font-mono tabular-nums text-right ${comparacion.totales.deltaCant < 0 ? 'text-destructive' : 'text-success'}`}>
                       {comparacion.totales.deltaCant > 0 ? '+' : ''}{fmtNum(comparacion.totales.deltaCant)}
                     </TableCell>
-                    <TableCell className={`text-xs font-mono text-right ${comparacion.totales.deltaKg < 0 ? 'text-destructive' : 'text-success'}`}>
+                    <TableCell className={`text-xs font-mono tabular-nums text-right ${comparacion.totales.deltaKg < 0 ? 'text-destructive' : 'text-success'}`}>
                       {comparacion.totales.deltaKg > 0 ? '+' : ''}{fmtNum(comparacion.totales.deltaKg)}
                     </TableCell>
                     <TableCell />
@@ -365,7 +365,7 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
               </Table>
             </div>
           )}
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Lo que pediste a producción vs lo que viene en el contenedor, agrupado por familia
             (base + colores = la -5). El costeo y la cobertura usan el packing list.
           </p>
@@ -377,7 +377,7 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
 
       {/* Conciliación FOB packing list vs total del pedido */}
       {showMismatch && (
-        <p className="text-[11px] text-amber-600 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2 flex items-start gap-1.5">
+        <p className="text-xs text-amber-600 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2 flex items-start gap-1.5">
           <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
           El FOB del packing list ({fmtUsd(fobPacking)}) difiere {fobMismatchPct! > 0 ? '+' : ''}{fobMismatchPct!.toFixed(1)}% del monto total del pedido ({fmtUsd(montoTotalUsd)}). Revisá si falta una referencia o un FOB está mal antes de confiar en el costeo.
         </p>
@@ -399,7 +399,7 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
           </div>
 
           {/* Composición FOB vs costos */}
-          <div className="flex items-center gap-3 text-[11px]">
+          <div className="flex items-center gap-3 text-xs">
             <span className="text-muted-foreground">Composición:</span>
             <span className="text-foreground font-medium">FOB {landed.totals.pct_fob}%</span>
             <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden max-w-[260px]">
@@ -409,23 +409,23 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
           </div>
 
           <div className="overflow-x-auto border rounded-lg">
-            <Table>
+            <Table className="imports-stacked-table">
               <TableHeader>
                 <TableRow className="bg-muted/60">
-                  <TableHead className="text-[11px]">Referencia</TableHead>
-                  <TableHead className="text-[11px] text-right">FOB COP</TableHead>
-                  <TableHead className="text-[11px] text-right">+ Importación</TableHead>
-                  <TableHead className="text-[11px] text-right">Landed total</TableHead>
-                  <TableHead className="text-[11px] text-right">Costo unit.</TableHead>
+                  <TableHead className="text-xs">Referencia</TableHead>
+                  <TableHead className="text-xs text-right">FOB COP</TableHead>
+                  <TableHead className="text-xs text-right">+ Importación</TableHead>
+                  <TableHead className="text-xs text-right">Landed total</TableHead>
+                  <TableHead className="text-xs text-right">Costo unit.</TableHead>
                   {hayCostoExcel && (
                     <>
-                      <TableHead className="text-[11px] text-right" title="Costo unitario del Excel importado con el packing list">Excel</TableHead>
-                      <TableHead className="text-[11px] text-right" title="Costo unit. de la app vs el del Excel — si divergen mucho, revisar TRM/costos cargados o la fórmula del Excel">Δ vs Excel</TableHead>
+                      <TableHead className="text-xs text-right" title="Costo unitario del Excel importado con el packing list">Excel</TableHead>
+                      <TableHead className="text-xs text-right" title="Costo unit. de la app vs el del Excel — si divergen mucho, revisar TRM/costos cargados o la fórmula del Excel">Δ vs Excel</TableHead>
                     </>
                   )}
-                  <TableHead className="text-[11px] text-right">Por kg</TableHead>
-                  <TableHead className="text-[11px] text-right">Inv. actual</TableHead>
-                  <TableHead className="text-[11px] text-right" title="Compara el costo unitario landed contra el cost_per_unit cargado en inventario. Asume la misma unidad de medida.">Δ vs inv.</TableHead>
+                  <TableHead className="text-xs text-right">Por kg</TableHead>
+                  <TableHead className="text-xs text-right">Inv. actual</TableHead>
+                  <TableHead className="text-xs text-right" title="Compara el costo unitario landed contra el cost_per_unit cargado en inventario. Asume la misma unidad de medida.">Δ vs inv.</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -438,16 +438,16 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
                   const deltaExcel = excel ? ((r.landed_unit_cop - excel) / excel) * 100 : null;
                   return (
                     <TableRow key={it.id}>
-                      <TableCell className="text-xs font-mono">{it.reference || <span className="text-muted-foreground">—</span>}</TableCell>
-                      <TableCell className="text-xs font-mono text-right">{fmtCop(r.fob_total_cop)}</TableCell>
-                      <TableCell className="text-xs font-mono text-right text-muted-foreground">{fmtCop(r.costos_asignados_cop)}</TableCell>
-                      <TableCell className="text-xs font-mono text-right font-semibold">{fmtCop(r.landed_total_cop)}</TableCell>
-                      <TableCell className="text-xs font-mono text-right font-semibold text-primary">{fmtCop(r.landed_unit_cop)}</TableCell>
+                      <TableCell data-label="Referencia" className="text-xs font-mono tabular-nums">{it.reference || <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell data-label="FOB COP" className="text-xs font-mono tabular-nums text-right">{fmtCop(r.fob_total_cop)}</TableCell>
+                      <TableCell data-label="Importación COP" className="text-xs font-mono tabular-nums text-right text-muted-foreground">{fmtCop(r.costos_asignados_cop)}</TableCell>
+                      <TableCell data-label="Total COP" className="text-xs font-mono tabular-nums text-right font-semibold">{fmtCop(r.landed_total_cop)}</TableCell>
+                      <TableCell data-label="Costo unitario" className="text-xs font-mono tabular-nums text-right font-semibold text-primary">{fmtCop(r.landed_unit_cop)}</TableCell>
                       {hayCostoExcel && (
                         <>
-                          <TableCell className="text-xs font-mono text-right text-muted-foreground">{excel ? fmtCop(excel) : '—'}</TableCell>
-                          <TableCell
-                            className={`text-xs font-mono text-right font-medium ${
+                          <TableCell data-label="Excel" className="text-xs font-mono tabular-nums text-right text-muted-foreground">{excel ? fmtCop(excel) : '—'}</TableCell>
+                          <TableCell data-label="Diferencia Excel"
+                            className={`text-xs font-mono tabular-nums text-right font-medium ${
                               deltaExcel === null ? 'text-muted-foreground'
                                 : Math.abs(deltaExcel) <= 3 ? 'text-success'
                                 : Math.abs(deltaExcel) <= 10 ? 'text-warning' : 'text-destructive'
@@ -458,9 +458,9 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
                           </TableCell>
                         </>
                       )}
-                      <TableCell className="text-xs font-mono text-right">{r.landed_por_kg_cop ? fmtCop(r.landed_por_kg_cop) : '—'}</TableCell>
-                      <TableCell className="text-xs font-mono text-right text-muted-foreground">{inv ? fmtCop(inv.cost) : '—'}</TableCell>
-                      <TableCell className={`text-xs font-mono text-right font-medium ${delta === null ? 'text-muted-foreground' : delta > 0 ? 'text-destructive' : 'text-success'}`}>
+                      <TableCell data-label="Por kg" className="text-xs font-mono tabular-nums text-right">{r.landed_por_kg_cop ? fmtCop(r.landed_por_kg_cop) : '—'}</TableCell>
+                      <TableCell data-label="Inventario actual" className="text-xs font-mono tabular-nums text-right text-muted-foreground">{inv ? fmtCop(inv.cost) : '—'}</TableCell>
+                      <TableCell data-label="Diferencia inventario" className={`text-xs font-mono tabular-nums text-right font-medium ${delta === null ? 'text-muted-foreground' : delta > 0 ? 'text-destructive' : 'text-success'}`}>
                         {delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`}
                       </TableCell>
                     </TableRow>
@@ -468,15 +468,15 @@ export default function ImportCostingSection({ importId, montoTotalUsd, estado, 
                 })}
                 <TableRow className="bg-muted/30 font-semibold">
                   <TableCell className="text-xs">Total · {fmtUsd(landed.totals.fob_total_usd)} FOB · {fmtNum(landed.totals.peso_total_kg)} kg</TableCell>
-                  <TableCell className="text-xs font-mono text-right">{fmtCop(landed.totals.fob_total_cop)}</TableCell>
-                  <TableCell className="text-xs font-mono text-right">{fmtCop(landed.totals.costos_total_cop)}</TableCell>
-                  <TableCell className="text-xs font-mono text-right">{fmtCop(landed.totals.landed_total_cop)}</TableCell>
+                  <TableCell className="text-xs font-mono tabular-nums text-right">{fmtCop(landed.totals.fob_total_cop)}</TableCell>
+                  <TableCell className="text-xs font-mono tabular-nums text-right">{fmtCop(landed.totals.costos_total_cop)}</TableCell>
+                  <TableCell className="text-xs font-mono tabular-nums text-right">{fmtCop(landed.totals.landed_total_cop)}</TableCell>
                   <TableCell colSpan={hayCostoExcel ? 6 : 4} />
                 </TableRow>
               </TableBody>
             </Table>
           </div>
-          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Info className="h-3.5 w-3.5 shrink-0" />
             {entregadoYa
               ? 'Costeo REAL: al marcar entregado, la entrada al inventario corre sola con este costo (el excel de costeo manda; landed como respaldo). "Δ vs inv." compara contra lo que ya tenés cargado.'

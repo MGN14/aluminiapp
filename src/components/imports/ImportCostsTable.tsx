@@ -43,20 +43,20 @@ export default function ImportCostsTable({ importId, disabled }: { importId: str
         </p>
       ) : (
         <div className="overflow-x-auto border rounded-lg">
-          <Table>
+          <Table className="imports-stacked-table">
             <TableHeader>
               <TableRow className="bg-muted/60">
-                <TableHead className="text-[11px]">Tipo</TableHead>
-                <TableHead className="text-[11px] text-right">Monto</TableHead>
-                <TableHead className="text-[11px]">Moneda</TableHead>
-                <TableHead className="text-[11px]">Prorrateo</TableHead>
+                <TableHead className="text-xs">Tipo</TableHead>
+                <TableHead className="text-xs text-right">Monto</TableHead>
+                <TableHead className="text-xs">Moneda</TableHead>
+                <TableHead className="text-xs">Prorrateo</TableHead>
                 <TableHead className="w-8" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {costs.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell className="p-1">
+                  <TableCell data-label="Tipo" className="p-1">
                     <Select
                       value={c.tipo}
                       disabled={disabled}
@@ -70,11 +70,11 @@ export default function ImportCostsTable({ importId, disabled }: { importId: str
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell className="p-1">
-                    <Input type="number" step="0.01" defaultValue={c.monto} disabled={disabled} className="h-7 text-xs font-mono w-28 text-right"
+                  <TableCell data-label="Monto" className="p-1">
+                    <Input type="number" step="0.01" defaultValue={c.monto} disabled={disabled} className="h-7 text-xs font-mono tabular-nums w-28 text-right"
                       onBlur={(e) => Number(e.target.value) !== c.monto && updateCost.mutate({ id: c.id, monto: Number(e.target.value) || 0 })} />
                   </TableCell>
-                  <TableCell className="p-1">
+                  <TableCell data-label="Moneda" className="p-1">
                     <Select value={c.moneda} disabled={disabled} onValueChange={(v) => updateCost.mutate({ id: c.id, moneda: v as 'USD' | 'COP' })}>
                       <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -83,7 +83,7 @@ export default function ImportCostsTable({ importId, disabled }: { importId: str
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell className="p-1">
+                  <TableCell data-label="Prorrateo" className="p-1">
                     <div className="flex items-center gap-1">
                       <Select value={c.base_asignacion} disabled={disabled} onValueChange={(v) => updateCost.mutate({ id: c.id, base_asignacion: v as AllocationBasis })}>
                         <SelectTrigger className="h-7 text-xs w-32"><SelectValue /></SelectTrigger>
@@ -94,11 +94,11 @@ export default function ImportCostsTable({ importId, disabled }: { importId: str
                         </SelectContent>
                       </Select>
                       {fallbackSet.has(c.id) && (
-                        <span title="Ninguna referencia tiene esa base (ej: sin peso). Se prorrateó con otra base para no perder el costo." className="text-[9px] text-amber-600 font-medium whitespace-nowrap">⚠ auto</span>
+                        <span title="Ninguna referencia tiene esa base (ej: sin peso). Se prorrateó con otra base para no perder el costo." className="text-xs text-amber-600 font-medium whitespace-nowrap">⚠ auto</span>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="p-1">
+                  <TableCell data-label="Acciones" className="p-1">
                     {!disabled && (
                       <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
                         onClick={() => removeCost.mutate(c.id)}>

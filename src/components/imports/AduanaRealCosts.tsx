@@ -62,7 +62,7 @@ export default function AduanaRealCosts({ importId, disabled }: { importId: stri
         </Label>
       </div>
       {!hayReal && (
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
+        <p className="text-xs text-muted-foreground leading-relaxed">
           La app estima arancel e IVA con la TRM promediada de tus abonos, pero la DIAN liquida con la
           TRM de la declaración (viernes anterior). Poné acá lo pagado según la declaración de importación
           y ese valor <strong>reemplaza el estimado</strong> en el costeo, los KPIs y la lista.
@@ -70,25 +70,25 @@ export default function AduanaRealCosts({ importId, disabled }: { importId: stri
       )}
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <Label className="text-[11px] text-muted-foreground">Arancel pagado (COP)</Label>
+          <Label className="text-xs text-muted-foreground">Arancel pagado (COP)</Label>
           <Input
             type="number" step="1" min={0}
             value={arancel}
             onChange={e => setArancel(e.target.value)}
             disabled={disabled}
             placeholder="Ej: 23400000"
-            className="h-8 w-40 font-mono text-sm"
+            className="h-8 w-40 font-mono tabular-nums text-sm"
           />
         </div>
         <div>
-          <Label className="text-[11px] text-muted-foreground">IVA importación pagado (COP)</Label>
+          <Label className="text-xs text-muted-foreground">IVA importación pagado (COP)</Label>
           <Input
             type="number" step="1" min={0}
             value={iva}
             onChange={e => setIva(e.target.value)}
             disabled={disabled}
             placeholder="Ej: 93400000"
-            className="h-8 w-40 font-mono text-sm"
+            className="h-8 w-40 font-mono tabular-nums text-sm"
           />
         </div>
         <Button
@@ -101,7 +101,7 @@ export default function AduanaRealCosts({ importId, disabled }: { importId: stri
         </Button>
       </div>
       {hayReal && (
-        <p className="text-[10px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Estos valores mandan sobre el estimado por % en toda la app. Podés corregirlos acá o en "Costos del contenedor".
         </p>
       )}

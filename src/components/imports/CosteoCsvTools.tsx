@@ -163,7 +163,7 @@ export default function CosteoCsvTools({ importId, montoTotalUsd }: {
           <PackageCheck className="h-3.5 w-3.5" />
           {applying ? 'Aplicando…' : 'Aplicar costo al inventario'}
         </Button>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           CSV: referencia, cantidad, peso_kg, fob_usd, descripción (opcional)
         </span>
       </div>
@@ -191,7 +191,7 @@ export default function CosteoCsvTools({ importId, montoTotalUsd }: {
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs">
           <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
           <span>
-            Sin inventario: <span className="font-mono">{applied.missing.join(', ')}</span> — crealas en Inventarios y volvé a aplicar.
+            Sin inventario: <span className="font-mono tabular-nums">{applied.missing.join(', ')}</span> — crealas en Inventarios y volvé a aplicar.
           </span>
         </div>
       )}

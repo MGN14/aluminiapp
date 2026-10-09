@@ -62,7 +62,7 @@ export interface PayRow { import_id: string; amount_usd: number | null; trm: num
 function Row({ l, v, tone, big, sub }: { l: React.ReactNode; v: React.ReactNode; tone?: string; big?: boolean; sub?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border/50 py-2 last:border-0">
-      <span className="text-[13px] text-muted-foreground">{l}{sub && <span className="block text-[11px] text-muted-foreground/70">{sub}</span>}</span>
+      <span className="text-[13px] text-muted-foreground">{l}{sub && <span className="block text-xs text-muted-foreground/70">{sub}</span>}</span>
       <span className={cn('font-semibold tabular-nums text-right shrink-0', big ? 'text-lg' : 'text-[14px]', tone)}>{v}</span>
     </div>
   );
@@ -196,9 +196,9 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
   const EditorCosto = ({ tipo, label }: { tipo: 'nacionalizacion' | 'transporte'; label: string }) => (
     <div className="flex items-end gap-2 py-2 border-b border-border/50">
       <div>
-        <label className="text-[11px] text-muted-foreground block mb-1">{label} (COP)</label>
+        <label className="text-xs text-muted-foreground block mb-1">{label} (COP)</label>
         <Input inputMode="numeric" value={costoInput} onChange={(e) => setCostoInput(e.target.value)}
-          placeholder="8.000.000" className="h-8 w-36 text-[13px] font-mono tabular-nums" autoFocus />
+          placeholder="8.000.000" className="h-8 w-36 text-[13px] font-mono tabular-nums tabular-nums" autoFocus />
       </div>
       <Button size="sm" className="h-8 text-xs" onClick={() => guardarCosto(tipo)}
         disabled={addCost.isPending || updateCost.isPending}>
@@ -385,8 +385,8 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
         <div className="flex items-center gap-2.5 min-w-0">
           <ChevronDown className={cn('h-4 w-4 text-muted-foreground shrink-0 transition-transform', abierto && 'rotate-180')} />
           <span className="text-base font-bold tracking-tight">Contenedor {pedido.label}</span>
-          {esProximo && <Badge className="text-[11px]">próximo a llegar</Badge>}
-          <Badge variant="secondary" className="text-[11px]">{pedido.estado}</Badge>
+          {esProximo && <Badge className="text-xs">próximo a llegar</Badge>}
+          <Badge variant="secondary" className="text-xs">{pedido.estado}</Badge>
         </div>
         <div className="flex items-center gap-4 shrink-0">
           <span className="text-lg font-bold tabular-nums">{cop(totalSinIva)}</span>
@@ -424,7 +424,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                 </p>
 
                 {(pesoReal != null || unidadesReales != null) && (
-                  <p className="text-[11px] text-primary mt-1 flex items-center gap-1.5 flex-wrap">
+                  <p className="text-xs text-primary mt-1 flex items-center gap-1.5 flex-wrap">
                     <b>Corregido en el pedido</b> — prorratea con lo real.
                     {pesoReal != null && ` Peso ${numF(kgPacking ?? kgPedido)} → ${numF(pesoReal)} kg.`}
                     {escala.escalado && escala.factores.cantidad !== 1 && ` Unidades ${numF(packingBase.unidades)} → ${numF(escala.efectivo.unidades)}.`}
@@ -440,17 +440,17 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   <div className="mt-2 rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
                     <div className="flex items-end gap-3 flex-wrap">
                       <div>
-                        <label className="text-[11px] text-muted-foreground block mb-1">Mercancía facturada (USD)</label>
+                        <label className="text-xs text-muted-foreground block mb-1">Mercancía facturada (USD)</label>
                         <Input inputMode="numeric" defaultValue={numF(mercanciaUsdEff)} disabled={guardando}
                           onBlur={(e) => {
                             const n = Number(e.target.value.replace(/[.,\s]/g, ''));
                             if (Number.isFinite(n) && n > 0 && n !== mercanciaBase) guardarPedido({ monto_total_usd: n });
                           }}
-                          className="h-8 w-36 text-[13px] font-mono tabular-nums" />
-                        <p className="text-[10px] text-muted-foreground mt-0.5">se guarda en el pedido — el saldo se recalcula solo</p>
+                          className="h-8 w-36 text-[13px] font-mono tabular-nums tabular-nums" />
+                        <p className="text-xs text-muted-foreground mt-0.5">se guarda en el pedido — el saldo se recalcula solo</p>
                       </div>
                       <div>
-                        <label className="text-[11px] text-muted-foreground block mb-1">Peso real (kg)</label>
+                        <label className="text-xs text-muted-foreground block mb-1">Peso real (kg)</label>
                         <Input inputMode="numeric" defaultValue={numF(kg)} disabled={guardando}
                           onBlur={(e) => {
                             const n = Number(e.target.value.replace(/[.,\s]/g, ''));
@@ -458,13 +458,13 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                             if (!Number.isFinite(n) || n <= 0) return;
                             guardarPedido({ peso_real_kg: n !== ref ? n : null });
                           }}
-                          className="h-8 w-32 text-[13px] font-mono tabular-nums" />
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          className="h-8 w-32 text-[13px] font-mono tabular-nums tabular-nums" />
+                        <p className="text-xs text-muted-foreground mt-0.5">
                           {kgPacking != null ? `packing: ${numF(kgPacking)}` : `pedido: ${numF(kgPedido)}`}
                         </p>
                       </div>
                       <div>
-                        <label className="text-[11px] text-muted-foreground block mb-1">Unidades despachadas</label>
+                        <label className="text-xs text-muted-foreground block mb-1">Unidades despachadas</label>
                         <Input inputMode="numeric" defaultValue={numF(unidades)} disabled={guardando || !hayPackingReal}
                           onBlur={(e) => {
                             const n = Number(e.target.value.replace(/[.,\s]/g, ''));
@@ -472,8 +472,8 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                             if (!Number.isFinite(n) || n <= 0) return;
                             guardarPedido({ unidades_reales: n !== ref ? n : null });
                           }}
-                          className="h-8 w-32 text-[13px] font-mono tabular-nums" />
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          className="h-8 w-32 text-[13px] font-mono tabular-nums tabular-nums" />
+                        <p className="text-xs text-muted-foreground mt-0.5">
                           {hayPackingReal
                             ? (unidadesReales == null && pesoReal != null
                               ? 'derivadas del peso' : `packing: ${numF(packingBase.unidades)}`)
@@ -485,17 +485,17 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
 
                     {fleteUnit && (
                       <div className="rounded-md bg-background border border-border px-3 py-2">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
                           <b className="text-foreground">Se reprorrateó todo:</b> el flete se reparte entre{' '}
                           {numF(escala.efectivo.unidades)} unidades en vez de {numF(packingBase.unidades)}, así que
-                          baja de <span className="font-mono">{cop(fleteUnit.antes)}</span> a{' '}
-                          <span className="font-mono text-success">{cop(fleteUnit.despues)}</span> por unidad.
+                          baja de <span className="font-mono tabular-nums">{cop(fleteUnit.antes)}</span> a{' '}
+                          <span className="font-mono tabular-nums text-success">{cop(fleteUnit.despues)}</span> por unidad.
                           El arancel se recalcula sobre el valor nuevo y el costo por kilo sobre el peso nuevo.
                         </p>
                       </div>
                     )}
 
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
                       Poné lo que la fábrica despachó de verdad y la app <b>vuelve a prorratear</b> flete, arancel
                       y aduanas sobre esa base — no es solo cambiar el total. <b>Se guarda en el PEDIDO</b>:
                       la pestaña Pedidos y el saldo pendiente quedan actualizados de una.
@@ -504,7 +504,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                 )}
 
                 {difPesoPct != null && Math.abs(difPesoPct) >= 0.5 && (
-                  <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1.5 leading-relaxed">
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-1.5 leading-relaxed">
                     El pedido dice {numF(kgPedido)} kg y estás costeando con {numF(kg)} ({pctS(difPesoPct)}):
                     el COP/kg se mueve por <b>peso</b>, no por precio.
                   </p>
@@ -577,7 +577,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   </span>
                   <span className="text-lg font-bold tabular-nums text-amber-800 dark:text-amber-300">{cop(esc.breakdown.ivaCop)}</span>
                 </div>
-                <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 mt-1.5 leading-relaxed">
+                <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1.5 leading-relaxed">
                   {Number(pedido.iva_pct ?? 19)}% sobre (base + arancel), liquidado a la <b>TRM de aduana {numF(trmAduanaEff)}{aduanaAuto ? ` (viernes ${viernesLabel})` : ''}</b> —
                   la DIAN usa la TRM vigente, no el promedio al que compraste los dólares.
                   Se recupera como descontable, pero hay que tener la caja el día de nacionalizar.
@@ -616,7 +616,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                       return drivers.drivers.map((d) => (
                         <div key={d.key} className="space-y-1">
                           <div className="flex items-baseline justify-between gap-2">
-                            <span className="text-[13px]">{d.label} <span className="text-[11px] text-muted-foreground">{d.detalle}</span></span>
+                            <span className="text-[13px]">{d.label} <span className="text-xs text-muted-foreground">{d.detalle}</span></span>
                             <span className={cn('text-[13px] font-bold tabular-nums shrink-0', d.cop <= 0 ? 'text-success' : 'text-destructive')}>{copM(d.cop)}</span>
                           </div>
                           <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -646,7 +646,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                 )}
                 {/* Puente contra Pedidos: por qué este número no es el de allá. */}
                 {pedido.saldo_pendiente_usd != null && (totalManualUsd > 0 || esc.fleteSeguroUsd > 0) && (
-                  <p className="text-[11px] text-muted-foreground py-1.5 leading-relaxed">
+                  <p className="text-xs text-muted-foreground py-1.5 leading-relaxed">
                     Pedidos muestra <b className="text-foreground">{numF(Number(pedido.saldo_pendiente_usd))}</b> (solo
                     mercancía contra los giros del banco).
                     {totalManualUsd > 0 && <> Acá se restan además <b className="text-foreground">{numF(totalManualUsd)}</b> pagados por fuera de contabilidad</>}
@@ -690,9 +690,9 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                         {reales.map((a, i) => (
                           <tr key={i} className="border-b border-border/40">
                             <td className="py-1.5 pr-2">{a.fecha ?? '—'}</td>
-                            <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{numF(a.amount_usd)}</td>
-                            <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{numF(a.trm)}</td>
-                            <td className="py-1.5 text-right font-mono tabular-nums">{cop(a.amount_usd * a.trm)}</td>
+                            <td className="py-1.5 pr-2 text-right font-mono tabular-nums tabular-nums">{numF(a.amount_usd)}</td>
+                            <td className="py-1.5 pr-2 text-right font-mono tabular-nums tabular-nums">{numF(a.trm)}</td>
+                            <td className="py-1.5 text-right font-mono tabular-nums tabular-nums">{cop(a.amount_usd * a.trm)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -710,7 +710,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                       <Plus className="h-3.5 w-3.5" /> Anotar
                     </Button>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mb-2 leading-relaxed">
+                  <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
                     Plata que ya se movió pero no está en la contabilidad (giros de terceros, compras sin conciliar).
                     <b>SÍ restan del saldo de este tablero</b> — es plata que ya se pagó
                     (giros de otro negocio directo a China que no pasan por contabilidad).
@@ -726,9 +726,9 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                           <tr key={m.id} className="border-b border-border/40">
                             <td className="py-1.5 pr-2 whitespace-nowrap">{m.fecha}</td>
                             <td className="py-1.5 pr-2 text-muted-foreground truncate max-w-[110px]">{m.descripcion || '—'}</td>
-                            <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{cop(m.cop)}</td>
-                            <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{numF(m.trm)}</td>
-                            <td className="py-1.5 pr-1 text-right font-mono tabular-nums font-medium">{numF(m.cop / m.trm)} USD</td>
+                            <td className="py-1.5 pr-2 text-right font-mono tabular-nums tabular-nums">{cop(m.cop)}</td>
+                            <td className="py-1.5 pr-2 text-right font-mono tabular-nums tabular-nums">{numF(m.trm)}</td>
+                            <td className="py-1.5 pr-1 text-right font-mono tabular-nums tabular-nums font-medium">{numF(m.cop / m.trm)} USD</td>
                             <td className="py-1.5 w-6">
                               <button type="button" onClick={() => remove.mutate(m.id)}
                                 className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -737,11 +737,11 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                         ))}
                         <tr className="font-bold">
                           <td className="py-1.5" colSpan={4}>Total sin conectar</td>
-                          <td className="py-1.5 text-right font-mono tabular-nums">{numF(totalManualUsd)} USD</td>
+                          <td className="py-1.5 text-right font-mono tabular-nums tabular-nums">{numF(totalManualUsd)} USD</td>
                           <td />
                         </tr>
                         {esc && totalManualUsd > 0 && (
-                          <tr className="text-[11px] text-muted-foreground">
+                          <tr className="text-xs text-muted-foreground">
                             <td className="py-1" colSpan={6}>
                               Ya descontados del saldo de arriba ({numF(esc.saldoUsd)} USD con flete,{' '}
                               {numF(esc.saldoUsdMercancia)} sin flete).
@@ -753,18 +753,18 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                   )}
                   {nuevoAbono && (
                     <div className="flex items-end gap-2 flex-wrap">
-                      <div><label className="text-[11px] text-muted-foreground block mb-1">Fecha</label>
+                      <div><label className="text-xs text-muted-foreground block mb-1">Fecha</label>
                         <Input type="date" value={fa} onChange={(e) => setFa(e.target.value)} className="h-8 w-36 text-xs" /></div>
-                      <div className="flex-1 min-w-[110px]"><label className="text-[11px] text-muted-foreground block mb-1">Descripción</label>
+                      <div className="flex-1 min-w-[110px]"><label className="text-xs text-muted-foreground block mb-1">Descripción</label>
                         <Input value={da} onChange={(e) => setDa(e.target.value)} placeholder="Ej: giro Mauricio" className="h-8 text-xs" /></div>
-                      <div><label className="text-[11px] text-primary font-medium block mb-1">USD</label>
-                        <Input inputMode="numeric" value={ua} onChange={(e) => setUa(e.target.value)} placeholder="4.914" className="h-8 w-24 text-xs font-mono" /></div>
-                      <div><label className="text-[11px] text-muted-foreground block mb-1">TRM</label>
-                        <Input inputMode="numeric" value={ta} onChange={(e) => setTa(e.target.value)} placeholder="3.400" className="h-8 w-24 text-xs font-mono" /></div>
-                      <div><label className="text-[11px] text-muted-foreground block mb-1">COP <span className="text-[10px]">(si no sabés el USD)</span></label>
+                      <div><label className="text-xs text-primary font-medium block mb-1">USD</label>
+                        <Input inputMode="numeric" value={ua} onChange={(e) => setUa(e.target.value)} placeholder="4.914" className="h-8 w-24 text-xs font-mono tabular-nums" /></div>
+                      <div><label className="text-xs text-muted-foreground block mb-1">TRM</label>
+                        <Input inputMode="numeric" value={ta} onChange={(e) => setTa(e.target.value)} placeholder="3.400" className="h-8 w-24 text-xs font-mono tabular-nums" /></div>
+                      <div><label className="text-xs text-muted-foreground block mb-1">COP <span className="text-xs">(si no sabés el USD)</span></label>
                         <Input inputMode="numeric" value={ca} onChange={(e) => setCa(e.target.value)} placeholder="68.000.000"
                           disabled={Number(ua.replace(/[.,\s]/g, '')) > 0}
-                          className="h-8 w-32 text-xs font-mono" /></div>
+                          className="h-8 w-32 text-xs font-mono tabular-nums" /></div>
                       <Button size="sm" className="h-8 text-xs" onClick={guardarAbono} disabled={add.isPending}>Anotar</Button>
                     </div>
                   )}
@@ -790,8 +790,8 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                         <tr key={r.trm} className={cn('border-b border-border/40',
                           r.esHoy && 'bg-destructive/5 font-bold', r.esEscenario && 'bg-primary/5 font-semibold')}>
                           <td className="py-1.5 pr-2">{numF(r.trm)}{r.esHoy ? ' · hoy' : r.esEscenario ? ' · escenario' : ''}</td>
-                          <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{cop(r.cop)}</td>
-                          <td className={cn('py-1.5 text-right font-mono tabular-nums',
+                          <td className="py-1.5 pr-2 text-right font-mono tabular-nums tabular-nums">{cop(r.cop)}</td>
+                          <td className={cn('py-1.5 text-right font-mono tabular-nums tabular-nums',
                             r.vsHoy != null && r.vsHoy > 0 ? 'text-destructive' : r.vsHoy != null && r.vsHoy < 0 ? 'text-success' : 'text-muted-foreground')}>
                             {r.esHoy || r.vsHoy == null ? '—' : copM(r.vsHoy)}
                           </td>
@@ -799,7 +799,7 @@ export default function ModuloContenedor({ pedido, anterior, payRows, trmVal, tr
                       ))}
                     </tbody>
                   </table>
-                  <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
                     Lo ya abonado no se mueve: quedó blindado a su TRM. Solo el saldo respira.
                   </p>
                 </div>

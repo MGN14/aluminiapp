@@ -1,0 +1,169 @@
+/* Presentation shared only by Importaciones and its portalled detail. */
+.imports-workspace,
+.imports-detail {
+  font-variant-numeric: tabular-nums;
+}
+.imports-workspace :is(th, td),
+.imports-detail :is(th, td) {
+  font-variant-numeric: tabular-nums;
+  padding: .75rem .875rem;
+  line-height: 1.5;
+}
+.imports-workspace th,
+.imports-detail th {
+  background: hsl(var(--muted) / .6);
+  font-size: .75rem;
+  font-weight: 600;
+  height: auto;
+}
+.imports-workspace table,
+.imports-detail table {
+  font-size: .8125rem;
+}
+.imports-workspace :is(.overflow-x-auto, .overflow-auto),
+.imports-detail :is(.overflow-x-auto, .overflow-auto) {
+  max-width: 100%;
+  min-width: 0;
+  overscroll-behavior-x: contain;
+}
+.imports-workspace .rounded-lg.border,
+.imports-detail .rounded-lg.border {
+  border-radius: .75rem;
+}
+.imports-metrics > div {
+  border-radius: 1rem;
+  box-shadow: none;
+  border: 1px solid hsl(var(--border));
+}
+.imports-metrics > div > div {
+  padding: 1.25rem;
+}
+.imports-detail-body > [data-orientation] {
+  min-width: 0;
+}
+.imports-detail [role="tabpanel"] > .border,
+.imports-detail [role="tabpanel"] > .rounded-xl {
+  box-shadow: 0 1px 2px hsl(var(--foreground) / .025);
+}
+.imports-detail-metrics > div {
+  min-width: 0;
+}
+.imports-detail-metrics p {
+  overflow-wrap: anywhere;
+}
+.imports-detail-metrics p:first-child {
+  font-size: .75rem;
+  letter-spacing: .04em;
+}
+.imports-detail :is(input, textarea, [role="combobox"]) {
+  max-width: 100%;
+}
+.imports-detail button {
+  white-space: normal;
+}
+.imports-detail button:focus-visible,
+.imports-navigation button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.imports-detail-tabs [role="tab"] {
+  font-size: .875rem;
+}
+.imports-detail-tabs [role="tab"][data-state="active"] {
+  background: hsl(var(--primary) / .1);
+  color: hsl(var(--primary));
+  box-shadow: none;
+}
+@media (max-width: 639px) {
+  .imports-detail-header {
+    padding-top: 1rem;
+    padding-bottom: .75rem;
+  }
+  .imports-detail-metrics > div {
+    padding: .625rem .75rem;
+  }
+  .imports-detail-header {
+    max-height: 42dvh;
+    overflow-y: auto;
+  }
+  .imports-detail [role="tabpanel"] > div {
+    min-width: 0;
+  }
+  /* Stack editable fields without changing their values or handlers. */
+  .imports-detail [role="tabpanel"] .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .imports-detail .imports-stacked-table,
+  .imports-detail .imports-payments-table,
+  .imports-workspace .imports-orders-table {
+    display: block;
+  }
+  .imports-stacked-table thead,
+  .imports-payments-table thead,
+  .imports-orders-table thead {
+    display: none;
+  }
+  .imports-stacked-table tbody,
+  .imports-payments-table tbody,
+  .imports-orders-table tbody {
+    display: grid;
+    gap: .875rem;
+    padding: .5rem;
+  }
+  .imports-stacked-table tbody tr,
+  .imports-payments-table tbody tr,
+  .imports-orders-table tbody tr {
+    display: grid;
+    border: 1px solid hsl(var(--border));
+    border-radius: .875rem;
+    padding: .75rem;
+    background: hsl(var(--card));
+  }
+  .imports-stacked-table td[data-label],
+  .imports-payments-table td[data-label],
+  .imports-orders-table td[data-label] {
+    display: grid;
+    grid-template-columns: minmax(90px, .8fr) minmax(0, 1.5fr);
+    gap: .75rem;
+    align-items: start;
+    padding: .5rem 0;
+    max-width: none;
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+  .imports-stacked-table td[data-label]::before,
+  .imports-payments-table td[data-label]::before,
+  .imports-orders-table td[data-label]::before {
+    content: attr(data-label);
+    color: hsl(var(--muted-foreground));
+    font-weight: 500;
+    line-height: 1.5;
+    font-family: inherit;
+    font-size: .75rem;
+  }
+  .imports-orders-table td[data-label="Estado"] {
+    display: block;
+    border-bottom: 1px solid hsl(var(--border));
+    padding-bottom: .75rem;
+  }
+  .imports-orders-table td[data-label="Estado"]::before {
+    display: none;
+  }
+  .imports-payments-table td[data-label="Tipo"] > div {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 639px) {
+  .imports-stacked-table td:not([data-label]) {
+    display: block;
+    padding: .5rem 0;
+  }
+  .imports-stacked-table td[colspan]:empty { display: none; }
+  .imports-stacked-table td :is(input, [role="combobox"]) {
+    width: 100%;
+    min-height: 2.25rem;
+  }
+  .imports-orders-table td button { white-space: normal; }
+}

@@ -56,7 +56,7 @@ export default function ExchangeDiffPanel({
 
   if (diff.trmReferencia === null) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-3 text-[11px] text-muted-foreground flex items-start gap-1.5">
+      <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground flex items-start gap-1.5">
         <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         Para ver la diferencia en cambio, poné la TRM de causación arriba o registrá un abono (de ahí sale la TRM de referencia).
       </div>
@@ -71,36 +71,36 @@ export default function ExchangeDiffPanel({
     <div className="rounded-lg border border-border p-3 space-y-2 bg-muted/10">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-muted-foreground">Diferencia en cambio</span>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           ref. {fmtTrm(diff.trmReferencia)}{!cerrado && ` · hoy ${fmtTrm(trmHoy ?? null)}`}
         </span>
       </div>
       <div className="flex items-center gap-2">
         <Icon className={`h-4 w-4 ${color}`} />
         <span className={`text-lg font-bold tabular-nums ${color}`}>{fmtCop(Math.abs(diff.total))}</span>
-        <span className={`text-[11px] font-medium ${color}`}>{Math.abs(diff.total) < 1 ? 'sin efecto' : esPerdida ? 'pérdida' : 'ganancia'}</span>
+        <span className={`text-xs font-medium ${color}`}>{Math.abs(diff.total) < 1 ? 'sin efecto' : esPerdida ? 'pérdida' : 'ganancia'}</span>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-[11px]">
+      <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-md bg-background border border-border/60 px-2 py-1.5">
           <p className="text-muted-foreground">Realizada (abonos)</p>
-          <p className={`font-mono font-medium ${diff.realizada > 0 ? 'text-destructive' : diff.realizada < 0 ? 'text-success' : ''}`}>
+          <p className={`font-mono tabular-nums font-medium ${diff.realizada > 0 ? 'text-destructive' : diff.realizada < 0 ? 'text-success' : ''}`}>
             {diff.realizada >= 0 ? '' : '−'}{fmtCop(Math.abs(diff.realizada))}
           </p>
         </div>
         <div className="rounded-md bg-background border border-border/60 px-2 py-1.5">
           <p className="text-muted-foreground">{cerrado ? 'No realizada (cerrado)' : 'No realizada (saldo)'}</p>
-          <p className={`font-mono font-medium ${diff.noRealizada > 0 ? 'text-destructive' : diff.noRealizada < 0 ? 'text-success' : ''}`}>
+          <p className={`font-mono tabular-nums font-medium ${diff.noRealizada > 0 ? 'text-destructive' : diff.noRealizada < 0 ? 'text-success' : ''}`}>
             {diff.noRealizada >= 0 ? '' : '−'}{fmtCop(Math.abs(diff.noRealizada))}
           </p>
         </div>
       </div>
       {anticipoSinTrm && (
-        <p className="text-[10px] text-amber-600 flex items-start gap-1.5">
+        <p className="text-xs text-amber-600 flex items-start gap-1.5">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
           Cargaste un anticipo de {fmtCop(anticipoPagadoUsd)} USD sin registrar el abono con su TRM. La diferencia realizada de ese anticipo no se incluye — registrá los abonos para el cálculo completo.
         </p>
       )}
-      <p className="text-[10px] text-muted-foreground leading-snug">
+      <p className="text-xs text-muted-foreground leading-snug">
         Estimación de análisis: este panel <strong>no</strong> la registra en el Estado de Resultados. Si querés que impacte la utilidad/renta, regístrala manualmente como gasto/ingreso financiero.
         {' '}{esPerdida ? 'El dólar subió desde la causación: la deuda en USD te cuesta más COP.' : 'El dólar bajó o se mantuvo: la deuda en USD te sale más barata.'}
       </p>

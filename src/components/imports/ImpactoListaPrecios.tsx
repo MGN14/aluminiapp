@@ -95,7 +95,7 @@ export default function ImpactoListaPrecios({ label, items, smmActual, smmPiso }
             <h4 className="text-base font-bold tracking-tight">Impacto en tu lista de precios · {label}</h4>
           </div>
           <button type="button" onClick={toggleIva}
-            className="text-[11px] text-muted-foreground hover:text-foreground border border-border rounded-full px-2.5 py-1 transition-colors"
+            className="text-xs text-muted-foreground hover:text-foreground border border-border rounded-full px-2.5 py-1 transition-colors"
             title="Cambia si el precio de lista del maestro está cargado con IVA o sin IVA — define el margen">
             Lista {ivaIncluido ? 'CON' : 'SIN'} IVA · cambiar
           </button>
@@ -103,29 +103,29 @@ export default function ImpactoListaPrecios({ label, items, smmActual, smmPiso }
 
         <div className="grid sm:grid-cols-3 gap-4">
           <div className="rounded-xl border border-border p-3.5">
-            <p className="text-[11px] text-muted-foreground">Margen mayorista a lista actual</p>
+            <p className="text-xs text-muted-foreground">Margen mayorista a lista actual</p>
             <p className={cn('text-[32px] leading-none font-extrabold tabular-nums mt-1', tono)}>{pct1(margen)}</p>
-            <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
               objetivo {pct1(MARGEN_OBJETIVO)} (lista armada a costo × 1,18)
             </p>
           </div>
           <div className="rounded-xl border border-border p-3.5">
-            <p className="text-[11px] text-muted-foreground">Utilidad que deja el contenedor</p>
+            <p className="text-xs text-muted-foreground">Utilidad que deja el contenedor</p>
             <p className={cn('text-[32px] leading-none font-extrabold tabular-nums mt-1',
               (impacto.utilidadTotal ?? 0) >= 0 ? 'text-success' : 'text-destructive')}>
               {cop(impacto.utilidadTotal)}
             </p>
-            <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
               a los precios de hoy, sobre las {impacto.conPrecio} refs con precio cargado
             </p>
           </div>
           <div className="rounded-xl border border-border p-3.5">
-            <p className="text-[11px] text-muted-foreground">Ajuste de lista para el objetivo</p>
+            <p className="text-xs text-muted-foreground">Ajuste de lista para el objetivo</p>
             <p className={cn('text-[32px] leading-none font-extrabold tabular-nums mt-1',
               impacto.ajusteNecesarioPct == null ? 'text-success' : 'text-destructive')}>
               {impacto.ajusteNecesarioPct == null ? 'ninguno' : `+${impacto.ajusteNecesarioPct.toFixed(1).replace('.', ',')}%`}
             </p>
-            <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
               {impacto.ajusteNecesarioPct == null
                 ? 'la lista aguanta este costo — no la bajes'
                 : 'lo que habría que subir para volver al margen'}
@@ -150,16 +150,16 @@ export default function ImpactoListaPrecios({ label, items, smmActual, smmPiso }
           <div className="flex items-center gap-2 flex-wrap text-[13px]">
             <TrendingDown className="h-4 w-4 text-destructive" />
             {impacto.enPerdida.length > 0 && (
-              <Badge variant="outline" className="border-destructive/40 text-destructive text-[11px]">
+              <Badge variant="outline" className="border-destructive/40 text-destructive text-xs">
                 {impacto.enPerdida.length} referencia(s) a PÉRDIDA
               </Badge>
             )}
             {impacto.enRiesgo.length > 0 && (
-              <Badge variant="outline" className="border-amber-400/50 text-amber-700 dark:text-amber-400 text-[11px]">
+              <Badge variant="outline" className="border-amber-400/50 text-amber-700 dark:text-amber-400 text-xs">
                 {impacto.enRiesgo.length} con margen bajo {pct1(MARGEN_RIESGO)}
               </Badge>
             )}
-            <span className="text-muted-foreground text-[11px]">— ordenadas primero en la tabla</span>
+            <span className="text-muted-foreground text-xs">— ordenadas primero en la tabla</span>
           </div>
         )}
 
@@ -191,17 +191,17 @@ export default function ImpactoListaPrecios({ label, items, smmActual, smmPiso }
                   .map((r) => (
                     <tr key={r.reference} className={cn('border-t border-border/50 hover:bg-muted/30',
                       r.margen != null && r.margen < 0 && 'bg-destructive/5')}>
-                      <td className="px-3 py-1.5 font-mono font-medium">{r.reference}</td>
+                      <td className="px-3 py-1.5 font-mono tabular-nums font-medium">{r.reference}</td>
                       <td className="px-3 py-1.5 text-muted-foreground">{r.descripcion ?? '—'}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{cop(r.landedUnit)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{cop(r.precioSinIva)}</td>
-                      <td className={cn('px-3 py-1.5 text-right font-mono tabular-nums font-bold',
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums tabular-nums">{cop(r.landedUnit)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums tabular-nums">{cop(r.precioSinIva)}</td>
+                      <td className={cn('px-3 py-1.5 text-right font-mono tabular-nums tabular-nums font-bold',
                         r.margen == null ? '' : r.margen < 0 ? 'text-destructive'
                           : r.margen < MARGEN_RIESGO ? 'text-amber-600 dark:text-amber-400'
                             : r.margen >= MARGEN_OBJETIVO ? 'text-success' : '')}>
                         {pct1(r.margen)}
                       </td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums tabular-nums text-muted-foreground">
                         {r.ajustePct == null ? '—' : `${cop(r.precioNecesario)} (${pctS(r.ajustePct)})`}
                       </td>
                     </tr>
@@ -211,7 +211,7 @@ export default function ImpactoListaPrecios({ label, items, smmActual, smmPiso }
           </div>
         )}
 
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
+        <p className="text-xs text-muted-foreground leading-relaxed">
           Margen mayorista = (precio sin IVA − costo landed) / precio sin IVA. El costo landed usa la TRM del
           escenario, así que esta tarjeta se mueve con las perillas de arriba. El precio de lista sale del maestro
           de inventario (Siigo), cruzado por familia de color.

@@ -112,8 +112,8 @@ export default function ImportPaymentsSection({ importId }: Props) {
   const liq = liquidation;
 
   return (
-    <div className="space-y-3 border border-border rounded-lg p-4 bg-muted/20">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 border border-border rounded-xl p-4 sm:p-5 bg-card">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Label className="text-sm font-semibold">Abonos a esta importación</Label>
           <p className="text-xs text-muted-foreground">
@@ -133,21 +133,21 @@ export default function ImportPaymentsSection({ importId }: Props) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
           <div className="p-2 rounded bg-card border border-border">
             <p className="text-muted-foreground">Total facturado</p>
-            <p className="font-mono font-semibold">USD ${fmtUsd(liq.monto_total_usd ?? 0)}</p>
+            <p className="font-mono tabular-nums font-semibold">USD ${fmtUsd(liq.monto_total_usd ?? 0)}</p>
           </div>
           <div className="p-2 rounded bg-card border border-border">
             <p className="text-muted-foreground">Pagado USD</p>
-            <p className="font-mono font-semibold">USD ${fmtUsd(liq.total_pagado_usd)}</p>
+            <p className="font-mono tabular-nums font-semibold">USD ${fmtUsd(liq.total_pagado_usd)}</p>
           </div>
           <div className="p-2 rounded bg-card border border-border">
             <p className="text-muted-foreground">Costo real COP</p>
-            <p className="font-mono font-semibold">$ {fmtCop(liq.total_pagado_cop)}</p>
+            <p className="font-mono tabular-nums font-semibold">$ {fmtCop(liq.total_pagado_cop)}</p>
           </div>
           <div className="p-2 rounded bg-card border border-border">
             <p className="text-muted-foreground">
               {liq.liquidada ? 'TRM promedio (final)' : 'TRM promedio (parcial)'}
             </p>
-            <p className="font-mono font-semibold">
+            <p className="font-mono tabular-nums font-semibold">
               {liq.trm_promedio_ponderada ? `$ ${fmtTrm(liq.trm_promedio_ponderada)}` : '—'}
             </p>
           </div>
@@ -177,7 +177,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="imports-payments-table w-full text-sm">
             <thead className="text-muted-foreground">
               <tr className="border-b border-border">
                 <th className="text-left py-1.5 pr-2 font-medium">Fecha</th>
@@ -192,22 +192,22 @@ export default function ImportPaymentsSection({ importId }: Props) {
             <tbody>
               {payments.map((p) => (
                 <tr key={p.id} className="border-b border-border/50 hover:bg-muted/30">
-                  <td className="py-1.5 pr-2 font-mono">{p.fecha}</td>
-                  <td className="py-1.5 pr-2">
+                  <td data-label="Fecha" className="py-1.5 pr-2 font-mono tabular-nums">{p.fecha}</td>
+                  <td data-label="Tipo" className="py-1.5 pr-2">
                     <div className="flex items-center gap-1">
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">{TIPO_LABEL[p.tipo]}</Badge>
+                      <Badge variant="outline" className="text-xs px-1.5 py-0">{TIPO_LABEL[p.tipo]}</Badge>
                       {p.transaction_id && (
-                        <Badge variant="outline" className="text-[10px] px-1 py-0 gap-0.5 border-success/40 text-success" title="Vinculado a movimiento bancario">
+                        <Badge variant="outline" className="text-xs px-1 py-0 gap-0.5 border-success/40 text-success" title="Vinculado a movimiento bancario">
                           <Link2 className="h-2.5 w-2.5" />
                         </Badge>
                       )}
                     </div>
                   </td>
-                  <td className="py-1.5 pr-2 text-right font-mono">${fmtUsd(p.amount_usd)}</td>
-                  <td className="py-1.5 pr-2 text-right font-mono text-muted-foreground">{fmtTrm(p.trm)}</td>
-                  <td className="py-1.5 pr-2 text-right font-mono">${fmtCop(p.amount_cop)}</td>
-                  <td className="py-1.5 pr-2 text-muted-foreground truncate max-w-[160px]">{p.notes || '—'}</td>
-                  <td className="py-1.5 pr-2 text-right">
+                  <td data-label="USD" className="py-1.5 pr-2 text-right font-mono tabular-nums">${fmtUsd(p.amount_usd)}</td>
+                  <td data-label="TRM" className="py-1.5 pr-2 text-right font-mono tabular-nums text-muted-foreground">{fmtTrm(p.trm)}</td>
+                  <td data-label="COP" className="py-1.5 pr-2 text-right font-mono tabular-nums">${fmtCop(p.amount_cop)}</td>
+                  <td data-label="Notas" className="py-1.5 pr-2 text-muted-foreground break-words max-w-[240px]">{p.notes || '—'}</td>
+                  <td data-label="Acciones" className="py-1.5 pr-2 text-right">
                     <button
                       onClick={() => handleRemove(p.id)}
                       className="text-destructive hover:bg-destructive/10 p-1 rounded"
@@ -241,7 +241,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
 
           {/* Dropdown: vincular a transaction bancaria existente (opcional) */}
           <div className="space-y-1">
-            <Label className="text-[11px] flex items-center gap-1">
+            <Label className="text-xs flex items-center gap-1">
               <Link2 className="h-3 w-3" />
               Vincular a movimiento bancario (opcional)
             </Label>
@@ -259,8 +259,8 @@ export default function ImportPaymentsSection({ importId }: Props) {
                   availableTransactions.slice(0, 100).map((tx) => (
                     <SelectItem key={tx.id} value={tx.id}>
                       <span className="text-xs">
-                        <span className="font-mono">{tx.date}</span> ·{' '}
-                        <span className="font-mono text-destructive">
+                        <span className="font-mono tabular-nums">{tx.date}</span> ·{' '}
+                        <span className="font-mono tabular-nums text-destructive">
                           ${fmtCop(Math.abs(tx.amount))}
                         </span>{' '}
                         — {tx.description.slice(0, 60)}
@@ -272,7 +272,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
               </SelectContent>
             </Select>
             {transactionId && transactionId !== '__none__' && (
-              <p className="text-[10px] text-success flex items-center gap-1">
+              <p className="text-xs text-success flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" />
                 Fecha y USD auto-completados desde el movimiento bancario.
               </p>
@@ -281,7 +281,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div className="space-y-1">
-              <Label className="text-[11px]">Fecha</Label>
+              <Label className="text-xs">Fecha</Label>
               <Input
                 type="date"
                 value={fecha}
@@ -291,7 +291,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px]">Tipo</Label>
+              <Label className="text-xs">Tipo</Label>
               <Select value={tipo} onValueChange={(v) => setTipo(v as ImportPaymentTipo)}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -302,7 +302,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px]">Monto USD *</Label>
+              <Label className="text-xs">Monto USD *</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -310,11 +310,11 @@ export default function ImportPaymentsSection({ importId }: Props) {
                 value={amountUsd}
                 onChange={(e) => setAmountUsd(e.target.value === '' ? '' : +e.target.value)}
                 placeholder="0.00"
-                className="h-8 text-xs font-mono"
+                className="h-8 text-xs font-mono tabular-nums"
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px] flex items-center gap-1">
+              <Label className="text-xs flex items-center gap-1">
                 TRM (COP/USD) *
                 {autoTrmLoading && <Loader2 className="h-3 w-3 animate-spin" />}
               </Label>
@@ -329,7 +329,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
                     setTrmSource('manual');
                   }}
                   placeholder="4150.00"
-                  className="h-8 text-xs font-mono"
+                  className="h-8 text-xs font-mono tabular-nums"
                 />
                 <button
                   type="button"
@@ -350,7 +350,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-[11px]">Notas (opcional)</Label>
+            <Label className="text-xs">Notas (opcional)</Label>
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -361,7 +361,7 @@ export default function ImportPaymentsSection({ importId }: Props) {
           {amountUsd !== '' && trm !== '' && +amountUsd > 0 && +trm > 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <AlertCircle className="h-3 w-3" />
-              Este abono moverá <span className="font-mono font-semibold text-foreground">$ {fmtCop(+amountUsd * +trm)} COP</span> de tu banco.
+              Este abono moverá <span className="font-mono tabular-nums font-semibold text-foreground">$ {fmtCop(+amountUsd * +trm)} COP</span> de tu banco.
             </div>
           )}
           <div className="flex gap-2 justify-end">

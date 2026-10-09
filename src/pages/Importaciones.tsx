@@ -1,4 +1,5 @@
 import { Fragment, useState, useMemo } from 'react';
+import '@/components/imports/imports.css';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,7 +55,7 @@ const fmtCOPShort = (n: number) => {
 function CostCell({ usd, cop }: { usd: number; cop: number }) {
   if (usd <= 0 && cop <= 0) return <span className="text-muted-foreground">—</span>;
   return (
-    <span className="font-mono text-sm">
+    <span className="font-mono tabular-nums text-sm">
       {usd > 0 && <span>${usd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>}
       {usd > 0 && cop > 0 && <span className="text-muted-foreground"> + </span>}
       {cop > 0 && <span title={`$${cop.toLocaleString('es-CO')} COP`}>{fmtCOPShort(cop)}</span>}
@@ -90,7 +91,7 @@ function DeltaLine({ pct, label }: { pct: number | null; label: string }) {
   if (pct == null) return null;
   const caro = pct > 0;
   return (
-    <p className="text-[11px] leading-tight">
+    <p className="text-xs leading-tight">
       <span className={cn(
         'inline-flex items-center gap-1 rounded-full px-1.5 py-px font-bold tabular-nums',
         caro
@@ -115,7 +116,7 @@ function SignalLine({ curr, refVal, label, fmtVal }: {
   const pct = ((curr - refVal) / refVal) * 100;
   if (Math.abs(pct) < 2) {
     return (
-      <p className="text-[11px] leading-tight">
+      <p className="text-xs leading-tight">
         <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-px font-semibold text-foreground/70">
           <CheckCircle2 className="h-3 w-3 text-success" /> en línea
         </span>{' '}
@@ -125,7 +126,7 @@ function SignalLine({ curr, refVal, label, fmtVal }: {
   }
   const caro = pct > 0;
   return (
-    <p className="text-[11px] leading-tight">
+    <p className="text-xs leading-tight">
       <span className={cn(
         'inline-flex items-center gap-1 rounded-full px-1.5 py-px font-bold tabular-nums',
         caro
@@ -761,9 +762,9 @@ export default function Importaciones() {
 
   return (
     <AppLayout>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <div className="imports-workspace max-w-[1600px] mx-auto px-0 sm:px-2 py-2 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
               <Ship className="h-5 w-5 text-primary" />
@@ -778,46 +779,47 @@ export default function Importaciones() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5">
-              <button
-                type="button"
-                onClick={() => setView('pedidos')}
-                className={cn('px-3 py-1.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5',
-                  view === 'pedidos' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              >
-                <List className="h-3.5 w-3.5" /> Pedidos
-              </button>
-              <button
-                type="button"
-                onClick={() => setView('analisis')}
-                className={cn('px-3 py-1.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5',
-                  view === 'analisis' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              >
-                <LineChart className="h-3.5 w-3.5" /> Análisis de precios
-              </button>
-              <button
-                type="button"
-                onClick={() => setView('cobertura')}
-                className={cn('px-3 py-1.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5',
-                  view === 'cobertura' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              >
-                <PackageSearch className="h-3.5 w-3.5" /> Cobertura
-              </button>
-              <button
-                type="button"
-                onClick={() => setView('escenarios')}
-                className={cn('px-3 py-1.5 rounded text-xs font-medium transition-colors inline-flex items-center gap-1.5',
-                  view === 'escenarios' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              >
-                <FlaskConical className="h-3.5 w-3.5" /> Escenarios
-              </button>
-            </div>
             <Button onClick={openNew} className="gap-2">
               <Plus className="h-4 w-4" />
               Nueva importación
             </Button>
           </div>
         </div>
+
+            <div className="imports-navigation flex w-full gap-1 rounded-xl border border-border bg-card p-1.5 overflow-x-auto">
+              <button
+                type="button"
+                aria-pressed={view === 'pedidos'} onClick={() => setView('pedidos')}
+                className={cn('shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1.5',
+                  view === 'pedidos' ? 'bg-primary/10 text-primary shadow-none' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <List className="h-3.5 w-3.5" /> Pedidos
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === 'analisis'} onClick={() => setView('analisis')}
+                className={cn('shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1.5',
+                  view === 'analisis' ? 'bg-primary/10 text-primary shadow-none' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <LineChart className="h-3.5 w-3.5" /> Análisis de precios
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === 'cobertura'} onClick={() => setView('cobertura')}
+                className={cn('shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1.5',
+                  view === 'cobertura' ? 'bg-primary/10 text-primary shadow-none' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <PackageSearch className="h-3.5 w-3.5" /> Cobertura
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === 'escenarios'} onClick={() => setView('escenarios')}
+                className={cn('shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1.5',
+                  view === 'escenarios' ? 'bg-primary/10 text-primary shadow-none' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <FlaskConical className="h-3.5 w-3.5" /> Escenarios
+              </button>
+            </div>
 
         {view === 'analisis' ? (
           <ImportPriceAnalysis />
@@ -844,7 +846,7 @@ export default function Importaciones() {
             grandes que ya teníamos"). */}
         {kpis && (
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] text-muted-foreground">Ver banners de:</span>
+            <span className="text-xs text-muted-foreground">Compará los indicadores de:</span>
             <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5 flex-wrap">
               <button
                 type="button"
@@ -859,7 +861,7 @@ export default function Importaciones() {
                   key={p.id}
                   type="button"
                   onClick={() => setFocoSel(p.id)}
-                  className={cn('px-2.5 py-1 rounded text-xs font-medium transition-colors font-mono', focoSel === p.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                  className={cn('px-2.5 py-1 rounded text-xs font-medium transition-colors font-mono tabular-nums', focoSel === p.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
                 >
                   {p.label}
                 </button>
@@ -874,19 +876,19 @@ export default function Importaciones() {
               </button>
             </div>
             {kpis.esSimulacion && (
-              <span className="text-[10px] text-amber-600 font-medium">
+              <span className="text-xs text-amber-600 font-medium">
                 ⚠ simulación — LME y TRM de hoy, flete e impuestos asumidos con tus promedios
               </span>
             )}
           </div>
         )}
         {kpis && (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="imports-metrics grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Pedidos {currentYear}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Pedidos {currentYear}</p>
                 <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums">{kpis.pedidosEsteAnio}</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {kpis.pedidosAnioPasado} en {currentYear - 1}
                   {kpis.tonEsteAnio > 0 && ` · ${kpis.tonEsteAnio.toLocaleString('es-CO', { maximumFractionDigits: 1 })} t${kpis.tonAnioPasado > 0 ? ` (${kpis.tonAnioPasado.toLocaleString('es-CO', { maximumFractionDigits: 1 })} t en ${currentYear - 1})` : ''}`}
                 </p>
@@ -894,61 +896,61 @@ export default function Importaciones() {
             </Card>
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="SMM cerrado del pedido próximo a entregar — el costo del material que está por llegar a bodega. Cuando se entregue, el foco pasa solo al siguiente del pipeline.">SMM próx. a entregar (USD/t)</p>
-                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground" title="SMM cerrado del pedido próximo a entregar — el costo del material que está por llegar a bodega. Cuando se entregue, el foco pasa solo al siguiente del pipeline.">SMM próx. a entregar (USD/t)</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono tabular-nums">
                   {kpis.usdLast != null ? `$${kpis.usdLast.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-xs font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <SignalLine curr={kpis.usdLast} refVal={kpis.usdProm} label="promedio"
                   fmtVal={(n) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
                 <DeltaLine pct={kpis.usdDeltaPct} label="vs último entregado" />
                 <DeltaLine pct={kpis.usdYoYPct} label={`vs ${currentYear - 1}`} />
                 {kpis.usdLast == null && kpis.usdProm != null && (
-                  <p className="text-[11px] text-muted-foreground">promedio ${kpis.usdProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+                  <p className="text-xs text-muted-foreground">promedio ${kpis.usdProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
                 )}
               </CardContent>
             </Card>
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="CIF + arancel + IVA + otros costos del pedido PRÓXIMO A ENTREGAR, en pesos — la plata comprometida en lo que viene. Usa el estimado (≈) mientras no esté cargado el costo real.">Total Importación (COP)</p>
-                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground" title="CIF + arancel + IVA + otros costos del pedido PRÓXIMO A ENTREGAR, en pesos — la plata comprometida en lo que viene. Usa el estimado (≈) mientras no esté cargado el costo real.">Total Importación (COP)</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono tabular-nums">
                   {kpis.totLast != null ? fmtCOPShort(kpis.totLast) : '—'}
                 </p>
-                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-xs font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <SignalLine curr={kpis.totLast} refVal={kpis.totProm} label="promedio" fmtVal={fmtCOPShort} />
                 <DeltaLine pct={kpis.totDeltaPct} label="vs último entregado" />
                 {kpis.totLast == null && (kpis.totProm != null
-                  ? <p className="text-[11px] text-muted-foreground">promedio {fmtCOPShort(kpis.totProm)}</p>
-                  : <p className="text-[11px] text-muted-foreground">CIF + arancel + IVA + otros</p>)}
+                  ? <p className="text-xs text-muted-foreground">promedio {fmtCOPShort(kpis.totProm)}</p>
+                  : <p className="text-xs text-muted-foreground">CIF + arancel + IVA + otros</p>)}
               </CardContent>
             </Card>
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Total Importación ÷ toneladas del pedido PRÓXIMO A ENTREGAR — el costo real de la materia prima que está por llegar a bodega.">COP/ton nacionalizado</p>
-                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Total Importación ÷ toneladas del pedido PRÓXIMO A ENTREGAR — el costo real de la materia prima que está por llegar a bodega.">COP/ton nacionalizado</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono tabular-nums">
                   {kpis.nacLast != null ? fmtCOPShort(kpis.nacLast) : '—'}
                 </p>
-                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-xs font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <SignalLine curr={kpis.nacLast} refVal={kpis.nacProm} label="promedio" fmtVal={fmtCOPShort} />
                 <DeltaLine pct={kpis.nacDeltaPct} label="vs último entregado" />
                 <DeltaLine pct={kpis.nacYoYPct} label={`vs ${currentYear - 1}`} />
                 {kpis.nacLast == null && kpis.nacProm != null && (
-                  <p className="text-[11px] text-muted-foreground">promedio {fmtCOPShort(kpis.nacProm)}</p>
+                  <p className="text-xs text-muted-foreground">promedio {fmtCOPShort(kpis.nacProm)}</p>
                 )}
               </CardContent>
             </Card>
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="TRM ponderada de los abonos del pedido en foco (Σ USD×TRM ÷ Σ USD). Si ese pedido AÚN NO tiene abonos, se muestra la TRM de hoy — nunca la de otro contenedor.">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground" title="TRM ponderada de los abonos del pedido en foco (Σ USD×TRM ÷ Σ USD). Si ese pedido AÚN NO tiene abonos, se muestra la TRM de hoy — nunca la de otro contenedor.">
                   {kpis.trmEnCurso ? 'TRM pagada' : 'TRM de hoy'}
                 </p>
-                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono tabular-nums">
                   {kpis.trmLast != null ? `$${kpis.trmLast.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
                 {/* De DÓNDE sale: abonos del pedido en foco, o mercado de hoy
                     cuando ese pedido todavía no tiene abonos. */}
                 {kpis.trmDeLabel && (
-                  <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">
+                  <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-xs font-medium text-foreground/75 truncate">
                     {kpis.trmEnCurso
                       ? <>📦 {kpis.trmDeLabel}<span className="text-primary font-medium"> · ponderada de sus abonos</span></>
                       : <>💱 {kpis.trmDeLabel} — este pedido aún no tiene abonos</>}
@@ -959,7 +961,7 @@ export default function Importaciones() {
                     fmtVal={(n) => `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`} />
                 )}
                 <DeltaLine pct={kpis.trmDeltaPct} label="vs último entregado" />
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {kpis.trmProm != null
                     ? `promedio pagado $${kpis.trmProm.toLocaleString('es-CO', { maximumFractionDigits: 0 })} · ponderada de abonos`
                     : 'ponderada de los abonos'}
@@ -968,16 +970,16 @@ export default function Importaciones() {
             </Card>
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Flete del pedido próximo a entregar (se conoce al embarcar). '—' = el pedido en foco todavía no tiene flete cargado.">Flete USD</p>
-                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Flete del pedido próximo a entregar (se conoce al embarcar). '—' = el pedido en foco todavía no tiene flete cargado.">Flete USD</p>
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono tabular-nums">
                   {kpis.fleteUltimo != null ? `$${kpis.fleteUltimo.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-xs font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
                 <SignalLine curr={kpis.fleteUltimo} refVal={kpis.fleteProm} label="promedio"
                   fmtVal={(n) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
                 <DeltaLine pct={kpis.fleteDeltaPct} label="vs último entregado" />
                 {kpis.fleteUltimo == null && (
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     {kpis.fleteProm != null ? `promedio $${kpis.fleteProm.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'cargalo en costos del pedido'}
                   </p>
                 )}
@@ -986,14 +988,14 @@ export default function Importaciones() {
             {/* IMPUESTOS — reemplaza las columnas Arancel / IVA / Agencia */}
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Arancel + IVA de importación del pedido próximo a entregar. Con ≈ es el estimado por % sobre el CIF; cuando cargás la liquidación real de aduana en el Resumen del pedido, manda el real.">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Arancel + IVA de importación del pedido próximo a entregar. Con ≈ es el estimado por % sobre el CIF; cuando cargás la liquidación real de aduana en el Resumen del pedido, manda el real.">
                   Impuestos del contenedor
                 </p>
-                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono">
+                <p className="text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono tabular-nums">
                   {kpis.impLast != null ? `${kpis.impEsReal ? '' : '≈'}${fmtCOPShort(kpis.impLast)}` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
-                <p className="text-[11px] text-muted-foreground">
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-xs font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}</p>}
+                <p className="text-xs text-muted-foreground">
                   {kpis.impArancel != null && `arancel ${fmtCOPShort(kpis.impArancel)}`}
                   {kpis.impIva != null && ` + IVA ${fmtCOPShort(kpis.impIva)}`}
                   {kpis.impAgencia > 0 && ` + agencia ${fmtCOPShort(kpis.impAgencia)}`}
@@ -1001,27 +1003,27 @@ export default function Importaciones() {
                 <SignalLine curr={kpis.impLast} refVal={kpis.impProm} label="promedio" fmtVal={fmtCOPShort} />
                 <DeltaLine pct={kpis.impDeltaPct} label="vs último entregado" />
                 {kpis.impLast != null && !kpis.impEsReal && (
-                  <p className="text-[10px] text-amber-600">estimado — cargá la liquidación real en el pedido</p>
+                  <p className="text-xs text-amber-600">estimado — cargá la liquidación real en el pedido</p>
                 )}
               </CardContent>
             </Card>
             {/* DÍAS — reemplaza la columna Días de la tabla */}
             <Card className="rounded-xl border-border/80 border-t-[3px] border-t-primary/40 bg-gradient-to-b from-card to-muted/30 shadow-sm hover:shadow-md transition-shadow">
               <CardContent className="py-3.5 px-4 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Días desde que se montó el pedido (entrada a producción) hasta la entrega — o hasta hoy si sigue en curso. La cotización no cuenta.">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground" title="Días desde que se montó el pedido (entrada a producción) hasta la entrega — o hasta hoy si sigue en curso. La cotización no cuenta.">
                   Días de la operación
                 </p>
-                <p className={cn('text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono', kpis.diasFoco?.enCurso && 'text-primary')}>
+                <p className={cn('text-[26px] leading-8 font-extrabold tracking-tight tabular-nums font-mono tabular-nums', kpis.diasFoco?.enCurso && 'text-primary')}>
                   {kpis.diasFoco ? `${kpis.diasFoco.dias}d` : '—'}
                 </p>
-                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}{kpis.diasFoco?.enCurso ? ' · en curso' : ''}</p>}
-                <p className="text-[11px] text-muted-foreground">
+                {kpis.focoLabel && <p className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 text-xs font-medium text-foreground/75 truncate">📦 {kpis.focoLabel}{kpis.diasFoco?.enCurso ? ' · en curso' : ''}</p>}
+                <p className="text-xs text-muted-foreground">
                   {kpis.diasProm != null
                     ? `prom. histórico ${Math.round(kpis.diasProm)}d de montaje a entrega`
                     : 'sin ciclos completos todavía'}
                 </p>
                 {kpis.diasFoco && kpis.diasProm != null && (
-                  <p className={cn('text-[11px] font-medium', kpis.diasFoco.dias > kpis.diasProm ? 'text-destructive' : 'text-success')}>
+                  <p className={cn('text-xs font-medium', kpis.diasFoco.dias > kpis.diasProm ? 'text-destructive' : 'text-success')}>
                     {kpis.diasFoco.dias > kpis.diasProm
                       ? `+${kpis.diasFoco.dias - Math.round(kpis.diasProm)}d sobre el promedio`
                       : `faltan ~${Math.round(kpis.diasProm) - kpis.diasFoco.dias}d si se comporta como siempre`}
@@ -1063,7 +1065,7 @@ export default function Importaciones() {
                 {/* 1 · Prioridad: el que llega */}
                 {radar.proximo && (
                   <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-primary flex items-center gap-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-primary flex items-center gap-1">
                       <PackageCheck className="h-3 w-3" /> Prioridad · llega{' '}
                       {radar.proximoDias != null
                         ? radar.proximoDias <= 0 ? 'YA' : `en ${radar.proximoDias} día${radar.proximoDias !== 1 ? 's' : ''}`
@@ -1071,10 +1073,10 @@ export default function Importaciones() {
                     </p>
                     <p className="text-sm font-semibold">
                       {radar.proximo.r.proveedor_nombre}
-                      {radar.proximo.r.ref_pedido && <span className="font-mono text-xs text-muted-foreground"> · {radar.proximo.r.ref_pedido}</span>}
+                      {radar.proximo.r.ref_pedido && <span className="font-mono tabular-nums text-xs text-muted-foreground"> · {radar.proximo.r.ref_pedido}</span>}
                       {radar.proximo.llega && <span className="font-normal text-xs text-muted-foreground"> — {fmtFechaCorta(radar.proximo.llega)}</span>}
                     </p>
-                    <div className="text-[11px] space-y-0.5">
+                    <div className="text-xs space-y-0.5">
                       {/* Desglose puerto→aduana→bodega: la aduana es la fecha
                           LÍMITE para tener el saldo girado (pedido de Nico) */}
                       {radar.proximo.llega && radar.proximo.r.estado !== 'aduana' && radar.proximo.r.estado !== 'entregado' && (
@@ -1088,7 +1090,7 @@ export default function Importaciones() {
                         </p>
                       )}
                       {radar.saldoProximo != null && radar.saldoProximo > 0 ? (
-                        <p><span className="text-muted-foreground">Saldo por girar:</span> <span className="font-mono font-semibold text-destructive">{fmtUSD0(radar.saldoProximo)}</span>
+                        <p><span className="text-muted-foreground">Saldo por girar:</span> <span className="font-mono tabular-nums font-semibold text-destructive">{fmtUSD0(radar.saldoProximo)}</span>
                           {radar.proximo.llega && radar.proximo.r.estado !== 'aduana' && radar.proximo.r.estado !== 'entregado' && (
                             <span className="text-muted-foreground"> antes de aduana</span>
                           )}
@@ -1099,7 +1101,7 @@ export default function Importaciones() {
                       {radar.cajaNacionalizar != null && radar.cajaNacionalizar > 0 && (
                         <p>
                           <span className="text-muted-foreground">Caja para nacionalizar:</span>{' '}
-                          <span className="font-mono font-semibold">≈{fmtCOPShort(radar.cajaNacionalizar)}</span>
+                          <span className="font-mono tabular-nums font-semibold">≈{fmtCOPShort(radar.cajaNacionalizar)}</span>
                           <span className="text-muted-foreground"> (arancel + IVA + agencia)</span>
                         </p>
                       )}
@@ -1109,24 +1111,24 @@ export default function Importaciones() {
 
                 {/* 2 · Los que vienen detrás — promedio de compra abierto */}
                 <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
                     <Factory className="h-3 w-3" /> Vienen detrás ({radar.detras.length})
                   </p>
                   {radar.smmPonderado != null && (
-                    <p className="text-[11px]">
+                    <p className="text-xs">
                       <span className="text-muted-foreground">Compra abierta promediada:</span>{' '}
-                      <span className="font-mono font-semibold">${radar.smmPonderado.toLocaleString('en-US', { maximumFractionDigits: 0 })}/t</span>
+                      <span className="font-mono tabular-nums font-semibold">${radar.smmPonderado.toLocaleString('en-US', { maximumFractionDigits: 0 })}/t</span>
                       {radar.smmUltimo != null && Math.round(radar.smmUltimo) !== Math.round(radar.smmPonderado) && (
                         <span className="text-muted-foreground"> · último pedido ${radar.smmUltimo.toLocaleString('en-US', { maximumFractionDigits: 0 })}/t</span>
                       )}
                     </p>
                   )}
-                  <div className="text-[11px] space-y-0.5">
+                  <div className="text-xs space-y-0.5">
                     {radar.detras.length === 0 ? (
                       <p className="text-muted-foreground">Nada en camino detrás del que llega.</p>
                     ) : radar.detras.slice(0, 3).map(x => (
                       <p key={x.r.id} className="text-muted-foreground">
-                        <span className="font-mono text-foreground">{x.r.ref_pedido ?? x.r.proveedor_nombre}</span>
+                        <span className="font-mono tabular-nums text-foreground">{x.r.ref_pedido ?? x.r.proveedor_nombre}</span>
                         {Number(x.r.precio_smm_cerrado_usd_ton ?? 0) > 0 && ` · $${Number(x.r.precio_smm_cerrado_usd_ton).toLocaleString('en-US', { maximumFractionDigits: 0 })}/t`}
                         {x.llega && ` · llega ~${fmtFechaCorta(x.llega)}${x.etaEstimada ? ' (est.)' : ''}`}
                       </p>
@@ -1145,14 +1147,14 @@ export default function Importaciones() {
                       : 'border-border bg-muted/20',
                 )}>
                   <p className={cn(
-                    'text-[10px] font-semibold uppercase tracking-wide flex items-center gap-1',
+                    'text-xs font-semibold uppercase tracking-wide flex items-center gap-1',
                     reorder.suggestion?.diasParaDecidir != null && reorder.suggestion.diasParaDecidir <= 7 ? 'text-destructive'
                       : reorder.suggestion?.diasParaDecidir != null && reorder.suggestion.diasParaDecidir <= 30 ? 'text-amber-600' : 'text-muted-foreground',
                   )}>
                     <AlertTriangle className="h-3 w-3" /> Próximo pedido
                   </p>
                   {reorder.suggestion?.fechaLimite && reorder.suggestion.diasParaDecidir != null ? (
-                    <p className="text-[11px] leading-relaxed">
+                    <p className="text-xs leading-relaxed">
                       {reorder.suggestion.diasParaDecidir <= 0 ? (
                         reorder.retenidos.length > 0 || reorder.pedidosSinItems.length > 0 ? (
                           // Dos decisiones distintas (Nico 2026-08-02): con
@@ -1180,15 +1182,15 @@ export default function Importaciones() {
                       )}
                     </p>
                   ) : reorder.suggestion?.motivoSinFecha === 'sin_urgencia' ? (
-                    <p className="text-[11px] text-success leading-relaxed font-medium">
+                    <p className="text-xs text-success leading-relaxed font-medium">
                       ✓ Cobertura sobrada (&gt;400d) — sin pedido a la vista. Normal recién entrado un contenedor.
                     </p>
                   ) : reorder.suggestion ? (
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
                       Sin consumo registrado para proyectar fecha — detalle en la card de arriba.
                     </p>
                   ) : (
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
                       Calculando con stock físico, consumo y tránsito…
                     </p>
                   )}
@@ -1239,11 +1241,11 @@ export default function Importaciones() {
                     )}
                   >
                     {f === 'abiertos' ? 'Abiertos' : f === 'todos' ? 'Todos' : IMPORT_ESTADO_LABEL[f as ImportEstado]}
-                    <span className={cn('font-mono font-semibold', count > 0 ? 'text-foreground' : 'text-muted-foreground/50')}>
+                    <span className={cn('font-mono tabular-nums font-semibold', count > 0 ? 'text-foreground' : 'text-muted-foreground/50')}>
                       {count}
                     </span>
                     {prom != null && (
-                      <span className="text-[10px] text-muted-foreground font-normal inline-flex items-center gap-0.5">
+                      <span className="text-xs text-muted-foreground font-normal inline-flex items-center gap-0.5">
                         <Clock className="h-2.5 w-2.5" />~{prom}d
                       </span>
                     )}
@@ -1264,7 +1266,7 @@ export default function Importaciones() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="imports-orders-table">
                 <TableHeader>
                   <TableRow className="bg-muted/80">
                     {/* Costos POR COLUMNA (pedido de Nico 2026-08-02: "cada
@@ -1373,13 +1375,13 @@ export default function Importaciones() {
                           className="cursor-pointer hover:bg-muted/40"
                           onClick={() => openEdit(row)}
                         >
-                          <TableCell className="text-sm">
+                          <TableCell data-label="Pedido" className="text-sm">
                             <div className="font-medium flex items-center gap-1.5">
                               {row.proveedor_nombre}
                             </div>
                             {/* Ref + inicio + días: el detalle de contexto que
                                 antes eran columnas propias, acá en chiquito. */}
-                            <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 flex-wrap">
+                            <div className="text-xs text-muted-foreground font-mono tabular-nums flex items-center gap-1.5 flex-wrap">
                               {row.ref_pedido && <span>{row.ref_pedido}</span>}
                               {fechaInicio && (
                                 <span className="font-sans" title="Fecha en que se montó el pedido">
@@ -1405,10 +1407,10 @@ export default function Importaciones() {
                           {/* Estado editable en línea — mismos estados que el modal.
                               El cambio pide fecha en el dialog antes de aplicarse.
                               Cerrada = candado: se reabre desde el modal (solo admin). */}
-                          <TableCell onClick={(e) => e.stopPropagation()}>
+                          <TableCell data-label="Estado" onClick={(e) => e.stopPropagation()}>
                             {row.cerrada ? (
                               <span
-                                className={cn('inline-flex items-center gap-1 h-7 px-2.5 rounded-md border text-[11px] font-medium', badge.bg, badge.color, badge.border)}
+                                className={cn('inline-flex items-center gap-1 h-7 px-2.5 rounded-md border text-xs font-medium', badge.bg, badge.color, badge.border)}
                                 title="Importación cerrada — solo el admin puede reabrirla (desde el modal)"
                               >
                                 <LockIcon className="h-3 w-3" />
@@ -1422,7 +1424,7 @@ export default function Importaciones() {
                                 }}
                                 disabled={changeEstado.isPending}
                               >
-                                <SelectTrigger className={cn('h-7 w-[150px] text-[11px] font-medium border', badge.bg, badge.color, badge.border)}>
+                                <SelectTrigger className={cn('h-7 w-[150px] text-xs font-medium border', badge.bg, badge.color, badge.border)}>
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1457,7 +1459,7 @@ export default function Importaciones() {
                                 setModalOpts({ tab: 'costeo', upload });
                                 setShowModal(true);
                               };
-                              const warnBtn = 'text-[9px] text-amber-600 mt-0.5 whitespace-nowrap underline decoration-dotted underline-offset-2 hover:text-amber-700 block text-left';
+                              const warnBtn = 'text-xs text-amber-600 mt-0.5 whitespace-nowrap underline decoration-dotted underline-offset-2 hover:text-amber-700 block text-left';
                               if (!ds?.hasItems) {
                                 return <button type="button" className={warnBtn} onClick={abrirSubida('proforma')}>⚠ falta subir proforma → subila acá</button>;
                               }
@@ -1472,25 +1474,25 @@ export default function Importaciones() {
                             {/* Entregado pero sin declaración BanRep: la alerta
                                 vive acá, chiquita, para no engordar Cierre */}
                             {fechaEntrega && !tieneBanrep && (
-                              <div className="text-[9px] text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta cierre BanRep</div>
+                              <div className="text-xs text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta cierre BanRep</div>
                             )}
                           </TableCell>
                           {/* Total USD = mercancía + flete (el saldo sigue siendo vs mercancía) */}
-                          <TableCell
-                            className="text-right text-sm font-mono"
+                          <TableCell data-label="Total USD"
+                            className="text-right text-sm font-mono tabular-nums"
                             title={`Mercancía ${fmtUSD(row.monto_total_usd)} + flete ${fmtUSD(flete.usd)}`}
                           >
                             {fmtUSD(Number(row.monto_total_usd ?? 0) + flete.usd)}
                           </TableCell>
-                          <TableCell className="text-right text-sm font-mono font-bold text-destructive">{fmtUSD0(row.saldo_pendiente_usd)}</TableCell>
+                          <TableCell data-label="Saldo USD" className="text-right text-sm font-mono tabular-nums font-bold text-destructive">{fmtUSD0(row.saldo_pendiente_usd)}</TableCell>
                           {/* Costos por columna — compactos, exacto en tooltip */}
-                          <TableCell className="text-right text-xs font-mono" title="Flete internacional">
+                          <TableCell data-label="Flete" className="text-right text-xs font-mono tabular-nums" title="Flete internacional">
                             {flete.usd > 0 ? fmtUSD0(flete.usd) : flete.cop > 0 ? fmtCOPShort(flete.cop) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell className="text-right text-xs font-mono" title={mercanciaCop != null ? `Mercancía ${fmtUSD(row.monto_total_usd)} × TRM ${trmEst ? Math.round(trmEst).toLocaleString('es-CO') : '—'} = $${Math.round(mercanciaCop).toLocaleString('es-CO')} COP` : 'Sin TRM para convertir'}>
+                          <TableCell data-label="Mercancía COP" className="text-right text-xs font-mono tabular-nums" title={mercanciaCop != null ? `Mercancía ${fmtUSD(row.monto_total_usd)} × TRM ${trmEst ? Math.round(trmEst).toLocaleString('es-CO') : '—'} = $${Math.round(mercanciaCop).toLocaleString('es-CO')} COP` : 'Sin TRM para convertir'}>
                             {mercanciaCop != null && mercanciaCop > 0 ? fmtCOPShort(mercanciaCop) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell className="text-right text-xs font-mono" title={impuestosAduanaCop > 0 ? `Arancel + IVA = $${Math.round(impuestosAduanaCop).toLocaleString('es-CO')} COP ${hayArancelReal || hayIvaReal ? '(liquidación real)' : '(estimado)'}` : 'Sin datos para estimar'}>
+                          <TableCell data-label="Arancel + IVA" className="text-right text-xs font-mono tabular-nums" title={impuestosAduanaCop > 0 ? `Arancel + IVA = $${Math.round(impuestosAduanaCop).toLocaleString('es-CO')} COP ${hayArancelReal || hayIvaReal ? '(liquidación real)' : '(estimado)'}` : 'Sin datos para estimar'}>
                             {impuestosAduanaCop > 0 ? (
                               <span>
                                 {fmtCOPShort(impuestosAduanaCop)}
@@ -1498,7 +1500,7 @@ export default function Importaciones() {
                               </span>
                             ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell className="text-right text-xs font-mono" title={agenciaCop > 0
+                          <TableCell data-label="Agencia" className="text-right text-xs font-mono tabular-nums" title={agenciaCop > 0
                             ? (agenciaEstimada
                                 ? `Agencia / nacionalización ESTIMADA desde Escenarios: $${Math.round(agenciaCop).toLocaleString('es-CO')} COP. Cuando llegue la factura de la agencia, cargala en el pedido → Costos (tipo Nacionalización / aduana) y borrá la fila "estimado".`
                                 : `Agencia / nacionalización: $${Math.round(agenciaCop).toLocaleString('es-CO')} COP`)
@@ -1510,17 +1512,17 @@ export default function Importaciones() {
                               </span>
                             ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell className="text-right text-xs font-mono" title={transporteCop > 0
+                          <TableCell data-label="Transporte" className="text-right text-xs font-mono tabular-nums" title={transporteCop > 0
                             ? `Transporte puerto → bodega: $${Math.round(transporteCop).toLocaleString('es-CO')} COP`
                             : 'Sin transporte cargado. Cargalo en Escenarios (lápiz "Transporte puerto → bodega") o en el pedido → Costos → Agregar costo → tipo "Transporte interno (puerto → bodega)".'}>
                             {transporteCop > 0 ? fmtCOPShort(transporteCop) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
-                          <TableCell className="text-right text-xs font-mono font-semibold" title={bd.totalImportacionCop != null ? `Total importación: $${Math.round(bd.totalImportacionCop).toLocaleString('es-CO')} COP (CIF + arancel + IVA + otros)` : 'Sin TRM para calcular'}>
+                          <TableCell data-label="Total COP" className="text-right text-xs font-mono tabular-nums font-semibold" title={bd.totalImportacionCop != null ? `Total importación: $${Math.round(bd.totalImportacionCop).toLocaleString('es-CO')} COP (CIF + arancel + IVA + otros)` : 'Sin TRM para calcular'}>
                             {bd.totalImportacionCop != null && bd.totalImportacionCop > 0 ? fmtCOPShort(bd.totalImportacionCop) : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                           {/* ETA cargada = PUERTO (dato de la naviera); bodega = + nacionalización
                               prom. (lo estimado). Entregado → manda la fecha REAL de entrega. */}
-                          <TableCell className="text-sm whitespace-nowrap">
+                          <TableCell data-label="Llegada a bodega" className="text-sm whitespace-nowrap">
                             {(row.estado === 'entregado' || row.estado === 'cerrado') ? (
                               fechaEntrega
                                 ? <span className="inline-flex items-center gap-1 text-success" title="Fecha real de entrega en bodega">
@@ -1533,7 +1535,7 @@ export default function Importaciones() {
                                 <span className="font-medium">
                                   ≈{format(parseLocalDate(isoAddDays(row.fecha_estimada_llegada, nacProm)), 'dd MMM yyyy', { locale: es })}
                                 </span>
-                                <div className="text-[10px] text-muted-foreground">puerto {format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM', { locale: es })}</div>
+                                <div className="text-xs text-muted-foreground">puerto {format(parseLocalDate(row.fecha_estimada_llegada), 'dd MMM', { locale: es })}</div>
                               </div>
                             ) : <span className="text-muted-foreground">—</span>}
                           </TableCell>

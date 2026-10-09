@@ -105,9 +105,9 @@ function Perilla({ label, unit, value, onChange, min, max, step, chips, refs }: 
           <Input
             inputMode="numeric" value={new Intl.NumberFormat('es-CO').format(value)}
             onChange={(e) => { const n = Number(e.target.value.replace(/[.,\s]/g, '')); if (Number.isFinite(n) && n > 0) onChange(n); }}
-            className="h-8 w-28 text-right font-mono font-bold tabular-nums text-lg border-0 border-b rounded-none px-1 focus-visible:ring-0"
+            className="h-8 w-28 text-right font-mono tabular-nums font-bold tabular-nums text-lg border-0 border-b rounded-none px-1 focus-visible:ring-0"
           />
-          <span className="text-[11px] text-muted-foreground uppercase">{unit}</span>
+          <span className="text-xs text-muted-foreground uppercase">{unit}</span>
         </span>
       </div>
       <input type="range" min={min} max={max} step={step} value={Math.min(max, Math.max(min, value))}
@@ -115,14 +115,14 @@ function Perilla({ label, unit, value, onChange, min, max, step, chips, refs }: 
       <div className="flex items-center gap-1.5 flex-wrap">
         {chips.map((c) => (
           <button key={c.label} type="button" onClick={() => onChange(c.value)}
-            className={cn('rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+            className={cn('rounded-full border px-2.5 py-1 text-xs transition-colors',
               value === c.value ? 'border-primary bg-primary/10 text-primary font-semibold'
                 : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground')}>
             {c.label}
           </button>
         ))}
       </div>
-      {refs && <p className="text-[11px] text-muted-foreground">{refs}</p>}
+      {refs && <p className="text-xs text-muted-foreground">{refs}</p>}
     </div>
   );
 }
@@ -354,7 +354,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
   };
 
   return (
-    <div className="space-y-4">
+    <div className="imports-analysis min-w-0 space-y-5">
       {/* ═══ Perillas ═══ */}
       <Card className="border-primary/30">
         <CardContent className="py-4 px-5 space-y-4">
@@ -362,7 +362,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
             <div className="flex items-center gap-2">
               <FlaskConical className="h-4.5 w-4.5 text-primary" />
               <h3 className="text-base font-bold tracking-tight">Escenario</h3>
-              <Badge variant="outline" className="text-[11px]">simulación — no toca la contabilidad</Badge>
+              <Badge variant="outline" className="text-xs">simulación — no toca la contabilidad</Badge>
             </div>
             <div className="flex items-center gap-1.5">
               {tocado && (
@@ -399,13 +399,13 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
               <div className="flex items-end gap-3 flex-wrap border-t border-border pt-3">
                 <div>
                   <label className="text-[12px] font-semibold block mb-1">
-                    TRM de aduana <span className="text-[11px] font-normal text-muted-foreground">(liquidación DIAN)</span>
+                    TRM de aduana <span className="text-xs font-normal text-muted-foreground">(liquidación DIAN)</span>
                   </label>
                   <Input inputMode="numeric" value={new Intl.NumberFormat('es-CO').format(trmAduanaVal)}
                     onChange={(e) => { const n = Number(e.target.value.replace(/[.,\s]/g, '')); if (Number.isFinite(n) && n > 0) setTrmAdu(n); }}
-                    className={cn('h-9 w-32 font-mono font-bold tabular-nums text-[15px]', trmAdu != null && 'border-primary')} />
+                    className={cn('h-9 w-32 font-mono tabular-nums font-bold tabular-nums text-[15px]', trmAdu != null && 'border-primary')} />
                 </div>
-                <p className="text-[11px] text-muted-foreground flex-1 min-w-[240px] leading-relaxed pb-1.5">
+                <p className="text-xs text-muted-foreground flex-1 min-w-[240px] leading-relaxed pb-1.5">
                   Arancel e IVA se liquidan sobre <b>esta</b> TRM. <b>Automática por contenedor</b>: la del
                   último viernes previo a la semana del arribo{viernesProx ? ` (próximo: viernes ${viernesProx.slice(8, 10)}/${viernesProx.slice(5, 7)})` : ''}.
                   Escribí un valor solo para forzarla{trmAdu != null ? ' — forzada ahora' : ''}.
@@ -417,11 +417,11 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
           {saving && (
             <div className="flex items-end gap-2 flex-wrap rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
               <div className="flex-1 min-w-[180px]">
-                <label className="text-[11px] text-muted-foreground block mb-1">Nombre</label>
+                <label className="text-xs text-muted-foreground block mb-1">Nombre</label>
                 <Input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: si el dólar toca 3.000" className="h-8 text-[13px]" autoFocus />
               </div>
               <div className="flex-[2] min-w-[220px]">
-                <label className="text-[11px] text-muted-foreground block mb-1">Notas (opcional)</label>
+                <label className="text-xs text-muted-foreground block mb-1">Notas (opcional)</label>
                 <Input value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Por qué este escenario" className="h-8 text-[13px]" />
               </div>
               <Button size="sm" className="h-8 text-xs" onClick={handleGuardar} disabled={!nombre.trim() || save.isPending}>Guardar</Button>
@@ -447,7 +447,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
             <div className="flex items-center gap-2">
               <PiggyBank className="h-4 w-4 text-primary" />
               <h4 className="text-base font-bold tracking-tight">Caja que necesito — {proximo.label}</h4>
-              <Badge variant="secondary" className="text-[11px]">el próximo a llegar</Badge>
+              <Badge variant="secondary" className="text-xs">el próximo a llegar</Badge>
             </div>
             <div className="grid sm:grid-cols-2 gap-x-8">
               <div>
@@ -471,7 +471,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
                   <div className="flex items-baseline justify-between gap-3 border-b border-border/50 py-2 opacity-60">
                     <span className="text-[13px] text-muted-foreground">
                       Transporte a bodega
-                      <span className="block text-[11px]">no entra: se paga después de nacionalizar</span>
+                      <span className="block text-xs">no entra: se paga después de nacionalizar</span>
                     </span>
                     <span className="text-[14px] font-semibold tabular-nums line-through">{cop(caja.transporte)}</span>
                   </div>
@@ -488,7 +488,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
               </div>
             </div>
             {enCurso.length > 1 && (
-              <p className="text-[11px] text-muted-foreground border-t border-border pt-2">
+              <p className="text-xs text-muted-foreground border-t border-border pt-2">
                 Hay {enCurso.length - 1} contenedor(es) más en curso — su caja se calcula cuando les toque el turno,
                 cada uno en su módulo de arriba.
               </p>
@@ -509,7 +509,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
             <CardContent className="py-4 px-4 space-y-5">
               <div>
                 <h4 className="text-[13px] font-bold tracking-tight">Lo que todavía se puede mover</h4>
-                <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                   Estas dos NO tocan el que ya viene en camino — ese solo se mueve por dólar.
                   Acá sí: mové y mirá los números de al lado.
                 </p>
@@ -532,7 +532,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
           </Card>
 
           {/* Contenido: los otros contenedores en curso + si monto hoy */}
-          <div className="space-y-4">
+          <div className="imports-analysis min-w-0 space-y-5">
             {enCurso.slice(1).map((p) => (
               <ModuloContenedor key={p.id} pedido={p} anterior={anteriorDe(p)} payRows={payRows}
                 trmVal={trmVal} trmHoy={trmHoy} esProximo={false} trmAduana={trmAdu} />
@@ -542,7 +542,7 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
         <Card>
           <CardContent className="py-4 px-5 space-y-3">
             <h4 className="text-base font-bold tracking-tight">Si monto el siguiente hoy</h4>
-            <p className="text-[11px] text-muted-foreground -mt-2">
+            <p className="text-xs text-muted-foreground -mt-2">
               Acá mandan las tres: dólar, SMM y flete. Nada está cerrado todavía.
             </p>
             <div className="grid lg:grid-cols-2 gap-x-8 gap-y-3 items-start">
@@ -560,14 +560,14 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
                 </p>
                 <div className="mt-3 pt-3 border-t border-border grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-[11px] text-muted-foreground">Costo por kilo (sin IVA)</p>
+                    <p className="text-xs text-muted-foreground">Costo por kilo (sin IVA)</p>
                     <p className={cn('text-lg font-bold tabular-nums',
                       copKgUltimo != null && copKgSiguiente != null ? (copKgSiguiente <= copKgUltimo ? 'text-success' : 'text-destructive') : '')}>
                       {numF(copKgSiguiente)} <span className="text-xs font-normal text-muted-foreground">COP/kg</span>
                     </p>
                   </div>
                   <div>
-                    <p className="text-[11px] text-muted-foreground">IVA (caja aparte)</p>
+                    <p className="text-xs text-muted-foreground">IVA (caja aparte)</p>
                     <p className="text-lg font-bold tabular-nums text-amber-700 dark:text-amber-400">{cop(bdSiguiente?.ivaCop ?? null)}</p>
                   </div>
                 </div>
@@ -591,11 +591,11 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
                   </>
                 )}
                 <details className="mt-2">
-                  <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground">
+                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
                     Qué asume este número ({colSiguiente.supuestos.length})
                   </summary>
                   <ul className="mt-1.5 space-y-1">
-                    {colSiguiente.supuestos.map((t, i) => <li key={i} className="text-[11px] text-muted-foreground pl-3">· {t}</li>)}
+                    {colSiguiente.supuestos.map((t, i) => <li key={i} className="text-xs text-muted-foreground pl-3">· {t}</li>)}
                   </ul>
                 </details>
               </div>
@@ -649,20 +649,20 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
                     <tbody>
                       {refsFiltradas.slice(0, 150).map((r) => (
                         <tr key={r.id} className="border-t border-border/50 hover:bg-muted/30">
-                          <td className="px-3 py-1.5 font-mono font-medium">{r.reference}</td>
+                          <td className="px-3 py-1.5 font-mono tabular-nums font-medium">{r.reference}</td>
                           <td className="px-3 py-1.5 text-muted-foreground">{r.descripcion ?? '—'}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums">{numF(r.cantidad)}</td>
-                          <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold">{cop(r.landed_unit_cop)}</td>
-                          <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{cop(r.landed_total_cop)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono tabular-nums tabular-nums font-semibold">{cop(r.landed_unit_cop)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono tabular-nums tabular-nums text-muted-foreground">{cop(r.landed_total_cop)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   {refsFiltradas.length > 150 && (
-                    <p className="px-3 py-2 text-[11px] text-muted-foreground">Mostrando 150 de {refsFiltradas.length} — usá el buscador.</p>
+                    <p className="px-3 py-2 text-xs text-muted-foreground">Mostrando 150 de {refsFiltradas.length} — usá el buscador.</p>
                   )}
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed">
                   Landed = mercancía + flete + arancel + agencia prorrateados (el IVA va aparte: es descontable).
                   Recalcula con la TRM del escenario. Las variaciones vs contenedores pasados viven en Análisis de precios.
                 </p>
@@ -688,21 +688,21 @@ export default function EscenariosTab({ pedidos, payRows, trmHoy, lmeHoy, lmeHis
                     <div key={sc.id} className="rounded-lg border border-border/60 px-3 py-2.5 flex items-center gap-3 flex-wrap text-[13px]">
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold truncate">{sc.nombre}</p>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {new Date(sc.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                           {sc.snapshot?.vigente?.label ? ` · ${sc.snapshot.vigente.label}` : ''}
                           {sc.notas ? ` · ${sc.notas}` : ''}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {sc.trm != null && <Badge variant="secondary" className="text-[11px] font-mono">TRM {numF(sc.trm)}</Badge>}
-                        {sc.smm_usd_ton != null && <Badge variant="secondary" className="text-[11px] font-mono">SMM {numF(sc.smm_usd_ton)}</Badge>}
-                        {sc.flete_usd != null && <Badge variant="secondary" className="text-[11px] font-mono">Flete {numF(sc.flete_usd)}</Badge>}
+                        {sc.trm != null && <Badge variant="secondary" className="text-xs font-mono tabular-nums">TRM {numF(sc.trm)}</Badge>}
+                        {sc.smm_usd_ton != null && <Badge variant="secondary" className="text-xs font-mono tabular-nums">SMM {numF(sc.smm_usd_ton)}</Badge>}
+                        {sc.flete_usd != null && <Badge variant="secondary" className="text-xs font-mono tabular-nums">Flete {numF(sc.flete_usd)}</Badge>}
                         {sc.snapshot?.vigente?.cajaParaCerrar != null && (
-                          <Badge variant="outline" className="text-[11px] font-mono" title="Caja que daba al guardarlo">{cop(sc.snapshot.vigente.cajaParaCerrar)}</Badge>
+                          <Badge variant="outline" className="text-xs font-mono tabular-nums" title="Caja que daba al guardarlo">{cop(sc.snapshot.vigente.cajaParaCerrar)}</Badge>
                         )}
                         {conf && (
-                          <Badge variant="outline" className={cn('text-[11px] font-mono gap-1',
+                          <Badge variant="outline" className={cn('text-xs font-mono tabular-nums gap-1',
                             conf.delta > 50 ? 'bg-destructive/10 text-destructive border-destructive/30' : 'bg-success/15 text-success border-success/30')}
                             title={`El pedido cerró: TRM real ${numF(conf.trmReal)} vs ${numF(sc.trm)} asumida`}>
                             <CheckCircle2 className="h-3 w-3" /> Real: {numF(conf.trmReal)} ({conf.delta >= 0 ? '+' : ''}{numF(conf.delta)})

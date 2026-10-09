@@ -78,7 +78,7 @@ type Tono = keyof typeof TONO;
 /** Etiqueta de sección: el único uppercase de la card. */
 function SectionLabel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <p className={cn('text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground', className)}>
+    <p className={cn('text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground', className)}>
       {children}
     </p>
   );
@@ -90,11 +90,11 @@ function Metric({ label, value, hint, tone = 'text-foreground', title }: {
 }) {
   return (
     <div title={title} className="min-w-0">
-      <p className="text-[11px] text-muted-foreground truncate">{label}</p>
+      <p className="text-xs text-muted-foreground truncate">{label}</p>
       <p className={cn('text-[19px] leading-tight font-semibold tracking-tight tabular-nums mt-0.5', tone)}>
         {value}
       </p>
-      {hint && <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground mt-0.5 truncate">{hint}</p>}
     </div>
   );
 }
@@ -151,7 +151,7 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
           </div>
           <span
             title={comoSeCalcula}
-            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-help shrink-0"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-help shrink-0"
           >
             <Info className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Cómo se calcula</span>
@@ -192,7 +192,7 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
                             : `Mandá a traer ${ret.label}`}
                       </span>
                       {diasTraer != null && (
-                        <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0', TONO[tonoRet].chip)}>
+                        <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', TONO[tonoRet].chip)}>
                           {diasTraer <= 0 ? 'vencido' : `${diasTraer}d`}
                         </span>
                       )}
@@ -307,10 +307,10 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
                     {sug.refsGrupal.slice(-8).map((q) => (
                       <span
                         key={q.reference}
-                        className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-[11px]"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs"
                         title={`${fmtUnd(q.consumoDiario)}/día · stock ${fmtUnd(q.stock)}${q.enTransito > 0 ? ` · ${fmtUnd(q.enTransito)} en camino` : ' · nada en camino'}`}
                       >
-                        <span className="font-mono font-medium">{q.reference}</span>
+                        <span className="font-mono tabular-nums font-medium">{q.reference}</span>
                         <span className="text-muted-foreground tabular-nums">
                           {fmtUnd(q.consumoDiario)}/d · {fmtUnd(q.stock)}
                           {q.enTransito > 0 && <span className="text-emerald-700 dark:text-emerald-400"> +{fmtUnd(q.enTransito)}</span>}
@@ -318,7 +318,7 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
                       </span>
                     ))}
                     {sug.refsGrupal.length > 8 && (
-                      <span className="inline-flex items-center px-2 py-1 text-[11px] text-muted-foreground">
+                      <span className="inline-flex items-center px-2 py-1 text-xs text-muted-foreground">
                         +{sug.refsGrupal.length - 8} más
                       </span>
                     )}

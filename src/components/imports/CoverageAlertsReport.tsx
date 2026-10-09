@@ -55,7 +55,7 @@ function AlertSection({
         <div className="mt-2 ml-10 space-y-1">
           {refs.map((q) => (
             <div key={q.reference} className="flex flex-wrap items-baseline gap-x-3 text-xs">
-              <span className="font-mono font-semibold text-foreground">{q.reference}</span>
+              <span className="font-mono tabular-nums font-semibold text-foreground">{q.reference}</span>
               <span className="text-muted-foreground">
                 {fecha(q) ? <>se agota el <strong className="text-foreground">{fmtFecha(fecha(q)!)}</strong></> : 'sin fecha'}
               </span>
@@ -64,7 +64,7 @@ function AlertSection({
               </span>
             </div>
           ))}
-          <p className="text-[11px] text-muted-foreground pt-1 italic">→ {accion}</p>
+          <p className="text-xs text-muted-foreground pt-1 italic">→ {accion}</p>
         </div>
       )}
     </div>

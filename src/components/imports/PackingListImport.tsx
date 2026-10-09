@@ -247,7 +247,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
                 value={pasted}
                 onChange={(e) => setPasted(e.target.value)}
                 placeholder={'REF-001\tPerfil 40x40\t1200\tkg\t1200\t3120\nREF-002\tÁngulo 25\t800\tkg\t640\t1840'}
-                className="font-mono text-xs"
+                className="font-mono tabular-nums text-xs"
               />
               <Button
                 size="sm"
@@ -311,7 +311,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
                     {mapping.map((m, col) => (
                       <TableHead key={col} className="p-1.5">
                         <Select value={m} onValueChange={(v) => setColMapping(col, v as FieldKey)}>
-                          <SelectTrigger className="h-7 text-[11px]"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {(Object.keys(FIELD_LABEL) as FieldKey[]).map((f) => (
                               <SelectItem key={f} value={f} className="text-xs">{FIELD_LABEL[f]}</SelectItem>
@@ -326,7 +326,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
                   {dataRows.slice(0, 6).map((r, ri) => (
                     <TableRow key={ri}>
                       {mapping.map((_, col) => (
-                        <TableCell key={col} className="text-[11px] font-mono whitespace-nowrap py-1">
+                        <TableCell key={col} className="text-xs font-mono tabular-nums whitespace-nowrap py-1">
                           {r[col] ?? ''}
                         </TableCell>
                       ))}
@@ -336,11 +336,11 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
               </Table>
             </div>
             {dataRows.length > 6 && (
-              <p className="text-[11px] text-muted-foreground">Mostrando 6 de {dataRows.length} filas.</p>
+              <p className="text-xs text-muted-foreground">Mostrando 6 de {dataRows.length} filas.</p>
             )}
 
             {colorConflicts.length > 0 && (
-              <div className="text-[11px] text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 space-y-0.5">
+              <div className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 space-y-0.5">
                 <p className="font-semibold flex items-center gap-1.5">
                   <AlertCircle className="h-3.5 w-3.5" />
                   {colorConflicts.length} fila{colorConflicts.length > 1 ? 's' : ''} con sufijo y color que no cuadran — revisá antes de confirmar:
@@ -378,7 +378,7 @@ export default function PackingListImport({ open, onOpenChange, onConfirm, exist
                   Packing list definitivo
                 </label>
                 {tipo === null && (
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     (auto-detectado por {tipoDetectado === 'packing' ? 'los sufijos de color' : 'la ausencia de sufijos'})
                   </span>
                 )}

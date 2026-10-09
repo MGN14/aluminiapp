@@ -30,22 +30,22 @@ function SeriesRow({ s }: { s: RefCostSeries }) {
   return (
     <>
       <TableRow className={multi ? 'cursor-pointer hover:bg-muted/40' : ''} onClick={() => multi && setOpen(!open)}>
-        <TableCell className="text-xs font-mono">
+        <TableCell className="text-xs font-mono tabular-nums">
           <div className="flex items-center gap-1">
             {multi ? (open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />) : <span className="w-3.5" />}
             {s.reference}
           </div>
-          {s.descripcion && <div className="text-[10px] text-muted-foreground ml-4.5 truncate max-w-[200px]">{s.descripcion}</div>}
+          {s.descripcion && <div className="text-xs text-muted-foreground ml-4.5 truncate max-w-[200px]">{s.descripcion}</div>}
         </TableCell>
         <TableCell className="text-center text-xs">{s.points.length}</TableCell>
-        <TableCell className="text-right text-xs font-mono">{fmtCop(s.first.landed_unit_cop)}</TableCell>
+        <TableCell className="text-right text-xs font-mono tabular-nums">{fmtCop(s.first.landed_unit_cop)}</TableCell>
         <TableCell
-          className="text-right text-xs font-mono text-muted-foreground"
+          className="text-right text-xs font-mono tabular-nums text-muted-foreground"
           title="Promedio ponderado por cantidad: tu costo real histórico de compra"
         >
           {fmtCop(s.avg_landed_unit_cop)}
         </TableCell>
-        <TableCell className="text-right text-xs font-mono font-semibold">{fmtCop(s.last.landed_unit_cop)}</TableCell>
+        <TableCell className="text-right text-xs font-mono tabular-nums font-semibold">{fmtCop(s.last.landed_unit_cop)}</TableCell>
         <TableCell className="text-right"><DeltaBadge pct={s.delta_total_pct} /></TableCell>
         <TableCell
           className="text-right"
@@ -64,27 +64,27 @@ function SeriesRow({ s }: { s: RefCostSeries }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-[10px] h-7">Fecha</TableHead>
-                    <TableHead className="text-[10px] h-7">Proveedor</TableHead>
-                    <TableHead className="text-[10px] h-7 text-right">SMM USD/t</TableHead>
-                    <TableHead className="text-[10px] h-7 text-right">FOB USD/kg</TableHead>
-                    <TableHead className="text-[10px] h-7 text-right" title="FOB USD/ton − SMM cerrado: lo que cobra el proveedor por encima del metal. Si sube cuando el SMM baja, te está corriendo el margen.">Prima USD/t</TableHead>
-                    <TableHead className="text-[10px] h-7 text-right">TRM</TableHead>
-                    <TableHead className="text-[10px] h-7 text-right">Landed unit.</TableHead>
-                    <TableHead className="text-[10px] h-7 text-right">Δ</TableHead>
+                    <TableHead className="text-xs h-7">Fecha</TableHead>
+                    <TableHead className="text-xs h-7">Proveedor</TableHead>
+                    <TableHead className="text-xs h-7 text-right">SMM USD/t</TableHead>
+                    <TableHead className="text-xs h-7 text-right">FOB USD/kg</TableHead>
+                    <TableHead className="text-xs h-7 text-right" title="FOB USD/ton − SMM cerrado: lo que cobra el proveedor por encima del metal. Si sube cuando el SMM baja, te está corriendo el margen.">Prima USD/t</TableHead>
+                    <TableHead className="text-xs h-7 text-right">TRM</TableHead>
+                    <TableHead className="text-xs h-7 text-right">Landed unit.</TableHead>
+                    <TableHead className="text-xs h-7 text-right">Δ</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {s.points.map((p, i) => (
                     <TableRow key={p.import_id + i}>
-                      <TableCell className="text-[11px] py-1">{p.fecha ? format(parseLocalDate(p.fecha), 'dd MMM yyyy', { locale: es }) : '—'}</TableCell>
-                      <TableCell className="text-[11px] py-1 truncate max-w-[140px]">{p.proveedor}</TableCell>
-                      <TableCell className="text-[11px] py-1 text-right font-mono">{p.smm_usd_ton ? `$${p.smm_usd_ton.toLocaleString('en-US')}` : '—'}</TableCell>
-                      <TableCell className="text-[11px] py-1 text-right font-mono">{p.fob_usd_kg !== null ? `$${p.fob_usd_kg.toFixed(2)}` : '—'}</TableCell>
-                      <TableCell className="text-[11px] py-1 text-right font-mono">{p.prima_smm_usd_ton !== null ? `$${p.prima_smm_usd_ton.toLocaleString('en-US')}` : '—'}</TableCell>
-                      <TableCell className="text-[11px] py-1 text-right font-mono">{p.trm > 0 ? `$${p.trm.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}</TableCell>
-                      <TableCell className="text-[11px] py-1 text-right font-mono font-medium">{fmtCop(p.landed_unit_cop)}</TableCell>
-                      <TableCell className="text-[11px] py-1 text-right"><DeltaBadge pct={p.delta_unit_pct} /></TableCell>
+                      <TableCell className="text-xs py-1">{p.fecha ? format(parseLocalDate(p.fecha), 'dd MMM yyyy', { locale: es }) : '—'}</TableCell>
+                      <TableCell className="text-xs py-1 truncate max-w-[140px]">{p.proveedor}</TableCell>
+                      <TableCell className="text-xs py-1 text-right font-mono tabular-nums">{p.smm_usd_ton ? `$${p.smm_usd_ton.toLocaleString('en-US')}` : '—'}</TableCell>
+                      <TableCell className="text-xs py-1 text-right font-mono tabular-nums">{p.fob_usd_kg !== null ? `$${p.fob_usd_kg.toFixed(2)}` : '—'}</TableCell>
+                      <TableCell className="text-xs py-1 text-right font-mono tabular-nums">{p.prima_smm_usd_ton !== null ? `$${p.prima_smm_usd_ton.toLocaleString('en-US')}` : '—'}</TableCell>
+                      <TableCell className="text-xs py-1 text-right font-mono tabular-nums">{p.trm > 0 ? `$${p.trm.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—'}</TableCell>
+                      <TableCell className="text-xs py-1 text-right font-mono tabular-nums font-medium">{fmtCop(p.landed_unit_cop)}</TableCell>
+                      <TableCell className="text-xs py-1 text-right"><DeltaBadge pct={p.delta_unit_pct} /></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -145,34 +145,34 @@ export default function ImportPriceAnalysis() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="imports-analysis min-w-0 space-y-5">
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card className="border-0 shadow-sm">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <Card className="border border-border shadow-none rounded-xl">
           <CardContent className="p-4">
-            <p className="text-[11px] text-muted-foreground">Referencias costeadas</p>
+            <p className="text-xs text-muted-foreground">Referencias costeadas</p>
             <p className="text-xl font-bold mt-1">{kpis.refsTotal}</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">{kpis.refsConHistorial} con 2+ desembarcos</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{kpis.refsConHistorial} con 2+ desembarcos</p>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm">
+        <Card className="border border-border shadow-none rounded-xl">
           <CardContent className="p-4">
-            <p className="text-[11px] text-muted-foreground">Últimas compras vs histórico</p>
+            <p className="text-xs text-muted-foreground">Últimas compras vs histórico</p>
             <div className="mt-1"><span className="text-xl font-bold"><DeltaBadge pct={kpis.avgDelta} /></span></div>
-            <p className="text-[10px] text-muted-foreground mt-0.5">vs promedio ponderado · pesado por valor</p>
+            <p className="text-xs text-muted-foreground mt-0.5">vs promedio ponderado · pesado por valor</p>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm">
+        <Card className="border border-border shadow-none rounded-xl">
           <CardContent className="p-4">
-            <p className="text-[11px] text-muted-foreground">Más subió</p>
-            <p className="text-sm font-bold font-mono mt-1 truncate">{kpis.masSubio?.reference ?? '—'}</p>
+            <p className="text-xs text-muted-foreground">Más subió</p>
+            <p className="text-sm font-bold font-mono tabular-nums mt-1 truncate">{kpis.masSubio?.reference ?? '—'}</p>
             {kpis.masSubio && <DeltaBadge pct={kpis.masSubio.delta_total_pct} />}
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm">
+        <Card className="border border-border shadow-none rounded-xl">
           <CardContent className="p-4">
-            <p className="text-[11px] text-muted-foreground">Más bajó</p>
-            <p className="text-sm font-bold font-mono mt-1 truncate">{kpis.masBajo?.reference ?? '—'}</p>
+            <p className="text-xs text-muted-foreground">Más bajó</p>
+            <p className="text-sm font-bold font-mono tabular-nums mt-1 truncate">{kpis.masBajo?.reference ?? '—'}</p>
             {kpis.masBajo && <DeltaBadge pct={kpis.masBajo.delta_total_pct} />}
           </CardContent>
         </Card>
@@ -183,7 +183,7 @@ export default function ImportPriceAnalysis() {
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <LineChart className="h-4 w-4 text-primary" />
             Variación de costo por referencia
-            <Badge variant="outline" className="text-[10px] ml-1">landed cost en COP</Badge>
+            <Badge variant="outline" className="text-xs ml-1">landed cost en COP</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">

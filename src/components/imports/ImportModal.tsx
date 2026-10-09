@@ -1,3 +1,4 @@
+import './imports.css';
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -388,7 +389,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
             </SelectContent>
           </Select>
           {proveedores.length === 0 && (
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               La lista sale de los beneficiarios con categoría "Proveedores" en Conciliación bancaria.
             </p>
           )}
@@ -418,7 +419,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
             type="number" step="0.001" min={0}
             value={cantidadTon}
             onChange={e => setCantidadTon(e.target.value === '' ? '' : +e.target.value)}
-            className="font-mono"
+            className="font-mono tabular-nums"
           />
         </div>
         <div className="space-y-1.5">
@@ -428,7 +429,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
             value={precioSmm}
             onChange={e => setPrecioSmm(e.target.value === '' ? '' : +e.target.value)}
             placeholder="Ej: 2600"
-            className="font-mono"
+            className="font-mono tabular-nums"
           />
         </div>
         <div className="space-y-1.5">
@@ -437,7 +438,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
             type="number" step="0.01" min={0}
             value={montoTotal}
             onChange={e => setMontoTotal(e.target.value === '' ? '' : +e.target.value)}
-            className="font-mono"
+            className="font-mono tabular-nums"
             title="Valor de la mercancía facturada por el proveedor (sin flete). El total del contenedor = mercancía + flete, en el Resumen."
           />
         </div>
@@ -468,7 +469,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
             );
           })}
         </div>
-        <p className="text-[10px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Solo hasta la etapa actual ({IMPORT_ESTADO_LABEL[estado]}) — las fechas deben ir en orden y las etapas futuras se desbloquean al avanzar el estado.
         </p>
       </div>
@@ -487,20 +488,20 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto p-0">
+      <DialogContent className="imports-detail flex flex-col gap-0 w-[100vw] max-w-none h-[100dvh] max-h-[100dvh] overflow-hidden p-0 rounded-none sm:w-[calc(100vw-3rem)] sm:max-w-[1440px] sm:h-[92dvh] sm:max-h-[92dvh] sm:rounded-2xl">
         {/* ── HEADER: lo que importa, grande y con contraste ─────────────── */}
-        <div className="px-6 pt-5 pb-4 border-b border-border bg-gradient-to-br from-white to-slate-50/70 dark:from-zinc-900 dark:to-zinc-950 rounded-t-lg">
-          <DialogHeader className="space-y-0">
+        <div className="imports-detail-header shrink-0 px-4 sm:px-6 pt-5 pb-4 border-b border-border bg-card pr-12 sm:pr-16">
+          <DialogHeader className="space-y-0 text-left">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0">
-                <DialogTitle className="flex items-center gap-2 text-lg truncate">
+                <DialogTitle className="flex flex-wrap items-center gap-2 text-lg sm:text-xl leading-normal">
                   <Ship className="h-5 w-5 text-primary shrink-0" />
                   {isEdit ? editing!.proveedor_nombre : 'Nueva importación'}
                   {isEdit && editing!.ref_pedido && (
-                    <span className="text-sm font-normal text-muted-foreground font-mono">· {editing!.ref_pedido}</span>
+                    <span className="text-sm font-normal text-muted-foreground font-mono tabular-nums">· {editing!.ref_pedido}</span>
                   )}
                   {cerrada && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-success bg-success/10 border border-success/30 rounded-full px-2 py-0.5">
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-success bg-success/10 border border-success/30 rounded-full px-2 py-0.5">
                       <Lock className="h-3 w-3" /> Cerrada
                     </span>
                   )}
@@ -512,7 +513,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                 )}
               </div>
               {/* Estado — siempre a mano, con fecha del cambio si cambió */}
-              <div className="shrink-0 w-[180px] space-y-1">
+              <div className="w-full sm:w-[180px] shrink-0 space-y-1">
                 <Select value={estado} onValueChange={(v) => setEstado(v as ImportEstado)} disabled={bloqueada}>
                   <SelectTrigger className="h-8 text-xs font-medium"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -549,25 +550,25 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
 
           {/* Strip de números grandes (solo edición — al crear no hay datos aún) */}
           {isEdit && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+            <div className="imports-detail-metrics grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mt-4">
               <div className={cn(
                 'rounded-xl border px-3 py-2.5',
                 saldoVivo > 0 ? 'border-destructive/25 bg-destructive/5' : 'border-success/25 bg-success/5',
               )}>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Saldo por pagar</p>
-                <p className={cn('text-xl font-bold font-mono leading-tight', saldoVivo > 0 ? 'text-destructive' : 'text-success')}>
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Saldo por pagar</p>
+                <p className={cn('text-lg sm:text-2xl font-bold font-mono tabular-nums leading-tight', saldoVivo > 0 ? 'text-destructive' : 'text-success')}>
                   {fmtUSD0(saldoVivo)}
                 </p>
-                <p className="text-[10px] text-muted-foreground">de {fmtUSD0(totalNum)} mercancía</p>
+                <p className="text-xs text-muted-foreground">de {fmtUSD0(totalNum)} mercancía</p>
               </div>
               <div className="rounded-xl border border-border bg-card px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Pagado</p>
-                <p className="text-xl font-bold font-mono leading-tight text-foreground">{fmtUSD0(pagadoVivo)}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Pagado</p>
+                <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums leading-tight text-foreground">{fmtUSD0(pagadoVivo)}</p>
                 {/* TRM promedio REALMENTE pagada (ponderada de los abonos) — el
                     dato que Nico no veía en ningún lado */}
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {trmPonderada != null
-                    ? <>TRM prom. pagada <span className="font-mono font-semibold text-foreground">${Number(trmPonderada).toLocaleString('es-CO', { maximumFractionDigits: 0 })}</span></>
+                    ? <>TRM prom. pagada <span className="font-mono tabular-nums font-semibold text-foreground">${Number(trmPonderada).toLocaleString('es-CO', { maximumFractionDigits: 0 })}</span></>
                     : 'TRM pagada: registrá abonos'}
                 </p>
                 <div className="h-1.5 rounded-full bg-muted mt-1.5 overflow-hidden">
@@ -575,11 +576,11 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                 </div>
               </div>
               <div className="rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Total contenedor (USD)</p>
-                <p className="text-xl font-bold font-mono leading-tight text-foreground">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">Total contenedor (USD)</p>
+                <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums leading-tight text-foreground">
                   {fmtUSD0(totalUsdContenedor)}
                 </p>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {flete.usd > 0 || seguro.usd > 0
                     ? 'mercancía + flete + seguro — desglose en Resumen'
                     : `${fmtUSD0(totalNum)} mercancía · flete/seguro: cargalos en Resumen`}
@@ -589,13 +590,13 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                 'rounded-xl border px-3 py-2.5',
                 etaDias != null && etaDias < 0 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/20' : 'border-border bg-card',
               )}>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 flex items-center gap-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 flex items-center gap-1">
                   <CalendarClock className="h-3 w-3" /> ETA puerto
                 </p>
-                <p className="text-xl font-bold leading-tight text-foreground">
+                <p className="text-lg sm:text-2xl font-bold leading-tight text-foreground">
                   {fechaEta ? fmtFecha(fechaEta) : '—'}
                 </p>
-                <p className={cn('text-[10px]', etaDias != null && etaDias < 0 ? 'text-amber-700 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>
+                <p className={cn('text-xs', etaDias != null && etaDias < 0 ? 'text-amber-700 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>
                   {etaDias == null
                     ? (estado === 'entregado' || estado === 'cerrado' ? 'entregado' : 'sin ETA — ponela en Resumen')
                     : <>
@@ -608,25 +609,25 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="px-6 pb-5 pt-3 space-y-4">
+        <form onSubmit={handleSubmit} className="imports-detail-body min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 pb-5 space-y-4">
           {isEdit && editing ? (
             <Tabs defaultValue={initialTab ?? 'resumen'} key={`${editing?.id ?? 'new'}:${initialTab ?? 'resumen'}`}>
               {/* Resumen es el protagonista: pestaña destacada, todo lo importante vive ahí */}
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="imports-detail-tabs sticky top-0 z-10 grid w-full grid-cols-3 h-14 rounded-none border-b bg-background/95 backdrop-blur">
                 <TabsTrigger
                   value="resumen"
-                  className="font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                  className="h-10 rounded-lg font-semibold data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
                 >
                   Resumen
                 </TabsTrigger>
-                <TabsTrigger value="costeo">
-                  Costeo{payments.length > 0 ? ` (${payments.length})` : ''}
+                <TabsTrigger value="costeo" className="h-10 rounded-lg">
+                  Costeo
                 </TabsTrigger>
-                <TabsTrigger value="datos">Datos</TabsTrigger>
+                <TabsTrigger value="datos" className="h-10 rounded-lg">Datos</TabsTrigger>
               </TabsList>
 
               {/* ── RESUMEN: cierre + tiempos + costeo casilla por casilla ── */}
-              <TabsContent value="resumen" className="space-y-4 pt-3">
+              <TabsContent value="resumen" className="min-w-0 space-y-5 pt-4">
                 {/* Cierre con checklist (aparece al llegar a 'entregado') */}
                 <ImportCierreSection
                   importId={editing.id}
@@ -644,14 +645,14 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                 )}
 
                 {/* ── TIEMPOS DEL CONTENEDOR: legibles, con análisis vs histórico ── */}
-                <div className="rounded-xl border border-border bg-card px-4 py-3 space-y-3">
+                <div className="rounded-xl border border-border bg-card px-4 sm:px-5 py-5 space-y-4">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <Label className="text-sm font-semibold flex items-center gap-1.5">
                       <Clock className="h-4 w-4 text-primary" />
                       Tiempos del contenedor
                     </Label>
                     {totalDias && (
-                      <span className="text-sm font-bold font-mono">
+                      <span className="text-sm font-bold font-mono tabular-nums">
                         {totalDias.dias} día{totalDias.dias !== 1 ? 's' : ''}
                         <span className="font-sans font-normal text-xs text-muted-foreground"> {totalDias.enCurso ? 'en curso' : 'en total'}</span>
                         {leadTimeProm != null && (
@@ -675,24 +676,24 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                               )}
                               title={`Desde ${s.desde}${s.hasta && s.hasta !== s.desde ? ` hasta ${s.hasta}` : s.enCurso ? ' (en curso)' : ''}`}
                             >
-                              <p className={cn('text-[10px] font-semibold uppercase tracking-wide', s.enCurso ? 'text-primary' : 'text-muted-foreground')}>
+                              <p className={cn('text-xs font-semibold uppercase tracking-wide', s.enCurso ? 'text-primary' : 'text-muted-foreground')}>
                                 {IMPORT_ESTADO_LABEL[s.estado]}
                               </p>
                               {s.estado === 'entregado' ? (
                                 <p className="text-base font-bold leading-tight">{fmtFecha(s.desde)}</p>
                               ) : (
-                                <p className={cn('text-base font-bold font-mono leading-tight', s.enCurso ? 'text-primary' : 'text-foreground')}>
+                                <p className={cn('text-base font-bold font-mono tabular-nums leading-tight', s.enCurso ? 'text-primary' : 'text-foreground')}>
                                   {s.dias}d
                                 </p>
                               )}
                               {/* Fecha de inicio de la etapa SIEMPRE visible (pedido de Nico) */}
-                              <p className="text-[9.5px] text-muted-foreground leading-tight">
+                              <p className="text-xs text-muted-foreground leading-tight">
                                 {s.estado === 'entregado'
                                   ? 'entrega'
                                   : `${fmtFecha(s.desde)}${s.enCurso ? ' → hoy' : s.hasta && s.hasta !== s.desde ? ` → ${fmtFecha(s.hasta)}` : ''}`}
                               </p>
                               {s.estado !== 'entregado' && prom != null && (
-                                <p className="text-[9.5px] leading-tight">
+                                <p className="text-xs leading-tight">
                                   {s.enCurso
                                     ? <span className="text-muted-foreground">prom {prom}d</span>
                                     : delta != null && delta !== 0
@@ -719,7 +720,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                     if (!enCurso || prom == null) return null;
                     const resto = prom - enCurso.dias;
                     return (
-                      <p className={cn('text-[11px] leading-relaxed', enCurso.dias > prom ? 'text-amber-600 font-medium' : 'text-muted-foreground')}>
+                      <p className={cn('text-xs leading-relaxed', enCurso.dias > prom ? 'text-amber-600 font-medium' : 'text-muted-foreground')}>
                         {IMPORT_ESTADO_LABEL[enCurso.estado]} lleva <strong>{enCurso.dias} día{enCurso.dias !== 1 ? 's' : ''}</strong> — tu promedio
                         histórico en esa etapa es {prom}d{resto > 0
                           ? ` (quedarían ~${resto}d si se comporta como siempre).`
@@ -787,38 +788,38 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                     </span>
                   );
                   return (
-                    <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-2">
-                      <div className="flex items-center justify-between">
+                    <div className="rounded-xl border border-border bg-muted/20 px-4 sm:px-5 py-5 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <Label className="text-sm font-semibold">Costeo del contenedor</Label>
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           {trmCosteo
                             ? `TRM $${Number(trmCosteo).toLocaleString('es-CO', { maximumFractionDigits: 0 })}${trmPonderada != null ? ' (promediada de abonos)' : ' (hoy — sin abonos aún)'}`
                             : 'sin TRM — registrá abonos'}
                         </span>
                       </div>
 
-                      <div className="text-xs space-y-1 font-mono">
-                        <div className="flex justify-between">
+                      <div className="text-sm space-y-3 font-mono tabular-nums">
+                        <div className="flex flex-wrap justify-between gap-x-4 gap-y-2">
                           <span className="text-muted-foreground font-sans">Mercancía (FOB)</span>
                           <span className="font-semibold">{fmtUSD0(totalNum)}</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex flex-wrap justify-between gap-x-4 gap-y-2">
                           <span className="text-muted-foreground font-sans">Flete internacional</span>
                           {rowUsd(flete)}
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex flex-wrap justify-between gap-x-4 gap-y-2">
                           <span className="text-muted-foreground font-sans">Seguro</span>
                           {rowUsd(seguro)}
                         </div>
-                        <div className="flex justify-between border-t border-border pt-1">
+                        <div className="flex flex-wrap justify-between gap-x-4 gap-y-2 border-t border-border pt-1">
                           <span className="font-sans font-medium text-foreground">Total USD</span>
                           <span className="font-semibold">{fmtUSD0(cifUsd)}</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex flex-wrap justify-between gap-x-4 gap-y-2">
                           <span className="text-muted-foreground font-sans">× TRM promediada de abonos</span>
                           <span>{trmCosteo ? `$${Number(trmCosteo).toLocaleString('es-CO', { maximumFractionDigits: 2 })}` : '—'}</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex flex-wrap justify-between gap-x-4 gap-y-2">
                           <span className="font-sans font-medium text-foreground">CIF en pesos</span>
                           <span className="font-semibold">{cifCop != null ? fmtCOP(cifCop) : '—'}</span>
                         </div>
@@ -826,7 +827,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                             legal (pasa cuando baja el SMM), la DIAN liquida arancel e IVA
                             sobre la base mínima — no sobre el valor factura. */}
                         {pisoAplicado && cifAduanaCop != null && (
-                          <div className="font-sans rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 my-1 text-[11px] leading-relaxed text-foreground">
+                          <div className="font-sans rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 my-1 text-xs leading-relaxed text-foreground">
                             ⚖️ <strong>Piso FOB aplicado:</strong> tu precio es{' '}
                             <strong>{fobUsdKg?.toFixed(2)} USD/kg</strong>, bajo el mínimo legal de{' '}
                             <strong>{pisoFobUsdKg.toFixed(2)} USD/kg</strong>. Arancel e IVA estimados
@@ -834,7 +835,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                             sobre tu CIF factura).
                           </div>
                         )}
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-wrap justify-between gap-x-4 gap-y-2 items-center">
                           <span className="text-muted-foreground font-sans flex items-center gap-1.5">
                             Arancel
                             <Input
@@ -842,15 +843,15 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                               value={arancelPct}
                               onChange={e => setArancelPct(e.target.value === '' ? 0 : +e.target.value)}
                               disabled={bloqueada || usaArancelReal}
-                              className="h-6 w-16 text-xs font-mono px-1.5 inline-block"
+                              className="h-6 w-16 text-xs font-mono tabular-nums px-1.5 inline-block"
                               title="% de arancel según partida arancelaria — se guarda con el pedido"
                             />
                             <span className="font-sans">%</span>
-                            {usaArancelReal && <span className="font-sans text-[9px] text-success font-medium">real cargado</span>}
+                            {usaArancelReal && <span className="font-sans text-xs text-success font-medium">real cargado</span>}
                           </span>
                           <span>{arancelCop != null ? fmtCOP(arancelCop) : '—'}</span>
                         </div>
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-wrap justify-between gap-x-4 gap-y-2 items-center">
                           <span className="text-muted-foreground font-sans flex items-center gap-1.5">
                             IVA
                             <Input
@@ -858,16 +859,16 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                               value={ivaPct}
                               onChange={e => setIvaPct(e.target.value === '' ? 0 : +e.target.value)}
                               disabled={bloqueada || usaIvaReal}
-                              className="h-6 w-16 text-xs font-mono px-1.5 inline-block"
+                              className="h-6 w-16 text-xs font-mono tabular-nums px-1.5 inline-block"
                               title="% de IVA de importación (base: CIF + arancel) — se guarda con el pedido"
                             />
                             <span className="font-sans">% (CIF + arancel)</span>
-                            {usaIvaReal && <span className="font-sans text-[9px] text-success font-medium">real cargado</span>}
+                            {usaIvaReal && <span className="font-sans text-xs text-success font-medium">real cargado</span>}
                           </span>
                           <span>{ivaCop != null ? fmtCOP(ivaCop) : '—'}</span>
                         </div>
                         {otrosCop > 0 && (
-                          <div className="flex justify-between">
+                          <div className="flex flex-wrap justify-between gap-x-4 gap-y-2">
                             <span className="text-muted-foreground font-sans">Otros costos (agencia, bancarios, otros)</span>
                             <span>{fmtCOP(otrosCop)}</span>
                           </div>
@@ -879,16 +880,16 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
                         <ImportCostsTable importId={editing.id} disabled={bloqueada} />
                       </div>
 
-                      <div className="flex justify-between items-center border-t-2 border-border pt-2">
+                      <div className="flex flex-wrap justify-between gap-x-4 gap-y-2 items-center border-t-2 border-border pt-2">
                         <span className="text-sm font-bold">
-                          Total Importación{editing.ref_pedido ? <span className="font-mono font-semibold text-muted-foreground"> · {editing.ref_pedido}</span> : ''}
+                          Total Importación{editing.ref_pedido ? <span className="font-mono tabular-nums font-semibold text-muted-foreground"> · {editing.ref_pedido}</span> : ''}
                         </span>
-                        <span className="text-base font-bold font-mono">
+                        <span className="text-base font-bold font-mono tabular-nums">
                           {totalImportacion != null ? fmtCOP(totalImportacion) : '—'}
                         </span>
                       </div>
 
-                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      <p className="text-xs text-muted-foreground leading-relaxed">
                         El IVA de importación es <strong>descontable</strong>: afecta la caja pero NO entra al costeo
                         de la mercancía. Al costo del inventario van mercancía + flete + seguro + arancel (+ agencia) —
                         el detalle por referencia está en la pestaña Costeo.
@@ -920,7 +921,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
               </TabsContent>
 
               {/* ── COSTEO: abonos (TRM real) + landed cost referencia a referencia ── */}
-              <TabsContent value="costeo" className="space-y-4 pt-3">
+              <TabsContent value="costeo" className="min-w-0 space-y-5 pt-4">
                 <ImportPaymentsSection importId={editing.id} />
                 <div>
                   <CosteoCsvTools importId={editing.id} montoTotalUsd={editing.monto_total_usd} />
@@ -935,7 +936,7 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
               </TabsContent>
 
               {/* ── DATOS: el formulario clásico ── */}
-              <TabsContent value="datos" className="space-y-4 pt-3">
+              <TabsContent value="datos" className="min-w-0 space-y-5 pt-4">
                 {camposDatos}
                 <Button
                   type="button"
@@ -953,14 +954,14 @@ export default function ImportModal({ open, onOpenChange, editing, initialTab, a
           ) : (
             <div className="space-y-4">
               {camposDatos}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label className="text-sm">Anticipo ya pagado (USD, opcional)</Label>
                   <Input
                     type="number" step="0.01" min={0}
                     value={anticipo}
                     onChange={e => setAnticipo(e.target.value === '' ? '' : +e.target.value)}
-                    className="font-mono"
+                    className="font-mono tabular-nums"
                   />
                 </div>
                 <div className="space-y-1.5">

@@ -196,7 +196,7 @@ export default function CoverageAnalysis() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="imports-analysis min-w-0 space-y-5">
       {/* Parámetros del modelo, visibles y honestos */}
       <Card>
         <CardContent className="py-3 px-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
@@ -254,24 +254,24 @@ export default function CoverageAnalysis() {
           corregirlas en la remisión (antes inflaban los faltantes). */}
       {referenciasSinCruzar.length > 0 && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 space-y-1">
-          <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
             ⚠️ {referenciasSinCruzar.length} referencia{referenciasSinCruzar.length > 1 ? 's' : ''} despachada{referenciasSinCruzar.length > 1 ? 's' : ''} no cruza{referenciasSinCruzar.length > 1 ? 'n' : ''} con tu inventario
             <span className="font-normal"> — casi siempre son errores de digitación en la remisión. NO cuentan para el análisis.</span>
           </p>
           <div className="flex flex-wrap gap-1.5">
             {referenciasSinCruzar.slice(0, 12).map((r) => (
-              <span key={r.key} className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-background px-1.5 py-0.5 text-[10px]">
-                <span className="font-mono font-semibold">{r.label}</span>
+              <span key={r.key} className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-background px-1.5 py-0.5 text-xs">
+                <span className="font-mono tabular-nums font-semibold">{r.label}</span>
                 <span className="text-muted-foreground">{Math.round(r.units)} und</span>
               </span>
             ))}
             {referenciasSinCruzar.length > 12 && (
-              <span className="text-[10px] text-muted-foreground">… y {referenciasSinCruzar.length - 12} más</span>
+              <span className="text-xs text-muted-foreground">… y {referenciasSinCruzar.length - 12} más</span>
             )}
           </div>
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Corregilas en la remisión (Remisiones → editar) o creá la referencia en Inventario si es real.
-            Las diferencias de escritura tipo <span className="font-mono">38*38-3</span> vs <span className="font-mono">38X38-3</span> ya se unifican solas.
+            Las diferencias de escritura tipo <span className="font-mono tabular-nums">38*38-3</span> vs <span className="font-mono tabular-nums">38X38-3</span> ya se unifican solas.
           </p>
         </div>
       )}
@@ -290,39 +290,39 @@ export default function CoverageAnalysis() {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/60">
-              <TableHead className="text-[11px]">Referencia</TableHead>
-              <TableHead className="text-[11px]">Color</TableHead>
-              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Unidades despachadas en remisiones (por referencia con sufijo) ÷ ventana, corregida por censura de días con stock de la familia. Click para ordenar." onClick={() => toggleSort('demanda')}>
+              <TableHead className="text-xs">Referencia</TableHead>
+              <TableHead className="text-xs">Color</TableHead>
+              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Unidades despachadas en remisiones (por referencia con sufijo) ÷ ventana, corregida por censura de días con stock de la familia. Click para ordenar." onClick={() => toggleSort('demanda')}>
                 <span className="inline-flex items-center gap-1 justify-end w-full">Demanda/día
                   {sortKey === 'demanda' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
                 </span>
               </TableHead>
-              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="~ = el inventario solo tiene la -5: stock repartido entre colores por su mezcla de demanda. Click para ordenar." onClick={() => toggleSort('stock')}>
+              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="~ = el inventario solo tiene la -5: stock repartido entre colores por su mezcla de demanda. Click para ordenar." onClick={() => toggleSort('stock')}>
                 <span className="inline-flex items-center gap-1 justify-end w-full">Stock físico
                   {sortKey === 'stock' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
                 </span>
               </TableHead>
-              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Packing list (con sufijo) + proforma (sufijo puesto por la app desde la columna Color). Click para ordenar." onClick={() => toggleSort('transito')}>
+              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Packing list (con sufijo) + proforma (sufijo puesto por la app desde la columna Color). Click para ordenar." onClick={() => toggleSort('transito')}>
                 <span className="inline-flex items-center gap-1 justify-end w-full">En tránsito
                   {sortKey === 'transito' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
                 </span>
               </TableHead>
-              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Días hasta el quiebre proyectado, contando las reposiciones en camino. Click para ordenar." onClick={() => toggleSort('cobertura')}>
+              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Días hasta el quiebre proyectado, contando las reposiciones en camino. Click para ordenar." onClick={() => toggleSort('cobertura')}>
                 <span className="inline-flex items-center gap-1 justify-end w-full">Cobertura
                   {sortKey === 'cobertura' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
                 </span>
               </TableHead>
-              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Fecha del quiebre proyectado. Click para ordenar." onClick={() => toggleSort('quiebre')}>
+              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Fecha del quiebre proyectado. Click para ordenar." onClick={() => toggleSort('quiebre')}>
                 <span className="inline-flex items-center gap-1 justify-end w-full">Quiebre
                   {sortKey === 'quiebre' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
                 </span>
               </TableHead>
-              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title={`demanda × ${horizonteDias}d × factor − (stock + tránsito). Click para ordenar.`} onClick={() => toggleSort('sugerido')}>
+              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title={`demanda × ${horizonteDias}d × factor − (stock + tránsito). Click para ordenar.`} onClick={() => toggleSort('sugerido')}>
                 <span className="inline-flex items-center gap-1 justify-end w-full">Sugerido próx. pedido
                   {sortKey === 'sugerido' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
                 </span>
               </TableHead>
-              <TableHead className="text-[11px] text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Sugerido × kg/unidad (del packing/proforma). Click para ordenar." onClick={() => toggleSort('kg')}>
+              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Sugerido × kg/unidad (del packing/proforma). Click para ordenar." onClick={() => toggleSort('kg')}>
                 <span className="inline-flex items-center gap-1 justify-end w-full">≈ kg
                   {sortKey === 'kg' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
                 </span>
@@ -332,43 +332,43 @@ export default function CoverageAnalysis() {
           <TableBody>
             {sorted.map((r) => (
               <TableRow key={r.key} className={cn(!r.sinConsumo && r.diasCobertura !== null && r.diasCobertura <= 45 && 'bg-destructive/[0.04]')}>
-                <TableCell className="text-xs font-mono">{r.reference}</TableCell>
+                <TableCell className="text-xs font-mono tabular-nums">{r.reference}</TableCell>
                 <TableCell className={cn('text-xs', r.color === 'sin discriminar' && 'text-muted-foreground italic')}>{r.color}</TableCell>
                 <TableCell
-                  className="text-xs font-mono text-right"
+                  className="text-xs font-mono tabular-nums text-right"
                   title={r.demanda?.huboQuiebre ? 'La familia estuvo agotada dentro de la ventana — demanda corregida por censura' : undefined}
                 >
                   {r.sinConsumo ? <span className="text-muted-foreground">—</span> : r.consumoDiario.toFixed(1)}
                   {!r.sinConsumo && r.demanda?.huboQuiebre && <span className="text-warning">†</span>}
                 </TableCell>
                 <TableCell
-                  className={cn('text-xs font-mono text-right', r.stockEstimado && 'text-muted-foreground')}
+                  className={cn('text-xs font-mono tabular-nums text-right', r.stockEstimado && 'text-muted-foreground')}
                   title={r.stockEstimado ? 'El inventario solo tiene la -5: stock repartido entre los colores por su mezcla de demanda. El día que el conteo discrimine color, desaparece el ~.' : undefined}
                 >
                   {r.stockEstimado ? `~${fmtNum(r.stock)}` : fmtNum(r.stock)}
                 </TableCell>
-                <TableCell className={cn('text-xs font-mono text-right', r.enTransito > 0 ? 'text-primary font-medium' : 'text-muted-foreground')}>
+                <TableCell className={cn('text-xs font-mono tabular-nums text-right', r.enTransito > 0 ? 'text-primary font-medium' : 'text-muted-foreground')}>
                   {r.enTransito > 0 ? `+${fmtNum(r.enTransito)}` : '—'}
                 </TableCell>
                 <TableCell
                   className={cn(
-                    'text-xs font-mono text-right font-semibold',
+                    'text-xs font-mono tabular-nums text-right font-semibold',
                     r.sinConsumo ? 'text-muted-foreground font-normal' : coberturaColor(r.diasCobertura),
                   )}
                   title={r.sinConsumo ? 'Sin salidas registradas en la ventana — la cobertura se activa cuando esta referencia tenga despachos (QR/remisión) o consumo de producción' : undefined}
                 >
                   {r.sinConsumo ? 'sin consumo' : r.diasCobertura === null ? '>400d' : `${r.diasCobertura}d`}
                 </TableCell>
-                <TableCell className="text-xs font-mono text-right text-muted-foreground">
+                <TableCell className="text-xs font-mono tabular-nums text-right text-muted-foreground">
                   {r.fechaQuiebre ? fmtFecha(r.fechaQuiebre) : '—'}
                 </TableCell>
-                <TableCell className={cn('text-xs font-mono text-right font-semibold', r.sugerido > 0 ? 'text-foreground' : 'text-muted-foreground')}>
+                <TableCell className={cn('text-xs font-mono tabular-nums text-right font-semibold', r.sugerido > 0 ? 'text-foreground' : 'text-muted-foreground')}>
                   {r.sugerido > 0 ? fmtNum(r.sugerido) : '—'}
                   {r.indice !== 1 && r.sugerido > 0 && (
-                    <span className="text-[9px] text-muted-foreground" title={`Factor ×${r.indice.toFixed(2)} = tendencia 30d ${(r.demanda?.indiceTendencia ?? 1).toFixed(2)} × estacionalidad ${(r.demanda?.indiceEstacional ?? 1).toFixed(2)} (ponderada por madurez) — ya incluido en la demanda/día, ajusta fecha de quiebre Y sugerido`}> ×{r.indice.toFixed(2)}</span>
+                    <span className="text-xs text-muted-foreground" title={`Factor ×${r.indice.toFixed(2)} = tendencia 30d ${(r.demanda?.indiceTendencia ?? 1).toFixed(2)} × estacionalidad ${(r.demanda?.indiceEstacional ?? 1).toFixed(2)} (ponderada por madurez) — ya incluido en la demanda/día, ajusta fecha de quiebre Y sugerido`}> ×{r.indice.toFixed(2)}</span>
                   )}
                 </TableCell>
-                <TableCell className="text-xs font-mono text-right text-muted-foreground">
+                <TableCell className="text-xs font-mono tabular-nums text-right text-muted-foreground">
                   {r.sugerido > 0 && r.kgEstimado !== null ? fmtNum(r.kgEstimado) : '—'}
                 </TableCell>
               </TableRow>
@@ -377,8 +377,8 @@ export default function CoverageAnalysis() {
               <TableCell className="text-xs" colSpan={7}>
                 Pedido sugerido total ({conSugerido.filter((r) => r.sugerido > 0).length} referencias)
               </TableCell>
-              <TableCell className="text-xs font-mono text-right">{fmtNum(totales.unds)}</TableCell>
-              <TableCell className={cn('text-xs font-mono text-right', totales.kg > TOPE_CONTENEDOR_KG ? 'text-destructive' : 'text-foreground')}>
+              <TableCell className="text-xs font-mono tabular-nums text-right">{fmtNum(totales.unds)}</TableCell>
+              <TableCell className={cn('text-xs font-mono tabular-nums text-right', totales.kg > TOPE_CONTENEDOR_KG ? 'text-destructive' : 'text-foreground')}>
                 {totales.kg > 0 ? `${fmtNum(totales.kg)}` : '—'}
               </TableCell>
             </TableRow>
@@ -397,7 +397,7 @@ export default function CoverageAnalysis() {
         </p>
       )}
 
-      <p className="text-[11px] text-muted-foreground leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         Cada fila es una VARIANTE de color — la unidad con la que se monta pedido. La demanda sale de las remisiones
         (la referencia tal como se despachó): si un despacho salió en -5 sin discriminar, esa demanda aparece en la fila
         "sin discriminar" — la tabla muestra la verdad de los datos. Stock con ~ = repartido desde la -5 por mezcla de

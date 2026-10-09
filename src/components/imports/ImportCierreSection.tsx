@@ -250,7 +250,7 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
     return (
       <div className="rounded-xl border border-success/30 bg-success/5 px-4 py-3 space-y-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Lock className="h-4 w-4 text-success" />
             <span className="text-sm font-semibold text-success">Importación cerrada</span>
             {cerradaAt && (
@@ -265,7 +265,7 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
             </Button>
           )}
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Checklist documental completo. Solo el administrador puede modificarla o reabrirla.
         </p>
         {docs.length > 0 && (
@@ -293,10 +293,10 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
         }}
       />
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Lock className="h-4 w-4 text-primary" />
           <span className="text-sm font-semibold">Cierre de la importación</span>
-          <Badge variant="outline" className={cn('text-[10px]', listo ? 'border-success/40 text-success' : 'border-amber-400/50 text-amber-600')}>
+          <Badge variant="outline" className={cn('text-xs', listo ? 'border-success/40 text-success' : 'border-amber-400/50 text-amber-600')}>
             {completos}/{items.length} completos
           </Badge>
         </div>
@@ -314,7 +314,7 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
         )}
       </div>
       {!esAdmin && (
-        <p className="text-[11px] text-amber-600">Solo el administrador puede cerrar la importación — podés subir los documentos.</p>
+        <p className="text-xs text-amber-600">Solo el administrador puede cerrar la importación — podés subir los documentos.</p>
       )}
 
       {/* Si la consulta de documentos falló, el checklist NO debe leerse como
@@ -337,7 +337,7 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
           return (
             <div key={item.tipo} className={cn('rounded-lg border px-3 py-2', ok ? 'border-success/30 bg-success/5' : 'border-border bg-card')}>
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex flex-1 items-start gap-3 min-w-0">
                   {ok
                     ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
                     : <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
@@ -345,16 +345,16 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
                     <p className="text-xs font-medium">
                       {item.label}
                       {item.requerido > 1 && (
-                        <span className={cn('ml-1.5 font-mono text-[10px]', ok ? 'text-success' : 'text-amber-600')}>
+                        <span className={cn('ml-1.5 font-mono tabular-nums text-xs', ok ? 'text-success' : 'text-amber-600')}>
                           {subidos.length}/{item.requerido}
                         </span>
                       )}
                     </p>
-                    <p className="text-[10px] text-muted-foreground leading-tight">{item.hint}</p>
+                    <p className="text-xs text-muted-foreground leading-tight">{item.hint}</p>
                   </div>
                 </div>
                 <Button
-                  type="button" size="sm" variant="outline" className="h-7 text-xs gap-1 shrink-0"
+                  type="button" size="sm" variant="outline" className="h-9 text-xs gap-2 shrink-0"
                   onClick={() => pickFile(item.tipo)}
                   disabled={upload.isPending}
                 >
@@ -375,7 +375,7 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
               {/* El excel de costeo como FUENTE DE VERDAD del contenedor */}
               {item.tipo === 'costeo_excel' && costeoParsed && (
                 <div className="mt-2 ml-6 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 space-y-1.5">
-                  <p className="text-[11px] leading-relaxed">
+                  <p className="text-xs leading-relaxed">
                     <FileSpreadsheet className="h-3.5 w-3.5 inline mr-1 text-primary" />
                     Leí <strong>{costeoParsed.rows.length} referencias</strong>
                     {costeoParsed.sheetName ? <> (hoja "{costeoParsed.sheetName}")</> : null} —{' '}
@@ -383,7 +383,7 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
                     {costeoParsed.rows.reduce((s, r) => s + Number(r.cantidad ?? 0), 0).toLocaleString('es-CO')} unidades en total.
                     Aplicalo y de ahí salen inventario, cobertura y landed cost.
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       type="button" size="sm" className="h-7 text-xs gap-1"
                       onClick={aplicarCosteo}
@@ -399,7 +399,7 @@ export default function ImportCierreSection({ importId, cerrada, cerradaAt, esta
                 </div>
               )}
               {item.tipo === 'costeo_excel' && costeoWarn && (
-                <p className="mt-1.5 ml-6 text-[11px] text-amber-600 leading-relaxed">{costeoWarn}</p>
+                <p className="mt-1.5 ml-6 text-xs text-amber-600 leading-relaxed">{costeoWarn}</p>
               )}
             </div>
           );
@@ -416,10 +416,10 @@ function DocChip({ doc, onView, onRemove }: {
 }) {
   const name = doc.filename ?? IMPORT_DOC_LABEL[doc.tipo];
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] max-w-[220px]">
-      <button type="button" className="inline-flex items-center gap-1 hover:text-primary truncate" onClick={() => onView(doc)} title={`Ver ${name}`}>
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 text-xs max-w-full py-1.5 px-2">
+      <button type="button" className="inline-flex items-center gap-1 hover:text-primary min-w-0 text-left" onClick={() => onView(doc)} title={`Ver ${name}`}>
         <ExternalLink className="h-2.5 w-2.5 shrink-0" />
-        <span className="truncate">{name}</span>
+        <span className="break-all">{name}</span>
       </button>
       {onRemove && (
         <button type="button" className="text-muted-foreground hover:text-destructive shrink-0" onClick={() => onRemove(doc)} title="Eliminar documento">
