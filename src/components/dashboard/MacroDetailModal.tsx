@@ -132,7 +132,7 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
                 <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60 animate-ping" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               </span>
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">
+              <span className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-400">
                 {indicator.sublabel || 'En vivo'}
               </span>
             </div>
@@ -145,7 +145,7 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
                 </span>
               )}
             </div>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-xs text-slate-500">
               Última publicación: {formatDateLong(indicator.date)}
             </span>
           </div>
@@ -184,7 +184,7 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
                   {indicator.trend30dPct > 0 ? '↗' : indicator.trend30dPct < 0 ? '↘' : '→'}
                 </span>
                 <div className="flex flex-col">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">
+                  <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500">
                     Tendencia últimos 30 días
                   </span>
                   <span
@@ -204,7 +204,7 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
                   </span>
                 </div>
               </div>
-              <span className="hidden sm:block text-[10px] text-right text-slate-500 max-w-[180px] leading-snug">
+              <span className="hidden sm:block text-xs text-right text-slate-500 max-w-[180px] leading-snug">
                 Comparación entre el primer y el último valor disponibles en la ventana de 30 publicaciones.
               </span>
             </div>
@@ -219,7 +219,7 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
                 key={r}
                 type="button"
                 onClick={() => setRange(r)}
-                className={`px-3 py-1 text-[11px] font-semibold uppercase tracking-wider rounded-md transition-colors ${
+                className={`px-3 py-1 text-xs font-semibold uppercase tracking-wider rounded-md transition-colors ${
                   range === r
                     ? 'bg-white/[0.08] text-white'
                     : 'text-slate-500 hover:text-slate-300'
@@ -246,14 +246,14 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
                   <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 10, fill: '#64748b' }}
+                    tick={{ fontSize: 12, fill: '#64748b' }}
                     axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
                     tickLine={false}
                     interval="preserveStartEnd"
                     minTickGap={30}
                   />
                   <YAxis
-                    tick={{ fontSize: 10, fill: '#64748b' }}
+                    tick={{ fontSize: 12, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v) => {
@@ -275,7 +275,7 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
                       color: '#fff',
                       boxShadow: '0 4px 14px rgba(0,0,0,0.3)',
                     }}
-                    labelStyle={{ color: '#94a3b8', fontSize: 10, marginBottom: 4 }}
+                    labelStyle={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}
                     formatter={(value: number) => [formatValueFor(indicator, value), indicator.label]}
                   />
                   <Area
@@ -324,16 +324,16 @@ export default function MacroDetailModal({ indicator, onClose }: Props) {
         {/* Footer */}
         <div className="px-6 py-3 bg-black/30 border-t border-white/[0.05] flex items-center justify-between flex-wrap gap-2">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+            <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
               Fuente
             </span>
-            <span className="text-[11.5px] text-slate-200 font-medium">{sourceLabel}</span>
+            <span className="text-xs text-slate-200 font-medium">{sourceLabel}</span>
           </div>
           <div className="flex flex-col gap-0.5 sm:text-right">
-            <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+            <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
               Sincronizado
             </span>
-            <span className="text-[11.5px] text-slate-200 font-medium">{formatDateLong(indicator.date)}</span>
+            <span className="text-xs text-slate-200 font-medium">{formatDateLong(indicator.date)}</span>
           </div>
         </div>
       </DialogContent>

@@ -129,7 +129,7 @@ export function MonthlySummaryTable({
               </p>
               <div className="flex items-center justify-center gap-1 mt-1">
                 <Info className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[9px] text-muted-foreground">Estimado</span>
+                <span className="text-xs text-muted-foreground">Estimado</span>
               </div>
             </div>
             <div className="text-center p-4 rounded-lg bg-accent/10">

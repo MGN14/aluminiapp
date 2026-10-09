@@ -165,7 +165,7 @@ export default function TeamActivityCard() {
                   key={p}
                   type="button"
                   onClick={() => setPersona(p)}
-                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${persona === p ? 'bg-foreground text-background border-foreground' : 'bg-card text-muted-foreground border-border hover:text-foreground'}`}
+                  className={`text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${persona === p ? 'bg-foreground text-background border-foreground' : 'bg-card text-muted-foreground border-border hover:text-foreground'}`}
                 >
                   {p === 'todos' ? 'Todos' : p}
                 </button>
@@ -188,7 +188,7 @@ export default function TeamActivityCard() {
           <div className="max-h-[520px] overflow-y-auto pr-1 space-y-4">
             {grupos.map((g) => (
               <div key={g.key}>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2 sticky top-0 bg-card/95 backdrop-blur py-1">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 sticky top-0 bg-card/95 backdrop-blur py-1">
                   {g.label} <span className="font-medium normal-case tracking-normal">· {g.items.length}</span>
                 </p>
                 <div className="space-y-2">
@@ -214,7 +214,7 @@ export default function TeamActivityCard() {
                           <p className="text-[13px] text-foreground leading-snug truncate">
                             <span className="font-bold">{nombre}</span>{' '}
                             <span className="text-muted-foreground">{VERBO[r.action]} {ENTIDAD[r.entity_type] ?? r.entity_type}</span>{' '}
-                            {ref && <span className="inline-block font-mono text-[11px] font-semibold px-1.5 py-px rounded-md bg-muted text-foreground align-middle">{ref}</span>}
+                            {ref && <span className="inline-block font-mono text-xs font-semibold px-1.5 py-px rounded-md bg-muted text-foreground align-middle">{ref}</span>}
                             {resto.length > 0 && <span className="font-medium"> · {resto.join(' · ')}</span>}
                             {!r.entity_label && <span className="font-medium">(sin etiqueta)</span>}
                           </p>

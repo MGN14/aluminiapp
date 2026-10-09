@@ -267,7 +267,7 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-foreground">Nico analizó tu negocio hoy</h3>
             {patternsCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-accent/10 text-[10px] font-medium text-accent-foreground">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-accent/10 text-xs font-medium text-accent-foreground">
                 <Brain className="h-2.5 w-2.5" />
                 {patternsCount} patrones
               </span>
@@ -293,12 +293,12 @@ export default function InsightsMiniCards({ periodSelection, hasTransactions }: 
                 <CardContent className="py-4 px-4 space-y-2">
                   <div className="flex items-center gap-2">
                     <Icon className={`h-3.5 w-3.5 ${styles.iconColor}`} />
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${styles.badge}`}>
+                    <span className={`text-xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${styles.badge}`}>
                       {badgeLabel}
                     </span>
                   </div>
                   <h4 className="text-xs font-semibold text-foreground line-clamp-1">{insight.title}</h4>
-                  <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">{insight.text}</p>
+                  <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{insight.text}</p>
                 </CardContent>
               </Card>
             </Link>

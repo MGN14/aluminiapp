@@ -146,13 +146,13 @@ function IndicatorCard({ ind, onClick }: { ind: MacroIndicator; onClick: () => v
             {ind.label}
           </span>
           {ind.sublabel && (
-            <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-slate-500 truncate">
+            <span className="text-xs font-medium uppercase tracking-[0.1em] text-slate-300 truncate">
               {ind.sublabel}
             </span>
           )}
         </div>
         <span
-          className={`hidden sm:inline text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap ${
+          className={`hidden sm:inline text-xs font-semibold uppercase tracking-wider whitespace-nowrap ${
             fresh.tone === 'fresh' ? 'text-emerald-400/80' : 'text-amber-400/80'
           }`}
         >
@@ -164,7 +164,7 @@ function IndicatorCard({ ind, onClick }: { ind: MacroIndicator; onClick: () => v
           {formatValue(ind)}
         </span>
         {deltaTxt && (
-          <span className={`inline-flex items-center gap-0.5 text-[10px] sm:text-[11px] font-semibold ${colorClass}`}>
+          <span className={`inline-flex items-center gap-0.5 text-xs sm:text-xs font-semibold ${colorClass}`}>
             <Icon className="h-3 w-3" />
             {deltaTxt}
           </span>
@@ -172,8 +172,8 @@ function IndicatorCard({ ind, onClick }: { ind: MacroIndicator; onClick: () => v
       </div>
       <Sparkline data={sparkValues} isUp={isUp} isDown={isDown} />
       {ind.trend30dPct !== null && Math.abs(ind.trend30dPct) >= 0.1 && (
-        <div className="flex items-center gap-1 text-[10px] text-slate-400">
-          <span className="font-semibold uppercase tracking-wider text-slate-500">30d</span>
+        <div className="flex items-center gap-1 text-xs text-slate-400">
+          <span className="font-semibold uppercase tracking-wider text-slate-300">30d</span>
           <span
             className={`font-semibold tabular-nums ${
               ind.trend30dPct > 0 ? 'text-emerald-400' : 'text-red-400'
@@ -184,7 +184,7 @@ function IndicatorCard({ ind, onClick }: { ind: MacroIndicator; onClick: () => v
         </div>
       )}
       <span
-        className="absolute top-2 right-2 text-[8.5px] uppercase tracking-wider text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-2 right-2 text-xs uppercase tracking-wider text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
         aria-hidden="true"
       >
         Ver detalle →
@@ -230,11 +230,11 @@ export default function MacroTicker() {
             <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60 animate-ping" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
           </span>
-          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">
+          <span className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-400">
             Mercados · En vivo
           </span>
         </div>
-        <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-slate-500">
+        <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-300">
           <Wifi className="h-3 w-3" />
           <span className="uppercase tracking-wider font-medium">Sincronizado hoy</span>
         </div>
@@ -254,19 +254,19 @@ export default function MacroTicker() {
       {/* Footer: sources */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2.5 bg-black/20 border-t border-white/[0.05]">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
             Datos en vivo de:
           </span>
           {sourcesToShow.map(src => (
             <span
               key={src}
-              className="text-[10.5px] font-medium text-slate-300 px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06]"
+              className="text-xs font-medium text-slate-300 px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06]"
             >
               {src}
             </span>
           ))}
         </div>
-        <div className="text-[10px] text-slate-500 sm:text-right">
+        <div className="text-xs text-slate-300 sm:text-right">
           Reglas fiscales <span className="text-slate-300 font-medium">DIAN 2026</span> integradas
         </div>
       </div>

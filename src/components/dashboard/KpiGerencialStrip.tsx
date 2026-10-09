@@ -56,7 +56,7 @@ function StripContent() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
         {[1, 2, 3, 4, 5].map((i) => (
           <Card key={i} className="border-0 shadow-sm"><CardContent className="p-4"><Skeleton className="h-3 w-16 mb-2" /><Skeleton className="h-6 w-20" /></CardContent></Card>
         ))}
@@ -109,7 +109,7 @@ function StripContent() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           KPIs gerenciales
         </p>
@@ -120,7 +120,7 @@ function StripContent() {
           Ver informe completo <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
         {kpis.map((k) => (
           <Link key={k.label} to="/informe-banco" className="block group">
             <DashCard tone={TONE[k.semaforo]}>

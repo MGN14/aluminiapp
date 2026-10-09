@@ -161,7 +161,7 @@ export function ChartFilterBar({ chartId, controls }: ChartFilterBarProps) {
             <Filter className="h-3.5 w-3.5" aria-hidden />
             Filtros
             {popoverCount > 0 && (
-              <span className="ml-0.5 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground">
+              <span className="ml-0.5 rounded-full bg-muted px-1.5 py-px text-xs leading-none text-muted-foreground">
                 {popoverCount}
               </span>
             )}
@@ -172,7 +172,7 @@ export function ChartFilterBar({ chartId, controls }: ChartFilterBarProps) {
             {controls.map(c => (
               <div key={c.id} className="space-y-1.5">
                 {c.kind !== 'switch' && (
-                  <label className="text-[11px] uppercase tracking-wide text-muted-foreground/80">
+                  <label className="text-xs uppercase tracking-wide text-muted-foreground/80">
                     {c.label}
                   </label>
                 )}

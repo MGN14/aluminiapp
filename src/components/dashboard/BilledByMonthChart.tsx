@@ -145,13 +145,13 @@ export function BilledByMonthChart({ data, prevYearData, purchaseData, year }: B
                 <ReferenceLine y={yearAvg} stroke={CHART_COLORS.income} strokeDasharray="6 4" strokeWidth={1.5} strokeOpacity={0.55} ifOverflow="extendDomain" />
                 {showSales && (
                   <Bar dataKey="total" name="Ventas" fill={CHART_COLORS.income} radius={BAR_RADIUS} maxBarSize={BAR_MAX} onClick={handleBarClick} cursor="pointer">
-                    <LabelList dataKey="total" position="top" style={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))', fontWeight: 600 }}
+                    <LabelList dataKey="total" position="top" style={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))', fontWeight: 600 }}
                       content={(props: { x?: number | string; y?: number | string; width?: number | string; value?: number | string; index?: number }) => {
                         const row = props.index != null ? merged[props.index] : undefined;
                         if (!row || !labeled.has(row.monthKey) || !row.total) return null;
                         const x = Number(props.x) + Number(props.width) / 2;
                         const y = Number(props.y) - 6;
-                        return <text x={x} y={y} textAnchor="middle" fontSize={11} fontWeight={600} fill="hsl(var(--muted-foreground))">{fmtCopShort(row.total)}</text>;
+                        return <text x={x} y={y} textAnchor="middle" fontSize={12} fontWeight={600} fill="hsl(var(--muted-foreground))">{fmtCopShort(row.total)}</text>;
                       }} />
                   </Bar>
                 )}

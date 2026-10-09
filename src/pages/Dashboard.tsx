@@ -1,3 +1,4 @@
+import '@/components/dashboard/dashboard.css';
 import { useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { afectaResultado } from '@/hooks/usePettyCashMovements';
@@ -109,14 +110,38 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+const DASHBOARD_SECTIONS: Partial<Record<DashboardModule, { title: string; description: string }>> = {
+  insights: { title: 'Lectura del negocio', description: 'Señales y oportunidades del periodo' },
+  mainMetrics: { title: 'Resumen financiero', description: 'Ingresos, egresos y resultado del periodo seleccionado' },
+  invoiceTax: { title: 'Facturación, cartera e impuestos', description: 'Revisá el periodo de cada tarjeta: seleccionado, acumulado o próximo pago' },
+  operational: { title: 'Clientes y referencias', description: 'Quién compra y qué mueve tu negocio' },
+  chartsCashflow: { title: 'Evolución de caja', description: 'El comportamiento del saldo en el periodo' },
+  chartsFlow: { title: 'Ingresos y gastos', description: 'Compará el flujo y la distribución de egresos' },
+  chartsBilling: { title: 'Evolución de ventas', description: 'Facturación por mes y por cliente' },
+  chartsAging: { title: 'Cartera por edades', description: 'Identificá dónde concentrar el cobro' },
+  pendingTable: { title: 'Conciliación pendiente', description: 'Revisá y completá la clasificación de los movimientos' },
+  teamActivity: { title: 'Actividad del equipo', description: 'Las acciones recientes de tu equipo' },
+};
+
+function DashboardSectionTitle({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="dashboard-section-title">
+      <h2>{title}</h2>
+      <p>{description}</p>
+    </div>
+  );
+}
+
 // ── Module wrapper with staggered entrance animation ──────
 function DashboardBlock({ id, customization, children, index = 0 }: { id: DashboardModule; customization: ReturnType<typeof useDashboardCustomization>; children: ReactNode; index?: number }) {
   if (!customization.isVisible(id)) return null;
   return (
     <div
-      className="animate-slide-up opacity-0 [animation-fill-mode:forwards]"
+      className="dashboard-block animate-slide-up opacity-0 [animation-fill-mode:forwards]"
+      data-module={id}
       style={{ animationDelay: `${index * 80}ms` }}
     >
+      {DASHBOARD_SECTIONS[id] && <DashboardSectionTitle {...DASHBOARD_SECTIONS[id]!} />}
       {children}
     </div>
   );
@@ -537,18 +562,18 @@ function DashboardContent() {
       </DashboardBlock>
     ),
     mainMetrics: (idx: number) => {
-      const BRAND = 'oklch(0.43 0.14 155)';
-      const DANGER = 'oklch(0.52 0.18 25)';
+      const BRAND = 'hsl(var(--success))';
+      const DANGER = 'hsl(var(--destructive))';
       const metricCardStyle = (i: number): React.CSSProperties => ({
-        background: '#fff',
+        background: 'hsl(var(--card))',
         borderRadius: 18,
-        border: '1.5px solid rgba(0,0,0,0.07)',
+        border: '1px solid hsl(var(--foreground) / .16)',
         boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
         transition: 'box-shadow 0.2s, transform 0.2s',
         animation: `fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) ${i * 0.05}s both`,
         opacity: 0,
       });
-      const metricCardClass = 'p-4 md:px-6 md:py-[22px]';
+      const metricCardClass = 'dashboard-money-card p-5 md:px-6 md:py-6';
       const metricHover = (e: React.MouseEvent<HTMLDivElement>) => {
         e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)';
         e.currentTarget.style.transform = 'translateY(-1px)';
@@ -562,7 +587,7 @@ function DashboardContent() {
         fontWeight: 600,
         letterSpacing: '0.8px',
         textTransform: 'uppercase',
-        color: '#a1a1a6',
+        color: 'hsl(var(--muted-foreground))',
       };
       const metricValueStyle = (color: string): React.CSSProperties => ({
         fontWeight: 700,
@@ -570,7 +595,7 @@ function DashboardContent() {
         color,
         marginTop: 10,
       });
-      const metricValueClass = 'text-[22px] md:text-[28px]';
+      const metricValueClass = 'dashboard-money-value tabular-nums text-[24px] md:text-[30px]';
       const iconWrapStyle = (tint: string): React.CSSProperties => ({
         width: 36,
         height: 36,
@@ -585,7 +610,7 @@ function DashboardContent() {
       return (
         <DashboardBlock id="mainMetrics" customization={customization} index={idx}>
           <div className="grid gap-5 md:grid-cols-3">
-            <div className={metricCardClass} style={metricCardStyle(0)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+            <div data-kind="income" className={metricCardClass} style={metricCardStyle(0)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
               <div className="flex items-center justify-between">
                 <p style={metricLabelStyle}>Ingresos</p>
                 <div style={iconWrapStyle('oklch(0.43 0.14 155 / 0.10)')}>
@@ -595,11 +620,11 @@ function DashboardContent() {
               <p className={metricValueClass} style={metricValueStyle(BRAND)}>{formatCurrency(metrics.totalIngresos)}</p>
               <div className="flex items-center gap-1.5" style={{ marginTop: 10 }}>
                 <ArrowUpRight style={{ width: 12, height: 12, color: BRAND }} />
-                <span style={{ fontSize: 13, color: '#6e6e73' }}>{periodRange.label}</span>
+                <span style={{ fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>{periodRange.label}</span>
               </div>
             </div>
 
-            <div className={metricCardClass} style={metricCardStyle(1)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+            <div data-kind="expense" className={metricCardClass} style={metricCardStyle(1)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
               <div className="flex items-center justify-between">
                 <p style={metricLabelStyle}>Egresos</p>
                 <div style={iconWrapStyle('oklch(0.52 0.18 25 / 0.08)')}>
@@ -609,11 +634,11 @@ function DashboardContent() {
               <p className={metricValueClass} style={metricValueStyle(DANGER)}>{formatCurrency(metrics.totalEgresos)}</p>
               <div className="flex items-center gap-1.5" style={{ marginTop: 10 }}>
                 <ArrowDownRight style={{ width: 12, height: 12, color: DANGER }} />
-                <span style={{ fontSize: 13, color: '#6e6e73' }}>{periodRange.label}</span>
+                <span style={{ fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>{periodRange.label}</span>
               </div>
             </div>
 
-            <div className={metricCardClass} style={metricCardStyle(2)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
+            <div data-kind="result" className={metricCardClass} style={metricCardStyle(2)} onMouseEnter={metricHover} onMouseLeave={metricLeave}>
               <div className="flex items-center justify-between">
                 <p style={metricLabelStyle} title="Ingresos − Egresos del periodo, sin restar impuestos. Para utilidad neta después de impuestos, mirá el Estado de Resultados.">
                   Resultado del periodo
@@ -630,8 +655,8 @@ function DashboardContent() {
                   )}
                 </div>
               </div>
-              <p className={metricValueClass} style={metricValueStyle(isPositive ? BRAND : DANGER)}>{formatCurrency(neto)}</p>
-              <span style={{ fontSize: 13, color: '#6e6e73', marginTop: 10, display: 'block' }}>
+              <p className={metricValueClass} style={metricValueStyle('hsl(var(--primary-foreground))')}>{formatCurrency(neto)}</p>
+              <span style={{ fontSize: 13, color: 'hsl(var(--muted-foreground))', marginTop: 10, display: 'block' }}>
                 {periodRange.label} · antes de impuestos
               </span>
             </div>
@@ -940,13 +965,12 @@ function DashboardContent() {
   const orderedModules = customization.modules.sort((a, b) => a.order - b.order);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 md:space-y-8">
+    <div className="dashboard-workspace max-w-[1600px] mx-auto space-y-6 md:space-y-8">
         {/* ─── Macro Ticker (TRM, IPC, etc.) ─── */}
-        <MacroTicker />
 
         {/* ─── Header ─── */}
         <div
-          className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-5"
+          className="dashboard-hero flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-5"
           style={{ animation: 'fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both' }}
         >
           <div className="flex items-center gap-3 md:gap-3.5">
@@ -964,27 +988,34 @@ function DashboardContent() {
                 className="text-[20px] md:text-[26px] font-bold"
                 style={{
                   letterSpacing: '-0.6px',
-                  color: '#1d1d1f',
+                  color: 'hsl(var(--primary-foreground))',
                   lineHeight: 1.15,
                 }}
               >
                 Tu negocio hoy
               </h1>
-              <p className="text-xs md:text-[13px]" style={{ color: '#6e6e73', marginTop: 2 }}>{periodRange.label}</p>
+              <p className="dashboard-period text-xs md:text-[13px]" style={{ color: 'hsl(var(--primary-foreground) / .85)', marginTop: 2 }}>{periodRange.label}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="dashboard-controls flex items-center gap-2 flex-wrap">
             <DashboardCustomizeModal customization={customization} />
             <UnifiedPeriodFilter selection={periodSelection} onSelectionChange={setPeriodSelection} />
           </div>
         </div>
+
+        <div className="dashboard-mode-label">
+          <span>{isGerencial ? 'Vista Gerencial' : 'Vista DIAN'}</span>
+          <p>Periodo seleccionado: <strong>{periodRange.label}</strong>. Los próximos vencimientos muestran su propia fecha.</p>
+        </div>
+
+        <MacroTicker />
 
         {/* ─── Alerts ─── */}
         {showSuccessMessage && (
           <Alert className="border-success/30 bg-success/5 rounded-xl">
             <CheckCircle className="h-4 w-4 text-success" />
             <AlertTitle className="text-success">¡Suscripción activada!</AlertTitle>
-            <AlertDescription>Tu plan está activo. Ahora puedes subir hasta {plan === 'empresarial' ? 'PDFs ilimitados' : '10 PDFs por mes'}.</AlertDescription>
+            <AlertDescription>Tu plan está activo. Ahora podés subir hasta {plan === 'empresarial' ? 'PDFs ilimitados' : '10 PDFs por mes'}.</AlertDescription>
           </Alert>
         )}
 
@@ -996,16 +1027,23 @@ function DashboardContent() {
           /* Card unificado: brecha + disclaimer (mid/high) en una sola tarjeta. */
           <EvasionGapCard evasion={evasionResult} periodMonths={evasionPeriodMonths} />
         )}
+        <section className="dashboard-block">
+        <DashboardSectionTitle title="Salud y obligaciones" description="Señales para revisar y compromisos próximos" />
         <div className="grid gap-4 md:grid-cols-2">
           <FinancialHealthCard year={periodSelection.year} month={periodSelection.month} />
           <UpcomingObligationsCard />
         </div>
+        </section>
+        <section className="dashboard-block">
+        <DashboardSectionTitle title="Seguimiento operativo" description="Pagos, contenedores, inventario y próxima compra" />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <UpcomingPaymentsCard />
           <UpcomingImportsCard />
           <InventoryValueCard />
           <ReorderDeadlineCard />
         </div>
+
+        </section>
 
         {metrics.transactionCount === 0 && transactions.length === 0 ? (
           <Card className="border-0 shadow-sm rounded-2xl">
@@ -1014,9 +1052,9 @@ function DashboardContent() {
                 <Wallet className="h-8 w-8 text-muted-foreground" />
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">No hay datos aún</h3>
-              <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">Carga el extracto de tu banco para comenzar a ver tus métricas financieras.</p>
+              <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">Cargá el extracto de tu banco para comenzar a ver tus métricas financieras.</p>
               <Link to="/statement-upload">
-                <Button className="rounded-xl px-6">Subir mi primer extracto</Button>
+                <Button className="rounded-xl px-6">Subí mi primer extracto</Button>
               </Link>
             </CardContent>
           </Card>

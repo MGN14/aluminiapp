@@ -85,7 +85,7 @@ export default function UpcomingPaymentsCard() {
                 urgency={u}
                 titleAttr={p.notes ?? undefined}
                 leading={
-                  <span className="h-7 w-7 rounded-lg bg-success/15 text-success flex items-center justify-center shrink-0 text-[11px] font-bold">
+                  <span className="h-7 w-7 rounded-lg bg-success/15 text-success flex items-center justify-center shrink-0 text-xs font-bold">
                     {initials(p.responsible_name)}
                   </span>
                 }

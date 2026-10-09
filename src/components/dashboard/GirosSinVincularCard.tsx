@@ -227,7 +227,7 @@ export default function GirosSinVincularCard({ giros, totalCop, onDismiss, onLin
                                   <SelectItem key={imp.id} value={imp.id} className="text-xs">
                                     <span className="font-medium">{imp.label}</span>
                                     <span className="text-muted-foreground"> · {imp.proveedor !== imp.label ? `${imp.proveedor} · ` : ''}saldo USD {fmtUsd(imp.saldoUsd)}</span>
-                                    {matchesSaldo && <span className="ml-1 text-[9px] uppercase tracking-wider text-primary font-semibold">≈ saldo</span>}
+                                    {matchesSaldo && <span className="ml-1 text-xs uppercase tracking-wider text-primary font-semibold">≈ saldo</span>}
                                   </SelectItem>
                                 );
                               })}
@@ -240,7 +240,7 @@ export default function GirosSinVincularCard({ giros, totalCop, onDismiss, onLin
                       </td>
                       <td className="p-2 text-right whitespace-nowrap">
                         <button
-                          className="text-muted-foreground hover:text-destructive text-[11px] underline-offset-2 hover:underline disabled:opacity-50"
+                          className="text-muted-foreground hover:text-destructive text-xs underline-offset-2 hover:underline disabled:opacity-50"
                           disabled={busy}
                           title="Este giro no es de una importación (o es de un pedido anterior al módulo): no volver a mostrarlo"
                           onClick={() => onDismiss([g.id])}
@@ -253,7 +253,7 @@ export default function GirosSinVincularCard({ giros, totalCop, onDismiss, onLin
                 })}
               </tbody>
             </table>
-            <p className="px-2 py-1.5 text-[10px] text-muted-foreground border-t">
+            <p className="px-2 py-1.5 text-xs text-muted-foreground border-t">
               Al vincular, el abono queda en el contenedor con USD = COP ÷ TRM del día del giro. Si ya lo habías
               registrado a mano en Importaciones, se adopta ese abono (no se duplica). Un giro de un pedido anterior al
               módulo se etiqueta sin crear contenedor. Para soltar cualquiera: la X del chip en Conciliación.

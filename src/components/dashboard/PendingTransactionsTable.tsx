@@ -465,7 +465,7 @@ export function PendingTransactionsTable({
           <div className="min-w-0">
             <CardTitle className="text-[17px] font-bold tracking-tight leading-tight">
               Pendientes por conciliar
-              <span className={`ml-2 text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full align-middle ${pendingCount > 0 ? 'bg-destructive text-destructive-foreground' : 'bg-success text-success-foreground'}`}>
+              <span className={`ml-2 text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full align-middle ${pendingCount > 0 ? 'bg-destructive text-destructive-foreground' : 'bg-success text-success-foreground'}`}>
                 {pendingCount}
               </span>
             </CardTitle>
@@ -517,13 +517,13 @@ export function PendingTransactionsTable({
                           {parseLocalDate(tx.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                         </span>
                         {conciliada ? (
-                          <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-[11px] font-semibold px-2 py-0 h-5">Conciliada</Badge>
+                          <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-xs font-semibold px-2 py-0 h-5">Conciliada</Badge>
                         ) : tieneRespSinResto ? (
-                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-[11px] font-semibold px-2 py-0 h-5">
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-xs font-semibold px-2 py-0 h-5">
                             Falta {!tx.category_id ? 'categoría' : 'factura'}
                           </Badge>
                         ) : (
-                          <Badge variant="destructive" className="text-[11px] font-semibold px-2 py-0 h-5">Pendiente</Badge>
+                          <Badge variant="destructive" className="text-xs font-semibold px-2 py-0 h-5">Pendiente</Badge>
                         )}
                         {tx.operative_receivable_assigned && (
                           <TooltipProvider delayDuration={150}>
@@ -531,7 +531,7 @@ export function PendingTransactionsTable({
                               <TooltipTrigger asChild>
                                 <Badge
                                   variant="outline"
-                                  className="text-[11px] font-semibold px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
+                                  className="text-xs font-semibold px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
                                 >
                                   <CheckCircle2 className="h-2.5 w-2.5" />
                                   Conciliado
@@ -707,7 +707,7 @@ export function PendingTransactionsTable({
                               <TooltipTrigger asChild>
                                 <Badge
                                   variant="outline"
-                                  className="text-[11px] font-semibold px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
+                                  className="text-xs font-semibold px-1.5 py-0 h-5 border-success/40 text-success bg-success/10 flex items-center gap-1 cursor-help"
                                 >
                                   <CheckCircle2 className="h-2.5 w-2.5" />
                                   Conciliado

@@ -309,7 +309,7 @@ function InsightCard({
             <div className={`p-1.5 rounded-lg ${styles.iconBg}`}>
               <Icon className={`h-4 w-4 ${styles.iconColor}`} />
             </div>
-            <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${styles.badge}`}>
+            <span className={`text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${styles.badge}`}>
               {BADGE_LABELS[color]}
             </span>
           </div>

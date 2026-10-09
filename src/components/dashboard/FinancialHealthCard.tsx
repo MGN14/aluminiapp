@@ -94,7 +94,7 @@ export default function FinancialHealthCard({ year, month }: Props) {
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className={cn('text-3xl font-extrabold tracking-tight tabular-nums leading-none', interp.color)}>{scores.total}</span>
-                <span className="text-[10px] font-semibold text-muted-foreground mt-1">/100</span>
+                <span className="text-xs font-semibold text-muted-foreground mt-1">/100</span>
               </div>
             </div>
 
@@ -112,11 +112,11 @@ export default function FinancialHealthCard({ year, month }: Props) {
               style={{ borderLeftColor: weakest.color, borderLeftWidth: '4px' }}
             >
               <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   <TrendingDown className="h-3.5 w-3.5" strokeWidth={2.5} /> Tu punto más débil
                 </span>
                 <span
-                  className="text-[11px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-muted shrink-0"
+                  className="text-xs font-bold tabular-nums px-2 py-0.5 rounded-full bg-muted shrink-0"
                   style={{ color: weakest.color }}
                 >
                   {weakest.value.toFixed(1)} / 25

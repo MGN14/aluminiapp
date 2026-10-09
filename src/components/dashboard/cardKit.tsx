@@ -32,7 +32,7 @@ const TILE_TONE: Record<Tone, string> = {
 
 export function DashCard({ tone = 'default', className, children }: { tone?: Tone; className?: string; children: ReactNode }) {
   return (
-    <Card className={cn('overflow-hidden border transition-colors cursor-pointer h-full rounded-2xl', CARD_TONE[tone], className)}>
+    <Card data-tone={tone} className={cn('dash-card overflow-hidden border transition-colors h-full rounded-2xl', CARD_TONE[tone], className)}>
       {children}
     </Card>
   );
@@ -43,7 +43,7 @@ export function DashTile({ icon: Icon, tone = 'default', className, size = 'md' 
   return (
     <span
       className={cn(
-        'rounded-2xl flex items-center justify-center shrink-0',
+        'dash-tile rounded-2xl flex items-center justify-center shrink-0',
         size === 'md' ? 'w-11 h-11' : 'w-9 h-9 rounded-xl',
         TILE_TONE[tone],
         className,
@@ -58,7 +58,7 @@ export function DashHeader({ icon, tone = 'default', tileClassName, title, subti
   icon: LucideIcon; tone?: Tone; tileClassName?: string; title: string; subtitle?: ReactNode; right?: ReactNode; children?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 mb-3">
+    <div className="dash-card-header flex items-start justify-between gap-3 mb-4">
       <div className="flex items-start gap-3 min-w-0">
         <DashTile icon={icon} tone={tone} className={tileClassName} />
         <div className="min-w-0">
@@ -74,7 +74,7 @@ export function DashHeader({ icon, tone = 'default', tileClassName, title, subti
 
 /** Número grande del encabezado. */
 export function DashBig({ children, className }: { children: ReactNode; className?: string }) {
-  return <p className={cn('text-2xl font-extrabold tracking-tight tabular-nums leading-tight mt-0.5 text-foreground', className)}>{children}</p>;
+  return <p className={cn('dash-value text-2xl font-extrabold tracking-tight tabular-nums leading-tight mt-0.5 text-foreground', className)}>{children}</p>;
 }
 
 export type Urgency = 'overdue' | 'critical' | 'soon' | 'week' | 'later';
@@ -100,7 +100,7 @@ export const ROW_BG: Record<Urgency, string> = {
 export const PILL: Record<Urgency, string> = {
   overdue: 'bg-destructive text-destructive-foreground',
   critical: 'bg-destructive text-destructive-foreground',
-  soon: 'bg-orange-500 text-white',
+  soon: 'bg-warning text-warning-foreground',
   week: 'bg-amber-400 text-amber-950',
   later: 'bg-muted text-muted-foreground',
 };
@@ -114,7 +114,7 @@ export function pillLabel(days: number, overdueWord = 'Vencida'): string {
 
 export function Pill({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <span className={cn('inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none whitespace-nowrap', className)}>
+    <span className={cn('dash-pill inline-flex items-center text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none whitespace-nowrap', className)}>
       {children}
     </span>
   );
@@ -146,18 +146,25 @@ export function DashItem({ leading, title, subtitle, value, pill, actions, urgen
 }) {
   return (
     <div
-      className={cn('rounded-xl px-3 py-2.5 border transition-colors', ROW_BG[urgency], onClick && 'cursor-pointer', className)}
+      className={cn('dash-item rounded-xl px-3 py-2.5 border transition-colors', ROW_BG[urgency], onClick && 'cursor-pointer', className)}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (event) => {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onClick();
+        }
+      } : undefined}
     >
       <div className="flex items-center gap-2.5 min-w-0">
         {leading}
-        <p className="text-[13px] font-semibold text-foreground leading-tight truncate flex-1 min-w-0" title={titleAttr ?? (typeof title === 'string' ? title : undefined)}>{title}</p>
+        <p className="text-[13px] font-semibold text-foreground leading-snug break-words flex-1 min-w-0" title={titleAttr ?? (typeof title === 'string' ? title : undefined)}>{title}</p>
         {value != null && <span className="text-[14px] font-bold tabular-nums leading-none text-foreground shrink-0 whitespace-nowrap">{value}</span>}
       </div>
       {(subtitle || pill || actions) && (
-        <div className="flex items-center gap-2 mt-1.5 min-w-0">
-          <p className="text-xs text-muted-foreground leading-snug truncate flex-1 min-w-0">{subtitle}</p>
+        <div className="flex flex-wrap items-start gap-2 mt-1.5 min-w-0">
+          <p className="text-xs text-muted-foreground leading-snug break-words flex-1 min-w-0">{subtitle}</p>
           {pill}
           {actions}
         </div>
@@ -169,7 +176,7 @@ export function DashItem({ leading, title, subtitle, value, pill, actions, urgen
 /** Chip de referencia (2026-2, VR25…) para el `leading` de una fila. */
 export function DashChip({ children, className, title }: { children: ReactNode; className?: string; title?: string }) {
   return (
-    <span className={cn('inline-flex items-center h-7 px-2 rounded-lg text-[11px] font-bold tracking-tight shrink-0 whitespace-nowrap', className)} title={title}>
+    <span className={cn('inline-flex items-center h-7 px-2 rounded-lg text-xs font-bold tracking-tight shrink-0 whitespace-nowrap', className)} title={title}>
       {children}
     </span>
   );
@@ -179,9 +186,9 @@ export function DashChip({ children, className, title }: { children: ReactNode; 
  *  pasa arriba entera en vez de truncarse. */
 export function DashFooter({ note, children }: { note?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 pt-3 mt-auto">
-      {note && <span className="text-[11px] text-muted-foreground leading-snug min-w-0">{note}</span>}
-      <span className="flex items-center gap-1 text-xs text-primary/80 group-hover:text-primary font-semibold transition-colors shrink-0 ml-auto">
+    <div className="dash-footer flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pt-3 mt-auto">
+      {note && <span className="text-xs text-muted-foreground leading-snug min-w-0">{note}</span>}
+      <span className="flex items-center gap-1 text-xs text-primary group-hover:text-primary font-semibold transition-colors shrink-0 ml-auto">
         {children} <ArrowRight className="h-3.5 w-3.5" />
       </span>
     </div>
@@ -201,7 +208,7 @@ export function DashEmpty({ icon, title, headline, hint, cta, tone = 'muted' }: 
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
             <p className="text-base font-bold text-foreground mt-0.5">{headline}</p>
             <p className="text-xs text-muted-foreground leading-snug mt-1">{hint}</p>
-            <div className="flex items-center gap-1 text-xs text-primary/80 group-hover:text-primary font-semibold transition-colors pt-2">
+            <div className="flex items-center gap-1 text-xs text-primary group-hover:text-primary font-semibold transition-colors pt-2">
               {cta} <ArrowRight className="h-3.5 w-3.5" />
             </div>
           </div>
@@ -246,20 +253,20 @@ export function MetricCard({ icon, tone = 'default', tileClassName, title, badge
               <span>{title}</span>
               {badge}
             </p>
-            <p className={cn('text-2xl font-extrabold tracking-tight tabular-nums leading-tight mt-1.5 break-words', valueClassName ?? 'text-foreground')}>{value}</p>
+            <p className={cn('dash-value text-2xl font-extrabold tracking-tight tabular-nums leading-tight mt-1.5 break-words', valueClassName ?? 'text-foreground')}>{value}</p>
             {subtitle && <p className="text-xs text-muted-foreground mt-1.5">{subtitle}</p>}
           </div>
           <DashTile icon={icon} tone={tone} className={tileClassName} />
         </div>
         {children}
         {note && (
-          <div className="mt-3 flex items-start gap-1.5 rounded-xl border border-border/60 bg-card/60 px-3 py-2 text-[11px] text-muted-foreground leading-snug">
+          <div className="mt-3 flex items-start gap-1.5 rounded-xl border border-border/60 bg-card/60 px-3 py-2 text-xs text-muted-foreground leading-snug">
             <Info className="h-3.5 w-3.5 mt-px shrink-0" />
             <span>{note}</span>
           </div>
         )}
         {link && (
-          <Link to={link.to} className="mt-auto pt-3 flex items-center gap-1 text-xs text-primary/80 hover:text-primary font-semibold transition-colors">
+          <Link to={link.to} className="mt-auto pt-3 flex items-center gap-1 text-xs text-primary hover:text-primary font-semibold transition-colors">
             {link.label} <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         )}
@@ -293,17 +300,17 @@ export function RankRow({ rank, title, subtitle, value, valueSub, titleAttr }: {
   rank: number; title: ReactNode; subtitle?: ReactNode; value: ReactNode; valueSub?: ReactNode; titleAttr?: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 border border-border/60 bg-card hover:bg-muted/40 transition-colors">
+    <div className="dash-rank-row flex items-center gap-3 rounded-xl px-3 py-2.5 border border-border/60 bg-card hover:bg-muted/40 transition-colors">
       <span className={cn('h-8 w-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-extrabold', RANK_STYLE[rank - 1] ?? 'bg-muted text-muted-foreground')}>
         {rank}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold text-foreground leading-tight truncate" title={titleAttr}>{title}</p>
-        {subtitle && <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
+        <p className="text-[13px] font-semibold text-foreground leading-snug break-words" title={titleAttr}>{title}</p>
+        {subtitle && <p className="text-xs text-muted-foreground mt-0.5 leading-snug break-words">{subtitle}</p>}
       </div>
       <div className="shrink-0 text-right">
         <p className="text-[14px] font-bold tabular-nums leading-none text-foreground whitespace-nowrap">{value}</p>
-        {valueSub && <p className="text-[11px] text-muted-foreground mt-1 whitespace-nowrap">{valueSub}</p>}
+        {valueSub && <p className="text-xs text-muted-foreground mt-1 whitespace-nowrap">{valueSub}</p>}
       </div>
     </div>
   );

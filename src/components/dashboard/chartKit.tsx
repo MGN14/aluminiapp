@@ -49,7 +49,7 @@ export function endLabel(text: (index: number) => string | null) {
     if (!t) return null;
     const x = Number(props.x) + Number(props.width) + 6;
     const y = Number(props.y) + Number(props.height) / 2;
-    return <text x={x} y={y} dominantBaseline="central" textAnchor="start" fontSize={11} fontWeight={600} fill="hsl(var(--muted-foreground))">{t}</text>;
+    return <text x={x} y={y} dominantBaseline="central" textAnchor="start" fontSize={12} fontWeight={600} fill="hsl(var(--muted-foreground))">{t}</text>;
   };
 }
 
@@ -58,12 +58,12 @@ export function ChartHeader({ icon, tone = 'default', tileClassName, title, subt
   icon: LucideIcon; tone?: Tone; tileClassName?: string; title: string; subtitle?: ReactNode; right?: ReactNode;
 }) {
   return (
-    <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
+    <CardHeader className="dash-chart-header flex flex-row flex-wrap items-start justify-between gap-3 pb-4">
       <div className="flex items-start gap-3 min-w-0 flex-1">
         <DashTile icon={icon} tone={tone} className={tileClassName} />
         <div className="min-w-0">
           <p className="text-[17px] font-bold tracking-tight text-foreground leading-tight">{title}</p>
-          {subtitle && <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
+          {subtitle && <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{subtitle}</p>}
         </div>
       </div>
       {right && <div className="shrink-0">{right}</div>}
@@ -136,7 +136,7 @@ export function ChartDataTable<Row>({ columns, rows, rowKey, footer, maxHeight =
         <thead className="sticky top-0 bg-muted/60 backdrop-blur text-muted-foreground">
           <tr>
             {columns.map((c) => (
-              <th key={c.key} className={cn('px-3 py-2 font-semibold uppercase tracking-wider text-[10px] whitespace-nowrap', c.align === 'right' ? 'text-right' : 'text-left')}>{c.header}</th>
+              <th key={c.key} className={cn('px-3 py-2 font-semibold uppercase tracking-wider text-xs whitespace-nowrap', c.align === 'right' ? 'text-right' : 'text-left')}>{c.header}</th>
             ))}
           </tr>
         </thead>

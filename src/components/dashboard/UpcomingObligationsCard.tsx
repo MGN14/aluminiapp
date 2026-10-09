@@ -179,7 +179,7 @@ export default function UpcomingObligationsCard() {
               </div>
             </div>
             {worst === 'overdue' && (
-              <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-destructive text-destructive-foreground">
+              <span className="shrink-0 text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-destructive text-destructive-foreground">
                 Vencidas
               </span>
             )}
@@ -212,7 +212,7 @@ export default function UpcomingObligationsCard() {
                   <TipoTile tipo={ev.tipo} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-semibold text-foreground leading-tight truncate">{ev.descripcion}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
                       <span className="font-medium text-foreground/70">{TIPO_LABEL[ev.tipo]}</span>
                       {' · '}
                       {fmtFecha(ev.fecha)}
@@ -223,7 +223,7 @@ export default function UpcomingObligationsCard() {
                     <span className={cn('text-[14px] font-bold tabular-nums leading-none', hasMonto ? 'text-foreground' : esCeroEstimado ? 'text-success' : 'text-muted-foreground/60')}>
                       {hasMonto ? `${ev.montoEstimado ? '≈ ' : ''}${fmtCop(ev.monto!)}` : esCeroEstimado ? '≈ $0' : '—'}
                     </span>
-                    <span className={cn('text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none', PILL[u])}>
+                    <span className={cn('text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none', PILL[u])}>
                       {pillLabel(dias)}
                     </span>
                   </div>
@@ -236,7 +236,7 @@ export default function UpcomingObligationsCard() {
               una fecha DIAN es ley, esta es estadística de tus propios pagos. */}
           {predicted.length > 0 && (
             <div className="mt-3 pt-3 border-t border-border/60 space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <Sparkles className="h-3.5 w-3.5 text-primary" /> Detectado en tus pagos
               </p>
               {predicted.map((p) => {
@@ -252,13 +252,13 @@ export default function UpcomingObligationsCard() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] font-semibold text-foreground leading-tight truncate">{p.description}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
                         Estimado · {p.occurrences} pagos cada ~{p.frequency_days} días
                       </p>
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-1">
                       <span className="text-[14px] font-bold tabular-nums leading-none text-foreground">≈ {fmtCop(p.estimated_amount)}</span>
-                      <span className={cn('text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none', PILL[u])}>
+                      <span className={cn('text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none', PILL[u])}>
                         {pillLabel(p.days_until)}
                       </span>
                     </div>
@@ -287,7 +287,7 @@ export default function UpcomingObligationsCard() {
           )}
 
           <div className="flex items-center justify-between pt-3">
-            <span className="text-[10px] text-muted-foreground">≈ estimado con tus facturas; el contador cierra la cifra</span>
+            <span className="text-xs text-muted-foreground">≈ estimado con tus facturas; el contador cierra la cifra</span>
             <span className="flex items-center gap-1 text-xs text-primary/80 group-hover:text-primary font-semibold transition-colors">
               Ver calendario completo <ArrowRight className="h-3.5 w-3.5" />
             </span>
