@@ -1034,21 +1034,21 @@ export default function Importaciones() {
           </div>
         )}
 
-        {/* ── Radar de abastecimiento: prioridad, futuros y cuándo montar ── */}
+        {/* ── Plan de abastecimiento: prioridad, futuros y cuándo montar ── */}
         {radar && (
-          <Card className="border-primary/25">
-            <CardContent className="py-4 px-4 space-y-3">
+          <Card className="imports-supply-plan border-border shadow-none">
+            <CardContent className="p-4 sm:p-5 space-y-5">
               <div className="flex items-center gap-2 flex-wrap">
                 <RadarIcon className="h-4 w-4 text-primary" />
-                <span className="text-sm font-semibold">Radar de abastecimiento</span>
+                <span className="text-lg font-bold">Plan de abastecimiento</span>
                 {/* Lead time total y cadencia BIEN visibles (pedido de Nico) */}
-                <span className="ml-auto flex items-center gap-2">
+                <span className="ml-auto flex flex-wrap items-center gap-2">
                   {radar.leadTime != null && (
                     <span
                       className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary"
                       title="Promedio real de tus pedidos: de producción a entregado (la cotización no cuenta — es tiempo de decisión)"
                     >
-                      <Clock className="h-3.5 w-3.5" /> Lead time ~{radar.leadTime}d
+                      <Clock className="h-3.5 w-3.5" /> Ciclo de llegada ≈{radar.leadTime} días
                     </span>
                   )}
                   {radar.cadencia != null && (
@@ -1056,63 +1056,70 @@ export default function Importaciones() {
                       className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-2.5 py-1 text-xs font-bold text-foreground"
                       title="Días promedio entre un pedido y el siguiente (últimos 6 pedidos)"
                     >
-                      <Ship className="h-3.5 w-3.5" /> Pedís cada ~{radar.cadencia}d
+                      <Ship className="h-3.5 w-3.5" /> Entre pedidos ≈{radar.cadencia} días
                     </span>
                   )}
                 </span>
               </div>
-              <div className="grid md:grid-cols-3 gap-3">
+              <div className="imports-supply-grid grid grid-cols-1 xl:grid-cols-2 gap-4">
                 {/* 1 · Prioridad: el que llega */}
                 {radar.proximo && (
-                  <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 space-y-1">
+                  <div className="imports-next-container rounded-xl border border-border bg-card p-4 sm:p-5 space-y-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-primary flex items-center gap-1">
-                      <PackageCheck className="h-3 w-3" /> Prioridad · llega{' '}
+                      <PackageCheck className="h-3 w-3" /> Próximo a bodega · llega{' '}
                       {radar.proximoDias != null
                         ? radar.proximoDias <= 0 ? 'YA' : `en ${radar.proximoDias} día${radar.proximoDias !== 1 ? 's' : ''}`
                         : '—'}
                     </p>
-                    <p className="text-sm font-semibold">
+                    <p className="text-lg font-bold">
                       {radar.proximo.r.proveedor_nombre}
                       {radar.proximo.r.ref_pedido && <span className="font-mono tabular-nums text-xs text-muted-foreground"> · {radar.proximo.r.ref_pedido}</span>}
-                      {radar.proximo.llega && <span className="font-normal text-xs text-muted-foreground"> — {fmtFechaCorta(radar.proximo.llega)}</span>}
+
                     </p>
-                    <div className="text-xs space-y-0.5">
+                    <div className="imports-arrival-details text-sm space-y-4">
                       {/* Desglose puerto→aduana→bodega: la aduana es la fecha
                           LÍMITE para tener el saldo girado (pedido de Nico) */}
-                      {radar.proximo.llega && radar.proximo.r.estado !== 'aduana' && radar.proximo.r.estado !== 'entregado' && (
-                        <p>
-                          <span className="text-muted-foreground">🛃 Aduana:</span>{' '}
-                          <span className="font-semibold">≈{fmtFechaCorta(isoAddDays(radar.proximo.llega, -nacProm))}</span>
-                          <span className="text-muted-foreground"> (límite de pago)</span>
-                          {' · '}
-                          <span className="text-muted-foreground">📦 Bodega:</span>{' '}
-                          <span className="font-semibold">≈{fmtFechaCorta(radar.proximo.llega)}</span>
-                        </p>
+                      {radar.proximo.llega && (
+                        <div className="imports-arrival-dates grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {radar.proximo.r.estado !== 'aduana' && radar.proximo.r.estado !== 'entregado' && <div>
+                            <p className="text-xs text-muted-foreground">Aduana · límite de pago</p>
+                            <p className="text-lg font-semibold">≈{fmtFechaCorta(isoAddDays(radar.proximo.llega, -nacProm))}</p>
+                          </div>}
+                          <div>
+                            <p className="text-xs text-muted-foreground">Llegada a bodega</p>
+                            <p className="text-lg font-semibold">≈{fmtFechaCorta(radar.proximo.llega)}</p>
+                          </div>
+                        </div>
                       )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border pt-4">
                       {radar.saldoProximo != null && radar.saldoProximo > 0 ? (
-                        <p><span className="text-muted-foreground">Saldo por girar:</span> <span className="font-mono tabular-nums font-semibold text-destructive">{fmtUSD0(radar.saldoProximo)}</span>
+                        <div><p className="text-xs text-muted-foreground">Saldo por girar · USD</p><p className="text-xl font-bold tabular-nums text-destructive">{fmtUSD0(radar.saldoProximo)}</p>
                           {radar.proximo.llega && radar.proximo.r.estado !== 'aduana' && radar.proximo.r.estado !== 'entregado' && (
-                            <span className="text-muted-foreground"> antes de aduana</span>
+                            <p className="text-xs text-muted-foreground">Antes de aduana</p>
                           )}
-                        </p>
+                        </div>
                       ) : (
-                        <p className="text-success font-medium">Mercancía 100% pagada ✓</p>
+                        <div><p className="text-xs text-muted-foreground">Mercancía</p><p className="text-success font-semibold">100% pagada</p></div>
                       )}
                       {radar.cajaNacionalizar != null && radar.cajaNacionalizar > 0 && (
-                        <p>
-                          <span className="text-muted-foreground">Caja para nacionalizar:</span>{' '}
-                          <span className="font-mono tabular-nums font-semibold">≈{fmtCOPShort(radar.cajaNacionalizar)}</span>
-                          <span className="text-muted-foreground"> (arancel + IVA + agencia)</span>
-                        </p>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Nacionalización · COP</p>{' '}
+                          <p className="text-xl font-bold tabular-nums">≈{fmtCOPShort(radar.cajaNacionalizar)}</p>
+                          <p className="text-xs text-muted-foreground">Arancel + IVA + agencia</p>
+                        </div>
                       )}
+                      </div>
                     </div>
+                    <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => openEdit(radar.proximo!.r)}>
+                      Revisá el contenedor
+                    </Button>
                   </div>
                 )}
 
                 {/* 2 · Los que vienen detrás — promedio de compra abierto */}
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-1">
+                <div className="imports-behind rounded-xl border border-border bg-muted/30 p-4 space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-                    <Factory className="h-3 w-3" /> Vienen detrás ({radar.detras.length})
+                    <Factory className="h-3 w-3" /> Después de este ({radar.detras.length})
                   </p>
                   {radar.smmPonderado != null && (
                     <p className="text-xs">
@@ -1139,7 +1146,7 @@ export default function Importaciones() {
                 {/* 3 · Alerta: cuándo montar el próximo pedido */}
                 {/* Misma fuente que la card de sugerencia — nunca se contradicen. */}
                 <div className={cn(
-                  'rounded-lg border px-3 py-2.5 space-y-1',
+                  'imports-next-order rounded-xl border p-4 sm:p-5 space-y-3',
                   reorder.suggestion?.diasParaDecidir != null && reorder.suggestion.diasParaDecidir <= 7
                     ? 'border-destructive/40 bg-destructive/5'
                     : reorder.suggestion?.diasParaDecidir != null && reorder.suggestion.diasParaDecidir <= 30
@@ -1154,7 +1161,7 @@ export default function Importaciones() {
                     <AlertTriangle className="h-3 w-3" /> Próximo pedido
                   </p>
                   {reorder.suggestion?.fechaLimite && reorder.suggestion.diasParaDecidir != null ? (
-                    <p className="text-xs leading-relaxed">
+                    <p className="text-sm leading-relaxed">
                       {reorder.suggestion.diasParaDecidir <= 0 ? (
                         reorder.retenidos.length > 0 || reorder.pedidosSinItems.length > 0 ? (
                           // Dos decisiones distintas (Nico 2026-08-02): con
@@ -1169,13 +1176,12 @@ export default function Importaciones() {
                         ) : (
                         <>
                           <span className="font-semibold text-destructive">Fecha límite alcanzada:</span>{' '}
-                          <strong>{fmtFechaCorta(reorder.suggestion.fechaLimite)}</strong>. Uno montado hoy
-                          queda en bodega ~<strong>{fmtFechaCorta(reorder.suggestion.llegadaSiPidoHoy)}</strong>.
+                          <strong className="imports-deadline">{fmtFechaCorta(reorder.suggestion.fechaLimite)}</strong><span className="block text-xs text-muted-foreground mt-3">Si montás el pedido hoy, llegaría a bodega ≈<strong>{fmtFechaCorta(reorder.suggestion.llegadaSiPidoHoy)}</strong>.</span>
                         </>
                         )
                       ) : (
                         <>
-                          Montalo antes del <strong>{fmtFechaCorta(reorder.suggestion.fechaLimite)}</strong>{' '}
+                          Montalo antes del <strong className="imports-deadline">{fmtFechaCorta(reorder.suggestion.fechaLimite)}</strong>{' '}
                           ({reorder.suggestion.diasParaDecidir} día{reorder.suggestion.diasParaDecidir !== 1 ? 's' : ''}) —
                           detalle en la card de arriba.
                         </>
@@ -1194,6 +1200,7 @@ export default function Importaciones() {
                       Calculando con stock físico, consumo y tránsito…
                     </p>
                   )}
+                  <Button type="button" variant="outline" size="sm" onClick={() => setView('cobertura')}>Revisá la cobertura</Button>
                 </div>
               </div>
             </CardContent>
@@ -1204,18 +1211,18 @@ export default function Importaciones() {
             dice CUÁNTOS contenedores hay en esa etapa ahora y cuánto demora
             en promedio (antes eran dos barras separadas y el "(N)" era el
             número de muestras del promedio, no los contenedores). */}
-        <Card>
-          <CardContent className="py-3 px-3 flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[180px] max-w-xs">
+        <Card className="imports-stage-filters shadow-none">
+          <CardContent className="p-4 space-y-4">
+            <div className="relative w-full sm:max-w-sm">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
-                placeholder="Buscar proveedor / referencia..."
+                aria-label="Buscá por proveedor o referencia" placeholder="Buscá proveedor o referencia"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="pl-8 h-8 text-sm"
+                className="pl-8 h-10 text-sm"
               />
             </div>
-            <div className="inline-flex bg-muted rounded-md p-0.5 gap-0.5 flex-wrap">
+            <div className="imports-stage-grid grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2">
               {(['abiertos', 'todos', ...IMPORT_ESTADOS_ORDER, 'cerrado'] as Filter[]).map(f => {
                 const esEstado = f !== 'abiertos' && f !== 'todos';
                 const count = f === 'abiertos'
@@ -1229,24 +1236,25 @@ export default function Importaciones() {
                   <button
                     key={f}
                     type="button"
+                    aria-pressed={filter === f}
                     onClick={() => setFilter(f)}
                     title={esEstado && prom != null
                       ? `${count} contenedor${count === 1 ? '' : 'es'} en esta etapa · demora promedio ${prom} días`
                       : undefined}
                     className={cn(
-                      'px-2.5 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap inline-flex items-center gap-1.5',
+                      'rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors flex flex-wrap items-center justify-between gap-1.5 text-left',
                       filter === f
-                        ? 'bg-background shadow-sm text-foreground'
-                        : 'text-muted-foreground hover:text-foreground',
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-muted/40',
                     )}
                   >
                     {f === 'abiertos' ? 'Abiertos' : f === 'todos' ? 'Todos' : IMPORT_ESTADO_LABEL[f as ImportEstado]}
-                    <span className={cn('font-mono tabular-nums font-semibold', count > 0 ? 'text-foreground' : 'text-muted-foreground/50')}>
+                    <span className={cn('font-mono tabular-nums font-semibold', filter === f ? 'text-primary-foreground' : count > 0 ? 'text-foreground' : 'text-muted-foreground')}>
                       {count}
                     </span>
                     {prom != null && (
-                      <span className="text-xs text-muted-foreground font-normal inline-flex items-center gap-0.5">
-                        <Clock className="h-2.5 w-2.5" />~{prom}d
+                      <span className={cn("w-full text-xs font-normal inline-flex items-center gap-1", filter === f ? "text-primary-foreground/85" : "text-muted-foreground")}>
+                        <Clock className="h-3 w-3" /> ≈{prom} días por etapa
                       </span>
                     )}
                   </button>
@@ -1257,9 +1265,9 @@ export default function Importaciones() {
         </Card>
 
         {/* Tabla */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">
+        <Card className="imports-order-list overflow-hidden shadow-none">
+          <CardHeader className="px-5 py-4 border-b border-border">
+            <CardTitle className="text-base font-bold">
               {filter === 'abiertos' ? 'Abiertos' : filter === 'todos' ? 'Todos' : IMPORT_ESTADO_LABEL[filter as ImportEstado]}
               <span className="text-muted-foreground ml-2">({filtered.length})</span>
             </CardTitle>
@@ -1268,6 +1276,12 @@ export default function Importaciones() {
             <div className="overflow-x-auto">
               <Table className="imports-orders-table">
                 <TableHeader>
+                  <TableRow className="imports-column-groups">
+                    <TableHead colSpan={2}>Contenedor</TableHead>
+                    <TableHead colSpan={3} className="text-center">Valores en USD</TableHead>
+                    <TableHead colSpan={5} className="text-center">Costos en COP</TableHead>
+                    <TableHead>Entrega</TableHead>
+                  </TableRow>
                   <TableRow className="bg-muted/80">
                     {/* Costos POR COLUMNA (pedido de Nico 2026-08-02: "cada
                         ítem debe ser una columna, debo poder ver esa info
@@ -1372,16 +1386,16 @@ export default function Importaciones() {
                       return (
                         <Fragment key={row.id}>
                         <TableRow
-                          className="cursor-pointer hover:bg-muted/40"
+                          className="imports-order-row cursor-pointer hover:bg-muted/40"
                           onClick={() => openEdit(row)}
                         >
                           <TableCell data-label="Pedido" className="text-sm">
                             <div className="font-medium flex items-center gap-1.5">
-                              {row.proveedor_nombre}
+                              <button type="button" className="text-left hover:underline" onClick={(event) => { event.stopPropagation(); openEdit(row); }} aria-label={`Abrí el contenedor ${row.ref_pedido || row.proveedor_nombre}`}>{row.proveedor_nombre}</button>
                             </div>
                             {/* Ref + inicio + días: el detalle de contexto que
                                 antes eran columnas propias, acá en chiquito. */}
-                            <div className="text-xs text-muted-foreground font-mono tabular-nums flex items-center gap-1.5 flex-wrap">
+                            <div className="imports-order-meta text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
                               {row.ref_pedido && <span>{row.ref_pedido}</span>}
                               {fechaInicio && (
                                 <span className="font-sans" title="Fecha en que se montó el pedido">
@@ -1459,22 +1473,22 @@ export default function Importaciones() {
                                 setModalOpts({ tab: 'costeo', upload });
                                 setShowModal(true);
                               };
-                              const warnBtn = 'text-xs text-amber-600 mt-0.5 whitespace-nowrap underline decoration-dotted underline-offset-2 hover:text-amber-700 block text-left';
+                              const warnBtn = 'imports-doc-action text-xs text-warning mt-2 rounded-md border border-warning/25 bg-warning/5 px-2 py-1.5 hover:bg-warning/10 block text-left';
                               if (!ds?.hasItems) {
-                                return <button type="button" className={warnBtn} onClick={abrirSubida('proforma')}>⚠ falta subir proforma → subila acá</button>;
+                                return <button type="button" className={warnBtn} onClick={abrirSubida('proforma')}>Subí la proforma</button>;
                               }
                               if (enviado && !ds.hasPacking) {
-                                return <button type="button" className={warnBtn} onClick={abrirSubida('packing')}>⚠ falta subir packing list → subilo acá</button>;
+                                return <button type="button" className={warnBtn} onClick={abrirSubida('packing')}>Subí el packing list</button>;
                               }
                               if (entregadoYa && !ds.hasPackingCosteado) {
-                                return <button type="button" className={warnBtn} onClick={abrirSubida('packing')}>⚠ falta packing list costeado → subilo acá</button>;
+                                return <button type="button" className={warnBtn} onClick={abrirSubida('packing')}>Subí el packing costeado</button>;
                               }
                               return null;
                             })()}
                             {/* Entregado pero sin declaración BanRep: la alerta
                                 vive acá, chiquita, para no engordar Cierre */}
                             {fechaEntrega && !tieneBanrep && (
-                              <div className="text-xs text-amber-600 mt-0.5 whitespace-nowrap">⚠ falta cierre BanRep</div>
+                              <div className="text-xs text-warning mt-2">Falta cierre BanRep</div>
                             )}
                           </TableCell>
                           {/* Total USD = mercancía + flete (el saldo sigue siendo vs mercancía) */}
@@ -1484,10 +1498,13 @@ export default function Importaciones() {
                           >
                             {fmtUSD(Number(row.monto_total_usd ?? 0) + flete.usd)}
                           </TableCell>
-                          <TableCell data-label="Saldo USD" className="text-right text-sm font-mono tabular-nums font-bold text-destructive">{fmtUSD0(row.saldo_pendiente_usd)}</TableCell>
+                          <TableCell data-label="Saldo USD" className={cn("text-right text-sm tabular-nums font-semibold", row.saldo_pendiente_usd > 0 ? "text-destructive" : row.saldo_pendiente_usd < 0 ? "text-success" : "text-muted-foreground")}>
+                            {fmtUSD0(row.saldo_pendiente_usd)}
+                            {row.saldo_pendiente_usd < 0 && <span className="block text-xs font-normal">A favor</span>}
+                          </TableCell>
                           {/* Costos por columna — compactos, exacto en tooltip */}
                           <TableCell data-label="Flete" className="text-right text-xs font-mono tabular-nums" title="Flete internacional">
-                            {flete.usd > 0 ? fmtUSD0(flete.usd) : flete.cop > 0 ? fmtCOPShort(flete.cop) : <span className="text-muted-foreground">—</span>}
+                            {flete.usd > 0 ? fmtUSD0(flete.usd) : flete.cop > 0 ? `${fmtCOPShort(flete.cop)} COP` : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                           <TableCell data-label="Mercancía COP" className="text-right text-xs font-mono tabular-nums" title={mercanciaCop != null ? `Mercancía ${fmtUSD(row.monto_total_usd)} × TRM ${trmEst ? Math.round(trmEst).toLocaleString('es-CO') : '—'} = $${Math.round(mercanciaCop).toLocaleString('es-CO')} COP` : 'Sin TRM para convertir'}>
                             {mercanciaCop != null && mercanciaCop > 0 ? fmtCOPShort(mercanciaCop) : <span className="text-muted-foreground">—</span>}

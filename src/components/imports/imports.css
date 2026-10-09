@@ -308,3 +308,85 @@
     box-shadow: 0 2px 8px hsl(var(--foreground) / .05);
   }
 }
+
+/* Supply planning and order list: dates, decisions and currencies separated. */
+.imports-supply-plan .imports-supply-grid { align-items: stretch; }
+.imports-next-container { border-top: 3px solid hsl(var(--primary)); }
+.imports-next-order { order: 1; }
+.imports-behind { order: 2; }
+.imports-arrival-dates > div {
+  padding: .875rem 1rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: .75rem;
+  background: hsl(var(--muted) / .6);
+}
+.imports-arrival-dates > div:last-child {
+  background: hsl(var(--primary) / .06);
+  border-color: hsl(var(--primary) / .18);
+}
+.imports-deadline {
+  display: block;
+  font-size: 1.75rem;
+  letter-spacing: -.04em;
+  line-height: 1.35;
+  margin-top: .5rem;
+}
+.imports-stage-grid button {
+  min-width: 0;
+  min-height: 3.25rem;
+}
+.imports-stage-grid button > span:first-child { font-family: inherit; font-weight: 700; }
+.imports-workspace .imports-orders-table th {
+  background: hsl(var(--muted) / .65);
+  color: hsl(var(--muted-foreground));
+  border-bottom: 1px solid hsl(var(--border));
+  padding: .625rem .75rem;
+  font-size: .75rem;
+}
+.imports-workspace .imports-orders-table .imports-column-groups th {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: .75rem;
+  font-weight: 700;
+  padding-top: .875rem;
+  padding-bottom: .875rem;
+}
+.imports-orders-table .imports-column-groups th + th { border-left: 1px solid hsl(var(--border)); }
+.imports-workspace .imports-orders-table td {
+  padding: 1rem .75rem;
+  vertical-align: middle;
+  font-size: .8125rem;
+}
+.imports-order-list .font-mono { font-family: inherit; }
+.imports-order-meta {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .25rem;
+  margin-top: .375rem;
+}
+.imports-order-meta span { white-space: nowrap; }
+.imports-orders-table td[data-label="Pedido"] { min-width: 165px; }
+.imports-orders-table td[data-label="Estado"] { min-width: 180px; }
+.imports-orders-table td[data-label="Estado"] button { max-width: 185px; }
+.imports-orders-table td[data-label="Total COP"] {
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: .9375rem;
+  font-weight: 700;
+}
+.imports-workspace .imports-orders-table tbody tr:nth-child(even) { background: hsl(var(--muted) / .35); }
+.imports-workspace .imports-orders-table tbody tr:hover { background: hsl(var(--primary) / .045); }
+.imports-orders-table td[data-label="Llegada a bodega"] { min-width: 155px; }
+.imports-doc-action { white-space: normal; line-height: 1.45; }
+@media (min-width: 1280px) {
+  .imports-supply-grid:has(.imports-next-container) .imports-next-container { grid-row: span 2; }
+}
+@media (max-width: 639px) {
+  .imports-workspace .imports-orders-table td[data-label] {
+    min-width: 0;
+    padding: .5rem 0;
+    vertical-align: top;
+  }
+  .imports-order-meta { margin-top: 0; }
+  .imports-stage-grid button { min-height: 4rem; }
+}
