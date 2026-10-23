@@ -43,6 +43,7 @@ const VENCIMIENTOS_RETEFUENTE_2026: Record<number, string[]> = {
 };
 
 import { MONTH_LABELS as MESES_RETEFUENTE } from '@/lib/constants';
+import { diasRestantes } from '@/lib/obligationWindows';
 
 // Renta personas jurídicas 2026 (declaración año gravable 2025)
 const VENCIMIENTOS_RENTA_2026: Record<number, string> = {
@@ -59,10 +60,6 @@ interface Obligacion {
   fecha: Date;
   periodo: string;
   completada?: boolean;
-}
-
-function diasRestantes(fecha: Date): number {
-  return Math.ceil((fecha.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
 function getEstado(dias: number, completada: boolean): 'completada' | 'vencida' | 'urgente' | 'proxima' | 'ok' {

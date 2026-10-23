@@ -18,9 +18,10 @@ import {
   CalendarEvent,
 } from '@/lib/dianCalendar2026';
 
-export function diasRestantes(fecha: Date): number {
-  return Math.ceil((fecha.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-}
+// Días calendario hasta la fecha (mediodía vs mediodía: "Hoy" dura todo el
+// día). Vive en lib para probarlo; se re-exporta porque VisitaDIAN lo importa de acá.
+import { diasRestantes } from '@/lib/obligationWindows';
+export { diasRestantes };
 
 export interface UseUpcomingObligationsResult {
   events: CalendarEvent[];

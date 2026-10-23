@@ -1,21 +1,21 @@
 import { useMemo } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Link } from 'react-router-dom';
 import {
-  ArrowRight, CalendarClock, AlertTriangle, Sparkles, Check, X,
+  CalendarClock, AlertTriangle, Sparkles, Check, X,
   Receipt, Percent, Landmark, Building2, Home, Users, ShieldCheck, Zap,
   Briefcase, PiggyBank, CreditCard, HandCoins, Ship, CircleDot, type LucideIcon,
 } from 'lucide-react';
-import { useUpcomingObligations, diasRestantes } from '@/hooks/useUpcomingObligations';
+import { useUpcomingObligations } from '@/hooks/useUpcomingObligations';
 import { usePaidObligations } from '@/hooks/usePaidObligations';
 import { usePredictedObligations } from '@/hooks/usePredictedObligations';
-import { TIPO_LABEL, type ObligacionTipo } from '@/lib/dianCalendar2026';
+import { TIPO_LABEL, type CalendarEvent, type ObligacionTipo } from '@/lib/dianCalendar2026';
+import { diasRestantes, sumaMontos, ventanasObligaciones, DIAS_SEMANA } from '@/lib/obligationWindows';
 import { cn } from '@/lib/utils';
-import { urgencyOf, pillLabel, ROW_BG, PILL, fmtCop, fmtFecha, type Urgency } from './cardKit';
+import { DashCard, DashHeader, DashItem, DashFooter, DashEmpty, UrgencyPill, urgencyOf, fmtCop, fmtFecha, type Urgency } from './cardKit';
 
 const MAX_ITEMS = 5;
-const UPCOMING_WINDOW_DAYS = 45;
 
 /** Ícono y color por tipo: se lee de un vistazo qué es cada fila. */
 const TIPO_ICON: Record<ObligacionTipo, LucideIcon> = {
@@ -52,6 +52,38 @@ const TIPO_TILE: Record<ObligacionTipo, string> = {
   otro: 'bg-slate-500/15 text-slate-600 dark:text-slate-300',
 };
 
+/** Fondo de las cajas del encabezado: como ROW_BG pero sin hover (la
+ *  tarjeta entera es un link, no queremos que "respiren" solas). */
+const VENTANA_BG: Record<Urgency, string> = {
+  overdue: 'bg-destructive/10 border-destructive/40',
+  critical: 'bg-destructive/[0.06] border-destructive/30',
+  soon: 'bg-orange-500/[0.07] border-orange-300/70 dark:border-orange-800/60',
+  week: 'bg-amber-500/[0.06] border-amber-300/60 dark:border-amber-800/50',
+  later: 'bg-background/50 border-border/60',
+};
+
+/**
+ * Caja de ventana del encabezado: cuántas obligaciones y cuánta plata.
+ * Nico (2026-10-22): "ese dato de 'en 45 días' no me sirve de nada; hazlo
+ * por este mes y por los próximos 7 días". Pensada para 4 columnas (~130 px
+ * por caja): el monto no se trunca, el rótulo sí.
+ */
+function Ventana({ label, items, urgency = 'later' }: { label: string; items: CalendarEvent[]; urgency?: Urgency }) {
+  const n = items.length;
+  const total = sumaMontos(items);
+  return (
+    <div className={cn('rounded-xl border px-3 py-2 min-w-0', VENTANA_BG[urgency])}>
+      <p className="text-xs font-semibold text-muted-foreground truncate">{label}</p>
+      <p className={cn('text-[15px] font-extrabold tabular-nums tracking-tight leading-tight mt-0.5 whitespace-nowrap', total > 0 ? 'text-foreground' : 'text-muted-foreground/60')}>
+        {total > 0 ? `≈ ${fmtCop(total)}` : '—'}
+      </p>
+      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+        {n === 0 ? 'Sin vencimientos' : `${n} ${n === 1 ? 'obligación' : 'obligaciones'}`}
+      </p>
+    </div>
+  );
+}
+
 /** Cuadro de ícono por tipo. */
 function TipoTile({ tipo, className }: { tipo: ObligacionTipo; className?: string }) {
   const Icon = TIPO_ICON[tipo] ?? CircleDot;
@@ -63,83 +95,59 @@ function TipoTile({ tipo, className }: { tipo: ObligacionTipo; className?: strin
 }
 
 export default function UpcomingObligationsCard() {
-  const { events, nitDigit } = useUpcomingObligations(UPCOMING_WINDOW_DAYS);
+  const { events, nitDigit } = useUpcomingObligations();
   const { isPaid, togglePaid } = usePaidObligations();
   // Gastos recurrentes detectados en la conciliación (estimados, nunca DIAN).
   const { predicted, confirm, dismiss } = usePredictedObligations();
 
-  // Mantiene vencidas no pagadas (d < 0) — solo el checkbox las saca de la lista.
-  // Ordena: vencidas primero (más vencida arriba), luego por fecha ascendente.
-  const upcoming = useMemo(() => {
-    return events
-      .filter(ev => {
-        const d = diasRestantes(ev.fecha);
-        return d <= UPCOMING_WINDOW_DAYS && !isPaid(ev);
-      })
-      .sort((a, b) => a.fecha.getTime() - b.fecha.getTime())
-      .slice(0, MAX_ITEMS);
-  }, [events, isPaid]);
-
-  const totalVentana = useMemo(
-    () => upcoming.reduce((s, ev) => s + (ev.monto && ev.monto > 0 ? ev.monto : 0), 0),
-    [upcoming],
+  // Solo pendientes (el checkbox de "pagada" las saca), repartidas en las
+  // ventanas que sí sirven: vencidas, próximos 7 días y lo que va del mes.
+  // La lista trae vencidas primero (más vencida arriba) y luego por fecha.
+  const { vencidas, semana, mes, lista } = useMemo(
+    () => ventanasObligaciones(events.filter(ev => !isPaid(ev))),
+    [events, isPaid],
   );
+  const upcoming = lista.slice(0, MAX_ITEMS);
+  const ocultas = lista.length - upcoming.length;
+  const mesCorto = new Date().toLocaleDateString('es-CO', { month: 'short' }).replace('.', '');
+  // La caja de la semana toma el color de lo más cercano a vencer.
+  const urgenciaSemana: Urgency = semana.length
+    ? urgencyOf(Math.min(...semana.map(ev => diasRestantes(ev.fecha))))
+    : 'later';
 
   // Estado sin configurar: CTA suave.
   if (nitDigit === null) {
     return (
-      <Link to="/visita-dian" className="block group">
-        <Card className="overflow-hidden border border-border hover:border-primary/30 transition-colors cursor-pointer h-full rounded-2xl">
-          <CardContent className="p-5 h-full flex flex-col justify-center">
-            <div className="flex items-start gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-muted/60 flex items-center justify-center shrink-0">
-                <CalendarClock className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Próximas obligaciones</p>
-                <p className="text-base font-bold text-foreground mt-0.5">Configura tu NIT</p>
-                <p className="text-xs text-muted-foreground leading-snug mt-1">
-                  Activa el calendario DIAN con el último dígito de tu NIT.
-                </p>
-                <div className="flex items-center gap-1 text-xs text-primary/80 group-hover:text-primary font-semibold transition-colors pt-2">
-                  Configurar ahora <ArrowRight className="h-3.5 w-3.5" />
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <Link to="/visita-dian" className="block group h-full">
+        <DashEmpty
+          icon={CalendarClock}
+          tone="muted"
+          title="Próximas obligaciones"
+          headline="Configura tu NIT"
+          hint="Activa el calendario DIAN con el último dígito de tu NIT."
+          cta="Configurar ahora"
+        />
       </Link>
     );
   }
 
   // Sin obligaciones próximas (ni predichos que mostrar).
-  if (upcoming.length === 0 && predicted.length === 0) {
+  if (lista.length === 0 && predicted.length === 0) {
     return (
-      <Link to="/visita-dian" className="block group">
-        <Card className="overflow-hidden border border-success/30 bg-gradient-to-br from-success/10 via-card to-card hover:border-success/50 transition-colors cursor-pointer h-full rounded-2xl">
-          <CardContent className="p-5 h-full flex flex-col justify-center">
-            <div className="flex items-start gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-success/15 flex items-center justify-center shrink-0">
-                <CalendarClock className="h-5 w-5 text-success" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Próximas obligaciones</p>
-                <p className="text-base font-bold text-success mt-0.5">Todo tranquilo</p>
-                <p className="text-xs text-muted-foreground leading-snug mt-1">
-                  No tenés vencimientos en los próximos {UPCOMING_WINDOW_DAYS} días.
-                </p>
-                <div className="flex items-center gap-1 text-xs text-primary/80 group-hover:text-primary font-semibold transition-colors pt-2">
-                  Ver calendario completo <ArrowRight className="h-3.5 w-3.5" />
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <Link to="/visita-dian" className="block group h-full">
+        <DashEmpty
+          icon={CalendarClock}
+          tone="success"
+          title="Próximas obligaciones"
+          headline="Todo tranquilo"
+          hint={`No tenés vencimientos en los próximos ${DIAS_SEMANA} días ni en lo que queda del mes.`}
+          cta="Ver calendario completo"
+        />
       </Link>
     );
   }
 
-  const worst = upcoming.reduce<Urgency>((acc, ev) => {
+  const worst = lista.reduce<Urgency>((acc, ev) => {
     const u = urgencyOf(diasRestantes(ev.fecha));
     const rank: Record<Urgency, number> = { overdue: 0, critical: 1, soon: 2, week: 3, later: 4 };
     return rank[u] < rank[acc] ? u : acc;
@@ -147,42 +155,27 @@ export default function UpcomingObligationsCard() {
   const alarm = worst === 'overdue' || worst === 'critical' || worst === 'soon';
 
   return (
-    <Link to="/visita-dian" className="block group">
-      <Card
-        className={cn(
-          'overflow-hidden border transition-colors cursor-pointer h-full rounded-2xl',
-          alarm
-            ? 'border-destructive/30 bg-gradient-to-br from-destructive/[0.07] via-card to-card hover:border-destructive/50'
-            : 'border-border bg-gradient-to-br from-primary/[0.04] via-card to-card hover:border-primary/40',
-        )}
-      >
-        <CardContent className="p-4 sm:p-5">
-          {/* Encabezado: qué es, cuántas y cuánta plata en la ventana */}
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={cn('w-11 h-11 rounded-2xl flex items-center justify-center shrink-0', alarm ? 'bg-destructive/15' : 'bg-primary/10')}>
-                {alarm
-                  ? <AlertTriangle className="h-5 w-5 text-destructive" strokeWidth={2.25} />
-                  : <CalendarClock className="h-5 w-5 text-primary" strokeWidth={2.25} />}
-              </div>
-              <div className="min-w-0">
-                <p className="text-[15px] font-bold tracking-tight text-foreground leading-tight">Próximas obligaciones</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {upcoming.length} en {UPCOMING_WINDOW_DAYS} días
-                  {totalVentana > 0 && (
-                    <>
-                      {' · '}
-                      <span className="font-semibold text-foreground tabular-nums">≈ {fmtCop(totalVentana)}</span>
-                    </>
-                  )}
-                </p>
-              </div>
-            </div>
-            {worst === 'overdue' && (
-              <span className="shrink-0 text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-destructive text-destructive-foreground">
-                Vencidas
-              </span>
-            )}
+    <Link to="/visita-dian" className="block group h-full">
+      <DashCard tone={alarm ? 'alarm' : 'default'}>
+        <CardContent className="p-4 sm:p-5 h-full flex flex-col">
+          {/* Encabezado: qué es + vencidas sin pagar */}
+          <DashHeader
+            icon={alarm ? AlertTriangle : CalendarClock}
+            tone={alarm ? 'alarm' : 'default'}
+            title="Próximas obligaciones"
+            subtitle={
+              vencidas.length
+                ? <span className="text-destructive font-semibold">{vencidas.length} {vencidas.length === 1 ? 'vencida' : 'vencidas'} sin pagar</span>
+                : `Próximos ${DIAS_SEMANA} días y mes en curso`
+            }
+          />
+
+          {/* Las dos ventanas que pidió Nico: cuánto sale esta semana y cuánto
+              en el mes. Suman TODO lo pendiente de la ventana, no solo las 5
+              filas que caben abajo. */}
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <Ventana label={`Próximos ${DIAS_SEMANA} días`} items={semana} urgency={urgenciaSemana} />
+            <Ventana label={`Este mes · ${mesCorto}`} items={mes} />
           </div>
 
           <div className="space-y-2">
@@ -193,44 +186,50 @@ export default function UpcomingObligationsCard() {
               // Estimado en $0 (saldo a favor cubre el período) ≠ sin dato.
               const esCeroEstimado = !hasMonto && ev.montoEstimado && ev.monto === 0;
               return (
-                <div
+                <DashItem
                   key={ev.id}
-                  className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 border transition-colors', ROW_BG[u])}
-                  title={ev.detalle ?? undefined}
-                >
-                  <span
-                    onClick={e => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      togglePaid(ev);
-                    }}
-                    className="shrink-0 flex items-center"
-                    title="Marcar como pagada"
-                  >
-                    <Checkbox className="h-4 w-4 rounded-md" />
-                  </span>
-                  <TipoTile tipo={ev.tipo} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-foreground leading-tight truncate">{ev.descripcion}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                  urgency={u}
+                  titleAttr={ev.detalle ?? ev.descripcion}
+                  leading={
+                    <>
+                      <span
+                        onClick={e => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          togglePaid(ev);
+                        }}
+                        className="shrink-0 flex items-center"
+                        title="Marcar como pagada"
+                      >
+                        <Checkbox className="h-4 w-4 rounded-md" />
+                      </span>
+                      <TipoTile tipo={ev.tipo} />
+                    </>
+                  }
+                  title={ev.descripcion}
+                  value={
+                    <span className={hasMonto ? undefined : esCeroEstimado ? 'text-success' : 'text-muted-foreground/60'}>
+                      {hasMonto ? `${ev.montoEstimado ? '≈ ' : ''}${fmtCop(ev.monto!)}` : esCeroEstimado ? '≈ $0' : '—'}
+                    </span>
+                  }
+                  subtitle={
+                    <>
                       <span className="font-medium text-foreground/70">{TIPO_LABEL[ev.tipo]}</span>
                       {' · '}
                       {fmtFecha(ev.fecha)}
                       {ev.detalle ? ` · ${ev.detalle}` : ''}
-                    </p>
-                  </div>
-                  <div className="shrink-0 flex flex-col items-end gap-1">
-                    <span className={cn('text-[14px] font-bold tabular-nums leading-none', hasMonto ? 'text-foreground' : esCeroEstimado ? 'text-success' : 'text-muted-foreground/60')}>
-                      {hasMonto ? `${ev.montoEstimado ? '≈ ' : ''}${fmtCop(ev.monto!)}` : esCeroEstimado ? '≈ $0' : '—'}
-                    </span>
-                    <span className={cn('text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none', PILL[u])}>
-                      {pillLabel(dias)}
-                    </span>
-                  </div>
-                </div>
+                    </>
+                  }
+                  pill={<UrgencyPill days={dias} />}
+                />
               );
             })}
           </div>
+          {ocultas > 0 && (
+            <p className="text-xs text-muted-foreground mt-2 px-1">
+              +{ocultas} más en el calendario
+            </p>
+          )}
 
           {/* Predichos desde la conciliación — SIEMPRE marcados "estimado":
               una fecha DIAN es ley, esta es estadística de tus propios pagos. */}
@@ -239,30 +238,22 @@ export default function UpcomingObligationsCard() {
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <Sparkles className="h-3.5 w-3.5 text-primary" /> Detectado en tus pagos
               </p>
-              {predicted.map((p) => {
-                const u = urgencyOf(p.days_until);
-                return (
-                  <div
-                    key={p.pattern_key}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 border border-dashed border-border bg-muted/20 hover:bg-muted/40 transition-colors"
-                    title={`Se repitió ${p.occurrences} veces, cada ~${p.frequency_days} días (confianza ${Math.round(p.confidence * 100)}%).`}
-                  >
+              {predicted.map((p) => (
+                <DashItem
+                  key={p.pattern_key}
+                  className="border-dashed bg-muted/20 hover:bg-muted/40"
+                  titleAttr={`Se repitió ${p.occurrences} veces, cada ~${p.frequency_days} días (confianza ${Math.round(p.confidence * 100)}%).`}
+                  leading={
                     <span className="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
                       <Sparkles className="h-4 w-4" strokeWidth={2.25} />
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-foreground leading-tight truncate">{p.description}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        Estimado · {p.occurrences} pagos cada ~{p.frequency_days} días
-                      </p>
-                    </div>
-                    <div className="shrink-0 flex flex-col items-end gap-1">
-                      <span className="text-[14px] font-bold tabular-nums leading-none text-foreground">≈ {fmtCop(p.estimated_amount)}</span>
-                      <span className={cn('text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full leading-none', PILL[u])}>
-                        {pillLabel(p.days_until)}
-                      </span>
-                    </div>
-                    <span className="flex flex-col gap-1 shrink-0">
+                  }
+                  title={p.description}
+                  value={`≈ ${fmtCop(p.estimated_amount)}`}
+                  subtitle={`Estimado · ${p.occurrences} pagos cada ~${p.frequency_days} días`}
+                  pill={<UrgencyPill days={p.days_until} />}
+                  actions={
+                    <span className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         title="Sí, es un pago fijo — crear la obligación"
@@ -280,20 +271,15 @@ export default function UpcomingObligationsCard() {
                         <X className="h-3.5 w-3.5" strokeWidth={2.5} />
                       </button>
                     </span>
-                  </div>
-                );
-              })}
+                  }
+                />
+              ))}
             </div>
           )}
 
-          <div className="flex items-center justify-between pt-3">
-            <span className="text-xs text-muted-foreground">≈ estimado con tus facturas; el contador cierra la cifra</span>
-            <span className="flex items-center gap-1 text-xs text-primary/80 group-hover:text-primary font-semibold transition-colors">
-              Ver calendario completo <ArrowRight className="h-3.5 w-3.5" />
-            </span>
-          </div>
+          <DashFooter note="≈ estimado con tus facturas; el contador cierra la cifra">Ver calendario completo</DashFooter>
         </CardContent>
-      </Card>
+      </DashCard>
     </Link>
   );
 }
