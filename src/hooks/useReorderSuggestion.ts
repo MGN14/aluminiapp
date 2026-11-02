@@ -117,6 +117,34 @@ function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Ventas por remisión desde una fecha: la referencia TAL COMO se despachó
+ * (con sufijo de color si el equipo lo usa). PAGINADO: PostgREST corta en
+ * 1.000 filas EN SILENCIO (H5) y esta era la única consulta del módulo sin
+ * paginar — con 31 remisiones en 90 días (nov 2026) no se alcanzaba, pero
+ * el día que creciera la demanda se truncaría sin aviso. La usan la ventana
+ * de consumo (90d) y "lo que ya llegó" (desde la entrega más vieja).
+ */
+async function fetchVentasRemision(desdeIso: string): Promise<VentaRow[]> {
+  const db = supabase as never as { from: (t: string) => any };
+  const PAGE = 1000;
+  const out: VentaRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from('remision_items')
+      .select('id, reference, units, remisiones!inner(date, remision_type)')
+      .eq('remisiones.remision_type', 'venta')
+      .gte('remisiones.date', desdeIso)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as { reference: string; units: number; remisiones: { date: string } }[];
+    for (const r of page) out.push({ reference: r.reference, units: Number(r.units ?? 0), date: r.remisiones?.date ?? '' });
+    if (page.length < PAGE) break;
+  }
+  return out;
+}
+
 /** Fecha de entrada a un estado según el historial embebido del pedido. */
 function fechaDeEstado(r: ImportRow, estado: string): string | null {
   const h = (r.import_estado_history ?? []).find((x) => x.estado === estado);
@@ -234,23 +262,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
       const items = rows.filter((r) => (conPacking.has(r.import_id) ? (r.source ?? 'packing') === 'packing' : true));
 
       const fechas = entregadosRecientes.map((r) => fechaEntregaImport(r)).filter((f): f is string => !!f).sort();
-      const ventas: VentaRow[] = [];
-      if (fechas[0]) {
-        const PAGE = 1000;
-        for (let from = 0; ; from += PAGE) {
-          const { data: v, error: e } = await db
-            .from('remision_items')
-            .select('id, reference, units, remisiones!inner(date, remision_type)')
-            .eq('remisiones.remision_type', 'venta')
-            .gte('remisiones.date', fechas[0])
-            .order('id', { ascending: true })
-            .range(from, from + PAGE - 1);
-          if (e) throw e;
-          const page = (v ?? []) as { reference: string; units: number; remisiones: { date: string } }[];
-          for (const r of page) ventas.push({ reference: r.reference, units: Number(r.units ?? 0), date: r.remisiones?.date ?? '' });
-          if (page.length < PAGE) break;
-        }
-      }
+      const ventas: VentaRow[] = fechas[0] ? await fetchVentasRemision(fechas[0]) : [];
       return { items, ventas };
     },
     staleTime: 10 * 60_000,
@@ -265,15 +277,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     queryFn: async () => {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - CONSUMO_VENTANA_DIAS);
-      const cutoffIso = cutoff.toISOString().slice(0, 10);
-      const { data, error } = await (supabase as never as { from: (t: string) => any })
-        .from('remision_items')
-        .select('reference, units, remisiones!inner(date, remision_type)')
-        .eq('remisiones.remision_type', 'venta')
-        .gte('remisiones.date', cutoffIso);
-      if (error) throw error;
-      return ((data ?? []) as { reference: string; units: number; remisiones: { date: string } }[])
-        .map((r) => ({ reference: r.reference, units: Number(r.units ?? 0), date: r.remisiones?.date ?? '' }));
+      return fetchVentasRemision(cutoff.toISOString().slice(0, 10));
     },
     staleTime: 10 * 60_000,
     gcTime: 60 * 60_000,
