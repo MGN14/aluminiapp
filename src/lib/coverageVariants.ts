@@ -15,11 +15,20 @@
  *     entre las variantes proporcional a su demanda (marcado "estimado") —
  *     el día que el inventario discrimine color, el reparto desaparece solo.
  *
- * La proyección de quiebre por variante reusa projectQuiebres del motor.
+ * La proyección de quiebre por variante reusa projectQuiebres del motor, y se
+ * corre DOS veces: con todo el pipeline (la fecha del banner) y SIN los lotes
+ * que siguen en fábrica ("¿cuánto aguanto si el contenedor de China se
+ * demora?"). La segunda es una lectura, no un filtro del ancla: la fecha de
+ * pedido no cambia (regla de la auditoría 2026-08-02).
  */
 
 import { projectQuiebres, type QuiebreProducto, type TransitoItem } from '@/lib/reorderSuggestion';
 import { refFamilyKey, variantKey, colorLabel, colorFromSuffix } from '@/lib/refFamily';
+
+/** Umbral (días) para marcar "depende de fábrica": con solo lo embarcado la
+ *  variante quiebra a ≤ estos días, pero con fábrica no. Mismo corte rojo de
+ *  la tabla de Cobertura. */
+export const DEPENDE_FABRICA_DIAS = 45;
 
 export interface VentaRow {
   /** Referencia tal como salió en la remisión (con o sin sufijo). */
@@ -41,6 +50,13 @@ export interface VarianteCobertura extends QuiebreProducto {
   color: string;
   /** true = stock repartido desde la -5 por mezcla de demanda (no contado). */
   stockEstimado: boolean;
+  /** Cobertura contando SOLO bodega + embarcado (sin lo que sigue en
+   *  fábrica). null = no quiebra dentro del horizonte (o sin consumo). */
+  diasCoberturaEmbarcado: number | null;
+  fechaQuiebreEmbarcado: string | null;
+  /** true = con solo lo embarcado quiebra en ≤ DEPENDE_FABRICA_DIAS pero con
+   *  fábrica no: la cobertura depende de que ese contenedor salga a tiempo. */
+  dependeDeFabrica: boolean;
 }
 
 export interface VariantPrimitives {
@@ -274,22 +290,55 @@ export function buildVariantPrimitives(params: BuildVariantsParams): VariantPrim
   };
 }
 
-/** Decora los quiebres del motor con color/familia/stockEstimado. */
+/** Decora los quiebres del motor con color/familia/stockEstimado y, si se
+ *  pasa la corrida sin fábrica, con la cobertura "solo embarcado". */
 export function decorateVariants(
   quiebres: QuiebreProducto[],
   prims: VariantPrimitives,
+  /** Misma proyección SIN los lotes de fábrica (projectQuiebresSinFabrica).
+   *  Si no se pasa, "solo embarcado" se iguala a la cobertura total. */
+  sinFabrica?: QuiebreProducto[],
 ): VarianteCobertura[] {
   const estimadoPorKey = new Map(prims.stockRows.map((r) => [r.productId, r.estimado]));
   const keyPorLabel = new Map(prims.stockRows.map((r) => [r.reference, r.productId]));
+  const sinFabricaPorRef = new Map((sinFabrica ?? []).map((q) => [q.reference, q]));
   return quiebres.map((q) => {
     const key = keyPorLabel.get(q.reference) ?? variantKey(q.reference);
+    const emb = sinFabricaPorRef.get(q.reference);
+    const diasCoberturaEmbarcado = emb ? emb.diasCobertura : q.diasCobertura;
+    const fechaQuiebreEmbarcado = emb ? emb.fechaQuiebre : q.fechaQuiebre;
+    const dependeDeFabrica = !q.sinConsumo
+      && diasCoberturaEmbarcado !== null && diasCoberturaEmbarcado <= DEPENDE_FABRICA_DIAS
+      && (q.diasCobertura === null || q.diasCobertura > DEPENDE_FABRICA_DIAS);
     return {
       ...q,
       key,
       familia: refFamilyKey(key),
       color: colorLabel(key),
       stockEstimado: estimadoPorKey.get(key) ?? false,
+      diasCoberturaEmbarcado,
+      fechaQuiebreEmbarcado,
+      dependeDeFabrica,
     };
+  });
+}
+
+/** Segunda corrida del motor SIN los lotes que siguen en fábrica: bodega +
+ *  embarcado. Pura y barata; alimenta la columna "Solo embarcado". Un lote
+ *  sin etapa se conserva (no hay evidencia de que esté en China). */
+export function projectQuiebresSinFabrica(params: {
+  todayIso: string;
+  prims: VariantPrimitives;
+  ventanaDias: number;
+}): QuiebreProducto[] {
+  const { todayIso, prims, ventanaDias } = params;
+  return projectQuiebres({
+    todayIso,
+    stock: prims.stockRows,
+    salidas: prims.salidas,
+    transito: prims.transito.filter((t) => t.etapa !== 'fabrica'),
+    ventanaDias,
+    consumoPorProducto: prims.consumoPorVariante,
   });
 }
 
@@ -303,5 +352,6 @@ export function buildCoverageVariants(params: BuildVariantsParams): VarianteCobe
     ventanaDias: params.ventanaDias,
     consumoPorProducto: prims.consumoPorVariante,
   });
-  return decorateVariants(quiebres, prims);
+  const sinFabrica = projectQuiebresSinFabrica({ todayIso: params.todayIso, prims, ventanaDias: params.ventanaDias });
+  return decorateVariants(quiebres, prims, sinFabrica);
 }

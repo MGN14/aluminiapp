@@ -20,12 +20,20 @@ import {
   CONSUMO_VENTANA_DIAS,
   type ImportFechas,
   type TransitoItem,
+  type EtapaLote,
   type ReorderSuggestion,
 } from '@/lib/reorderSuggestion';
 import { refFamilyKey, variantKey, applyColorSuffix, colorFromSuffix } from '@/lib/refFamily';
 import { computeShrinkage, shrinkageIndex, type ShrinkageResult } from '@/lib/shrinkageRate';
 import { computeFamilyDemand, type FamilyDemand, type DemandMovement } from '@/lib/demandModel';
-import { buildVariantPrimitives, decorateVariants, type VarianteCobertura, type VentaRow } from '@/lib/coverageVariants';
+import { buildVariantPrimitives, decorateVariants, projectQuiebresSinFabrica, type VarianteCobertura, type VentaRow } from '@/lib/coverageVariants';
+import { fechaEntregaImport, ordenarEntregados } from '@/lib/importStages';
+import { ultimaLlegadaPorVariante, type LoteEntregado, type UltimaLlegada } from '@/lib/ultimaLlegada';
+
+/** Cuántos contenedores entregados se miran para "lo que ya llegó": no todas
+ *  las variantes vienen en todos los contenedores, con 3 cada una encuentra
+ *  su último lote sin traer la historia completa. */
+const ULTIMOS_ENTREGADOS = 3;
 
 interface ItemRow { import_id: string; reference: string; cantidad: number; peso_kg?: number | null; color?: string | null; source?: 'proforma' | 'packing' | null }
 
@@ -40,6 +48,9 @@ export interface PipelineResumen {
   aduana: number;
   transito: number;
   total: number;
+  /** Unidades en camino por canasta: embarcado (tránsito + aduana) vs fábrica. */
+  undsEmbarcadas: number;
+  undsFabrica: number;
 }
 
 export interface UseReorderSuggestionResult {
@@ -91,6 +102,9 @@ export interface UseReorderSuggestionResult {
   porVariante: VarianteCobertura[];
   /** kg por unidad por VARIANTE (fallback: familia). */
   kgPorUnidadVariante: Map<string, number>;
+  /** Lo que YA llegó: último contenedor entregado que trajo cada variante y
+   *  lo vendido desde la entrega. Vacío mientras carga (no bloquea el banner). */
+  ultimaLlegadaPorVariante: Map<string, UltimaLlegada>;
 }
 
 /** Tope de la corrección por censura (días sin stock). Ver comentario en el
@@ -198,6 +212,51 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     staleTime: 10 * 60_000,
   });
 
+  // Lo que YA llegó: items de los últimos contenedores entregados + ventas
+  // desde la entrega más vieja de esos. La ventana de 90d de ventasQuery no
+  // alcanza (el último contenedor puede haber entrado hace más), por eso va
+  // aparte y paginado.
+  const entregadosRecientes = ordenarEntregados(importsData?.all ?? []).slice(-ULTIMOS_ENTREGADOS);
+  const entregadosIds = entregadosRecientes.map((r) => r.id);
+  const entregadosQuery = useQuery({
+    queryKey: ['imports', 'reorder-ultima-llegada', entregadosIds.join('|')],
+    enabled: entregadosIds.length > 0,
+    queryFn: async () => {
+      const db = supabase as never as { from: (t: string) => any };
+      const { data, error } = await db
+        .from('import_items')
+        .select('import_id, reference, cantidad, color, source')
+        .in('import_id', entregadosIds);
+      if (error) throw error;
+      const rows = (data ?? []) as ItemRow[];
+      // Packing manda; si el pedido no tiene, proforma (mismo criterio que arriba).
+      const conPacking = new Set(rows.filter((r) => (r.source ?? 'packing') === 'packing').map((r) => r.import_id));
+      const items = rows.filter((r) => (conPacking.has(r.import_id) ? (r.source ?? 'packing') === 'packing' : true));
+
+      const fechas = entregadosRecientes.map((r) => fechaEntregaImport(r)).filter((f): f is string => !!f).sort();
+      const ventas: VentaRow[] = [];
+      if (fechas[0]) {
+        const PAGE = 1000;
+        for (let from = 0; ; from += PAGE) {
+          const { data: v, error: e } = await db
+            .from('remision_items')
+            .select('id, reference, units, remisiones!inner(date, remision_type)')
+            .eq('remisiones.remision_type', 'venta')
+            .gte('remisiones.date', fechas[0])
+            .order('id', { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (e) throw e;
+          const page = (v ?? []) as { reference: string; units: number; remisiones: { date: string } }[];
+          for (const r of page) ventas.push({ reference: r.reference, units: Number(r.units ?? 0), date: r.remisiones?.date ?? '' });
+          if (page.length < PAGE) break;
+        }
+      }
+      return { items, ventas };
+    },
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });
+
   // Ventas por remisión: la referencia TAL COMO SE DESPACHÓ (con sufijo de
   // color si el equipo lo usa) — la demanda por variante sale de acá, no de
   // inventory_movements (que viven al nivel del producto -5 de Siigo).
@@ -292,9 +351,9 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // OJO: esperar TAMBIÉN los items — computar sin ellos mostraba "0 llegadas
   // en tránsito" y una fecha alarmista mientras la query seguía en vuelo.
   const itemsPending = abiertosIds.length > 0 && itemsQuery.isPending;
-  const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
+  const pipelineVacio: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0, undsEmbarcadas: 0, undsFabrica: 0 };
   if (!importsData || inventoryQuery.isPending || ventasQuery.isPending || variantsQuery.isPending || variantMovsQuery.isPending || itemsPending) {
-    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], disponibilidadPorImport: new Map(), referenciasSinCruzar: [], transitoSinImputar: [], demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map(), merma: null };
+    return { isPending: true, suggestion: null, pedidosSinItems: [], pipeline: pipelineVacio, kgPorUnidad: new Map(), cicloPedidoDias: 45, diasCotizacion: 14, retenidos: [], disponibilidadPorImport: new Map(), referenciasSinCruzar: [], transitoSinImputar: [], demandPorFamilia: new Map(), porVariante: [], kgPorUnidadVariante: new Map(), merma: null, ultimaLlegadaPorVariante: new Map() };
   }
 
   const today = isoToday();
@@ -317,7 +376,7 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
 
   // Contenedores que la proyección SÍ está contando (abiertos con items),
   // por etapa — para que la card muestre "qué está mirando el modelo".
-  const pipeline: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0 };
+  const pipeline: PipelineResumen = { produccion: 0, aduana: 0, transito: 0, total: 0, undsEmbarcadas: 0, undsFabrica: 0 };
   for (const r of abiertos) {
     if (!idsConItems.has(r.id)) continue;
     pipeline.total += 1;
@@ -477,17 +536,30 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // ── Cobertura por VARIANTE DE COLOR ──
   // Tránsito re-mapeado a variante: al proforma (sin sufijo) la app le pone
   // el sufijo desde su columna Color; el packing ya viene con sufijo.
+  // Cada lote lleva su ETAPA: embarcado (tránsito/aduana = lo seguro) o
+  // fábrica (producción/listo = lo probable), y el nombre del pedido para
+  // leerlo lote a lote en la tabla de Cobertura.
+  const abiertoPorId = new Map(abiertos.map((r) => [r.id, r]));
+  const etapaDe = (estado: string): EtapaLote =>
+    estado === 'transito' || estado === 'aduana' ? 'embarcado' : 'fabrica';
   const transitoVariante: TransitoItem[] = items
     .filter((it) => dispPorImport.has(it.import_id))
     .map((it) => {
       const refConSufijo = applyColorSuffix(it.reference, it.color ?? null);
+      const r = abiertoPorId.get(it.import_id);
       return {
         reference: refConSufijo,
         cantidad: Number(it.cantidad ?? 0),
         fechaDisponible: dispPorImport.get(it.import_id)!,
         matchKey: variantKey(refConSufijo),
+        etapa: r ? etapaDe(r.estado) : undefined,
+        pedido: r ? (r.ref_pedido || r.proveedor_nombre) : undefined,
       };
     });
+  for (const t of transitoVariante) {
+    if (t.etapa === 'embarcado') pipeline.undsEmbarcadas += t.cantidad;
+    else if (t.etapa === 'fabrica') pipeline.undsFabrica += t.cantidad;
+  }
 
   // Factor de demanda por familia — TODO lo que sabemos de la demanda entra
   // también a la FECHA de quiebre, no solo al sugerido de Cobertura:
@@ -549,8 +621,25 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
   // color y su stock ya se repartió entre las variantes — solo ensucian la
   // tabla ("sin discriminar / sin consumo" × 100+, feedback de Nico). Si una
   // -5 tuviera consumo real (remisión despachada como -5), se queda: es dato.
-  const porVariante = decorateVariants(suggestion.porReferencia, prims)
+  // Segunda corrida SIN los lotes de fábrica: la columna "Solo embarcado".
+  // Lectura, no filtro del ancla: la fecha del banner sale de `suggestion`.
+  const sinFabrica = projectQuiebresSinFabrica({ todayIso: today, prims, ventanaDias: CONSUMO_VENTANA_DIAS });
+  const porVariante = decorateVariants(suggestion.porReferencia, prims, sinFabrica)
     .filter((v) => !(v.sinConsumo && colorFromSuffix(v.key) === 'total'));
+
+  // Lo que YA llegó: último lote entregado por variante + vendido desde entonces.
+  const lotesEntregados: LoteEntregado[] = entregadosRecientes.map((r) => ({
+    importId: r.id,
+    label: r.ref_pedido || r.proveedor_nombre,
+    fechaEntrega: fechaEntregaImport(r) ?? '',
+    items: (entregadosQuery.data?.items ?? [])
+      .filter((it) => it.import_id === r.id)
+      .map((it) => ({ reference: it.reference, cantidad: Number(it.cantidad ?? 0), color: it.color ?? null })),
+  }));
+  const ultimaLlegada = new Map<string, UltimaLlegada>(
+    ultimaLlegadaPorVariante({ todayIso: today, lotes: lotesEntregados, ventas: entregadosQuery.data?.ventas ?? [] })
+      .map((u) => [u.key, u]),
+  );
 
   // kg/unidad por variante (del packing/proforma), con fallback a familia.
   const kgVarAcc = new Map<string, { kg: number; cant: number }>();
@@ -598,5 +687,5 @@ export function useReorderSuggestion(): UseReorderSuggestionResult {
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, disponibilidadPorImport: dispPorImport, referenciasSinCruzar: prims.sinCruzar, transitoSinImputar: prims.transitoSinImputar, demandPorFamilia, porVariante, kgPorUnidadVariante, merma: shrinkageQuery.data ?? null };
+  return { isPending: false, suggestion, pedidosSinItems, pipeline, kgPorUnidad, cicloPedidoDias, diasCotizacion, retenidos, disponibilidadPorImport: dispPorImport, referenciasSinCruzar: prims.sinCruzar, transitoSinImputar: prims.transitoSinImputar, demandPorFamilia, porVariante, kgPorUnidadVariante, merma: shrinkageQuery.data ?? null, ultimaLlegadaPorVariante: ultimaLlegada };
 }

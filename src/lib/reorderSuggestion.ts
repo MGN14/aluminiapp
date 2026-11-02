@@ -20,6 +20,8 @@
  *    (packing list de pedidos abiertos, a su ETA + nacionalización). La fecha
  *    crítica es el primer quiebre entre las referencias que concentran el
  *    grueso del consumo (evita que una referencia marginal dispare la alarma).
+ *    Cada llegada lleva su ETAPA (embarcado / fábrica): la cobertura se puede
+ *    leer con todo el pipeline o solo con lo que ya salió de China.
  *
  * 3. COLCHÓN — días de seguridad fijos (SAFETY_DIAS) para absorber demoras.
  */
@@ -85,6 +87,13 @@ export interface SalidaRow {
   quantity: number;
 }
 
+/** Etapa del lote en camino — la diferencia entre lo SEGURO y lo PROBABLE:
+ *   'embarcado' = ya en el agua o en puerto (tránsito / aduana): la fecha de
+ *                 llegada se conoce, a lo sumo se corre unos días.
+ *   'fabrica'   = producción o listo en fábrica: puede retenerse (caso real
+ *                 de los dos contenedores simultáneos, 2026-08). */
+export type EtapaLote = 'fabrica' | 'embarcado';
+
 export interface TransitoItem {
   /** Referencia del packing list (se cruza con inventory_products.reference). */
   reference: string;
@@ -93,6 +102,20 @@ export interface TransitoItem {
   fechaDisponible: string;
   /** Ver StockRow.matchKey. */
   matchKey?: string;
+  /** Etapa del contenedor que trae este lote. Opcional: sin ella el lote
+   *  cuenta en enTransito pero no cae en ninguna canasta. */
+  etapa?: EtapaLote;
+  /** Etiqueta del pedido (ref_pedido / proveedor) para mostrar lote a lote. */
+  pedido?: string;
+}
+
+/** Un lote en camino que repone una referencia, tal como lo vio el motor. */
+export interface LlegadaLote {
+  /** Llegada estimada a bodega (ISO). */
+  fecha: string;
+  cantidad: number;
+  etapa?: EtapaLote;
+  pedido?: string;
 }
 
 // ── Salidas del motor ──────────────────────────────────────────────────────
@@ -120,6 +143,13 @@ export interface QuiebreProducto {
   stock: number;
   /** Unidades conocidas en camino (packing/proforma de pedidos abiertos). */
   enTransito: number;
+  /** Lo mismo partido por etapa: ya embarcado (tránsito + aduana) vs todavía
+   *  en fábrica (producción + listo). enEmbarcado + enFabrica = enTransito
+   *  cuando todos los lotes traen etapa. */
+  enEmbarcado?: number;
+  enFabrica?: number;
+  /** Los lotes en camino, en orden de llegada (para leerlos uno a uno). */
+  llegadas?: LlegadaLote[];
   /** ISO; null = no quiebra dentro del horizonte (ver teórica). */
   fechaQuiebre: string | null;
   diasCobertura: number | null;
@@ -306,11 +336,11 @@ export function projectQuiebres(params: {
 
   // Llegadas en tránsito por llave de cruce (familia si el caller la pasa;
   // si no, la referencia normalizada).
-  const llegadasPorRef = new Map<string, { fecha: string; qty: number }[]>();
+  const llegadasPorRef = new Map<string, { fecha: string; qty: number; etapa?: EtapaLote; pedido?: string }[]>();
   for (const t of transito) {
     const key = t.matchKey ?? t.reference.trim().toLowerCase();
     const arr = llegadasPorRef.get(key) ?? [];
-    arr.push({ fecha: t.fechaDisponible, qty: Number(t.cantidad ?? 0) });
+    arr.push({ fecha: t.fechaDisponible, qty: Number(t.cantidad ?? 0), etapa: t.etapa, pedido: t.pedido });
     llegadasPorRef.set(key, arr);
   }
 
@@ -324,6 +354,10 @@ export function projectQuiebres(params: {
     const llegadas = [...(llegadasPorRef.get(p.matchKey ?? p.reference.trim().toLowerCase()) ?? [])]
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
     const enTransito = llegadas.reduce((s, l) => s + l.qty, 0);
+    // Canastas por etapa: lo seguro (embarcado) vs lo probable (fábrica).
+    const enEmbarcado = llegadas.filter((l) => l.etapa === 'embarcado').reduce((s, l) => s + l.qty, 0);
+    const enFabrica = llegadas.filter((l) => l.etapa === 'fabrica').reduce((s, l) => s + l.qty, 0);
+    const lotes: LlegadaLote[] = llegadas.map((l) => ({ fecha: l.fecha, cantidad: l.qty, etapa: l.etapa, pedido: l.pedido }));
 
     if (consumoDiario <= 0) {
       // Sin salidas en la ventana → no hay tasa para proyectar quiebre, pero
@@ -334,6 +368,9 @@ export function projectQuiebres(params: {
         consumoDiario: 0,
         stock: Math.max(0, Number(p.stockPhysical ?? 0)),
         enTransito,
+        enEmbarcado,
+        enFabrica,
+        llegadas: lotes,
         fechaQuiebre: null,
         diasCobertura: null,
         sinConsumo: true,
@@ -380,6 +417,9 @@ export function projectQuiebres(params: {
       consumoDiario,
       stock: Number(p.stockPhysical ?? 0),
       enTransito,
+      enEmbarcado,
+      enFabrica,
+      llegadas: lotes,
       fechaQuiebre,
       diasCobertura: fechaQuiebre ? daysBetween(todayIso, fechaQuiebre) : null,
       fechaQuiebreTeorica,

@@ -478,3 +478,49 @@ describe('computeReorderSuggestion', () => {
     expect(sug.motivoSinFecha).toBe('sin_consumo');
   });
 });
+
+describe('projectQuiebres — lotes por etapa (lo seguro vs lo probable)', () => {
+  it('parte el tránsito en embarcado y fábrica, y lista los lotes en orden de llegada', () => {
+    const [q] = projectQuiebres({
+      todayIso: HOY,
+      stock: [{ productId: 'p1', reference: 'GL4102', stockPhysical: 100 }],
+      salidas: [{ productId: 'p1', quantity: 90 }], // 1/día
+      ventanaDias: 90,
+      transito: [
+        { reference: 'GL4102', cantidad: 300, fechaDisponible: '2026-09-01', etapa: 'fabrica', pedido: '2026-4' },
+        { reference: 'GL4102', cantidad: 200, fechaDisponible: '2026-08-01', etapa: 'embarcado', pedido: '2026-3' },
+      ],
+    });
+    expect(q.enTransito).toBe(500);
+    expect(q.enEmbarcado).toBe(200);
+    expect(q.enFabrica).toBe(300);
+    expect(q.llegadas?.map((l) => l.pedido)).toEqual(['2026-3', '2026-4']);
+    expect(q.llegadas?.[0]).toMatchObject({ fecha: '2026-08-01', cantidad: 200, etapa: 'embarcado' });
+  });
+
+  it('sin etapa: enTransito igual que siempre y las canastas quedan en 0 (compatibilidad)', () => {
+    const [q] = projectQuiebres({
+      todayIso: HOY,
+      stock: [{ productId: 'p1', reference: 'GL4102', stockPhysical: 100 }],
+      salidas: [{ productId: 'p1', quantity: 90 }],
+      ventanaDias: 90,
+      transito: [{ reference: 'GL4102', cantidad: 300, fechaDisponible: '2026-09-01' }],
+    });
+    expect(q.enTransito).toBe(300);
+    expect(q.enEmbarcado).toBe(0);
+    expect(q.enFabrica).toBe(0);
+    expect(q.llegadas).toHaveLength(1);
+  });
+
+  it('una referencia sin consumo también expone sus canastas y lotes', () => {
+    const [q] = projectQuiebres({
+      todayIso: HOY,
+      stock: [{ productId: 'p1', reference: 'GL4102', stockPhysical: 0 }],
+      salidas: [],
+      transito: [{ reference: 'GL4102', cantidad: 50, fechaDisponible: '2026-09-01', etapa: 'fabrica', pedido: '2026-4' }],
+    });
+    expect(q.sinConsumo).toBe(true);
+    expect(q.enFabrica).toBe(50);
+    expect(q.llegadas?.[0].pedido).toBe('2026-4');
+  });
+});

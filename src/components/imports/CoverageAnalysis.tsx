@@ -5,29 +5,37 @@
  *
  *   · Demanda real/día  ← remision_items (la ref TAL COMO se despachó, con
  *     sufijo), corregida por la censura familiar de días con stock.
- *   · Stock físico      ← inventario; si solo existe la -5, se reparte entre
+ *   · Bodega            ← inventario; si solo existe la -5, se reparte entre
  *     los colores por su mezcla de demanda (marcado ~, estimado).
- *   · En tránsito       ← packing list (sufijos) + proforma (la app le pone
- *     el sufijo desde la columna Color)
- *   · Cobertura         ← fecha de quiebre proyectada (con reposiciones)
+ *   · Embarcado         ← lotes de pedidos en tránsito o aduana: lo SEGURO.
+ *   · En fábrica        ← lotes en producción o listos en fábrica: lo PROBABLE
+ *     (puede retenerse). Packing list (sufijos) + proforma (la app le pone el
+ *     sufijo desde la columna Color).
+ *   · Cobertura         ← fecha de quiebre proyectada con TODO el pipeline
+ *     (la que alimenta la fecha del banner).
+ *   · Solo embarcado    ← la misma proyección SIN fábrica: "¿cuánto aguanto
+ *     si el contenedor de China se demora?". Chip "fábrica" cuando la
+ *     cobertura depende de ese contenedor.
+ *   · Último llegado    ← lo que trajo el último contenedor entregado de esa
+ *     variante y cuánto se vendió desde que entró (para comparar contra el
+ *     sugerido: ¿pedí bien la última vez?).
  *   · Sugerido próx. pedido = demanda × horizonte × índice estacional
- *                             − (stock + tránsito)
- *     La estacionalidad está MONTADA y se activa sola a los 12 meses de
- *     historia; mientras tanto el índice es 1 y la UI lo dice.
+ *                             − (bodega + todo lo que viene)
  *
  * Exportable a Excel para armar el pedido (flujo Nico + Cowork).
  */
 
 import { useMemo, useState } from 'react';
 import { useReorderSuggestion } from '@/hooks/useReorderSuggestion';
-import { suggestOrderQty } from '@/lib/reorderSuggestion';
+import { suggestOrderQty, type LlegadaLote, type EtapaLote } from '@/lib/reorderSuggestion';
+import { DEPENDE_FABRICA_DIAS } from '@/lib/coverageVariants';
 import CoverageAlertsReport from '@/components/imports/CoverageAlertsReport';
 import { ESTACIONALIDAD_MESES_MADURA } from '@/lib/demandModel';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowDown, ArrowUp, ArrowUpDown, Download, Loader2, PackageSearch, Search, TriangleAlert } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, Factory, Loader2, PackageSearch, Search, TriangleAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** Tope de carga del contenedor (kg) — del costeo de Nico. */
@@ -46,10 +54,45 @@ function coberturaColor(dias: number | null): string {
   return 'text-foreground';
 }
 
-type SortKey = 'demanda' | 'stock' | 'transito' | 'cobertura' | 'quiebre' | 'sugerido' | 'kg';
+/** Tooltip lote a lote de una canasta: "2026-3 · 1.100 und · llega ≈ 24 nov". */
+function lotesTitle(llegadas: LlegadaLote[] | undefined, etapa: EtapaLote): string {
+  const lotes = (llegadas ?? []).filter((l) => l.etapa === etapa);
+  if (!lotes.length) return etapa === 'embarcado' ? 'Nada embarcado para esta variante' : 'Nada en fábrica para esta variante';
+  const pref = etapa === 'embarcado' ? 'Ya en el agua o en puerto — llegada conocida:' : 'Todavía en fábrica — puede retenerse:';
+  return [pref, ...lotes.map((l) => `${l.pedido ?? 'pedido'} · ${fmtNum(l.cantidad)} und · llega ≈ ${fmtFecha(l.fecha)}`)].join('\n');
+}
+
+function primeraLlegada(llegadas: LlegadaLote[] | undefined, etapa: EtapaLote): string | null {
+  const lotes = (llegadas ?? []).filter((l) => l.etapa === etapa).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  return lotes[0]?.fecha ?? null;
+}
+
+type SortKey = 'demanda' | 'stock' | 'embarcado' | 'fabrica' | 'cobertura' | 'soloEmbarcado' | 'quiebre' | 'ultimo' | 'sugerido' | 'kg';
+
+function SortHead({ k, label, title, sortKey, sortDir, onSort }: {
+  k: SortKey; label: string; title: string;
+  sortKey: SortKey | null; sortDir: 'asc' | 'desc'; onSort: (k: SortKey) => void;
+}) {
+  return (
+    <TableHead
+      className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors whitespace-nowrap"
+      title={`${title} Click para ordenar.`}
+      onClick={() => onSort(k)}
+    >
+      <span className="inline-flex items-center gap-1 justify-end w-full">{label}
+        {sortKey === k
+          ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />)
+          : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
+      </span>
+    </TableHead>
+  );
+}
 
 export default function CoverageAnalysis() {
-  const { isPending, suggestion: sug, kgPorUnidad, kgPorUnidadVariante, porVariante, cicloPedidoDias, pedidosSinItems, demandPorFamilia, referenciasSinCruzar } = useReorderSuggestion();
+  const {
+    isPending, suggestion: sug, kgPorUnidad, kgPorUnidadVariante, porVariante, cicloPedidoDias,
+    pedidosSinItems, demandPorFamilia, referenciasSinCruzar, pipeline, ultimaLlegadaPorVariante,
+  } = useReorderSuggestion();
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
   // Orden por columna numérica: click → desc → asc → default (cobertura asc).
@@ -88,9 +131,12 @@ export default function CoverageAnalysis() {
         indice,
         sugerido,
         kgEstimado: kgU !== null ? sugerido * kgU : null,
+        enEmbarcado: r.enEmbarcado ?? 0,
+        enFabrica: r.enFabrica ?? 0,
+        ultimo: ultimaLlegadaPorVariante.get(r.key) ?? null,
       };
     });
-  }, [rows, sug, horizonteDias, kgPorUnidad, kgPorUnidadVariante, demandPorFamilia]);
+  }, [rows, sug, horizonteDias, kgPorUnidad, kgPorUnidadVariante, demandPorFamilia, ultimaLlegadaPorVariante]);
 
   const sorted = useMemo(() => {
     if (!sortKey) return conSugerido;
@@ -98,9 +144,12 @@ export default function CoverageAnalysis() {
       switch (sortKey) {
         case 'demanda': return r.sinConsumo ? null : r.consumoDiario;
         case 'stock': return r.stock;
-        case 'transito': return r.enTransito;
+        case 'embarcado': return r.enEmbarcado;
+        case 'fabrica': return r.enFabrica;
         case 'cobertura': return r.sinConsumo ? null : (r.diasCobertura ?? 401);
+        case 'soloEmbarcado': return r.sinConsumo ? null : (r.diasCoberturaEmbarcado ?? 401);
         case 'quiebre': return r.fechaQuiebre ? new Date(r.fechaQuiebre).getTime() : null;
+        case 'ultimo': return r.ultimo ? r.ultimo.pctVendido : null;
         case 'sugerido': return r.sugerido;
         case 'kg': return r.kgEstimado;
       }
@@ -125,7 +174,8 @@ export default function CoverageAnalysis() {
     const unds = conSugerido.reduce((s, r) => s + r.sugerido, 0);
     const kg = conSugerido.reduce((s, r) => s + (r.kgEstimado ?? 0), 0);
     const sinKg = conSugerido.filter((r) => r.sugerido > 0 && r.kgEstimado === null).length;
-    return { unds, kg, sinKg };
+    const dependen = conSugerido.filter((r) => r.dependeDeFabrica).length;
+    return { unds, kg, sinKg, dependen };
   }, [conSugerido]);
 
   // Estado de los ajustes de demanda (a nivel módulo).
@@ -153,11 +203,20 @@ export default function CoverageAnalysis() {
         'Referencia': r.reference,
         'Color': r.color,
         'Demanda/día': Number(r.consumoDiario.toFixed(2)),
-        'Stock físico': Number(r.stock.toFixed(1)),
+        'Bodega (stock físico)': Number(r.stock.toFixed(1)),
         'Stock estimado (reparto -5)': r.stockEstimado ? 'sí' : '',
-        'En tránsito': r.enTransito,
+        'Embarcado': r.enEmbarcado,
+        'En fábrica': r.enFabrica,
+        'Lotes en camino': (r.llegadas ?? []).map((l) => `${l.pedido ?? ''} ${fmtNum(l.cantidad)} und ${l.fecha} (${l.etapa === 'fabrica' ? 'fábrica' : 'embarcado'})`).join(' | '),
         'Cobertura (días)': r.sinConsumo ? 'sin consumo' : (r.diasCobertura ?? '>400'),
+        'Cobertura solo embarcado (días)': r.sinConsumo ? 'sin consumo' : (r.diasCoberturaEmbarcado ?? '>400'),
+        'Depende de fábrica': r.dependeDeFabrica ? 'sí' : '',
         'Fecha quiebre': r.fechaQuiebre ?? '',
+        'Último llegado (und)': r.ultimo?.unidades ?? null,
+        'Último llegado (fecha)': r.ultimo?.fechaEntrega ?? '',
+        'Último llegado (pedido)': r.ultimo?.pedido ?? '',
+        'Vendido desde que llegó': r.ultimo?.vendidas ?? null,
+        '% vendido': r.ultimo?.pctVendido ?? null,
         'Tendencia 30d': Number((r.demanda?.indiceTendencia ?? 1).toFixed(2)),
         'Índice estacional': Number((r.demanda?.indiceEstacional ?? 1).toFixed(2)),
         'Factor aplicado': Number(r.indice.toFixed(2)),
@@ -174,6 +233,8 @@ export default function CoverageAnalysis() {
         { Parámetro: 'Ciclo entre pedidos (días)', Valor: cicloPedidoDias },
         { Parámetro: 'Colchón (días)', Valor: sug.safetyDias },
         { Parámetro: 'Ventana de consumo (días)', Valor: sug.datos.ventanaDias },
+        { Parámetro: 'Unidades embarcadas (tránsito + aduana)', Valor: pipeline.undsEmbarcadas },
+        { Parámetro: 'Unidades en fábrica (producción + listo)', Valor: pipeline.undsFabrica },
         { Parámetro: 'Tope contenedor (kg)', Valor: TOPE_CONTENEDOR_KG },
         { Parámetro: 'Sugerido total (unds)', Valor: totales.unds },
         { Parámetro: 'Sugerido total (kg est.)', Valor: Math.round(totales.kg) },
@@ -195,6 +256,8 @@ export default function CoverageAnalysis() {
     );
   }
 
+  const sortProps = { sortKey, sortDir, onSort: toggleSort };
+
   return (
     <div className="imports-analysis min-w-0 space-y-5">
       {/* Parámetros del modelo, visibles y honestos */}
@@ -205,8 +268,10 @@ export default function CoverageAnalysis() {
             <span className="font-semibold text-sm">Análisis de cobertura por color (variante)</span>
           </div>
           <span className="text-muted-foreground">
-            Demanda: remisiones {sug.datos.ventanaDias}d por referencia despachada, <strong className="text-foreground">censura por días con stock</strong> ·
-            Tránsito: {sug.datos.llegadasEnTransito} llegadas
+            Demanda: remisiones {sug.datos.ventanaDias}d por referencia despachada, <strong className="text-foreground">censura por días con stock</strong>
+          </span>
+          <span className="text-muted-foreground" title="Embarcado = tránsito + aduana (lo seguro). En fábrica = producción + listo en fábrica (lo probable: puede retenerse).">
+            En camino: {sug.datos.llegadasEnTransito} lotes · <strong className="text-foreground">{fmtNum(pipeline.undsEmbarcadas)}</strong> und embarcadas · <strong className="text-foreground">{fmtNum(pipeline.undsFabrica)}</strong> en fábrica
           </span>
           <span className="text-muted-foreground">
             Horizonte: <strong className="text-foreground">{horizonteDias}d</strong>{' '}
@@ -227,6 +292,14 @@ export default function CoverageAnalysis() {
                 ? <strong className="text-warning">parcial ({ajustes.meses}/{ESTACIONALIDAD_MESES_MADURA} meses — a medias)</strong>
                 : `acumulando serie (${Math.min(ajustes.meses, ESTACIONALIDAD_MESES_MADURA)}/${ESTACIONALIDAD_MESES_MADURA} meses)`}
           </span>
+          {totales.dependen > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-500/25 px-2 py-0.5 font-medium"
+              title={`Con solo lo embarcado quiebran en ≤ ${DEPENDE_FABRICA_DIAS} días; con lo de fábrica no. Si ese contenedor se retiene, estas son las que se secan primero.`}
+            >
+              <Factory className="h-3 w-3" /> {totales.dependen} ref{totales.dependen > 1 ? 's' : ''} depende{totales.dependen > 1 ? 'n' : ''} de fábrica
+            </span>
+          )}
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 ml-auto" onClick={handleExport} disabled={exporting}>
             {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             Exportar Excel
@@ -292,89 +365,129 @@ export default function CoverageAnalysis() {
             <TableRow className="bg-muted/60">
               <TableHead className="text-xs">Referencia</TableHead>
               <TableHead className="text-xs">Color</TableHead>
-              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Unidades despachadas en remisiones (por referencia con sufijo) ÷ ventana, corregida por censura de días con stock de la familia. Click para ordenar." onClick={() => toggleSort('demanda')}>
-                <span className="inline-flex items-center gap-1 justify-end w-full">Demanda/día
-                  {sortKey === 'demanda' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
-                </span>
-              </TableHead>
-              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="~ = el inventario solo tiene la -5: stock repartido entre colores por su mezcla de demanda. Click para ordenar." onClick={() => toggleSort('stock')}>
-                <span className="inline-flex items-center gap-1 justify-end w-full">Stock físico
-                  {sortKey === 'stock' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
-                </span>
-              </TableHead>
-              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Packing list (con sufijo) + proforma (sufijo puesto por la app desde la columna Color). Click para ordenar." onClick={() => toggleSort('transito')}>
-                <span className="inline-flex items-center gap-1 justify-end w-full">En tránsito
-                  {sortKey === 'transito' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
-                </span>
-              </TableHead>
-              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Días hasta el quiebre proyectado, contando las reposiciones en camino. Click para ordenar." onClick={() => toggleSort('cobertura')}>
-                <span className="inline-flex items-center gap-1 justify-end w-full">Cobertura
-                  {sortKey === 'cobertura' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
-                </span>
-              </TableHead>
-              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Fecha del quiebre proyectado. Click para ordenar." onClick={() => toggleSort('quiebre')}>
-                <span className="inline-flex items-center gap-1 justify-end w-full">Quiebre
-                  {sortKey === 'quiebre' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
-                </span>
-              </TableHead>
-              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title={`demanda × ${horizonteDias}d × factor − (stock + tránsito). Click para ordenar.`} onClick={() => toggleSort('sugerido')}>
-                <span className="inline-flex items-center gap-1 justify-end w-full">Sugerido próx. pedido
-                  {sortKey === 'sugerido' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
-                </span>
-              </TableHead>
-              <TableHead className="text-xs text-right cursor-pointer select-none hover:bg-muted/70 transition-colors" title="Sugerido × kg/unidad (del packing/proforma). Click para ordenar." onClick={() => toggleSort('kg')}>
-                <span className="inline-flex items-center gap-1 justify-end w-full">≈ kg
-                  {sortKey === 'kg' ? (sortDir === 'desc' ? <ArrowDown className="h-3 w-3 text-primary" /> : <ArrowUp className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 text-muted-foreground/40" />}
-                </span>
-              </TableHead>
+              <SortHead k="demanda" label="Demanda/día" title="Unidades despachadas en remisiones (por referencia con sufijo) ÷ ventana, corregida por censura de días con stock de la familia." {...sortProps} />
+              <SortHead k="stock" label="Bodega" title="Stock físico en bodega. ~ = el inventario solo tiene la -5: stock repartido entre colores por su mezcla de demanda." {...sortProps} />
+              <SortHead k="embarcado" label="Embarcado" title="Lotes de pedidos en tránsito o aduana: lo SEGURO, ya salió de China. Debajo, la fecha de la primera llegada a bodega." {...sortProps} />
+              <SortHead k="fabrica" label="En fábrica" title="Lotes de pedidos en producción o listos en fábrica: lo PROBABLE, puede retenerse. Debajo, la llegada estimada si sale a tiempo." {...sortProps} />
+              <SortHead k="cobertura" label="Cobertura" title="Días hasta el quiebre proyectado contando TODO lo que viene (embarcado + fábrica). Es la que alimenta la fecha del banner." {...sortProps} />
+              <SortHead k="soloEmbarcado" label="Solo embarcado" title={`Días hasta el quiebre contando bodega + embarcado, SIN lo de fábrica: cuánto aguantás si el contenedor de China se demora. Chip "fábrica" = quiebra en ≤ ${DEPENDE_FABRICA_DIAS} días sin ese contenedor.`} {...sortProps} />
+              <SortHead k="quiebre" label="Quiebre" title="Fecha del quiebre proyectado con todo el pipeline." {...sortProps} />
+              <SortHead k="ultimo" label="Último llegado" title="Lo que trajo el último contenedor entregado de esta variante (unidades · fecha de entrega) y cuánto se vendió desde que entró. Compará contra el sugerido: ¿pediste bien la última vez? Ordena por % vendido." {...sortProps} />
+              <SortHead k="sugerido" label="Sugerido próx. pedido" title={`demanda × ${horizonteDias}d × factor − (bodega + embarcado + fábrica).`} {...sortProps} />
+              <SortHead k="kg" label="≈ kg" title="Sugerido × kg/unidad (del packing/proforma)." {...sortProps} />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.map((r) => (
-              <TableRow key={r.key} className={cn(!r.sinConsumo && r.diasCobertura !== null && r.diasCobertura <= 45 && 'bg-destructive/[0.04]')}>
-                <TableCell className="text-xs font-mono tabular-nums">{r.reference}</TableCell>
-                <TableCell className={cn('text-xs', r.color === 'sin discriminar' && 'text-muted-foreground italic')}>{r.color}</TableCell>
-                <TableCell
-                  className="text-xs font-mono tabular-nums text-right"
-                  title={r.demanda?.huboQuiebre ? 'La familia estuvo agotada dentro de la ventana — demanda corregida por censura' : undefined}
-                >
-                  {r.sinConsumo ? <span className="text-muted-foreground">—</span> : r.consumoDiario.toFixed(1)}
-                  {!r.sinConsumo && r.demanda?.huboQuiebre && <span className="text-warning">†</span>}
-                </TableCell>
-                <TableCell
-                  className={cn('text-xs font-mono tabular-nums text-right', r.stockEstimado && 'text-muted-foreground')}
-                  title={r.stockEstimado ? 'El inventario solo tiene la -5: stock repartido entre los colores por su mezcla de demanda. El día que el conteo discrimine color, desaparece el ~.' : undefined}
-                >
-                  {r.stockEstimado ? `~${fmtNum(r.stock)}` : fmtNum(r.stock)}
-                </TableCell>
-                <TableCell className={cn('text-xs font-mono tabular-nums text-right', r.enTransito > 0 ? 'text-primary font-medium' : 'text-muted-foreground')}>
-                  {r.enTransito > 0 ? `+${fmtNum(r.enTransito)}` : '—'}
-                </TableCell>
-                <TableCell
+            {sorted.map((r) => {
+              const fEmb = primeraLlegada(r.llegadas, 'embarcado');
+              const fFab = primeraLlegada(r.llegadas, 'fabrica');
+              const u = r.ultimo;
+              return (
+                <TableRow
+                  key={r.key}
                   className={cn(
-                    'text-xs font-mono tabular-nums text-right font-semibold',
-                    r.sinConsumo ? 'text-muted-foreground font-normal' : coberturaColor(r.diasCobertura),
+                    !r.sinConsumo && r.diasCobertura !== null && r.diasCobertura <= 45 && 'bg-destructive/[0.04]',
+                    r.dependeDeFabrica && 'bg-amber-500/[0.04]',
                   )}
-                  title={r.sinConsumo ? 'Sin salidas registradas en la ventana — la cobertura se activa cuando esta referencia tenga despachos (QR/remisión) o consumo de producción' : undefined}
                 >
-                  {r.sinConsumo ? 'sin consumo' : r.diasCobertura === null ? '>400d' : `${r.diasCobertura}d`}
-                </TableCell>
-                <TableCell className="text-xs font-mono tabular-nums text-right text-muted-foreground">
-                  {r.fechaQuiebre ? fmtFecha(r.fechaQuiebre) : '—'}
-                </TableCell>
-                <TableCell className={cn('text-xs font-mono tabular-nums text-right font-semibold', r.sugerido > 0 ? 'text-foreground' : 'text-muted-foreground')}>
-                  {r.sugerido > 0 ? fmtNum(r.sugerido) : '—'}
-                  {r.indice !== 1 && r.sugerido > 0 && (
-                    <span className="text-xs text-muted-foreground" title={`Factor ×${r.indice.toFixed(2)} = tendencia 30d ${(r.demanda?.indiceTendencia ?? 1).toFixed(2)} × estacionalidad ${(r.demanda?.indiceEstacional ?? 1).toFixed(2)} (ponderada por madurez) — ya incluido en la demanda/día, ajusta fecha de quiebre Y sugerido`}> ×{r.indice.toFixed(2)}</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-xs font-mono tabular-nums text-right text-muted-foreground">
-                  {r.sugerido > 0 && r.kgEstimado !== null ? fmtNum(r.kgEstimado) : '—'}
-                </TableCell>
-              </TableRow>
-            ))}
+                  <TableCell className="text-xs font-mono tabular-nums">{r.reference}</TableCell>
+                  <TableCell className={cn('text-xs', r.color === 'sin discriminar' && 'text-muted-foreground italic')}>{r.color}</TableCell>
+                  <TableCell
+                    className="text-xs font-mono tabular-nums text-right"
+                    title={r.demanda?.huboQuiebre ? 'La familia estuvo agotada dentro de la ventana — demanda corregida por censura' : undefined}
+                  >
+                    {r.sinConsumo ? <span className="text-muted-foreground">—</span> : r.consumoDiario.toFixed(1)}
+                    {!r.sinConsumo && r.demanda?.huboQuiebre && <span className="text-warning">†</span>}
+                  </TableCell>
+                  <TableCell
+                    className={cn('text-xs font-mono tabular-nums text-right', r.stockEstimado && 'text-muted-foreground')}
+                    title={r.stockEstimado ? 'El inventario solo tiene la -5: stock repartido entre los colores por su mezcla de demanda. El día que el conteo discrimine color, desaparece el ~.' : undefined}
+                  >
+                    {r.stockEstimado ? `~${fmtNum(r.stock)}` : fmtNum(r.stock)}
+                  </TableCell>
+                  <TableCell
+                    className={cn('text-xs font-mono tabular-nums text-right whitespace-nowrap', r.enEmbarcado > 0 ? 'text-primary font-medium' : 'text-muted-foreground')}
+                    title={lotesTitle(r.llegadas, 'embarcado')}
+                  >
+                    {r.enEmbarcado > 0 ? (
+                      <>
+                        +{fmtNum(r.enEmbarcado)}
+                        {fEmb && <span className="block text-xs font-normal text-muted-foreground">{fmtFecha(fEmb)}</span>}
+                      </>
+                    ) : '—'}
+                  </TableCell>
+                  <TableCell
+                    className={cn('text-xs font-mono tabular-nums text-right whitespace-nowrap', r.enFabrica > 0 ? 'text-foreground font-medium' : 'text-muted-foreground')}
+                    title={lotesTitle(r.llegadas, 'fabrica')}
+                  >
+                    {r.enFabrica > 0 ? (
+                      <>
+                        +{fmtNum(r.enFabrica)}
+                        {fFab && <span className="block text-xs font-normal text-muted-foreground">≈ {fmtFecha(fFab)}</span>}
+                      </>
+                    ) : '—'}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      'text-xs font-mono tabular-nums text-right font-semibold',
+                      r.sinConsumo ? 'text-muted-foreground font-normal' : coberturaColor(r.diasCobertura),
+                    )}
+                    title={r.sinConsumo ? 'Sin salidas registradas en la ventana — la cobertura se activa cuando esta referencia tenga despachos (QR/remisión) o consumo de producción' : undefined}
+                  >
+                    {r.sinConsumo ? 'sin consumo' : r.diasCobertura === null ? '>400d' : `${r.diasCobertura}d`}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      'text-xs font-mono tabular-nums text-right font-semibold whitespace-nowrap',
+                      r.sinConsumo ? 'text-muted-foreground font-normal' : coberturaColor(r.diasCoberturaEmbarcado),
+                    )}
+                    title={r.sinConsumo
+                      ? undefined
+                      : r.dependeDeFabrica
+                        ? `Sin el contenedor de fábrica se agota el ${r.fechaQuiebreEmbarcado ? fmtFecha(r.fechaQuiebreEmbarcado) : '—'}. Si ese pedido se retiene, esta es de las primeras que se secan: reposición local o apurá el despacho.`
+                        : r.enFabrica > 0
+                          ? 'Aguanta sin lo de fábrica: lo embarcado la cubre.'
+                          : 'Nada en fábrica para esta variante: igual a la cobertura total.'}
+                  >
+                    {r.sinConsumo ? '—' : r.diasCoberturaEmbarcado === null ? '>400d' : `${r.diasCoberturaEmbarcado}d`}
+                    {r.dependeDeFabrica && (
+                      <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-500/25 px-1.5 py-0.5 text-xs font-medium align-middle">
+                        <Factory className="h-3 w-3" /> fábrica
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs font-mono tabular-nums text-right text-muted-foreground">
+                    {r.fechaQuiebre ? fmtFecha(r.fechaQuiebre) : '—'}
+                  </TableCell>
+                  <TableCell
+                    className="text-xs font-mono tabular-nums text-right whitespace-nowrap"
+                    title={u
+                      ? `Pedido ${u.pedido}, entregado el ${fmtFecha(u.fechaEntrega)}: trajo ${fmtNum(u.unidades)} und de esta variante. Vendidas por remisión desde entonces: ${fmtNum(u.vendidas)} (${u.pctVendido}%) en ${u.diasDesdeEntrega} días.`
+                      : 'Esta variante no vino en los últimos 3 contenedores entregados.'}
+                  >
+                    {u ? (
+                      <>
+                        {fmtNum(u.unidades)} · {fmtFecha(u.fechaEntrega)}
+                        <span className={cn('block text-xs font-normal', u.pctVendido >= 90 ? 'text-success' : u.pctVendido < 30 ? 'text-warning' : 'text-muted-foreground')}>
+                          vendido {fmtNum(u.vendidas)} ({u.pctVendido}%)
+                        </span>
+                      </>
+                    ) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className={cn('text-xs font-mono tabular-nums text-right font-semibold', r.sugerido > 0 ? 'text-foreground' : 'text-muted-foreground')}>
+                    {r.sugerido > 0 ? fmtNum(r.sugerido) : '—'}
+                    {r.indice !== 1 && r.sugerido > 0 && (
+                      <span className="text-xs text-muted-foreground" title={`Factor ×${r.indice.toFixed(2)} = tendencia 30d ${(r.demanda?.indiceTendencia ?? 1).toFixed(2)} × estacionalidad ${(r.demanda?.indiceEstacional ?? 1).toFixed(2)} (ponderada por madurez) — ya incluido en la demanda/día, ajusta fecha de quiebre Y sugerido`}> ×{r.indice.toFixed(2)}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs font-mono tabular-nums text-right text-muted-foreground">
+                    {r.sugerido > 0 && r.kgEstimado !== null ? fmtNum(r.kgEstimado) : '—'}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             <TableRow className="bg-muted/30 font-semibold">
-              <TableCell className="text-xs" colSpan={7}>
+              <TableCell className="text-xs" colSpan={10}>
                 Pedido sugerido total ({conSugerido.filter((r) => r.sugerido > 0).length} referencias)
               </TableCell>
               <TableCell className="text-xs font-mono tabular-nums text-right">{fmtNum(totales.unds)}</TableCell>
@@ -400,8 +513,13 @@ export default function CoverageAnalysis() {
       <p className="text-xs text-muted-foreground leading-relaxed">
         Cada fila es una VARIANTE de color — la unidad con la que se monta pedido. La demanda sale de las remisiones
         (la referencia tal como se despachó): si un despacho salió en -5 sin discriminar, esa demanda aparece en la fila
-        "sin discriminar" — la tabla muestra la verdad de los datos. Stock con ~ = repartido desde la -5 por mezcla de
-        demanda (el inventario aún no discrimina color). † = la familia tuvo quiebre y la tasa fue corregida. El sugerido
+        "sin discriminar" — la tabla muestra la verdad de los datos. Bodega con ~ = repartido desde la -5 por mezcla de
+        demanda (el inventario aún no discrimina color). † = la familia tuvo quiebre y la tasa fue corregida.
+        <strong className="text-foreground"> Embarcado</strong> es lo que ya salió de China (tránsito o aduana);
+        <strong className="text-foreground"> En fábrica</strong> es lo que sigue allá y puede retenerse — por eso
+        <strong className="text-foreground"> Solo embarcado</strong> te dice cuánto aguantás si ese contenedor se demora,
+        sin mover la fecha del banner. <strong className="text-foreground">Último llegado</strong> es lo que trajo el
+        último contenedor entregado de esa variante y cuánto rotó desde entonces: compará contra el sugerido. El sugerido
         se ajusta por tendencia 30d y estacionalidad (ponderada por madurez — con poca historia se lee con pinzas). Es
         punto de partida, no orden de compra.
       </p>

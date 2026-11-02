@@ -104,3 +104,56 @@ describe('buildCoverageVariants — cobertura por color, no por -5', () => {
     expect(out.find((v) => v.key === 'liv-40-3')!.consumoDiario).toBeCloseTo(0.8, 5);
   });
 });
+
+describe('cobertura "solo embarcado" — lo que sigue en fábrica no cuenta', () => {
+  it('descuenta los lotes de fábrica y marca la dependencia cuando sin ellos quiebra pronto', () => {
+    const out = buildCoverageVariants({
+      todayIso: HOY,
+      ventanaDias: 90,
+      ventas: [{ reference: 'GL4102', units: 900, date: '2026-06-20' }], // 10/día
+      inventario: [{ reference: 'GL4102', stockPhysical: 200 }],         // 20 días solo
+      transito: [
+        { reference: 'GL4102', cantidad: 100, fechaDisponible: '2026-07-20', etapa: 'embarcado', pedido: '2026-3' },
+        { reference: 'GL4102', cantidad: 2000, fechaDisponible: '2026-08-15', etapa: 'fabrica', pedido: '2026-4' },
+      ],
+    });
+    const v = out.find((x) => x.key === 'gl4102')!;
+    // Con todo: 200 + 100 + 2000 → mucho más de 45 días.
+    expect(v.diasCobertura).toBe(238);
+    // Solo embarcado: al 20-jul quedan 200 − 120 + 100 = 180 → 18 días más → 30.
+    expect(v.diasCoberturaEmbarcado).toBe(30);
+    expect(v.fechaQuiebreEmbarcado).toBe('2026-08-07');
+    expect(v.dependeDeFabrica).toBe(true);
+    expect(v.enEmbarcado).toBe(100);
+    expect(v.enFabrica).toBe(2000);
+    expect(v.enTransito).toBe(2100);
+  });
+
+  it('sin lotes de fábrica, "solo embarcado" = cobertura total y no depende de nadie', () => {
+    const out = buildCoverageVariants({
+      todayIso: HOY,
+      ventanaDias: 90,
+      ventas: [{ reference: 'GL4102', units: 900, date: '2026-06-20' }],
+      inventario: [{ reference: 'GL4102', stockPhysical: 200 }],
+      transito: [{ reference: 'GL4102', cantidad: 100, fechaDisponible: '2026-07-20', etapa: 'embarcado' }],
+    });
+    const v = out.find((x) => x.key === 'gl4102')!;
+    expect(v.diasCoberturaEmbarcado).toBe(v.diasCobertura);
+    expect(v.dependeDeFabrica).toBe(false);
+  });
+
+  it('si con todo también quiebra pronto, no es "dependencia de fábrica": es faltante', () => {
+    const out = buildCoverageVariants({
+      todayIso: HOY,
+      ventanaDias: 90,
+      ventas: [{ reference: 'GL4102', units: 900, date: '2026-06-20' }], // 10/día
+      inventario: [{ reference: 'GL4102', stockPhysical: 50 }],          // 5 días
+      transito: [{ reference: 'GL4102', cantidad: 100, fechaDisponible: '2026-07-20', etapa: 'fabrica' }], // llega poco: 10 días más
+    });
+    const v = out.find((x) => x.key === 'gl4102')!;
+    // Hueco del 13-jul al 20-jul y agote final el 30-jul: 22 días con todo.
+    expect(v.diasCobertura).toBe(22);
+    expect(v.diasCoberturaEmbarcado).toBe(5);
+    expect(v.dependeDeFabrica).toBe(false);
+  });
+});

@@ -128,6 +128,10 @@ export default function ReorderSuggestionCard({ onVerReporte }: { onVerReporte?:
           pipeline.transito > 0 ? `${pipeline.transito} en tránsito` : null,
         ].filter(Boolean).join(', ')})`
       : null,
+    // Unidades por canasta: lo seguro (ya salió de China) vs lo probable.
+    pipeline.undsEmbarcadas + pipeline.undsFabrica > 0
+      ? `· ${fmtUnd(pipeline.undsEmbarcadas)} und embarcadas, ${fmtUnd(pipeline.undsFabrica)} en fábrica`
+      : null,
     `· lead time ${sug.leadTime.totalDias}d + ${sug.safetyDias}d de colchón`,
     sug.leadTime.tieneDefaults
       ? '\n\nParte del lead time sigue estimado por defecto — se reemplaza solo con las fechas reales de tus pedidos.'
