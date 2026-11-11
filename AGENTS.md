@@ -7,7 +7,8 @@ Respondé siempre en español de Colombia con voseo, directo y concreto. El due�
 ## Dónde trabaja cada agente
 
 - Codex trabaja en su propia copia del repo: `/Users/nicog/Documents/Claude/Projects/ALUMINIA_CHATGPT`.
-- Claude Code trabaja en `/Users/nicog/Documents/Claude/Projects/ALUMINIA/aluminiapp-main` y sus worktrees. No edites esa carpeta.
+- Claude Code trabaja en `/Users/nicog/Projects/aluminiapp` y sus worktrees. No edites esa carpeta.
+- Desde el 2026-11-11 la app vive FUERA de iCloud. La carpeta vieja `/Users/nicog/Documents/Claude/Projects/ALUMINIA/aluminiapp-main` quedó solo de respaldo: no trabajes ahí. iCloud evacuaba los objetos de `.git`, colgaba git y rompía el puntero `.git`; además Claude Desktop no dejaba abrir sesiones porque el repositorio ya no estaba dentro de la carpeta.
 - Las dos copias apuntan al mismo GitHub. Antes de empezar una tarea: `git switch main && git pull --ff-only`.
 
 ## Qué es
