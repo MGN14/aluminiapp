@@ -16,7 +16,6 @@ import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -26,8 +25,8 @@ import {
   ArrowLeft, Loader2, Pencil, Users, FileText, Landmark, Package, ArrowLeftRight, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { fetchTerceroProfile, saveTercero, type Tercero } from '@/lib/terceroProfile';
-import { RolChips } from '@/pages/Terceros';
+import { fetchTerceroProfile, saveTercero, ROL_LABEL, type Tercero } from '@/lib/terceroProfile';
+import { RolEditable } from '@/components/terceros/RolTercero';
 
 const fmtCOP = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
@@ -111,7 +110,15 @@ export default function TerceroDetalle() {
           <div>
             <h1 className="text-[24px] font-semibold tracking-tight flex items-center gap-3">
               {t.name}
-              <RolChips roles={p.roles} />
+              <span className="text-base font-normal tracking-normal">
+                <RolEditable
+                  terceroId={t.id}
+                  nombre={t.name}
+                  roles={p.roles}
+                  derivados={p.rolesDerivados}
+                  manual={p.rolManual}
+                />
+              </span>
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {t.razon_social && t.razon_social !== t.name ? `${t.razon_social} · ` : ''}
@@ -175,11 +182,14 @@ export default function TerceroDetalle() {
                 Sin actividad registrada todavía. Cuando le factures, le compres o lo concilies, acá aparece todo.
               </p>
             )}
-            {(t.notas || t.dias_credito != null || t.cupo_credito != null || t.cliente_manual) && (
+            {(t.notas || t.dias_credito != null || t.cupo_credito != null || p.rolManual) && (
               <div className="rounded-xl border border-border bg-card p-4 text-xs space-y-1">
-                {t.cliente_manual && (
-                  <p title="Marcado a mano en Editar: entra al selector de beneficiario de las filas Ventas aunque no tenga facturas, remisiones ni cotizaciones de venta.">
-                    <strong>Cliente en Ventas:</strong> marcado a mano — aparece en el selector de Conciliación aunque no tenga facturas
+                {p.rolManual && (
+                  <p title="Se cambia con un clic en el chip de rol, arriba junto al nombre. Manda en Terceros y en el selector de beneficiario de las filas Ventas de Conciliación.">
+                    <strong>Rol fijado a mano:</strong> {p.roles.map((r) => ROL_LABEL[r]).join(' + ')}
+                    <span className="text-muted-foreground">
+                      {' '}· automático sería {p.rolesDerivados.length ? p.rolesDerivados.map((r) => ROL_LABEL[r]).join(' + ') : 'sin rol'}
+                    </span>
                   </p>
                 )}
                 {t.dias_credito != null && <p><strong>Plazo pactado:</strong> {t.dias_credito} días</p>}
@@ -322,8 +332,6 @@ function EditarTerceroDialog({ open, tercero: t, guardando, onClose, onSave }: {
     notas: t.notas ?? '',
   });
   const set = (k: keyof typeof f) => (v: string) => setF((p) => ({ ...p, [k]: v }));
-  // Aparte del form de texto: es un permiso, no un dato del tercero.
-  const [clienteManual, setClienteManual] = useState<boolean>(!!t.cliente_manual);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -396,21 +404,9 @@ function EditarTerceroDialog({ open, tercero: t, guardando, onClose, onSave }: {
             <Label>Notas</Label>
             <Input value={f.notas} onChange={(e) => set('notas')(e.target.value)} placeholder="Ej: seguro PYME de la bodega, vence en julio" />
           </div>
-          <div className="col-span-2 flex items-start gap-2.5 rounded-md border border-border p-3">
-            <Checkbox
-              id="cliente-manual"
-              checked={clienteManual}
-              onCheckedChange={(v) => setClienteManual(v === true)}
-              className="mt-0.5"
-            />
-            <div className="text-xs leading-snug">
-              <Label htmlFor="cliente-manual" className="cursor-pointer text-sm">Tratarlo como cliente en Ventas</Label>
-              <p className="text-muted-foreground mt-0.5">
-                En Conciliación, una fila clasificada como Ventas solo ofrece clientes (los que tienen facturas,
-                remisiones o cotizaciones de venta). Con esto marcado, este tercero aparece igual aunque no las tenga.
-              </p>
-            </div>
-          </div>
+          <p className="col-span-2 text-xs text-muted-foreground leading-snug">
+            El rol (cliente, proveedor, empleado, entidad) se cambia con un clic en el chip junto al nombre.
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={guardando}>Cancelar</Button>
@@ -429,7 +425,6 @@ function EditarTerceroDialog({ open, tercero: t, guardando, onClose, onSave }: {
               dias_credito: f.dias_credito !== '' ? Math.max(0, Number(f.dias_credito)) : null,
               cupo_credito: f.cupo_credito !== '' ? Math.max(0, Number(f.cupo_credito)) : null,
               notas: f.notas.trim() || null,
-              cliente_manual: clienteManual,
             })}>
             {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
           </Button>

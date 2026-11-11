@@ -3,7 +3,8 @@
  *
  * `responsibles` es la tabla única de terceros: clientes, proveedores,
  * empleados y entidades conviven ahí. El ROL se deriva de lo que cada uno
- * hizo (ver src/lib/terceroProfile.ts), no se digita.
+ * hizo (ver src/lib/terceroProfile.ts) y, desde 2026-11-11, se corrige con un
+ * clic en el chip (RolEditable): lo fijado a mano manda.
  */
 
 import { useMemo, useState } from 'react';
@@ -11,37 +12,35 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Search, Users, ChevronRight, AlertTriangle } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup,
+  DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Loader2, Search, Users, ChevronRight, AlertTriangle, ListFilter } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  fetchTerceros, fetchResumenTerceros, type RolTercero, type ResumenTercero, type Tercero,
+  fetchTerceros, fetchResumenTerceros, indexarResumen, resolverRoles,
+  type RolTercero, type RolesResueltos, type Tercero,
 } from '@/lib/terceroProfile';
+import { RolEditable } from '@/components/terceros/RolTercero';
 
 const fmtCOP = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 const fmt = (n: number) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n);
 
-const ROL_STYLE: Record<RolTercero, string> = {
-  cliente: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900',
-  proveedor: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900',
-  empleado: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900',
-  entidad: 'bg-muted text-muted-foreground border-border',
-};
+type FiltroRol = RolTercero | 'sin_rol';
+type Filtro = 'todos' | FiltroRol | 'incompletos';
 
-export function RolChips({ roles }: { roles: RolTercero[] }) {
-  if (!roles.length) return <span className="text-[10px] text-muted-foreground">sin actividad</span>;
-  return (
-    <span className="inline-flex gap-1 flex-wrap">
-      {roles.map((r) => (
-        <span key={r} className={cn('rounded border px-1.5 py-px text-[10px] font-medium capitalize', ROL_STYLE[r])}>
-          {r}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-type Filtro = 'todos' | RolTercero | 'incompletos';
+/** Opciones del filtro de la columna Rol (mismo estado que el segmentado). */
+const OPCIONES_ROL: [Filtro, string][] = [
+  ['todos', 'Todos'],
+  ['cliente', 'Cliente'],
+  ['proveedor', 'Proveedor'],
+  ['empleado', 'Empleado'],
+  ['entidad', 'Entidad'],
+  ['sin_rol', 'Sin rol'],
+];
+const esFiltroRol = (f: Filtro): f is FiltroRol => f !== 'todos' && f !== 'incompletos';
 
 /** El listado, embebible: vive como pestaña dentro de Conciliación bancaria
  *  (pedido de Nico 2026-08-07) y también como página propia /terceros. */
@@ -55,14 +54,35 @@ export function TercerosListado() {
     queryFn: fetchTerceros,
     staleTime: 5 * 60_000,
   });
-  const { data: resumen } = useQuery({
+  // Array plano en la query (el cache persistido es JSON); el índice, al usar.
+  const { data: resumenRows } = useQuery({
     queryKey: ['terceros', 'resumen', terceros.length],
     queryFn: () => fetchResumenTerceros(terceros),
     enabled: terceros.length > 0,
     staleTime: 5 * 60_000,
   });
+  const resumen = useMemo(() => indexarResumen(resumenRows), [resumenRows]);
+  const resumenListo = !!resumenRows;
+
+  // Rol EFECTIVO de cada tercero: lo fijado a mano (de la lista fresca, así un
+  // cambio se ve al instante) o lo derivado de su actividad (del resumen).
+  const rolesPorId = useMemo(() => {
+    const m = new Map<string, RolesResueltos>();
+    for (const t of terceros) {
+      m.set(t.id, resolverRoles({
+        derivados: resumen.get(t.id)?.roles ?? [],
+        rolesManual: t.roles_manual,
+        clienteManual: t.cliente_manual,
+      }));
+    }
+    return m;
+  }, [terceros, resumen]);
 
   const incompleto = (t: Tercero) => !t.nit || !(t.email || t.phone || t.telefono);
+  const cumpleRol = (t: Tercero, f: FiltroRol) => {
+    const roles = rolesPorId.get(t.id)?.roles ?? [];
+    return f === 'sin_rol' ? roles.length === 0 : roles.includes(f);
+  };
 
   const visibles = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -72,22 +92,30 @@ export function TercerosListado() {
       || (t.nit ?? '').includes(s)
       || (t.razon_social ?? '').toLowerCase().includes(s));
     if (filtro === 'incompletos') arr = arr.filter(incompleto);
-    else if (filtro !== 'todos') arr = arr.filter((t) => resumen?.get(t.id)?.roles.includes(filtro));
+    else if (esFiltroRol(filtro)) arr = arr.filter((t) => cumpleRol(t, filtro));
     return arr.sort((a, b) => {
-      const ra = resumen?.get(a.id); const rb = resumen?.get(b.id);
+      const ra = resumen.get(a.id); const rb = resumen.get(b.id);
       return (rb?.ultimaActividad ?? '').localeCompare(ra?.ultimaActividad ?? '') || a.name.localeCompare(b.name);
     });
-  }, [terceros, q, filtro, resumen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terceros, q, filtro, resumen, rolesPorId]);
 
   const conteos = useMemo(() => {
-    const c = { cliente: 0, proveedor: 0, empleado: 0, entidad: 0, incompletos: 0 };
+    const c: Record<Filtro, number> = {
+      todos: 0, cliente: 0, proveedor: 0, empleado: 0, entidad: 0, sin_rol: 0, incompletos: 0,
+    };
     for (const t of terceros) {
       if (!t.active) continue;
-      for (const r of resumen?.get(t.id)?.roles ?? []) c[r]++;
+      c.todos++;
+      const roles = rolesPorId.get(t.id)?.roles ?? [];
+      for (const r of roles) c[r]++;
+      if (!roles.length) c.sin_rol++;
       if (incompleto(t)) c.incompletos++;
     }
     return c;
-  }, [terceros, resumen]);
+  }, [terceros, rolesPorId]);
+
+  const etiquetaRol = OPCIONES_ROL.find(([k]) => k === filtro)?.[1];
 
   return (
       <div className="space-y-4">
@@ -100,10 +128,11 @@ export function TercerosListado() {
           </div>
           <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
             {([
-              ['todos', `Todos (${visibles.length})`],
+              ['todos', `Todos (${conteos.todos})`],
               ['cliente', `Clientes (${conteos.cliente})`],
               ['proveedor', `Proveedores (${conteos.proveedor})`],
               ['empleado', `Empleados (${conteos.empleado})`],
+              ['entidad', `Entidades (${conteos.entidad})`],
               ['incompletos', `Sin datos (${conteos.incompletos})`],
             ] as [Filtro, string][]).map(([k, label]) => (
               <button key={k} onClick={() => setFiltro(k)}
@@ -113,6 +142,11 @@ export function TercerosListado() {
               </button>
             ))}
           </div>
+          {filtro !== 'todos' && (
+            <span className="text-xs text-muted-foreground">
+              Mostrando {fmt(visibles.length)} de {fmt(conteos.todos)}
+            </span>
+          )}
         </div>
 
         <Card className="rounded-2xl overflow-hidden">
@@ -127,7 +161,34 @@ export function TercerosListado() {
                   <thead className="bg-muted/60">
                     <tr className="text-left">
                       <th className="px-4 py-2.5 font-semibold">Nombre</th>
-                      <th className="px-3 py-2.5 font-semibold">Rol</th>
+                      <th className="px-3 py-2.5 font-semibold">
+                        {/* Filtro de la columna: el mismo estado que el segmentado de arriba. */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button type="button"
+                              className={cn('inline-flex items-center gap-1 rounded -mx-1 px-1 py-0.5 hover:bg-muted transition-colors',
+                                esFiltroRol(filtro) && 'text-primary')}
+                              title="Filtrar por rol">
+                              Rol{esFiltroRol(filtro) ? `: ${etiquetaRol}` : ''}
+                              <ListFilter className="h-3.5 w-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-52">
+                            <DropdownMenuLabel className="text-xs">Filtrar por rol</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuRadioGroup
+                              value={esFiltroRol(filtro) ? filtro : 'todos'}
+                              onValueChange={(v) => setFiltro(v as Filtro)}>
+                              {OPCIONES_ROL.map(([k, label]) => (
+                                <DropdownMenuRadioItem key={k} value={k} className="text-xs">
+                                  {label}
+                                  <span className="ml-auto pl-3 tabular-nums text-muted-foreground">{fmt(conteos[k])}</span>
+                                </DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </th>
                       <th className="px-3 py-2.5 font-semibold">NIT</th>
                       <th className="px-3 py-2.5 font-semibold">Contacto</th>
                       <th className="px-3 py-2.5 font-semibold text-right">Movs</th>
@@ -142,7 +203,8 @@ export function TercerosListado() {
                         {terceros.length === 0 ? 'Todavía no hay terceros.' : 'Sin resultados.'}
                       </td></tr>
                     ) : visibles.slice(0, 300).map((t) => {
-                      const r = resumen?.get(t.id);
+                      const r = resumen.get(t.id);
+                      const rol = rolesPorId.get(t.id);
                       const contacto = [t.email, t.phone ?? t.telefono].filter(Boolean).join(' · ');
                       return (
                         <tr key={t.id}
@@ -151,10 +213,19 @@ export function TercerosListado() {
                           <td className="px-4 py-2 font-medium">
                             {t.name}
                             {t.razon_social && t.razon_social !== t.name && (
-                              <span className="text-muted-foreground ml-1.5 text-[10px]">{t.razon_social}</span>
+                              <span className="text-muted-foreground ml-1.5 text-xs font-normal">{t.razon_social}</span>
                             )}
                           </td>
-                          <td className="px-3 py-2"><RolChips roles={r?.roles ?? []} /></td>
+                          <td className="px-3 py-2">
+                            <RolEditable
+                              terceroId={t.id}
+                              nombre={t.name}
+                              roles={rol?.roles ?? []}
+                              derivados={rol?.derivados ?? []}
+                              manual={rol?.manual ?? false}
+                              cargando={!resumenListo && !rol?.manual}
+                            />
+                          </td>
                           <td className="px-3 py-2 font-mono">
                             {t.nit ? `${t.nit}${t.dv != null ? `-${t.dv}` : ''}` : (
                               <span className="text-amber-600 inline-flex items-center gap-1">
@@ -178,7 +249,7 @@ export function TercerosListado() {
                   </tbody>
                 </table>
                 {visibles.length > 300 && (
-                  <p className="px-4 py-2 text-[11px] text-muted-foreground">
+                  <p className="px-4 py-2 text-xs text-muted-foreground">
                     Mostrando 300 de {visibles.length} — usá el buscador.
                   </p>
                 )}
@@ -200,8 +271,8 @@ export default function Terceros() {
             <Users className="h-6 w-6 text-primary" /> Terceros
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Clientes, proveedores, empleados y entidades. El rol sale de lo que cada uno hizo —
-            no hay que clasificarlos a mano.
+            Clientes, proveedores, empleados y entidades. El rol sale de lo que cada uno hizo;
+            si está mal, corregilo con un clic en el chip.
           </p>
         </div>
         <TercerosListado />

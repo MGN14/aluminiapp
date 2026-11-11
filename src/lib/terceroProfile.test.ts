@@ -1,12 +1,14 @@
 /**
- * El rol de un tercero se DERIVA de lo que hizo (nada que digitar), y la
- * ficha responde "qué es lo que más compra" cruzando facturas y remisiones.
+ * El rol de un tercero se DERIVA de lo que hizo y, desde 2026-11-11, se puede
+ * corregir a mano (roles_manual manda). La ficha responde "qué es lo que más
+ * compra" cruzando facturas y remisiones.
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   derivarRoles, rankearReferencias, actividadPorMes, construirPerfil,
-  type Tercero, type InvoiceLite, type RawTerceroData,
+  normalizarRolesManual, resolverRoles, indexarResumen,
+  type Tercero, type InvoiceLite, type RawTerceroData, type ResumenTercero,
 } from './terceroProfile';
 
 const SIN_ACTIVIDAD = {
@@ -145,5 +147,83 @@ describe('construirPerfil', () => {
     expect(p.pendientePagar).toBe(200_000);
     expect(p.roles).toEqual(['cliente', 'proveedor']);
     expect(p.facturasVenta[0].invoice_number).toBe('FV-2'); // más reciente primero
+  });
+});
+
+describe('rol fijado a mano — manda sobre lo derivado (Nico 2026-11-11)', () => {
+  it('normalizarRolesManual: solo roles válidos, sin repetidos, en orden canónico; vacío o basura = null', () => {
+    expect(normalizarRolesManual(['proveedor', 'cliente', 'cliente'])).toEqual(['cliente', 'proveedor']);
+    expect(normalizarRolesManual(['gerente', 'empleado'])).toEqual(['empleado']);
+    expect(normalizarRolesManual([])).toBeNull();
+    expect(normalizarRolesManual(null)).toBeNull();
+    expect(normalizarRolesManual(undefined)).toBeNull();
+    expect(normalizarRolesManual('cliente')).toBeNull();
+  });
+
+  it('sin nada fijado, el rol es el derivado y no se marca como manual', () => {
+    const r = resolverRoles({ derivados: ['proveedor'], rolesManual: null });
+    expect(r).toEqual({ roles: ['proveedor'], manual: false, derivados: ['proveedor'] });
+    expect(resolverRoles({ derivados: ['proveedor'], rolesManual: [] }).manual).toBe(false);
+  });
+
+  it('lo fijado a mano REEMPLAZA a lo derivado, y lo derivado queda a la vista', () => {
+    // Caso de la captura: sale "Proveedor" por una factura de compra y Nico lo cambia a Cliente.
+    const r = resolverRoles({ derivados: ['proveedor'], rolesManual: ['cliente'] });
+    expect(r.roles).toEqual(['cliente']);
+    expect(r.manual).toBe(true);
+    expect(r.derivados).toEqual(['proveedor']);
+  });
+
+  it('se puede fijar más de un rol y darle rol a un tercero sin actividad', () => {
+    expect(resolverRoles({ derivados: [], rolesManual: ['proveedor', 'cliente'] }).roles).toEqual(['cliente', 'proveedor']);
+  });
+
+  it('la marca heredada cliente_manual SUMA cliente (no reemplaza) y solo si no hay roles_manual', () => {
+    // Nicolás: empleado por actividad + "tratarlo como cliente en Ventas".
+    const legado = resolverRoles({ derivados: ['empleado'], clienteManual: true });
+    expect(legado.roles).toEqual(['cliente', 'empleado']);
+    expect(legado.manual).toBe(true);
+    // Ya era cliente por actividad: la marca no agrega nada.
+    expect(resolverRoles({ derivados: ['cliente'], clienteManual: true }).manual).toBe(false);
+    // roles_manual gana sobre la marca vieja.
+    expect(resolverRoles({ derivados: ['empleado'], rolesManual: ['proveedor'], clienteManual: true }).roles).toEqual(['proveedor']);
+  });
+
+  it('derivarRoles con rolesManual devuelve lo fijado; vacío o null sigue en automático', () => {
+    const conCompra = { ...SIN_ACTIVIDAD, facturasCompra: 2 };
+    expect(derivarRoles({ ...conCompra, rolesManual: ['cliente'] })).toEqual(['cliente']);
+    expect(derivarRoles({ ...conCompra, rolesManual: [] })).toEqual(['proveedor']);
+    expect(derivarRoles({ ...conCompra, rolesManual: null })).toEqual(['proveedor']);
+  });
+
+  it('construirPerfil expone el rol efectivo, el derivado y si es manual', () => {
+    const base: RawTerceroData = {
+      tercero: { id: 'r1', name: 'Vidrimar', active: true, roles_manual: ['cliente'] } as Tercero,
+      alias: [], movimientos: [], invoiceItems: [], remisiones: [], remisionItems: [],
+      cotizaciones: 0, movimientosCajaMenor: 0, categoriasNombres: [],
+      facturas: [{ id: 'f1', invoice_number: 'FC-1', type: 'compra', issue_date: '2026-06-01', total_amount: 200_000, balance_pending: 0, responsible_id: 'r1', counterparty_name: null, status: null }],
+    };
+    const p = construirPerfil(base);
+    expect(p.roles).toEqual(['cliente']);
+    expect(p.rolesDerivados).toEqual(['proveedor']);
+    expect(p.rolManual).toBe(true);
+
+    const auto = construirPerfil({ ...base, tercero: { ...base.tercero, roles_manual: null } });
+    expect(auto.roles).toEqual(['proveedor']);
+    expect(auto.rolManual).toBe(false);
+  });
+});
+
+describe('resumen del listado — array plano que sobrevive el cache persistido', () => {
+  it('ida y vuelta por JSON y el índice sigue funcionando (nada de Map en la query)', () => {
+    const rows: ResumenTercero[] = [
+      { id: 'a', movimientos: 3, facturas: 1, pendienteCobrar: 500, ultimaActividad: '2026-10-30', roles: ['cliente'] },
+      { id: 'b', movimientos: 0, facturas: 0, pendienteCobrar: 0, ultimaActividad: null, roles: [] },
+    ];
+    const rehidratado = JSON.parse(JSON.stringify(rows)) as ResumenTercero[];
+    const idx = indexarResumen(rehidratado);
+    expect(idx.get('a')?.roles).toEqual(['cliente']);
+    expect(idx.get('b')?.ultimaActividad).toBeNull();
+    expect(indexarResumen(undefined).size).toBe(0);
   });
 });

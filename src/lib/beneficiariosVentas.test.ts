@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  esCategoriaVentas, clienteIdsDesdeEvidencia, idsUnicos, filtrarBeneficiariosVentas,
+  esCategoriaVentas, clienteIdsDesdeEvidencia, idsUnicos, filtrarBeneficiariosVentas, aplicarRolesManuales,
 } from './beneficiariosVentas';
 
 const terceros = [
@@ -61,5 +61,35 @@ describe('filtrarBeneficiariosVentas — el caso de Nico', () => {
   it('sin clientes, solo queda el seleccionado (si hay)', () => {
     expect(filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds: [], seleccionadoId: null })).toEqual([]);
     expect(filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds: [], seleccionadoId: 'tigo' }).map((t) => t.id)).toEqual(['tigo']);
+  });
+});
+
+describe('aplicarRolesManuales — lo fijado a mano manda sobre la evidencia', () => {
+  const evidencia = ['alumfer', 'castano', 'vidrimar'];
+
+  it('rol Cliente a mano entra sin facturas; rol a mano SIN Cliente sale aunque tenga facturas', () => {
+    const r = aplicarRolesManuales(evidencia, [
+      { id: 'nicolas', roles_manual: ['cliente', 'empleado'] },   // sin evidencia, entra
+      { id: 'vidrimar', roles_manual: ['proveedor'] },            // con evidencia, sale
+      { id: 'alumfer', roles_manual: ['cliente'] },               // ya estaba: sigue, marcado manual
+    ]);
+    expect(r.clienteIds).toEqual(['alumfer', 'castano', 'nicolas']);
+    expect(r.manuales).toEqual(['alumfer', 'nicolas']);
+    expect(r.excluidos).toEqual(['vidrimar']);
+  });
+
+  it('sin roles_manual manda la evidencia, más la marca heredada cliente_manual', () => {
+    const r = aplicarRolesManuales(evidencia, [
+      { id: 'nicolas', roles_manual: null, cliente_manual: true },
+      { id: 'tigo', roles_manual: [], cliente_manual: false },
+    ]);
+    expect(r.clienteIds).toEqual(['alumfer', 'castano', 'nicolas', 'vidrimar']);
+    expect(r.manuales).toEqual(['nicolas']);
+    expect(r.excluidos).toEqual([]);
+  });
+
+  it('roles_manual gana sobre la marca vieja: proveedor a mano + cliente_manual heredado = fuera', () => {
+    const r = aplicarRolesManuales([], [{ id: 'x', roles_manual: ['proveedor'], cliente_manual: true }]);
+    expect(r.clienteIds).toEqual([]);
   });
 });

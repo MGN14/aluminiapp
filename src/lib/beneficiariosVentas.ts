@@ -8,11 +8,13 @@
  * entra a la lista de Ventas si:
  *   · es CLIENTE por evidencia comercial: tiene facturas de venta, remisiones
  *     de venta o cotizaciones — la misma regla que `derivarRoles`; o
- *   · está marcado a mano como "tratarlo como cliente en Ventas" en su ficha
- *     (responsibles.cliente_manual). Es la excepción explícita, para los
- *     Nicolás: terceros a los que se les cobra sin factura ni remisión. Nico
- *     descartó derivarla de "ya tuvo un movimiento Ventas": arrastraba a
- *     cualquiera que alguna vez quedó mal clasificado.
+ *   · tiene el rol Cliente FIJADO A MANO (responsibles.roles_manual, se
+ *     cambia con un clic en el chip de Terceros). Es la excepción explícita,
+ *     para los Nicolás: terceros a los que se les cobra sin factura ni
+ *     remisión. Nico descartó derivarla de "ya tuvo un movimiento Ventas":
+ *     arrastraba a cualquiera que alguna vez quedó mal clasificado.
+ * Y al revés: un tercero con rol fijado a mano que NO incluye Cliente sale
+ * de la lista aunque tenga facturas de venta — lo fijado a mano manda.
  *
  * El beneficiario YA asignado a la fila se conserva siempre (lo grabado no
  * desaparece del selector), y la UI deja un escape "Ver todos los terceros"
@@ -44,6 +46,41 @@ export function idsUnicos(rows: { responsible_id: string | null }[]): string[] {
  *  derivarRoles en terceroProfile). */
 export function clienteIdsDesdeEvidencia(ev: EvidenciaClientes): string[] {
   return idsUnicos([...ev.facturasVenta, ...ev.remisionesVenta, ...ev.cotizaciones]);
+}
+
+/** Lo mínimo de `responsibles` para aplicar el rol fijado a mano. */
+export interface RolManualRow {
+  id: string;
+  /** responsibles.roles_manual: null/vacío = automático. */
+  roles_manual?: string[] | null;
+  /** Marca heredada "tratarlo como cliente en Ventas". */
+  cliente_manual?: boolean | null;
+}
+
+/**
+ * Cruza la evidencia comercial con los roles fijados a mano:
+ *   · roles_manual con 'cliente'  → entra, aunque no tenga evidencia;
+ *   · roles_manual sin 'cliente'  → sale, aunque tenga evidencia;
+ *   · sin roles_manual            → manda la evidencia, más la marca heredada
+ *                                   cliente_manual.
+ */
+export function aplicarRolesManuales(
+  evidencia: string[],
+  filas: RolManualRow[],
+): { clienteIds: string[]; manuales: string[]; excluidos: string[] } {
+  const ids = new Set(evidencia);
+  const manuales: string[] = [];
+  const excluidos: string[] = [];
+  for (const f of filas) {
+    const roles = Array.isArray(f.roles_manual) ? f.roles_manual : [];
+    if (roles.length) {
+      if (roles.includes('cliente')) { ids.add(f.id); manuales.push(f.id); }
+      else if (ids.delete(f.id)) excluidos.push(f.id);
+    } else if (f.cliente_manual) {
+      ids.add(f.id); manuales.push(f.id);
+    }
+  }
+  return { clienteIds: [...ids].sort(), manuales: manuales.sort(), excluidos: excluidos.sort() };
 }
 
 /**

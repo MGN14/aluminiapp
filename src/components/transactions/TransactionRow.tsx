@@ -529,8 +529,9 @@ export default function TransactionRow({
 
   // VENTAS → solo clientes (Nico 2026-11-11: "no Tigo, no Yolanda ni nadie
   // que no sea cliente; Nicolás sí"). Cliente = facturas/remisiones/
-  // cotizaciones de venta (evidencia, un fetch compartido) O marcado a mano
-  // en su ficha (cliente_manual) — así entra Nicolás sin tener factura. El
+  // cotizaciones de venta (evidencia, un fetch compartido) O rol Cliente
+  // fijado a mano en Terceros (roles_manual) — así entra Nicolás sin tener
+  // factura; y un rol fijado SIN Cliente lo saca aunque tenga facturas. El
   // grabado en la fila nunca se esconde, y "Ver todos los terceros" es el
   // escape para el caso raro.
   const ventasCategoryIds = useMemo(
@@ -712,8 +713,8 @@ export default function TransactionRow({
               ? {
                   label: verTodosTerceros ? 'Volver a solo clientes' : 'Ver todos los terceros',
                   title: verTodosTerceros
-                    ? 'Volver a la lista de clientes (facturas, remisiones o cotizaciones de venta, o marcados como cliente en su ficha)'
-                    : 'Para el caso raro: un tercero que nunca te compró y hoy te paga una venta. Si debería estar siempre, marcalo como cliente en su ficha (Terceros → Editar).',
+                    ? 'Volver a la lista de clientes (facturas, remisiones o cotizaciones de venta, o con rol Cliente fijado a mano en Terceros)'
+                    : 'Para el caso raro: un tercero que nunca te compró y hoy te paga una venta. Si debería estar siempre, fijale el rol Cliente en Terceros (clic en el chip de Rol).',
                   onClick: () => setVerTodosTerceros((v) => !v),
                 }
               : undefined}

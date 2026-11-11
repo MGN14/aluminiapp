@@ -6,8 +6,10 @@
  * tercero pero está repartido en 10 módulos; acá se junta todo.
  *
  * `responsibles` es la tabla única de terceros. El ROL (cliente, proveedor,
- * empleado, entidad) NO se digita: se DERIVA de lo que el tercero hizo — así
- * no hay nada que mantener a mano y nunca queda desactualizado.
+ * empleado, entidad) se DERIVA de lo que el tercero hizo — así no hay nada
+ * que mantener a mano y nunca queda desactualizado. Desde 2026-11-11 (pedido
+ * de Nico) se puede CORREGIR a mano con un clic en el chip: `roles_manual`
+ * manda sobre lo derivado; vacío = automático (ver resolverRoles).
  *
  * Las funciones de cálculo son puras (testeables); el fetch va aparte.
  */
@@ -39,10 +41,14 @@ export interface Tercero {
   dias_credito: number | null;
   cupo_credito: number | null;
   responsible_type: string | null;
-  /** Marcado a mano en la ficha: aparece en el selector de Ventas aunque no
-   *  tenga facturas, remisiones ni cotizaciones (excepción tipo Nicolás).
-   *  Única excepción a "el rol se deriva": es un permiso, no un rol. */
+  /** HEREDADA (2026-11-11, mañana): "tratarlo como cliente en Ventas". La
+   *  reemplaza roles_manual; se sigue leyendo para los terceros que no tengan
+   *  roles_manual, y el editor de roles la mantiene en sincronía. */
   cliente_manual: boolean;
+  /** Roles fijados A MANO desde el chip del listado o la ficha. null =
+   *  automático (se deriva de la actividad). Si viene, MANDA sobre lo
+   *  derivado en el listado, la ficha y el selector de Ventas. */
+  roles_manual: RolTercero[] | null;
   created_at: string;
 }
 
@@ -71,7 +77,12 @@ export type RolTercero = 'cliente' | 'proveedor' | 'empleado' | 'entidad';
 
 export interface TerceroProfile {
   tercero: Tercero;
+  /** Roles EFECTIVOS: los fijados a mano si hay, si no los derivados. */
   roles: RolTercero[];
+  /** Lo que dice la actividad sola (para mostrar "automático sería…"). */
+  rolesDerivados: RolTercero[];
+  /** true = el rol está fijado a mano. */
+  rolManual: boolean;
   alias: string[];
   /** Facturado como cliente (ventas) y como proveedor (compras). */
   totalVentas: number;
@@ -108,9 +119,60 @@ export interface RankingRef {
 /** Nombres de entidades que no son ni cliente ni proveedor comercial. */
 const ENTIDAD_RE = /\b(dian|banco|bancolombia|davivienda|nequi|daviplata|gobierno|camara de comercio|secretaria|alcaldia|tesoreria)\b/;
 
+/** Los roles, en el orden en que se muestran siempre. */
+export const ROLES_TERCERO: RolTercero[] = ['cliente', 'proveedor', 'empleado', 'entidad'];
+
+export const ROL_LABEL: Record<RolTercero, string> = {
+  cliente: 'Cliente', proveedor: 'Proveedor', empleado: 'Empleado', entidad: 'Entidad',
+};
+
 /**
- * Un tercero es lo que HIZO, no lo que alguien tildó en un formulario.
- * Puede tener varios roles a la vez (un proveedor que además te compra).
+ * Limpia lo que venga de la base o de la UI: solo roles válidos, sin
+ * repetidos y en orden canónico. Vacío / null / basura → null (= automático).
+ */
+export function normalizarRolesManual(v: unknown): RolTercero[] | null {
+  if (!Array.isArray(v)) return null;
+  const out = ROLES_TERCERO.filter((r) => v.includes(r));
+  return out.length ? out : null;
+}
+
+export interface RolesResueltos {
+  /** Lo que se muestra y se usa. */
+  roles: RolTercero[];
+  /** true = hay algo fijado a mano. */
+  manual: boolean;
+  /** Lo que diría la actividad sola. */
+  derivados: RolTercero[];
+}
+
+/**
+ * EL rol de un tercero: lo fijado a mano MANDA; sin nada fijado, lo derivado.
+ *
+ * `clienteManual` es la marca heredada "tratarlo como cliente en Ventas":
+ * solo cuenta si NO hay roles_manual, y SUMA cliente a lo derivado (no
+ * reemplaza: Nicolás sigue siendo empleado y además cliente).
+ */
+export function resolverRoles(p: {
+  derivados: RolTercero[];
+  rolesManual?: unknown;
+  clienteManual?: boolean | null;
+}): RolesResueltos {
+  const manual = normalizarRolesManual(p.rolesManual);
+  if (manual) return { roles: manual, manual: true, derivados: p.derivados };
+  if (p.clienteManual && !p.derivados.includes('cliente')) {
+    return {
+      roles: ROLES_TERCERO.filter((r) => r === 'cliente' || p.derivados.includes(r)),
+      manual: true,
+      derivados: p.derivados,
+    };
+  }
+  return { roles: p.derivados, manual: false, derivados: p.derivados };
+}
+
+/**
+ * Un tercero es lo que HIZO: el rol sale de su actividad. Puede tener varios
+ * roles a la vez (un proveedor que además te compra). Si se pasa
+ * `rolesManual` (no vacío), eso manda sobre lo derivado — ver resolverRoles.
  */
 export function derivarRoles(input: {
   nombre: string;
@@ -121,6 +183,10 @@ export function derivarRoles(input: {
   cotizaciones: number;
   movimientosCajaMenor: number;
   categoriasNombres: string[];   // categorías de sus transacciones bancarias
+  /** Roles fijados a mano (responsibles.roles_manual). */
+  rolesManual?: RolTercero[] | null;
+  /** Marca heredada cliente_manual. */
+  clienteManual?: boolean | null;
 }): RolTercero[] {
   const roles: RolTercero[] = [];
   if (input.facturasVenta > 0 || input.remisionesVenta > 0 || input.cotizaciones > 0) roles.push('cliente');
@@ -136,7 +202,9 @@ export function derivarRoles(input: {
   // se agrega sin desplazar a los demás.
   if (esEntidad && !roles.includes('entidad')) roles.push('entidad');
 
-  return roles;
+  return resolverRoles({
+    derivados: roles, rolesManual: input.rolesManual, clienteManual: input.clienteManual,
+  }).roles;
 }
 
 // ── Ranking de referencias ──────────────────────────────────────────────────
@@ -230,9 +298,8 @@ export function construirPerfil(raw: RawTerceroData): TerceroProfile {
     ...raw.remisiones.map((r) => r.date),
   ].filter(Boolean).sort();
 
-  return {
-    tercero: raw.tercero,
-    roles: derivarRoles({
+  const rol = resolverRoles({
+    derivados: derivarRoles({
       nombre: raw.tercero.name,
       facturasVenta: facturasVenta.length,
       facturasCompra: facturasCompra.length,
@@ -242,6 +309,15 @@ export function construirPerfil(raw: RawTerceroData): TerceroProfile {
       movimientosCajaMenor: raw.movimientosCajaMenor,
       categoriasNombres: raw.categoriasNombres,
     }),
+    rolesManual: raw.tercero.roles_manual,
+    clienteManual: raw.tercero.cliente_manual,
+  });
+
+  return {
+    tercero: raw.tercero,
+    roles: rol.roles,
+    rolesDerivados: rol.derivados,
+    rolManual: rol.manual,
     alias: raw.alias,
     totalVentas: suma(facturasVenta, 'total_amount'),
     totalCompras: suma(facturasCompra, 'total_amount'),
@@ -264,6 +340,11 @@ export function construirPerfil(raw: RawTerceroData): TerceroProfile {
 const CAMPOS_TERCERO =
   'id, name, active, nit, dv, razon_social, tipo_documento, tipo_persona, regimen, ' +
   'actividad_economica, ciudad, telefono, email, phone, address, notas, dias_credito, ' +
+  'cupo_credito, responsible_type, cliente_manual, roles_manual, created_at';
+/** Sin roles_manual (migración 20261111130000 aún no aplicada). */
+const CAMPOS_TERCERO_SIN_ROLES =
+  'id, name, active, nit, dv, razon_social, tipo_documento, tipo_persona, regimen, ' +
+  'actividad_economica, ciudad, telefono, email, phone, address, notas, dias_credito, ' +
   'cupo_credito, responsible_type, cliente_manual, created_at';
 /** Sin cliente_manual (migración 20261111120000 aún no aplicada). */
 const CAMPOS_TERCERO_2026_08 =
@@ -275,19 +356,33 @@ const CAMPOS_TERCERO_BASE =
   'id, name, active, nit, tipo_documento, tipo_persona, ciudad, telefono, email, ' +
   'phone, address, responsible_type, created_at';
 
+/** De la más nueva a la más vieja: se prueba en orden hasta que una pase, así
+ *  el módulo funciona aunque falte aplicar la última migración. */
+const NIVELES_CAMPOS = [CAMPOS_TERCERO, CAMPOS_TERCERO_SIN_ROLES, CAMPOS_TERCERO_2026_08, CAMPOS_TERCERO_BASE];
+
+type RespuestaSelect = PromiseLike<{ data: unknown; error: unknown }>;
+
+async function selectTolerante(build: (campos: string) => RespuestaSelect): Promise<Record<string, unknown>[]> {
+  let res: { data: unknown; error: unknown } = { data: null, error: null };
+  for (const campos of NIVELES_CAMPOS) {
+    res = await build(campos);
+    if (!res.error) break;
+  }
+  if (res.error) throw res.error;
+  return (res.data ?? []) as Record<string, unknown>[];
+}
+
 const completar = (t: Record<string, unknown>): Tercero => ({
   dv: null, razon_social: null, regimen: null, actividad_economica: null,
   notas: null, dias_credito: null, cupo_credito: null, cliente_manual: false,
   ...t,
+  roles_manual: normalizarRolesManual(t.roles_manual),
 } as Tercero);
 
 /** Todos los terceros para el listado (tolera la migración sin aplicar). */
 export async function fetchTerceros(): Promise<Tercero[]> {
-  let res = await db.from('responsibles').select(CAMPOS_TERCERO).order('name');
-  if (res.error) res = await db.from('responsibles').select(CAMPOS_TERCERO_2026_08).order('name');
-  if (res.error) res = await db.from('responsibles').select(CAMPOS_TERCERO_BASE).order('name');
-  if (res.error) throw res.error;
-  return ((res.data ?? []) as Record<string, unknown>[]).map(completar);
+  const filas = await selectTolerante((campos) => db.from('responsibles').select(campos).order('name'));
+  return filas.map(completar);
 }
 
 export interface ResumenTercero {
@@ -296,14 +391,25 @@ export interface ResumenTercero {
   facturas: number;
   pendienteCobrar: number;
   ultimaActividad: string | null;
+  /** Roles DERIVADOS de la actividad. El rol fijado a mano NO va acá: se
+   *  resuelve al pintar (resolverRoles) contra la lista fresca de terceros,
+   *  así un cambio de rol se ve al instante sin recalcular este resumen. */
   roles: RolTercero[];
+}
+
+/** Índice por id — se arma AL USAR (useMemo), nunca viaja en la query. */
+export function indexarResumen(rows: ResumenTercero[] | null | undefined): Map<string, ResumenTercero> {
+  return new Map((rows ?? []).map((r) => [r.id, r]));
 }
 
 /**
  * Resumen liviano de TODOS los terceros para el listado — una pasada por
  * tabla en vez de N consultas por fila.
+ *
+ * Devuelve un ARRAY plano: es dato de React Query y el cache persistido es
+ * JSON (un Map no sobrevive la recarga). El índice lo arma indexarResumen.
  */
-export async function fetchResumenTerceros(terceros: Tercero[]): Promise<Map<string, ResumenTercero>> {
+export async function fetchResumenTerceros(terceros: Tercero[]): Promise<ResumenTercero[]> {
   const [txsRes, invRes, remRes, catsRes, pettyRes, quotesRes] = await Promise.all([
     db.from('transactions').select('responsible_id, date, amount, category_id').is('deleted_at', null),
     db.from('invoices').select('responsible_id, type, issue_date, total_amount, balance_pending'),
@@ -352,10 +458,10 @@ export async function fetchResumenTerceros(terceros: Tercero[]): Promise<Map<str
     const a = get(q.responsible_id); if (a) a.cot++;
   }
 
-  const out = new Map<string, ResumenTercero>();
+  const out: ResumenTercero[] = [];
   for (const t of terceros) {
     const a = acc.get(t.id);
-    out.set(t.id, a
+    out.push(a
       ? {
         id: t.id, movimientos: a.movimientos, facturas: a.facturas,
         pendienteCobrar: a.pendienteCobrar, ultimaActividad: a.ultimaActividad,
@@ -378,11 +484,7 @@ export async function fetchResumenTerceros(terceros: Tercero[]): Promise<Map<str
 
 /** Todo lo que la app sabe de UN tercero. */
 export async function fetchTerceroProfile(id: string): Promise<TerceroProfile> {
-  let tRes = await db.from('responsibles').select(CAMPOS_TERCERO).eq('id', id).limit(1);
-  if (tRes.error) tRes = await db.from('responsibles').select(CAMPOS_TERCERO_2026_08).eq('id', id).limit(1);
-  if (tRes.error) tRes = await db.from('responsibles').select(CAMPOS_TERCERO_BASE).eq('id', id).limit(1);
-  if (tRes.error) throw tRes.error;
-  const fila = ((tRes.data ?? []) as Record<string, unknown>[])[0];
+  const [fila] = await selectTolerante((campos) => db.from('responsibles').select(campos).eq('id', id).limit(1));
   if (!fila) throw new Error('Tercero no encontrado.');
   const tercero = completar(fila);
 
@@ -436,4 +538,16 @@ export async function fetchTerceroProfile(id: string): Promise<TerceroProfile> {
 export async function saveTercero(id: string, patch: Partial<Tercero>): Promise<void> {
   const { error } = await db.from('responsibles').update(patch).eq('id', id);
   if (error) throw error;
+}
+
+/**
+ * Fija a mano el rol de un tercero (o lo devuelve a automático con null /
+ * lista vacía). Mantiene en sincronía la marca heredada cliente_manual, para
+ * que "Volver a automático" no deje a nadie colado en el selector de Ventas.
+ * Devuelve lo que quedó guardado.
+ */
+export async function saveRolesTercero(id: string, roles: RolTercero[] | null): Promise<RolTercero[] | null> {
+  const limpio = normalizarRolesManual(roles);
+  await saveTercero(id, { roles_manual: limpio, cliente_manual: limpio?.includes('cliente') ?? false });
+  return limpio;
 }

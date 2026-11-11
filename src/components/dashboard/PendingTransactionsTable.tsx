@@ -247,7 +247,8 @@ export function PendingTransactionsTable({
 
   // VENTAS → solo clientes, el mismo criterio que la fila de Conciliación
   // (lib/beneficiariosVentas): cliente por facturas/remisiones/cotizaciones
-  // de venta, o marcado a mano en su ficha. "Ver todos los terceros" por fila.
+  // de venta, o con rol Cliente fijado a mano en Terceros. "Ver todos los
+  // terceros" por fila.
   const ventasCategoryIds = useMemo(
     () => categories.filter((c) => esCategoriaVentas(c.name)).map((c) => c.id),
     [categories],
@@ -277,7 +278,7 @@ export function PendingTransactionsTable({
     : {
         label: verTodosIds.has(tx.id) ? 'Volver a solo clientes' : 'Ver todos los terceros',
         title: verTodosIds.has(tx.id)
-          ? 'Volver a la lista de clientes (facturas, remisiones o cotizaciones de venta, o marcados como cliente en su ficha)'
+          ? 'Volver a la lista de clientes (facturas, remisiones o cotizaciones de venta, o con rol Cliente fijado a mano en Terceros)'
           : 'Para el caso raro: un tercero que nunca te compró y hoy te paga una venta',
         onClick: () => toggleVerTodos(tx.id),
       };
