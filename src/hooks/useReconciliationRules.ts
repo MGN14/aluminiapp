@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { normalizeForMatch } from '@/lib/stringUtils';
+import { fetchAllPaged } from '@/lib/fetchAllPaged';
 import { type MovementNature } from '@/types/transaction';
 
 export interface ReconciliationRule {
@@ -64,7 +65,10 @@ export function matchesRule(
   if (rule.tx_type !== txType) return false;
   if (rule.amount_min != null && amt < rule.amount_min) return false;
   if (rule.amount_max != null && amt > rule.amount_max) return false;
-  const day = new Date(tx.date).getDate();
+  // Día del mes leído del texto ISO, igual que EXTRACT(DAY FROM date) en la
+  // base. `new Date('2026-10-01').getDate()` parsea en UTC y en Colombia
+  // (UTC-5) devuelve 30: el día anterior.
+  const day = Number((tx.date ?? '').slice(8, 10));
   if (rule.day_min != null && day < rule.day_min) return false;
   if (rule.day_max != null && day > rule.day_max) return false;
   if (rule.keyword) {
@@ -82,6 +86,78 @@ export function matchesRule(
     }
   }
   return true;
+}
+
+// ── UN SOLO CRITERIO: la app decide igual que la base ──────────────────────
+// La referencia es la función SQL apply_reconciliation_rules_to_tx (trigger al
+// insertar + barridos). Lo de abajo es su ESPEJO en TypeScript, para que los
+// caminos de la app (subir un extracto, "aplicar a existentes") elijan la
+// misma regla y escriban lo mismo. Antes diferían en tres cosas (auditoría
+// 2026-11-11, pedido de Nico: "que ambos tengan los mismos criterios"):
+//   · orden: la base va de la regla más específica a la menos; la app tomaba
+//     la más recién creada;
+//   · candidatas: la base llena lo que esté vacío (categoría O beneficiario);
+//     la app solo tocaba filas con los dos vacíos;
+//   · día del mes: la app lo leía con Date y en Colombia le salía el día anterior.
+// Si cambiás uno, cambiá el otro: los casos de useReconciliationRules.test.ts
+// son el contrato.
+
+/** Lo mínimo de un movimiento para decidir qué regla le aplica. */
+export interface TxParaRegla {
+  description: string;
+  amount: number | null;
+  date: string;
+  category_id?: string | null;
+  responsible_id?: string | null;
+  movement_nature?: string | null;
+}
+
+/** Espejo EXACTO de reconciliation_rule_specificity (SQL). */
+export function reglaEspecificidad(r: ReconciliationRule): number {
+  let score = 0;
+  if (r.keyword) score += 10;
+  if (r.amount_min != null) score += 3;
+  if (r.amount_max != null) score += 3;
+  if (r.day_min != null) score += 2;
+  if (r.day_max != null) score += 2;
+  if (r.responsible_id) score += 5;
+  if (r.category_id) score += 5;
+  return score;
+}
+
+/** Mismo ORDER BY que la base: especificidad DESC, creación ASC. */
+export function ordenarReglasComoLaBase(rules: ReconciliationRule[]): ReconciliationRule[] {
+  return [...rules].sort((a, b) =>
+    reglaEspecificidad(b) - reglaEspecificidad(a)
+    || (a.created_at ?? '').localeCompare(b.created_at ?? ''));
+}
+
+export interface ReglaAplicable {
+  rule: ReconciliationRule;
+  /** Solo los campos que estaban VACÍOS y la regla llena (nunca pisa). */
+  update: { category_id?: string; responsible_id?: string; movement_nature?: MovementNature };
+}
+
+/**
+ * Qué regla le aplica a un movimiento y qué le escribe — misma decisión que
+ * la función SQL, paso a paso:
+ *   1. si ya tiene categoría Y beneficiario, no se toca;
+ *   2. gana la PRIMERA regla que coincide, en el orden de la base;
+ *   3. solo llena campos vacíos;
+ *   4. si esa regla no llena nada, no hay match (y no se pasa a la siguiente:
+ *      mezclaría la categoría de una regla con el beneficiario de otra).
+ */
+export function resolverRegla(rules: ReconciliationRule[], tx: TxParaRegla): ReglaAplicable | null {
+  if (tx.category_id && tx.responsible_id) return null;
+  for (const rule of ordenarReglasComoLaBase(rules)) {
+    if (!matchesRule(rule, tx)) continue;
+    const update: ReglaAplicable['update'] = {};
+    if (!tx.category_id && rule.category_id) update.category_id = rule.category_id;
+    if (!tx.responsible_id && rule.responsible_id) update.responsible_id = rule.responsible_id;
+    if (!tx.movement_nature && rule.movement_nature) update.movement_nature = rule.movement_nature;
+    return Object.keys(update).length ? { rule, update } : null;
+  }
+  return null;
 }
 
 /**
@@ -193,213 +269,150 @@ export function useReconciliationRules() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reconciliation-rules'] }),
   });
 
+  type TxFila = TxParaRegla & { id: string };
+  const CAMPOS_TX = 'id, description, amount, date, category_id, responsible_id, movement_nature';
+
   /**
-   * Fetches all transactions for a given statement_id and applies matching
-   * reconciliation rules (auto-categorizes uncategorized transactions).
-   * Returns the number of transactions categorized.
+   * Aplica el criterio único (resolverRegla) a un lote de movimientos y
+   * escribe los cambios: 1 UPDATE por combinación distinta de campos. Devuelve
+   * cuántos movimientos cambió. Es el mismo resultado que daría la función
+   * SQL sobre esas filas.
    */
-  const applyRulesToStatement = async (statementId: string): Promise<number> => {
-    if (!rules.length || !statementId) return 0;
-    // Aceptar reglas que aporten al menos category_id O responsible_id —
-    // antes filtrábamos por category_id obligatorio y descartábamos las
-    // reglas que solo asignaban beneficiario.
+  const aplicarCriterioUnico = async (
+    txs: TxFila[],
+    onProgress?: (current: number, total: number) => void,
+  ): Promise<{ applied: number; errors: number }> => {
     const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id || r.movement_nature));
-    if (!activeRules.length) return 0;
+    if (!activeRules.length || !txs.length) return { applied: 0, errors: 0 };
 
-    const { data: txs, error } = await supabase
-      .from('transactions')
-      .select('id, description, amount, date, category_id, responsible_id')
-      .eq('statement_id', statementId)
-      .is('deleted_at', null);
-
-    if (error || !txs?.length) return 0;
-
-    // No tocar lo que ya está conciliado: si la tx ya tiene categoría O
-    // beneficiario, la regla no debe pisar. El usuario decidió manualmente
-    // y no queremos desconciliar lo trabajado de la semana anterior.
-    const candidates = txs.filter((tx: any) => !tx.category_id && !tx.responsible_id);
-    if (!candidates.length) return 0;
-
-    type Update = { category_id?: string; responsible_id?: string; movement_nature?: string };
-    // Agrupar por la combinación exacta de campos a setear, para hacer 1 UPDATE
-    // por combinación distinta en lugar de 1 por transacción.
-    const updateBuckets = new Map<string, { update: Update; ids: string[] }>();
+    const buckets = new Map<string, { update: ReglaAplicable['update']; ids: string[] }>();
     const ruleHits: Record<string, number> = {};
+    txs.forEach((tx, i) => {
+      const r = resolverRegla(activeRules, tx);
+      if (r) {
+        const key = `${r.update.category_id ?? ''}__${r.update.responsible_id ?? ''}__${r.update.movement_nature ?? ''}`;
+        const bucket = buckets.get(key) ?? { update: r.update, ids: [] };
+        bucket.ids.push(tx.id);
+        buckets.set(key, bucket);
+        ruleHits[r.rule.id] = (ruleHits[r.rule.id] ?? 0) + 1;
+      }
+      onProgress?.(i + 1, txs.length);
+    });
 
-    for (const tx of candidates) {
-      for (const rule of activeRules) {
-        if (matchesRule(rule, tx as any)) {
-          const update: Update = {};
-          if (rule.category_id) update.category_id = rule.category_id;
-          if (rule.responsible_id) update.responsible_id = rule.responsible_id;
-          if (rule.movement_nature) update.movement_nature = rule.movement_nature;
-          const key = `${update.category_id ?? ''}__${update.responsible_id ?? ''}__${update.movement_nature ?? ''}`;
-          const bucket = updateBuckets.get(key) ?? { update, ids: [] };
-          bucket.ids.push((tx as any).id);
-          updateBuckets.set(key, bucket);
-          ruleHits[rule.id] = (ruleHits[rule.id] ?? 0) + 1;
-          break; // first matching rule wins
-        }
+    let applied = 0;
+    let errors = 0;
+    for (const { update, ids } of buckets.values()) {
+      for (let i = 0; i < ids.length; i += 200) {
+        const lote = ids.slice(i, i + 200);
+        const { error: updErr } = await supabase
+          .from('transactions')
+          .update(update as never)
+          .in('id', lote);
+        if (updErr) errors += lote.length;
+        else applied += lote.length;
       }
     }
 
-    let applied = 0;
-    for (const { update, ids } of updateBuckets.values()) {
-      const { error: updErr } = await supabase
-        .from('transactions')
-        .update(update)
-        .in('id', ids);
-      if (!updErr) applied += ids.length;
-    }
-
-    // Update rule match counts in parallel
+    // Contadores de las reglas que dispararon.
+    const now = new Date().toISOString();
     await Promise.all(
-      Object.entries(ruleHits).map(([ruleId, matchCount]) => {
+      Object.entries(ruleHits).map(([ruleId, hits]) => {
         const rule = activeRules.find(r => r.id === ruleId);
         if (!rule) return null;
         return (supabase as any)
           .from('reconciliation_rules')
-          .update({
-            match_count: rule.match_count + matchCount,
-            last_matched_at: new Date().toISOString(),
-          })
+          .update({ match_count: rule.match_count + hits, last_matched_at: now })
           .eq('id', ruleId);
       }),
     );
 
     if (applied > 0) {
       qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: ['conciliacion'] });
     }
-
-    return applied;
+    return { applied, errors };
   };
 
   /**
-   * Batch-apply rules to ALL uncategorized transactions for the current user
-   * (across every statement, including pre-migration data). Returns totals so
-   * the UI can show a progress report.
-   *
-   * This is the retroactive counterpart to applyRulesToStatement, which only
-   * runs at statement-upload time.
+   * Reglas sobre un extracto recién subido. La base YA las aplicó al insertar
+   * cada fila (trigger); esta pasada usa el mismo criterio y solo completa lo
+   * que haya quedado. Devuelve cuántos movimientos del extracto quedaron
+   * clasificados por reglas en total (los del trigger + los de esta pasada),
+   * que es lo que el aviso de subida le cuenta al usuario.
+   */
+  const applyRulesToStatement = async (statementId: string): Promise<number> => {
+    if (!statementId) return 0;
+
+    const txs = await fetchAllPaged<TxFila>((a, b) => supabase
+      .from('transactions')
+      .select(CAMPOS_TX as never)
+      .eq('statement_id', statementId)
+      .is('deleted_at', null)
+      .order('id')
+      .range(a, b));
+    if (!txs.length) return 0;
+
+    const { applied } = await aplicarCriterioUnico(txs);
+
+    // Lo que el trigger clasificó al insertar queda en el log de matches.
+    let porTrigger = 0;
+    try {
+      const { count } = await (supabase as any)
+        .from('transaction_match_log')
+        .select('id, transactions!inner(statement_id)', { count: 'exact', head: true })
+        .eq('transactions.statement_id', statementId);
+      porTrigger = count ?? 0;
+    } catch { /* sin acceso al log: se informa solo lo de esta pasada */ }
+
+    return porTrigger + applied;
+  };
+
+  /**
+   * Respaldo de "aplicar a existentes" cuando el RPC no está disponible:
+   * mismas candidatas que la base (categoría O beneficiario vacío) y mismo
+   * criterio. El camino normal es applyPendingRulesViaRPC.
    */
   const applyRulesToAllUserTransactions = async (
     onProgress?: (current: number, total: number) => void,
   ): Promise<{ total: number; categorized: number; skipped: number; errors: number }> => {
     if (!user?.id) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
-    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id || r.movement_nature));
-    if (!activeRules.length) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
 
-    // Solo tocar tx sin categoría Y sin beneficiario — no pisar trabajo manual.
-    const { data: txs, error } = await supabase
+    const txs = await fetchAllPaged<TxFila>((a, b) => supabase
       .from('transactions')
-      .select('id, description, amount, date, category_id, responsible_id')
+      .select(CAMPOS_TX as never)
       .is('deleted_at', null)
-      .is('category_id', null)
-      .is('responsible_id', null);
+      .or('category_id.is.null,responsible_id.is.null')
+      .order('id')
+      .range(a, b), { maxRows: 5000 });
+    if (!txs.length) return { total: 0, categorized: 0, skipped: 0, errors: 0 };
 
-    if (error || !txs?.length) {
-      return { total: 0, categorized: 0, skipped: 0, errors: 0 };
-    }
-
-    const total = txs.length;
-    let categorized = 0;
-    let skipped = 0;
-    let errors = 0;
-    const ruleHits: Record<string, number> = {};
-
-    for (let i = 0; i < txs.length; i++) {
-      const tx = txs[i] as any;
-      let matched = false;
-      for (const rule of activeRules) {
-        if (matchesRule(rule, tx)) {
-          const update: { category_id?: string; responsible_id?: string; movement_nature?: string } = {};
-          if (rule.category_id) update.category_id = rule.category_id;
-          if (rule.responsible_id) update.responsible_id = rule.responsible_id;
-          if (rule.movement_nature) update.movement_nature = rule.movement_nature;
-          const { error: updErr } = await supabase
-            .from('transactions')
-            .update(update)
-            .eq('id', tx.id);
-          if (updErr) {
-            errors++;
-          } else {
-            categorized++;
-            ruleHits[rule.id] = (ruleHits[rule.id] ?? 0) + 1;
-          }
-          matched = true;
-          break; // first match wins
-        }
-      }
-      if (!matched) skipped++;
-      onProgress?.(i + 1, total);
-    }
-
-    // Bump match_count / last_matched_at for the rules that fired.
-    const now = new Date().toISOString();
-    for (const [ruleId, hits] of Object.entries(ruleHits)) {
-      const rule = activeRules.find(r => r.id === ruleId);
-      if (!rule) continue;
-      await (supabase as any)
-        .from('reconciliation_rules')
-        .update({ match_count: rule.match_count + hits, last_matched_at: now })
-        .eq('id', ruleId);
-    }
-
-    if (categorized > 0) {
-      qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
-      qc.invalidateQueries({ queryKey: ['transactions'] });
-      qc.invalidateQueries({ queryKey: ['conciliacion'] });
-    }
-
-    return { total, categorized, skipped, errors };
+    const { applied, errors } = await aplicarCriterioUnico(txs, onProgress);
+    return { total: txs.length, categorized: applied, skipped: txs.length - applied - errors, errors };
   };
 
   /**
-   * Apply rules to a set of transactions (for manual re-processing).
-   * Returns the number of transactions categorized.
+   * Reglas sobre un conjunto puntual de movimientos (re-proceso manual).
+   * Mismo criterio. Devuelve cuántos cambió.
    */
   const applyRulesToTransactions = async (transactionIds: string[]): Promise<number> => {
-    if (!rules.length || !transactionIds.length) return 0;
-    const activeRules = rules.filter(r => r.active && (r.category_id || r.responsible_id || r.movement_nature));
-    if (!activeRules.length) return 0;
+    if (!transactionIds.length) return 0;
 
-    const { data: txs } = await supabase
-      .from('transactions')
-      .select('id, description, amount, date, category_id, responsible_id')
-      .in('id', transactionIds)
-      .is('deleted_at', null);
-
-    if (!txs?.length) return 0;
-
-    // No tocar tx ya conciliada (categoría O beneficiario).
-    const candidates = txs.filter((tx: any) => !tx.category_id && !tx.responsible_id);
-    if (!candidates.length) return 0;
-
-    let applied = 0;
-    for (const tx of candidates) {
-      for (const rule of activeRules) {
-        if (matchesRule(rule, tx as any)) {
-          const update: { category_id?: string; responsible_id?: string; movement_nature?: string } = {};
-          if (rule.category_id) update.category_id = rule.category_id;
-          if (rule.responsible_id) update.responsible_id = rule.responsible_id;
-          if (rule.movement_nature) update.movement_nature = rule.movement_nature;
-          const { error } = await supabase
-            .from('transactions')
-            .update(update)
-            .eq('id', (tx as any).id);
-          if (!error) applied++;
-          break;
-        }
-      }
+    const txs: TxFila[] = [];
+    for (let i = 0; i < transactionIds.length; i += 200) {
+      const { data } = await supabase
+        .from('transactions')
+        .select(CAMPOS_TX as never)
+        .in('id', transactionIds.slice(i, i + 200))
+        .is('deleted_at', null);
+      txs.push(...(((data ?? []) as unknown) as TxFila[]));
     }
+    if (!txs.length) return 0;
 
+    const { applied } = await aplicarCriterioUnico(txs);
     if (applied > 0) {
-      qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
-      qc.invalidateQueries({ queryKey: ['conciliacion'] });
       toast.success(`Nico aplicó ${applied} regla${applied > 1 ? 's' : ''} automáticamente`);
     }
-
     return applied;
   };
 
