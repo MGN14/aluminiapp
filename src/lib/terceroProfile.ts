@@ -39,6 +39,10 @@ export interface Tercero {
   dias_credito: number | null;
   cupo_credito: number | null;
   responsible_type: string | null;
+  /** Marcado a mano en la ficha: aparece en el selector de Ventas aunque no
+   *  tenga facturas, remisiones ni cotizaciones (excepción tipo Nicolás).
+   *  Única excepción a "el rol se deriva": es un permiso, no un rol. */
+  cliente_manual: boolean;
   created_at: string;
 }
 
@@ -260,21 +264,27 @@ export function construirPerfil(raw: RawTerceroData): TerceroProfile {
 const CAMPOS_TERCERO =
   'id, name, active, nit, dv, razon_social, tipo_documento, tipo_persona, regimen, ' +
   'actividad_economica, ciudad, telefono, email, phone, address, notas, dias_credito, ' +
+  'cupo_credito, responsible_type, cliente_manual, created_at';
+/** Sin cliente_manual (migración 20261111120000 aún no aplicada). */
+const CAMPOS_TERCERO_2026_08 =
+  'id, name, active, nit, dv, razon_social, tipo_documento, tipo_persona, regimen, ' +
+  'actividad_economica, ciudad, telefono, email, phone, address, notas, dias_credito, ' +
   'cupo_credito, responsible_type, created_at';
-/** Sin las columnas de la migración nueva (fallback si no está aplicada). */
+/** Sin las columnas de la migración de 2026-08 (fallback si no está aplicada). */
 const CAMPOS_TERCERO_BASE =
   'id, name, active, nit, tipo_documento, tipo_persona, ciudad, telefono, email, ' +
   'phone, address, responsible_type, created_at';
 
 const completar = (t: Record<string, unknown>): Tercero => ({
   dv: null, razon_social: null, regimen: null, actividad_economica: null,
-  notas: null, dias_credito: null, cupo_credito: null,
+  notas: null, dias_credito: null, cupo_credito: null, cliente_manual: false,
   ...t,
 } as Tercero);
 
 /** Todos los terceros para el listado (tolera la migración sin aplicar). */
 export async function fetchTerceros(): Promise<Tercero[]> {
   let res = await db.from('responsibles').select(CAMPOS_TERCERO).order('name');
+  if (res.error) res = await db.from('responsibles').select(CAMPOS_TERCERO_2026_08).order('name');
   if (res.error) res = await db.from('responsibles').select(CAMPOS_TERCERO_BASE).order('name');
   if (res.error) throw res.error;
   return ((res.data ?? []) as Record<string, unknown>[]).map(completar);
@@ -369,6 +379,7 @@ export async function fetchResumenTerceros(terceros: Tercero[]): Promise<Map<str
 /** Todo lo que la app sabe de UN tercero. */
 export async function fetchTerceroProfile(id: string): Promise<TerceroProfile> {
   let tRes = await db.from('responsibles').select(CAMPOS_TERCERO).eq('id', id).limit(1);
+  if (tRes.error) tRes = await db.from('responsibles').select(CAMPOS_TERCERO_2026_08).eq('id', id).limit(1);
   if (tRes.error) tRes = await db.from('responsibles').select(CAMPOS_TERCERO_BASE).eq('id', id).limit(1);
   if (tRes.error) throw tRes.error;
   const fila = ((tRes.data ?? []) as Record<string, unknown>[])[0];

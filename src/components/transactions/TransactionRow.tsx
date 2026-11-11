@@ -39,6 +39,7 @@ import { esCategoriaVentas, filtrarBeneficiariosVentas } from '@/lib/beneficiari
 import { useClientesConciliacion } from '@/hooks/useClientesConciliacion';
 import {
   sugerirBeneficiario, sugerirCategoria, alertaCategoriaInusual, alertaMontoInusual,
+  type TxHistorial,
 } from '@/lib/conciliacionHistorial';
 import {
   type CardDescriptionRule,
@@ -60,6 +61,10 @@ interface TransactionRowProps {
   /** Reglas inversas de tarjeta (cat+beneficiario → descripción). Solo se
    *  evalúan cuando canEditDescription y la descripción sigue sintética. */
   cardDescriptionRules?: CardDescriptionRule[];
+  /** Transacciones FRESCAS de la página (con el patch optimista de lo que se
+   *  acaba de asignar): la sugerencia de beneficiario las usa para no volver
+   *  a proponer a quien YA cobró este mismo monto en el período. */
+  transaccionesCargadas?: TxHistorial[];
 }
 
 function formatCurrency(value: number | null) {
@@ -82,6 +87,7 @@ export default function TransactionRow({
   onTransactionUpdated,
   canEditDescription,
   cardDescriptionRules,
+  transaccionesCargadas,
 }: TransactionRowProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -498,12 +504,16 @@ export default function TransactionRow({
   const descExcluida = esExcluida(localTransaction.description);
 
   // Beneficiarios sugeridos para ESTA fila: por categoría + monto. El que
-  // calza en monto va primero ("Nómina de $1.250.000 → Rocío, 7 veces").
+  // calza en monto va primero ("Nómina de $1.250.000 → Rocío, 7 veces"), y
+  // quien YA cobró ese mismo monto en el período baja al final (dos empleadas
+  // de $1.000.000: la segunda fila no vuelve a proponer a la primera).
   const sugerenciasResp = useMemo(
     () => (historial && localTransaction.category_id
-      ? sugerirBeneficiario(historial, localTransaction.category_id, localTransaction.amount)
+      ? sugerirBeneficiario(historial, localTransaction.category_id, localTransaction.amount, 3, {
+          txId: localTransaction.id, date: localTransaction.date, recientes: transaccionesCargadas,
+        })
       : []),
-    [historial, localTransaction.category_id, localTransaction.amount],
+    [historial, localTransaction.category_id, localTransaction.amount, localTransaction.id, localTransaction.date, transaccionesCargadas],
   );
   const sugerenciaCat = useMemo(
     () => (historial && !localTransaction.category_id && !descExcluida
@@ -517,11 +527,12 @@ export default function TransactionRow({
     .filter(c => c.active)
     .map(c => ({ value: c.id, label: c.name }));
 
-  // VENTAS → solo clientes (Nico 2026-11-11: "no Tigo, no Yolanda; Nicolás
-  // sí"). Cliente = facturas/remisiones/cotizaciones de venta (evidencia,
-  // un fetch compartido) O ya cobró una venta según el historial — por eso
-  // entra Nicolás sin tener factura. El grabado en la fila nunca se esconde,
-  // y "Ver todos los terceros" es el escape para el caso raro.
+  // VENTAS → solo clientes (Nico 2026-11-11: "no Tigo, no Yolanda ni nadie
+  // que no sea cliente; Nicolás sí"). Cliente = facturas/remisiones/
+  // cotizaciones de venta (evidencia, un fetch compartido) O marcado a mano
+  // en su ficha (cliente_manual) — así entra Nicolás sin tener factura. El
+  // grabado en la fila nunca se esconde, y "Ver todos los terceros" es el
+  // escape para el caso raro.
   const ventasCategoryIds = useMemo(
     () => categories.filter((c) => esCategoriaVentas(c.name)).map((c) => c.id),
     [categories],
@@ -539,7 +550,6 @@ export default function TransactionRow({
       ? filtrarBeneficiariosVentas({
           responsibles: activos,
           clienteIds: clientes?.clienteIds ?? [],
-          usadosEnVentas: clientes?.usadosEnVentas ?? [],
           seleccionadoId: localTransaction.responsible_id,
         })
       : activos;
@@ -549,7 +559,9 @@ export default function TransactionRow({
       .sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99))
       .map(r => {
         const s = sugerenciasResp.find(x => x.responsibleId === r.id);
-        return { value: r.id, label: s ? `★ ${r.name} · ${s.veces}×` : r.name };
+        if (!s) return { value: r.id, label: r.name };
+        const yaCobro = s.yaCobroEl ? ` · ya cobró ${format(parseLocalDate(s.yaCobroEl), 'd MMM', { locale: es })}` : '';
+        return { value: r.id, label: `★ ${r.name} · ${s.veces}×${yaCobro}` };
       });
   }, [responsibles, sugerenciasResp, filtrarAClientes, clientes, localTransaction.responsible_id]);
 
@@ -700,8 +712,8 @@ export default function TransactionRow({
               ? {
                   label: verTodosTerceros ? 'Volver a solo clientes' : 'Ver todos los terceros',
                   title: verTodosTerceros
-                    ? 'Volver a la lista de clientes (facturas, remisiones o cotizaciones de venta, o que ya cobraron una venta)'
-                    : 'Para el caso raro: un tercero que nunca te compró y hoy te paga una venta',
+                    ? 'Volver a la lista de clientes (facturas, remisiones o cotizaciones de venta, o marcados como cliente en su ficha)'
+                    : 'Para el caso raro: un tercero que nunca te compró y hoy te paga una venta. Si debería estar siempre, marcalo como cliente en su ficha (Terceros → Editar).',
                   onClick: () => setVerTodosTerceros((v) => !v),
                 }
               : undefined}
@@ -741,12 +753,19 @@ export default function TransactionRow({
             ("Nómina de $1.250.000 → Rocío Gaitán, 7 veces"). */}
         {!localTransaction.responsible_id && !sugerenciaCliente && sugerenciasResp[0] && (
           <button
-            className="mt-0.5 block max-w-full truncate text-[10px] text-primary hover:underline text-left"
-            title={`${sugerenciasResp[0].veces} pagos en esta categoría${sugerenciasResp[0].evidenciaMonto ? ` · ${sugerenciasResp[0].evidenciaMonto}` : ''}${sugerenciasResp[0].calzaMonto ? ' · el monto calza' : ''}. Clic para aplicar.`}
+            className={cn(
+              'mt-0.5 block max-w-full truncate text-[10px] hover:underline text-left',
+              sugerenciasResp[0].yaCobroEl ? 'text-muted-foreground' : 'text-primary',
+            )}
+            title={sugerenciasResp[0].yaCobroEl
+              ? `Ya recibió este mismo monto en esta categoría el ${format(parseLocalDate(sugerenciasResp[0].yaCobroEl), 'd MMM yyyy', { locale: es })} y no hay otro candidato con historial: si es otra persona, elegila en la lista. Clic para aplicar igual.`
+              : `${sugerenciasResp[0].veces} pagos en esta categoría${sugerenciasResp[0].evidenciaMonto ? ` · ${sugerenciasResp[0].evidenciaMonto}` : ''}${sugerenciasResp[0].calzaMonto ? ' · el monto calza' : ''}. Clic para aplicar.`}
             onClick={() => handleResponsibleChange(sugerenciasResp[0].responsibleId)}
           >
             ¿{responsibles.find(r => r.id === sugerenciasResp[0].responsibleId)?.name}?
-            {' '}· {sugerenciasResp[0].veces}×{sugerenciasResp[0].calzaMonto ? ' · monto calza ✓' : ''}
+            {sugerenciasResp[0].yaCobroEl
+              ? <> · ya cobró el {format(parseLocalDate(sugerenciasResp[0].yaCobroEl), 'd MMM', { locale: es })}</>
+              : <>{' '}· {sugerenciasResp[0].veces}×{sugerenciasResp[0].calzaMonto ? ' · monto calza ✓' : ''}</>}
           </button>
         )}
       </TableCell>

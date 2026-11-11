@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   indexarHistorial, sugerirBeneficiario, sugerirCategoria,
   alertaCategoriaInusual, alertaMontoInusual, sugerirReglas,
-  agruparPorDescripcion, detectarAlertasAuditoria,
+  agruparPorDescripcion, detectarAlertasAuditoria, ventanaPeriodo,
   type TxHistorial,
 } from './conciliacionHistorial';
 import type { ReconciliationRule } from '@/hooks/useReconciliationRules';
@@ -237,5 +237,70 @@ describe('signo: ingresos y egresos son mundos separados', () => {
     const s = sugerirBeneficiario(h, VENTAS, 18_000_000);
     expect(s[0]?.responsibleId).toBe(FERRO);
     expect(s[0]?.calzaMonto).toBe(true);
+  });
+});
+
+describe('sugerirBeneficiario — no repetir a quien YA cobró en el período (Nico 2026-11-11)', () => {
+  const YOLANDA = 'resp-yolanda';
+  const ROCIO2 = 'resp-rocio2';
+  // Dos empleadas de $1.000.000 quincenales: Yolanda lleva 6 quincenas, Rocío 4.
+  const quincenas = ['2026-08-15', '2026-08-30', '2026-09-15', '2026-09-30', '2026-10-15', '2026-10-30'];
+  const pagosY = quincenas.map((d, i) => tx({ id: `y${i}`, amount: -1_000_000, category_id: NOMINA, responsible_id: YOLANDA, date: d }));
+  const pagosR = quincenas.slice(2).map((d, i) => tx({ id: `r${i}`, amount: -1_000_000, category_id: NOMINA, responsible_id: ROCIO2, date: d }));
+  const h = indexarHistorial([...pagosY, ...pagosR]);
+
+  it('sin contexto se comporta como siempre: Yolanda primera (más veces)', () => {
+    const s = sugerirBeneficiario(h, NOMINA, -1_000_000);
+    expect(s[0].responsibleId).toBe(YOLANDA);
+    expect(s[0].yaCobroEl).toBeNull();
+  });
+
+  it('la fila de arriba ya se asignó a Yolanda hoy → la de abajo propone a Rocío y baja a Yolanda con la fecha', () => {
+    const recientes = [tx({ id: 'tx-arriba', amount: -1_000_000, category_id: NOMINA, responsible_id: YOLANDA, date: '2026-11-15' })];
+    const s = sugerirBeneficiario(h, NOMINA, -1_000_000, 3, { txId: 'tx-abajo', date: '2026-11-15', recientes });
+    expect(s[0].responsibleId).toBe(ROCIO2);
+    expect(s[0].yaCobroEl).toBeNull();
+    expect(s[1].responsibleId).toBe(YOLANDA);
+    expect(s[1].yaCobroEl).toBe('2026-11-15');
+  });
+
+  it('la propia transacción no cuenta como "ya cobró" (re-abrir la fila asignada no la baja)', () => {
+    const recientes = [tx({ id: 'tx-arriba', amount: -1_000_000, category_id: NOMINA, responsible_id: YOLANDA, date: '2026-11-15' })];
+    const s = sugerirBeneficiario(h, NOMINA, -1_000_000, 3, { txId: 'tx-arriba', date: '2026-11-15', recientes });
+    expect(s[0].responsibleId).toBe(YOLANDA);
+    expect(s[0].yaCobroEl).toBeNull();
+  });
+
+  it('un pago igual de la quincena pasada NO baja la sugerencia: está fuera de la ventana (~9 días)', () => {
+    // El último pago de Yolanda en el historial es 2026-10-30; la fila es del 15-nov (16 días).
+    const s = sugerirBeneficiario(h, NOMINA, -1_000_000, 3, { txId: 'tx-abajo', date: '2026-11-15', recientes: [] });
+    expect(s[0].responsibleId).toBe(YOLANDA);
+    expect(s[0].yaCobroEl).toBeNull();
+  });
+
+  it('un monto distinto no cuenta: el bono de $400.000 no es la quincena', () => {
+    const recientes = [tx({ id: 'tx-bono', amount: -400_000, category_id: NOMINA, responsible_id: YOLANDA, date: '2026-11-15' })];
+    const s = sugerirBeneficiario(h, NOMINA, -1_000_000, 3, { txId: 'tx-abajo', date: '2026-11-15', recientes });
+    expect(s[0].responsibleId).toBe(YOLANDA);
+    expect(s[0].yaCobroEl).toBeNull();
+  });
+
+  it('las frescas pisan al historial por id: una fila re-asignada a otra persona deja de contar para la primera', () => {
+    // y5 (30-oct) en el historial era de Yolanda; en pantalla ya se corrigió a Rocío.
+    const recientes = [tx({ id: 'y5', amount: -1_000_000, category_id: NOMINA, responsible_id: ROCIO2, date: '2026-10-30' })];
+    const s = sugerirBeneficiario(h, NOMINA, -1_000_000, 3, { txId: 'tx-abajo', date: '2026-11-02', recientes });
+    // Rocío cobró el 30-oct (3 días antes): baja. Yolanda ya no tiene ese pago: sube.
+    expect(s[0].responsibleId).toBe(YOLANDA);
+    expect(s[1].responsibleId).toBe(ROCIO2);
+    expect(s[1].yaCobroEl).toBe('2026-10-30');
+  });
+
+  it('ventanaPeriodo: quincenal ≈ 9 días, mensual ≈ 19 (meses de 31), sin ritmo 7, acotada 5–20', () => {
+    expect(ventanaPeriodo(quincenas)).toBe(9);
+    // 28-jul → 28-ago → 28-sep → 28-oct: gaps 31, 31, 30 → mediana 31 → 60% = 19.
+    expect(ventanaPeriodo(['2026-07-28', '2026-08-28', '2026-09-28', '2026-10-28'])).toBe(19);
+    expect(ventanaPeriodo(['2026-10-28', '2026-11-28'])).toBe(7);
+    expect(ventanaPeriodo(['2026-01-01', '2026-01-03', '2026-01-05', '2026-01-07'])).toBe(5);
+    expect(ventanaPeriodo(['2025-01-01', '2026-01-01', '2027-01-01'])).toBe(20);
   });
 });

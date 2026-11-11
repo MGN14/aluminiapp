@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSubscription } from '@/hooks/useSubscription';
 import AppLayout from '@/components/layout/AppLayout';
 import { Transaction, Category, Responsible } from '@/types/transaction';
+import type { TxHistorial } from '@/lib/conciliacionHistorial';
 import { parseLocalDate } from '@/lib/dateUtils';
 import TransactionRow from '@/components/transactions/TransactionRow';
 import TransactionDetailModal from '@/components/transactions/TransactionDetailModal';
@@ -352,6 +353,18 @@ export default function Transactions() {
     gcTime: 60 * 60_000,
   });
   const transactions = txQuery.data ?? [];
+
+  // Transacciones FRESCAS para la sugerencia de beneficiario de cada fila: el
+  // historial cacheado (5 min) no ve la fila que se acaba de asignar; esta
+  // lista sí (patch optimista en handleTransactionUpdated). Así la segunda
+  // empleada de $1.000.000 no vuelve a proponer a la primera.
+  const transaccionesCargadas = useMemo<TxHistorial[]>(
+    () => transactions.map((t) => ({
+      id: t.id, description: t.description, amount: t.amount, date: t.date,
+      category_id: t.category_id, responsible_id: t.responsible_id,
+    })),
+    [transactions],
+  );
   // Spinner solo en la PRIMERA carga (sin cache). Vueltas posteriores pintan
   // desde cache al instante mientras se revalida en background.
   const loading = statementsQuery.isPending || (txQuery.isPending && statementsQuery.isSuccess);
@@ -1017,6 +1030,7 @@ export default function Transactions() {
                           onTransactionUpdated={handleTransactionUpdated}
                           canEditDescription={tarjetaStatementIds.has(transaction.statement_id)}
                           cardDescriptionRules={cardRules}
+                          transaccionesCargadas={transaccionesCargadas}
                         />
                       ))}
                       {filteredTransactions.length > visibleCount && (

@@ -40,8 +40,17 @@ interface StatsDesc {
 interface StatsCatResp {
   n: number;
   montos: number[]; // absolutos
+  /** Cada pago con su fecha y monto (para saber si en ESTE período ya cobró). */
+  pagos: PagoHistorial[];
   /** Descripciones normalizadas → veces (para el keyword de la regla). */
   descs: Map<string, number>;
+}
+
+export interface PagoHistorial {
+  id?: string;
+  date: string;
+  /** Absoluto. */
+  monto: number;
 }
 
 export interface HistorialConciliacion {
@@ -88,9 +97,10 @@ export function indexarHistorial(txs: TxHistorial[]): HistorialConciliacion {
 
     if (t.category_id && t.responsible_id && monto > 0) {
       const key = claveCatResp(t.category_id, t.responsible_id, signoDe(t.amount));
-      const s = porCatResp.get(key) ?? { n: 0, montos: [], descs: new Map() };
+      const s = porCatResp.get(key) ?? { n: 0, montos: [], pagos: [], descs: new Map() };
       s.n++;
       s.montos.push(monto);
+      s.pagos.push({ id: t.id, date: (t.date ?? '').slice(0, 10), monto });
       if (desc) inc(s.descs, desc);
       porCatResp.set(key, s);
     }
@@ -131,6 +141,44 @@ export interface SugerenciaBeneficiario {
   calzaMonto: boolean;
   /** "siempre $1.250.000" o "$641.800–$1.386.751". */
   evidenciaMonto: string;
+  /** Fecha del pago IGUAL (misma categoría, mismo monto) que este beneficiario
+   *  YA recibió en el período de esta transacción. Si viene, la sugerencia se
+   *  baja al final: dos empleadas de $1.000.000 → la segunda fila no vuelve a
+   *  proponer a la que ya cobró (pedido de Nico 2026-11-11). null = no cobró
+   *  en el período, o no se pasó contexto. */
+  yaCobroEl: string | null;
+}
+
+/** Contexto de la fila que se está clasificando. Sin él, la sugerencia se
+ *  comporta como siempre (solo categoría + monto). */
+export interface ContextoSugerencia {
+  /** Id de la transacción en cuestión: no cuenta contra sí misma. */
+  txId?: string | null;
+  /** Fecha de la transacción: define el período. */
+  date?: string | null;
+  /** Transacciones FRESCAS de la pantalla. El historial cacheado puede no
+   *  tener la fila que se acaba de asignar; la lista de la página sí (el
+   *  patch optimista). Pisan al historial por id. */
+  recientes?: TxHistorial[];
+}
+
+const DAY_MS = 86_400_000;
+const diasEntre = (a: string, b: string): number =>
+  Math.abs(Math.round((Date.parse(b.slice(0, 10) + 'T00:00:00Z') - Date.parse(a.slice(0, 10) + 'T00:00:00Z')) / DAY_MS));
+
+/**
+ * Ventana de "ya cobró en este período": el 60% del intervalo típico entre
+ * sus pagos — quincenal (15d) ≈ 9 días, mensual (30d) ≈ 18 — acotada a 5–20.
+ * Con menos de 3 pagos no hay ritmo: 7 días.
+ */
+export function ventanaPeriodo(fechas: string[]): number {
+  const unicas = [...new Set(fechas.map((f) => f.slice(0, 10)).filter(Boolean))].sort();
+  if (unicas.length < 3) return 7;
+  const gaps: number[] = [];
+  for (let i = 1; i < unicas.length; i++) gaps.push(diasEntre(unicas[i - 1], unicas[i]));
+  gaps.sort((a, b) => a - b);
+  const mediana = gaps[Math.floor(gaps.length / 2)];
+  return Math.min(20, Math.max(5, Math.round(mediana * 0.6)));
 }
 
 const fmtCOP = (n: number) =>
@@ -152,13 +200,22 @@ const montoCalza = (montos: number[], monto: number): boolean => {
 
 /**
  * Dado categoría + monto, ranquea los beneficiarios históricos de esa
- * categoría: primero los que calzan en monto, después por frecuencia.
+ * categoría: primero los que NO cobraron ya en este período, después los que
+ * calzan en monto, después por frecuencia.
+ *
+ * "Ya cobró en el período" (Nico 2026-11-11: dos empleadas de $1.000.000, la
+ * fila de abajo seguía proponiendo a Yolanda cuando la de arriba ya era de
+ * ella): el candidato tiene un pago de la MISMA categoría y el MISMO monto
+ * (±2%) dentro de la ventana de su ritmo de pago (ventanaPeriodo) alrededor
+ * de la fecha de esta fila, sin contar la fila misma. Vale para nómina,
+ * arriendo, servicios: cualquier pago periódico de monto fijo.
  */
 export function sugerirBeneficiario(
   h: HistorialConciliacion,
   categoryId: string | null | undefined,
   amount: number | null | undefined,
   max = 3,
+  ctx?: ContextoSugerencia,
 ): SugerenciaBeneficiario[] {
   if (!categoryId) return [];
   const porResp = h.porCategoria.get(categoryId);
@@ -167,6 +224,26 @@ export function sugerirBeneficiario(
   // Se compara contra el histórico del MISMO signo: lo que le pagás a un
   // tercero no dice nada de lo que te compra.
   const signo = signoDe(amount);
+
+  // Pagos frescos de la pantalla: pisan al historial por id (la fila recién
+  // asignada todavía no está en el cache del historial).
+  const recientes = ctx?.recientes ?? [];
+  const idsRecientes = new Set(recientes.map((t) => t.id).filter((id): id is string => !!id));
+  const fecha = ctx?.date ? ctx.date.slice(0, 10) : null;
+  const yaCobro = (responsibleId: string, stats: StatsCatResp | undefined): string | null => {
+    if (!fecha || monto <= 0) return null;
+    const pagos: PagoHistorial[] = [
+      ...(stats?.pagos ?? []).filter((p) => !(p.id && idsRecientes.has(p.id))),
+      ...recientes
+        .filter((t) => t.category_id === categoryId && t.responsible_id === responsibleId && signoDe(t.amount) === signo)
+        .map((t) => ({ id: t.id, date: (t.date ?? '').slice(0, 10), monto: Math.abs(Number(t.amount ?? 0)) })),
+    ].filter((p) => p.date && !(ctx?.txId && p.id === ctx.txId));
+    const ventana = ventanaPeriodo(pagos.map((p) => p.date));
+    const iguales = pagos
+      .filter((p) => Math.abs(p.monto - monto) <= monto * 0.02 && diasEntre(p.date, fecha) <= ventana)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    return iguales[0]?.date ?? null;
+  };
 
   const out: SugerenciaBeneficiario[] = [];
   for (const [responsibleId, veces] of porResp) {
@@ -178,10 +255,14 @@ export function sugerirBeneficiario(
       veces,
       calzaMonto: montoCalza(montos, monto),
       evidenciaMonto: montos.length ? evidenciaDeMontos(montos) : '',
+      yaCobroEl: yaCobro(responsibleId, stats),
     });
   }
   return out
-    .sort((a, b) => Number(b.calzaMonto) - Number(a.calzaMonto) || b.veces - a.veces)
+    .sort((a, b) =>
+      Number(!!a.yaCobroEl) - Number(!!b.yaCobroEl)
+      || Number(b.calzaMonto) - Number(a.calzaMonto)
+      || b.veces - a.veces)
     .slice(0, max);
 }
 

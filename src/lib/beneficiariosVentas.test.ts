@@ -9,7 +9,7 @@ const terceros = [
   { id: 'tigo', name: 'TIGO' },
   { id: 'yolanda', name: 'Yolanda' },
   { id: 'nicolas', name: 'Nicolas' },
-  { id: 'nuevo', name: 'Cliente nuevo sin factura' },
+  { id: 'otros', name: 'Otros' },
 ];
 
 describe('esCategoriaVentas', () => {
@@ -31,37 +31,35 @@ describe('clienteIdsDesdeEvidencia — misma regla que derivarRoles', () => {
     });
     expect(ids).toEqual(['alumfer', 'castano', 'nuevo']);
   });
-});
 
-describe('idsUnicos — los ya usados en Ventas', () => {
-  it('quita nulos y repetidos y ordena', () => {
+  it('idsUnicos quita nulos y repetidos y ordena', () => {
     expect(idsUnicos([{ responsible_id: 'nicolas' }, { responsible_id: null }, { responsible_id: 'alumfer' }, { responsible_id: 'nicolas' }]))
       .toEqual(['alumfer', 'nicolas']);
   });
 });
 
 describe('filtrarBeneficiariosVentas — el caso de Nico', () => {
-  const clienteIds = ['alumfer', 'castano'];              // tienen facturas de venta
-  const usadosEnVentas = ['nicolas', 'alumfer'];          // historial: cobraron ventas
+  // Evidencia (facturas) ∪ marcados a mano en la ficha (Nicolás).
+  const clienteIds = ['alumfer', 'castano', 'nicolas'];
 
-  it('deja clientes y a Nicolás; saca a Tigo y Yolanda y al que nunca vendió', () => {
-    const out = filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds, usadosEnVentas, seleccionadoId: null });
+  it('deja clientes y a Nicolás (marcado a mano); saca a Tigo, Yolanda y "Otros" aunque alguna vez tuvieran Ventas', () => {
+    const out = filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds, seleccionadoId: null });
     expect(out.map((t) => t.id)).toEqual(['alumfer', 'castano', 'nicolas']);
   });
 
   it('el beneficiario ya grabado en la fila nunca desaparece, aunque no sea cliente', () => {
-    const out = filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds, usadosEnVentas, seleccionadoId: 'yolanda' });
+    const out = filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds, seleccionadoId: 'yolanda' });
     expect(out.map((t) => t.id)).toEqual(['alumfer', 'castano', 'yolanda', 'nicolas']);
   });
 
   it('conserva el orden de entrada (las sugerencias ★ ya vienen ordenadas arriba)', () => {
     const ordenados = [terceros[4], terceros[2], terceros[0]]; // nicolas, tigo, alumfer
-    const out = filtrarBeneficiariosVentas({ responsibles: ordenados, clienteIds, usadosEnVentas, seleccionadoId: null });
+    const out = filtrarBeneficiariosVentas({ responsibles: ordenados, clienteIds, seleccionadoId: null });
     expect(out.map((t) => t.id)).toEqual(['nicolas', 'alumfer']);
   });
 
-  it('sin evidencia ni historial, solo queda el seleccionado (si hay)', () => {
-    expect(filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds: [], usadosEnVentas: [], seleccionadoId: null })).toEqual([]);
-    expect(filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds: [], usadosEnVentas: [], seleccionadoId: 'tigo' }).map((t) => t.id)).toEqual(['tigo']);
+  it('sin clientes, solo queda el seleccionado (si hay)', () => {
+    expect(filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds: [], seleccionadoId: null })).toEqual([]);
+    expect(filtrarBeneficiariosVentas({ responsibles: terceros, clienteIds: [], seleccionadoId: 'tigo' }).map((t) => t.id)).toEqual(['tigo']);
   });
 });

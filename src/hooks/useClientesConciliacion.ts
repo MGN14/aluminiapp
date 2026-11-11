@@ -1,20 +1,20 @@
 /**
  * Quiénes pueden ser beneficiario de un movimiento clasificado como VENTAS
  * (Conciliación y pendientes del Dashboard):
- *   · clienteIds     — evidencia comercial: facturas de venta, remisiones de
- *                      venta o cotizaciones (misma regla que derivarRoles).
- *   · usadosEnVentas — terceros que ya fueron beneficiario de un movimiento
- *                      en una categoría de ventas (así entra Nicolás).
+ *   · evidencia comercial: facturas de venta, remisiones de venta o
+ *     cotizaciones (misma regla que derivarRoles);
+ *   · marcados a mano en la ficha ("tratarlo como cliente en Ventas",
+ *     responsibles.cliente_manual) — la excepción explícita para los Nicolás.
  * Un solo fetch cacheado y compartido entre todas las filas.
  *
- * Devuelve un ARRAY plano (el cache persistido es JSON: nada de Set/Map).
+ * Devuelve ARRAYS planos (el cache persistido es JSON: nada de Set/Map).
  * PAGINADO: PostgREST corta en 1.000 filas en silencio (H5) y las facturas
  * de venta ya pasan de eso.
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { clienteIdsDesdeEvidencia, esCategoriaVentas, idsUnicos } from '@/lib/beneficiariosVentas';
+import { clienteIdsDesdeEvidencia } from '@/lib/beneficiariosVentas';
 
 type RowId = { responsible_id: string | null };
 const db = supabase as never as { from: (t: string) => any };
@@ -33,27 +33,27 @@ async function fetchIds(build: (from: number, to: number) => any): Promise<RowId
 }
 
 export interface ClientesConciliacion {
+  /** Evidencia ∪ marcados a mano: lo que ofrece el selector en una fila Ventas. */
   clienteIds: string[];
-  usadosEnVentas: string[];
+  /** Solo los marcados a mano (para mostrarlo/auditarlo). */
+  manuales: string[];
 }
 
 export async function fetchClientesConciliacion(): Promise<ClientesConciliacion> {
-  const { data: cats, error: catsErr } = await db.from('categories').select('id, name');
-  if (catsErr) throw catsErr;
-  const ventasIds = ((cats ?? []) as { id: string; name: string }[]).filter((c) => esCategoriaVentas(c.name)).map((c) => c.id);
-
-  const [facturasVenta, remisionesVenta, cotizaciones, txVentas] = await Promise.all([
+  const [facturasVenta, remisionesVenta, cotizaciones, manualesRes] = await Promise.all([
     fetchIds((a, b) => db.from('invoices').select('responsible_id').eq('type', 'venta').not('responsible_id', 'is', null).order('id').range(a, b)),
     fetchIds((a, b) => db.from('remisiones').select('responsible_id').neq('remision_type', 'compra').not('responsible_id', 'is', null).order('id').range(a, b)),
     fetchIds((a, b) => db.from('quotations').select('responsible_id').not('responsible_id', 'is', null).order('id').range(a, b)),
-    ventasIds.length
-      ? fetchIds((a, b) => db.from('transactions').select('responsible_id').in('category_id', ventasIds).not('responsible_id', 'is', null).is('deleted_at', null).order('id').range(a, b))
-      : Promise.resolve([] as RowId[]),
+    // Tolerante: si la migración de cliente_manual no está aplicada todavía,
+    // la columna no existe y esta consulta falla → sin marcados a mano, el
+    // resto del selector sigue funcionando.
+    db.from('responsibles').select('id').eq('cliente_manual', true).eq('active', true),
   ]);
-  return {
-    clienteIds: clienteIdsDesdeEvidencia({ facturasVenta, remisionesVenta, cotizaciones }),
-    usadosEnVentas: idsUnicos(txVentas),
-  };
+  const manuales = manualesRes.error
+    ? []
+    : ((manualesRes.data ?? []) as { id: string }[]).map((r) => r.id).sort();
+  const evidencia = clienteIdsDesdeEvidencia({ facturasVenta, remisionesVenta, cotizaciones });
+  return { clienteIds: [...new Set([...evidencia, ...manuales])].sort(), manuales };
 }
 
 export function useClientesConciliacion(enabled = true) {
