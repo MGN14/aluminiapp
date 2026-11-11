@@ -174,6 +174,15 @@ describe('rol fijado a mano — manda sobre lo derivado (Nico 2026-11-11)', () =
     expect(r.derivados).toEqual(['proveedor']);
   });
 
+  it('"Otro" va solo: con un rol real, gana el rol real; solo, queda Otro', () => {
+    expect(normalizarRolesManual(['otro'])).toEqual(['otro']);
+    expect(normalizarRolesManual(['otro', 'cliente'])).toEqual(['cliente']);
+    expect(normalizarRolesManual(['entidad', 'otro', 'proveedor'])).toEqual(['proveedor', 'entidad']);
+    // El tercero "Otros": tenía Entidad por descarte y pasa a Otro, aunque su actividad diga Empleado.
+    const r = resolverRoles({ derivados: ['empleado'], rolesManual: ['otro'] });
+    expect(r).toEqual({ roles: ['otro'], manual: true, derivados: ['empleado'] });
+  });
+
   it('se puede fijar más de un rol y darle rol a un tercero sin actividad', () => {
     expect(resolverRoles({ derivados: [], rolesManual: ['proveedor', 'cliente'] }).roles).toEqual(['cliente', 'proveedor']);
   });

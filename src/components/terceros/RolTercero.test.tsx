@@ -61,6 +61,34 @@ describe('RolEditable — cambiar el rol con un clic', () => {
     await waitFor(() => expect(saveMock).toHaveBeenCalledWith('t-1', null));
   });
 
+  it('"Otro" es excluyente: deja solo Otro, y marcar un rol real lo quita (caso Coteros)', async () => {
+    saveMock.mockResolvedValue(['otro']);
+    montar({ nombre: 'Coteros', roles: [], derivados: [] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar el rol de Coteros' }));
+    // Sin rol y sin nada marcado no se puede guardar…
+    expect((screen.getByRole('button', { name: 'Guardar' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('no encaja en ninguno')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Empleado/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Otro/ }));
+    const marcado = (n: RegExp) => screen.getByRole('checkbox', { name: n }).getAttribute('data-state') === 'checked';
+    expect(marcado(/Otro/)).toBe(true);
+    expect(marcado(/Empleado/)).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(saveMock).toHaveBeenCalledWith('t-1', ['otro']));
+  });
+
+  it('marcar un rol real después de Otro quita Otro', () => {
+    montar({ nombre: 'Otros', roles: ['otro'], derivados: ['empleado'], manual: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar el rol de Otros' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Entidad/ }));
+    const marcado = (n: RegExp) => screen.getByRole('checkbox', { name: n }).getAttribute('data-state') === 'checked';
+    expect(marcado(/Entidad/)).toBe(true);
+    expect(marcado(/Otro/)).toBe(false);
+  });
+
   it('sin cambios no deja guardar', () => {
     montar({ roles: ['cliente'], manual: true });
     fireEvent.click(screen.getByRole('button', { name: 'Cambiar el rol de Vidrimar' }));

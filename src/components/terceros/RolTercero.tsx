@@ -32,6 +32,7 @@ const ROL_STYLE: Record<RolTercero, string> = {
   proveedor: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900',
   empleado: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900',
   entidad: 'bg-muted text-muted-foreground border-border',
+  otro: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900',
 };
 
 const lista = (roles: RolTercero[]) => roles.map((r) => ROL_LABEL[r]).join(' + ');
@@ -98,9 +99,11 @@ export function RolEditable({ terceroId, nombre, roles, derivados, manual, carga
       const msg = (e as Error).message ?? '';
       toast({
         title: 'No se pudo cambiar el rol',
-        description: /roles_manual/.test(msg)
-          ? 'Falta aplicar en Supabase la migración de roles (20261111130000). Aplicala en el SQL Editor y volvé a intentar.'
-          : msg,
+        description: /responsibles_roles_manual_validos/.test(msg)
+          ? 'Falta aplicar en Supabase la migración que agrega el rol Otro (20261111160000). Pegala en el SQL Editor y volvé a intentar.'
+          : /roles_manual/.test(msg)
+            ? 'Falta aplicar en Supabase la migración de roles (20261111130000). Aplicala en el SQL Editor y volvé a intentar.'
+            : msg,
         variant: 'destructive',
       });
     },
@@ -110,8 +113,13 @@ export function RolEditable({ terceroId, nombre, roles, derivados, manual, carga
   // Sin nada fijado, guardar vacío no cambia nada; fijado, guardar lo mismo tampoco.
   const sinCambio = manual ? mismaSeleccion : sel.length === 0;
 
+  // 'Otro' es excluyente: marcarlo deja solo Otro; marcar un rol real lo quita.
   const toggle = (r: RolTercero, marcado: boolean) =>
-    setSel((prev) => (marcado ? ROLES_TERCERO.filter((x) => x === r || prev.includes(x)) : prev.filter((x) => x !== r)));
+    setSel((prev) => {
+      if (!marcado) return prev.filter((x) => x !== r);
+      if (r === 'otro') return ['otro'];
+      return ROLES_TERCERO.filter((x) => x !== 'otro' && (x === r || prev.includes(x)));
+    });
 
   const titulo = manual
     ? `Rol fijado a mano${derivados.length ? ` (automático sería: ${lista(derivados)})` : ''} — clic para cambiar`
@@ -148,10 +156,13 @@ export function RolEditable({ terceroId, nombre, roles, derivados, manual, carga
             const id = `rol-${terceroId}-${r}`;
             return (
               <label key={r} htmlFor={id}
-                className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted cursor-pointer">
+                className={cn('flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted cursor-pointer',
+                  r === 'otro' && 'mt-1 border-t border-border pt-1.5 rounded-t-none')}>
                 <Checkbox id={id} checked={sel.includes(r)} onCheckedChange={(v) => toggle(r, v === true)} />
                 <span className={cn('rounded border px-1.5 py-px text-xs font-medium', ROL_STYLE[r])}>{ROL_LABEL[r]}</span>
-                {derivados.includes(r) && (
+                {r === 'otro' ? (
+                  <span className="ml-auto text-xs text-muted-foreground">no encaja en ninguno</span>
+                ) : derivados.includes(r) && (
                   <span className="ml-auto text-xs text-muted-foreground">por actividad</span>
                 )}
               </label>

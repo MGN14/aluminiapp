@@ -39,6 +39,7 @@ const OPCIONES_ROL: [Filtro, string][] = [
   ['proveedor', 'Proveedor'],
   ['empleado', 'Empleado'],
   ['entidad', 'Entidad'],
+  ['otro', 'Otro'],
   ['sin_rol', 'Sin rol'],
 ];
 const esFiltroRol = (f: Filtro): f is FiltroRol => f !== 'todos' && f !== 'incompletos';
@@ -103,7 +104,7 @@ export function TercerosListado() {
 
   const conteos = useMemo(() => {
     const c: Record<Filtro, number> = {
-      todos: 0, cliente: 0, proveedor: 0, empleado: 0, entidad: 0, sin_rol: 0, incompletos: 0,
+      todos: 0, cliente: 0, proveedor: 0, empleado: 0, entidad: 0, otro: 0, sin_rol: 0, incompletos: 0,
     };
     for (const t of terceros) {
       if (!t.active) continue;
@@ -146,6 +147,7 @@ export function TercerosListado() {
               ['proveedor', `Proveedores (${conteos.proveedor})`],
               ['empleado', `Empleados (${conteos.empleado})`],
               ['entidad', `Entidades (${conteos.entidad})`],
+              ['otro', `Otros (${conteos.otro})`],
               ['incompletos', `Sin datos (${conteos.incompletos})`],
             ] as [Filtro, string][]).map(([k, label]) => (
               <button key={k} onClick={() => setFiltro(k)}

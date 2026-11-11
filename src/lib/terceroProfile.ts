@@ -73,7 +73,10 @@ export interface RemisionItemLite {
   remision_id: string; reference: string; units: number; total_cost: number;
 }
 
-export type RolTercero = 'cliente' | 'proveedor' | 'empleado' | 'entidad';
+/** 'otro' = no encaja en ninguno (Nico 2026-11-11: el tercero "Otros", los
+ *  coteros). Solo se fija a mano — nunca sale de la actividad — y va SOLO:
+ *  combinado con otro rol no significa nada. */
+export type RolTercero = 'cliente' | 'proveedor' | 'empleado' | 'entidad' | 'otro';
 
 export interface TerceroProfile {
   tercero: Tercero;
@@ -120,19 +123,21 @@ export interface RankingRef {
 const ENTIDAD_RE = /\b(dian|banco|bancolombia|davivienda|nequi|daviplata|gobierno|camara de comercio|secretaria|alcaldia|tesoreria)\b/;
 
 /** Los roles, en el orden en que se muestran siempre. */
-export const ROLES_TERCERO: RolTercero[] = ['cliente', 'proveedor', 'empleado', 'entidad'];
+export const ROLES_TERCERO: RolTercero[] = ['cliente', 'proveedor', 'empleado', 'entidad', 'otro'];
 
 export const ROL_LABEL: Record<RolTercero, string> = {
-  cliente: 'Cliente', proveedor: 'Proveedor', empleado: 'Empleado', entidad: 'Entidad',
+  cliente: 'Cliente', proveedor: 'Proveedor', empleado: 'Empleado', entidad: 'Entidad', otro: 'Otro',
 };
 
 /**
  * Limpia lo que venga de la base o de la UI: solo roles válidos, sin
  * repetidos y en orden canónico. Vacío / null / basura → null (= automático).
+ * 'otro' va solo: si viene junto a un rol real, gana el rol real.
  */
 export function normalizarRolesManual(v: unknown): RolTercero[] | null {
   if (!Array.isArray(v)) return null;
-  const out = ROLES_TERCERO.filter((r) => v.includes(r));
+  const validos = ROLES_TERCERO.filter((r) => v.includes(r));
+  const out = validos.length > 1 ? validos.filter((r) => r !== 'otro') : validos;
   return out.length ? out : null;
 }
 
