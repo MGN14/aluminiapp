@@ -16,6 +16,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Category, Responsible } from '@/types/transaction';
 import { linkCreditPayment, unlinkCreditPayment, parseCreditNameFromNotes, CREDIT_NOTE_MARKER_REGEX } from '@/lib/creditLink';
 import { linkImportPayment, unlinkImportPayment, parseImportNameFromNotes, IMPORT_NOTE_MARKER_REGEX, errMsg } from '@/lib/importLink';
+import { esCategoriaVentas, filtrarBeneficiariosVentas } from '@/lib/beneficiariosVentas';
+import { useClientesConciliacion } from '@/hooks/useClientesConciliacion';
 
 interface PendingTransaction {
   id: string;
@@ -242,6 +244,44 @@ export function PendingTransactionsTable({
       .map(r => ({ value: r.id, label: r.name })),
     [responsibles]
   );
+
+  // VENTAS → solo clientes, el mismo criterio que la fila de Conciliación
+  // (lib/beneficiariosVentas): cliente por facturas/remisiones/cotizaciones
+  // de venta, o que ya cobró una venta. "Ver todos los terceros" por fila.
+  const ventasCategoryIds = useMemo(
+    () => categories.filter((c) => esCategoriaVentas(c.name)).map((c) => c.id),
+    [categories],
+  );
+  const esVentas = (tx: PendingTransaction) => !!tx.category_id && ventasCategoryIds.includes(tx.category_id);
+  const hayVentasPendientes = pendingTransactions.some(esVentas);
+  const { data: clientes } = useClientesConciliacion(hayVentasPendientes);
+  const [verTodosIds, setVerTodosIds] = useState<Set<string>>(new Set());
+  const toggleVerTodos = (id: string) => setVerTodosIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const responsibleOptionsFor = (tx: PendingTransaction) => {
+    if (!esVentas(tx) || verTodosIds.has(tx.id)) return responsibleOptions;
+    return filtrarBeneficiariosVentas({
+      responsibles: responsibles.filter((r) => r.active),
+      clienteIds: clientes?.clienteIds ?? [],
+      usadosEnVentas: clientes?.usadosEnVentas ?? [],
+      seleccionadoId: tx.responsible_id,
+    }).map((r) => ({ value: r.id, label: r.name }));
+  };
+  const notaBeneficiario = (tx: PendingTransaction) => !esVentas(tx)
+    ? undefined
+    : verTodosIds.has(tx.id) ? 'Mostrando todos los terceros' : `Ventas: solo clientes (${responsibleOptionsFor(tx).length})`;
+  const pieBeneficiario = (tx: PendingTransaction) => !esVentas(tx)
+    ? undefined
+    : {
+        label: verTodosIds.has(tx.id) ? 'Volver a solo clientes' : 'Ver todos los terceros',
+        title: verTodosIds.has(tx.id)
+          ? 'Volver a la lista de clientes (facturas, remisiones o cotizaciones de venta, o que ya cobraron una venta)'
+          : 'Para el caso raro: un tercero que nunca te compró y hoy te paga una venta',
+        onClick: () => toggleVerTodos(tx.id),
+      };
 
   const pendingCount = pendingTransactions.length;
   const pendingTotal = useMemo(() => 
@@ -554,7 +594,7 @@ export function PendingTransactionsTable({
                   </div>
                   <div className="grid grid-cols-1 gap-2 mt-2">
                     <SearchableSelect
-                      options={responsibleOptions}
+                      options={responsibleOptionsFor(tx)}
                       value={tx.responsible_id}
                       onChange={(value) => handleResponsibleChange(tx.id, value)}
                       placeholder="👤 Asignar beneficiario"
@@ -564,6 +604,8 @@ export function PendingTransactionsTable({
                       triggerClassName="w-full h-10 text-sm"
                       disabled={updatingId === tx.id}
                       allowEmpty={false}
+                    note={notaBeneficiario(tx)}
+                    footerAction={pieBeneficiario(tx)}
                     />
                     <SearchableSelect
                       options={categoryOptions}
@@ -658,7 +700,7 @@ export function PendingTransactionsTable({
                     </TableCell>
                     <TableCell>
                       <SearchableSelect
-                        options={responsibleOptions}
+                        options={responsibleOptionsFor(tx)}
                         value={tx.responsible_id}
                         onChange={(value) => handleResponsibleChange(tx.id, value)}
                         placeholder="Sin asignar"
@@ -668,6 +710,8 @@ export function PendingTransactionsTable({
                         triggerClassName="w-full h-7 text-xs"
                         disabled={updatingId === tx.id}
                         allowEmpty={false}
+                      note={notaBeneficiario(tx)}
+                      footerAction={pieBeneficiario(tx)}
                       />
                     </TableCell>
                     <TableCell>

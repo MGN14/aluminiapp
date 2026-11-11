@@ -30,6 +30,12 @@ interface SearchableSelectProps {
    *  nueva SIN seleccionar — mirar la ficha del tercero antes de decidir
    *  (pedido de Nico 2026-08-07). */
   optionHref?: (value: string) => string;
+  /** Nota chica bajo el buscador: dice qué lista se está mostrando
+   *  ("Ventas: solo clientes"). */
+  note?: string;
+  /** Acción al pie de la lista, sin cerrar el popover: cambiar la lista que
+   *  se muestra ("Ver todos los terceros" / "Solo clientes"). */
+  footerAction?: { label: string; onClick: () => void; title?: string };
 }
 
 export function SearchableSelect({
@@ -45,6 +51,8 @@ export function SearchableSelect({
   disabled,
   allowEmpty = true,
   optionHref,
+  note,
+  footerAction,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -122,6 +130,9 @@ export function SearchableSelect({
               className="h-7 pl-7 text-xs"
             />
           </div>
+          {note && (
+            <p className="mt-1.5 px-0.5 text-xs text-muted-foreground leading-tight">{note}</p>
+          )}
         </div>
         
         <div className="max-h-[200px] overflow-y-auto">
@@ -176,6 +187,19 @@ export function SearchableSelect({
             </div>
           )}
         </div>
+
+        {footerAction && (
+          <div className="border-t border-border p-1">
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-muted rounded transition-colors text-muted-foreground hover:text-foreground"
+              title={footerAction.title}
+              onClick={(e) => { e.stopPropagation(); footerAction.onClick(); }}
+            >
+              <span>{footerAction.label}</span>
+            </button>
+          </div>
+        )}
 
         {/* Add new option */}
         {onAdd && (

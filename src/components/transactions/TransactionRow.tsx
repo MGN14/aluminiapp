@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { Transaction, Category, Responsible, SimpleTransactionType, SIMPLE_TYPES, MOVEMENT_NATURES } from '@/types/transaction';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
@@ -35,6 +35,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { linkCreditPayment, unlinkCreditPayment, parseCreditNameFromNotes, CREDIT_NOTE_MARKER_REGEX } from '@/lib/creditLink';
 import { linkImportPayment, unlinkImportPayment, parseImportNameFromNotes, IMPORT_NOTE_MARKER_REGEX, errMsg } from '@/lib/importLink';
 import { fetchDatosVentasProbable, sugerirClienteParaPago } from '@/lib/ventasProbable';
+import { esCategoriaVentas, filtrarBeneficiariosVentas } from '@/lib/beneficiariosVentas';
+import { useClientesConciliacion } from '@/hooks/useClientesConciliacion';
 import {
   sugerirBeneficiario, sugerirCategoria, alertaCategoriaInusual, alertaMontoInusual,
 } from '@/lib/conciliacionHistorial';
@@ -515,9 +517,32 @@ export default function TransactionRow({
     .filter(c => c.active)
     .map(c => ({ value: c.id, label: c.name }));
 
+  // VENTAS → solo clientes (Nico 2026-11-11: "no Tigo, no Yolanda; Nicolás
+  // sí"). Cliente = facturas/remisiones/cotizaciones de venta (evidencia,
+  // un fetch compartido) O ya cobró una venta según el historial — por eso
+  // entra Nicolás sin tener factura. El grabado en la fila nunca se esconde,
+  // y "Ver todos los terceros" es el escape para el caso raro.
+  const ventasCategoryIds = useMemo(
+    () => categories.filter((c) => esCategoriaVentas(c.name)).map((c) => c.id),
+    [categories],
+  );
+  const esFilaVentas = !!localTransaction.category_id && ventasCategoryIds.includes(localTransaction.category_id);
+  const [verTodosTerceros, setVerTodosTerceros] = useState(false);
+  useEffect(() => { setVerTodosTerceros(false); }, [localTransaction.category_id]);
+  const { data: clientes } = useClientesConciliacion(esFilaVentas);
+  const filtrarAClientes = esFilaVentas && !verTodosTerceros;
+
   // Los sugeridos se fijan arriba de la lista, con estrella y su evidencia.
   const responsibleOptions = useMemo(() => {
-    const base = responsibles.filter(r => r.active);
+    const activos = responsibles.filter(r => r.active);
+    const base = filtrarAClientes
+      ? filtrarBeneficiariosVentas({
+          responsibles: activos,
+          clienteIds: clientes?.clienteIds ?? [],
+          usadosEnVentas: clientes?.usadosEnVentas ?? [],
+          seleccionadoId: localTransaction.responsible_id,
+        })
+      : activos;
     if (!sugerenciasResp.length) return base.map(r => ({ value: r.id, label: r.name }));
     const rank = new Map(sugerenciasResp.map((s, i) => [s.responsibleId, i]));
     return [...base]
@@ -526,7 +551,7 @@ export default function TransactionRow({
         const s = sugerenciasResp.find(x => x.responsibleId === r.id);
         return { value: r.id, label: s ? `★ ${r.name} · ${s.veces}×` : r.name };
       });
-  }, [responsibles, sugerenciasResp]);
+  }, [responsibles, sugerenciasResp, filtrarAClientes, clientes, localTransaction.responsible_id]);
 
   // Derive invoiceId and tags from transaction data
   const derivedInvoiceId = localTransaction.invoice_id || null;
@@ -666,6 +691,20 @@ export default function TransactionRow({
             addLabel="+ Agregar beneficiario"
             onAdd={handleAddResponsible}
             optionHref={(id) => `/terceros/${id}`}
+            note={esFilaVentas
+              ? (verTodosTerceros
+                ? 'Mostrando todos los terceros'
+                : `Ventas: solo clientes (${responsibleOptions.length})`)
+              : undefined}
+            footerAction={esFilaVentas
+              ? {
+                  label: verTodosTerceros ? 'Volver a solo clientes' : 'Ver todos los terceros',
+                  title: verTodosTerceros
+                    ? 'Volver a la lista de clientes (facturas, remisiones o cotizaciones de venta, o que ya cobraron una venta)'
+                    : 'Para el caso raro: un tercero que nunca te compró y hoy te paga una venta',
+                  onClick: () => setVerTodosTerceros((v) => !v),
+                }
+              : undefined}
             triggerClassName={cn('w-full', !localTransaction.responsible_id && 'border-warning/50 text-warning')}
           />
           {!localTransaction.responsible_id && (
