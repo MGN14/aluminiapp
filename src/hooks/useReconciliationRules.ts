@@ -84,6 +84,32 @@ export function matchesRule(
   return true;
 }
 
+/**
+ * Firma de las reglas ACTIVAS que aportan algo (categoría, beneficiario o
+ * naturaleza). Cambia cuando se crea, edita, activa o apaga una regla; NO
+ * cambia con match_count / last_matched_at / updated_at, que el propio
+ * barrido mueve (si entraran a la firma, el barrido se dispararía solo).
+ * Devuelve "<cantidad>:<hash corto>" — el hash es para no guardar el texto
+ * entero en sessionStorage, no es seguridad.
+ */
+export function firmaReglasActivas(rules: ReconciliationRule[]): string {
+  const partes = rules
+    .filter((r) => r.active && (r.category_id || r.responsible_id || r.movement_nature))
+    .map((r) => [
+      r.id, r.tx_type, r.keyword ?? '', r.keyword_is_regex ? 1 : 0,
+      r.amount_min ?? '', r.amount_max ?? '', r.day_min ?? '', r.day_max ?? '',
+      r.category_id ?? '', r.responsible_id ?? '', r.movement_nature ?? '',
+    ].join('~'))
+    .sort();
+  const texto = partes.join('|');
+  let h = 5381;
+  for (let i = 0; i < texto.length; i++) h = ((h << 5) + h + texto.charCodeAt(i)) | 0;
+  return `${partes.length}:${(h >>> 0).toString(36)}`;
+}
+
+/** sessionStorage: con qué firma de reglas ya se barrió en esta sesión. */
+const BARRIDO_SESION_KEY = 'aluminia_reglas_barrido_v1';
+
 export function useReconciliationRules() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -393,16 +419,46 @@ export function useReconciliationRules() {
     });
     if (error) throw error;
     const stats = data as { processed: number; matched: number };
-    qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
+    // `matched` = filas donde una regla LLENÓ algo (categoría, beneficiario o
+    // naturaleza). Antes contaba también las que la regla volvía a tocar sin
+    // cambiar nada y el aviso "19 de 53 categorizadas" salía en cada entrada
+    // (Nico 2026-11-11) — ver migración 20261111140000.
     if (stats?.matched > 0) {
+      qc.invalidateQueries({ queryKey: ['reconciliation-rules'] });
       qc.invalidateQueries({ queryKey: ['conciliacion'] });
-      toast.success(`${stats.matched} de ${stats.processed} transacciones categorizadas automáticamente`);
+      const s = stats.matched === 1 ? '' : 's';
+      toast.success(`${stats.matched} movimiento${s} pendiente${s} clasificado${s} por tus reglas`);
     } else if (stats?.processed > 0 && !opts?.quiet) {
       // quiet: la pasada automática al abrir Conciliación no hace ruido si
       // no había nada que conciliar.
       toast.info(`Procesadas ${stats.processed} transacciones — ninguna matcheó una regla activa`);
     }
     return stats ?? { processed: 0, matched: 0 };
+  };
+
+  /**
+   * Barrido automático al abrir Conciliación: UNA vez por sesión del
+   * navegador y por versión de las reglas, no en cada entrada a la página.
+   * Las transacciones nuevas ya pasan por las reglas al insertarse (trigger)
+   * y crear/editar una regla barre en el momento; esto es solo la red de
+   * seguridad. Si las reglas cambian (firma distinta), vuelve a correr.
+   */
+  const barrerPendientesUnaVezPorSesion = async (): Promise<void> => {
+    if (!user?.id) return;
+    const firma = firmaReglasActivas(rules);
+    if (firma.startsWith('0:')) return; // ninguna regla activa que aporte algo
+    const key = `${BARRIDO_SESION_KEY}:${user.id}`;
+    try {
+      if (sessionStorage.getItem(key) === firma) return;
+      sessionStorage.setItem(key, firma); // antes del await: dos montajes seguidos no barren dos veces
+    } catch { /* modo privado: se comporta como antes (una vez por montaje) */ }
+    try {
+      await applyPendingRulesViaRPC(5000, { quiet: true });
+    } catch (e) {
+      // Falló: que el próximo ingreso lo reintente.
+      try { sessionStorage.removeItem(key); } catch { /* ignore */ }
+      throw e;
+    }
   };
 
   return {
@@ -416,5 +472,6 @@ export function useReconciliationRules() {
     applyRulesToTransactions,
     applyRulesToAllUserTransactions,
     applyPendingRulesViaRPC,
+    barrerPendientesUnaVezPorSesion,
   };
 }

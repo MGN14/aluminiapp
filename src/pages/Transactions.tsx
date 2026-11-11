@@ -429,12 +429,14 @@ export default function Transactions() {
   // re-mounts por tab discard).
   useEffect(() => { saveFilters(filters); }, [filters]);
 
-  // RETRO-APLICACIÓN de reglas al abrir Conciliación (una vez por sesión):
-  // las reglas corrían solo al subir el extracto — una regla creada DESPUÉS
-  // nunca barría los pendientes viejos salvo yendo a Nico → Reglas (reporte
-  // de Nico 2026-08-06: "no me está llenando categoría ni beneficiario").
-  // quiet: si no matchea nada, ni un toast.
-  const { rules, applyPendingRulesViaRPC } = useReconciliationRules();
+  // RETRO-APLICACIÓN de reglas al abrir Conciliación: las reglas corrían solo
+  // al subir el extracto — una regla creada DESPUÉS nunca barría los
+  // pendientes viejos salvo yendo a Nico → Reglas (reporte de Nico 2026-08-06:
+  // "no me está llenando categoría ni beneficiario"). quiet: sin nada nuevo,
+  // ni un toast. UNA vez por sesión del navegador y por versión de reglas
+  // (sessionStorage): el ref de abajo era por MONTAJE, así que corría en cada
+  // entrada a la página y repetía el aviso (Nico 2026-11-11).
+  const { rules, barrerPendientesUnaVezPorSesion } = useReconciliationRules();
   // Pestañas: conciliar (Movimientos), auditar, y Terceros (Nico 2026-08-07:
   // "quiero terceros dentro del módulo de conciliación bancaria").
   const [vista, setVista] = useState<'movimientos' | 'auditoria' | 'terceros'>('movimientos');
@@ -443,7 +445,7 @@ export default function Transactions() {
     if (reglasBarridas.current || !rules.length) return;
     if (!rules.some(r => r.active && (r.category_id || r.responsible_id || r.movement_nature))) return;
     reglasBarridas.current = true;
-    applyPendingRulesViaRPC(5000, { quiet: true }).catch(() => { /* best-effort */ });
+    barrerPendientesUnaVezPorSesion().catch(() => { /* best-effort */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rules]);
   useEffect(() => { saveStringToStorage(YEAR_STORAGE_KEY, selectedYear); }, [selectedYear]);
