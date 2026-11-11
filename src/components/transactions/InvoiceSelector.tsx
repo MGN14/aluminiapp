@@ -22,6 +22,8 @@ interface InvoiceOption {
   total_amount: number;
   responsible_id: string | null;
   outstanding: number; // saldo por cobrar
+  /** Cliente dueño de la factura según la cartera (solo ventas del año). */
+  owner?: { id: string; name: string } | null;
 }
 
 export type InvoiceTag = 'na' | 'iva_favor' | 'retefuente' | 'anticipo';
@@ -188,6 +190,9 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     // anticipos/transferencias no vinculadas a ella mostraba el saldo completo en
     // conciliación (no aparecía "Pagada"). Es la misma cifra que "Lo que me deben".
     const effectiveByInvoice = new Map<string, number>();
+    // Dueño de cada factura SEGÚN LA CARTERA (cliente canónico): para avisar
+    // cuando se vincula un pago a una factura que es de otra ficha.
+    const ownerByInvoice = new Map<string, { id: string; name: string }>();
     try {
       // OJO: NO usar `new Date('2026-01-01').getFullYear()` — parsea como UTC y
       // en Colombia (UTC-5) devuelve 2025, consultando el año equivocado. Tomamos
@@ -197,6 +202,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
       for (const c of recv.clients) {
         for (const line of [...c.invoices_pendientes, ...c.invoices_pagadas]) {
           effectiveByInvoice.set(line.id, line.effective_pending);
+          ownerByInvoice.set(line.id, { id: c.client_id, name: c.client_name });
         }
       }
     } catch {
@@ -264,6 +270,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
         total_amount: totalAmount,
         responsible_id: (inv.responsible_id as string | null) ?? null,
         outstanding,
+        owner: ownerByInvoice.get(id) ?? null,
       };
     });
 
@@ -447,7 +454,24 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
   const selectInvoice = (id: string) => {
     const newTags = tags.filter(t => t !== 'na');
     const selectedInv = invoices.find(inv => inv.id === id);
-    
+
+    // La factura es de OTRA ficha que el beneficiario del movimiento: la
+    // cartera abona los pagos por tercero, así que este pago NO le va a bajar
+    // el saldo a esa factura (caso Polyacril, 2026-11-11: el selector se la
+    // sugería por el nombre, pero la factura estaba en la ficha provisional
+    // "Cliente NIT …"). Se avisa; no se bloquea.
+    if (
+      selectedInv?.owner && responsibleId && responsibleName
+      && selectedInv.owner.id !== responsibleId
+      && normalizeCompanyName(selectedInv.owner.name) !== normalizeCompanyName(responsibleName)
+    ) {
+      toast({
+        title: 'Esa factura está en la ficha de otro tercero',
+        description: `${selectedInv.invoice_number} está a nombre de «${selectedInv.owner.name}» y este movimiento es de «${responsibleName}». En cartera el pago se le abona a ${responsibleName}, así que esa factura va a seguir mostrando saldo. Si son el mismo cliente, unilos en la pestaña Terceros.`,
+        duration: 14000,
+      });
+    }
+
     if (!selectedInv || transactionAmount == null) {
       onChange(id, newTags);
       setOpen(false);

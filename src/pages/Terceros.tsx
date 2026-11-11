@@ -23,6 +23,7 @@ import {
   type RolTercero, type RolesResueltos, type Tercero,
 } from '@/lib/terceroProfile';
 import { RolEditable } from '@/components/terceros/RolTercero';
+import TercerosDuplicadosBanner from '@/components/terceros/TercerosDuplicadosBanner';
 
 const fmtCOP = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
@@ -117,6 +118,18 @@ export function TercerosListado() {
 
   const etiquetaRol = OPCIONES_ROL.find(([k]) => k === filtro)?.[1];
 
+  // Para el detector de fichas duplicadas: terceros activos y cuánto se usa
+  // cada uno (decide cuál se conserva al unir).
+  const activos = useMemo(() => terceros.filter((t) => t.active), [terceros]);
+  const actividad = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of activos) {
+      const r = resumen.get(t.id);
+      m.set(t.id, (r?.movimientos ?? 0) + (r?.facturas ?? 0));
+    }
+    return m;
+  }, [activos, resumen]);
+
   return (
       <div className="space-y-4">
         <div className="flex items-center gap-3 flex-wrap">
@@ -148,6 +161,9 @@ export function TercerosListado() {
             </span>
           )}
         </div>
+
+        {/* Fichas que parecen el mismo tercero: unir con un clic (caso Polyacril). */}
+        {resumenListo && <TercerosDuplicadosBanner terceros={activos} actividad={actividad} />}
 
         <Card className="rounded-2xl overflow-hidden">
           <CardContent className="p-0">
