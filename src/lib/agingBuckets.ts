@@ -55,7 +55,7 @@ const EMPTY_BUCKETS: AgingBuckets = {
  * (asumiendo crédito 0). Si dias_credito está seteado, sumarlo a issue_date.
  * Negativo = todavía no vencida.
  */
-function calcDaysOverdue(inv: InvoiceLine & { due_date?: string | null; dias_credito?: number | null }, today: Date): number {
+export function calcDaysOverdue(inv: InvoiceLine & { due_date?: string | null; dias_credito?: number | null }, today: Date): number {
   // InvoiceLine no tiene due_date/dias_credito en la interface — vienen del invoice.
   // El caller debe pasar la info enriquecida o usar issue_date + dias_credito si están.
   const issueDate = new Date(inv.issue_date);
