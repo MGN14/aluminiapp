@@ -288,6 +288,50 @@ export async function applyRemisionInventory({
   return { applied: matched.length, unmatched, variantesAplicadas };
 }
 
+export interface ResyncRemisionInput {
+  remision: {
+    id: string;
+    user_id?: string | null;
+    remision_type: string;
+    created_at?: string | null;
+  };
+  /** Ítems como quedaron después de editar (los de 0 unidades se ignoran). */
+  items: RemisionItemInput[];
+  /** Estado final de la remisión (cancelada = reversa total). */
+  status: string;
+  movementDate: string;
+  userId: string;
+}
+
+/**
+ * RE-SINCRONIZA el inventario de una remisión EDITADA con sus ítems como
+ * quedaron. Es la misma secuencia que siempre usó Editar remisión, sacada acá
+ * para que el cierre del cargue en bodega (ajustar a lo cargado) use la MISMA
+ * cuenta: -5 por reversa + re-aplicación; variantes por diff dentro de
+ * applyRemisionInventory, con el created_at ORIGINAL para no resucitar lo que
+ * un conteo posterior ya absorbió. Cancelada o sin ítems vivos: reversa total.
+ */
+export async function resyncRemisionInventory({
+  remision, items, status, movementDate, userId,
+}: ResyncRemisionInput): Promise<void> {
+  const vivos = items.filter((i) => (Number(i.units) || 0) > 0);
+  if (status !== 'cancelado' && vivos.length > 0) {
+    await reverseRemisionInventory(remision.id, { skipVariantes: true });
+    const map = await fetchProductsByRefs(userId, vivos.map((v) => v.reference));
+    await applyRemisionInventory({
+      userId: remision.user_id ?? userId,
+      remisionId: remision.id,
+      remisionType: remision.remision_type === 'compra' ? 'compra' : 'venta',
+      movementDate,
+      items: vivos,
+      productMap: map,
+      remisionCreatedAt: remision.created_at ?? undefined,
+    });
+  } else {
+    await reverseRemisionInventory(remision.id);
+  }
+}
+
 // Reverse all movements sourced from a remisión: undo stock_physical deltas and delete the movement rows.
 // opts.skipVariantes: solo revierte el -5 — para el flujo de EDICIÓN, donde el
 // ledger por variante se concilia por diff (applyVariantRemision) sin borrar

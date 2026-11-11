@@ -14,11 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon, Trash2, Copy } from 'lucide-react';
-import {
-  applyRemisionInventory,
-  fetchProductsByRefs,
-  reverseRemisionInventory,
-} from '@/lib/remisionInventory';
+import { resyncRemisionInventory } from '@/lib/remisionInventory';
 
 interface Props {
   remisionId: string;
@@ -186,33 +182,28 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
       // el created_at ORIGINAL: lo que un conteo posterior ya absorbió no se
       // resucita (guardia por variante en la conciliación).
       try {
-        const vivos = toUpdate
-          .map((i) => ({
+        // -5: reversa + re-aplicación. Variantes: NO se reversan — la
+        // conciliación (adentro de applyRemisionInventory) corrige por diff
+        // sin tocar filas que un conteo ya absorbió. Cancelada o sin ítems
+        // vivos: misma reversa total que al eliminar. (Compartido con el
+        // cierre del cargue en la estación de despacho.)
+        await resyncRemisionInventory({
+          remision: {
+            id: remision.id,
+            user_id: (remision as any).user_id ?? null,
+            remision_type: remision.remision_type,
+            created_at: (remision as any).created_at ?? null,
+          },
+          items: toUpdate.map((i) => ({
             reference: i.reference,
             product_name: i.product_name,
             units: Number(i.units) || 0,
             unit_cost: Number(i.unit_cost) || 0,
-          }))
-          .filter((i) => i.units > 0);
-        if (status !== 'cancelado' && vivos.length > 0) {
-          // -5: reversa + re-aplicación. Variantes: NO se reversan — la
-          // conciliación (adentro de applyRemisionInventory) corrige por diff
-          // sin tocar filas que un conteo ya absorbió.
-          await reverseRemisionInventory(remision.id, { skipVariantes: true });
-          const map = await fetchProductsByRefs(user?.id ?? '', vivos.map((v) => v.reference));
-          await applyRemisionInventory({
-            userId: (remision as any).user_id ?? user?.id ?? '',
-            remisionId: remision.id,
-            remisionType: (remision.remision_type === 'compra' ? 'compra' : 'venta'),
-            movementDate: date || remision.date,
-            items: vivos,
-            productMap: map,
-            remisionCreatedAt: (remision as any).created_at ?? undefined,
-          });
-        } else {
-          // Cancelada o sin ítems vivos: misma reversa total que al eliminar.
-          await reverseRemisionInventory(remision.id);
-        }
+          })),
+          status,
+          movementDate: date || remision.date,
+          userId: user?.id ?? '',
+        });
         queryClient.invalidateQueries({ queryKey: ['inventory-variants'] });
         queryClient.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
         queryClient.invalidateQueries({ queryKey: ['imports'] });
