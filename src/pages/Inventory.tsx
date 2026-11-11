@@ -280,7 +280,7 @@ export default function Inventory() {
                     fontSize: 24,
                     fontWeight: 700,
                     letterSpacing: '-0.8px',
-                    color: '#1d1d1f',
+                    color: 'var(--ink)',
                     margin: 0,
                     lineHeight: 1.1,
                   }}
@@ -288,7 +288,7 @@ export default function Inventory() {
                   Inventario bajo control
                 </h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                  <p style={{ fontSize: 13, color: '#6e6e73', margin: 0 }}>
+                  <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0 }}>
                     {loading ? 'Cargando...' : `${metrics.totalProducts} referencias activas`}
                   </p>
                   <span
@@ -326,7 +326,7 @@ export default function Inventory() {
                 title="Descargar el inventario completo en PDF"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6, height: 36,
-                  padding: '0 14px', borderRadius: 10, background: '#fff',
+                  padding: '0 14px', borderRadius: 10, background: 'var(--surface)',
                   border: '1.5px solid oklch(0.43 0.14 155 / 0.30)',
                   color: 'oklch(0.43 0.14 155)', fontSize: 13, fontWeight: 500,
                   fontFamily: 'inherit', cursor: exportando ? 'wait' : 'pointer',
@@ -343,7 +343,7 @@ export default function Inventory() {
                 title="Solo las referencias cuyo físico no cuadra con el teórico"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6, height: 36,
-                  padding: '0 14px', borderRadius: 10, background: '#fff',
+                  padding: '0 14px', borderRadius: 10, background: 'var(--surface)',
                   border: '1.5px solid oklch(0.55 0.18 25 / 0.30)',
                   color: 'oklch(0.55 0.18 25)', fontSize: 13, fontWeight: 500,
                   fontFamily: 'inherit', cursor: exportando ? 'wait' : 'pointer',
@@ -365,7 +365,7 @@ export default function Inventory() {
                       height: 36,
                       padding: '0 14px',
                       borderRadius: 10,
-                      background: '#fff',
+                      background: 'var(--surface)',
                       border: '1.5px solid oklch(0.43 0.14 155 / 0.30)',
                       color: 'oklch(0.43 0.14 155)',
                       fontSize: 13,
@@ -375,7 +375,7 @@ export default function Inventory() {
                       transition: 'background 0.15s, border-color 0.15s',
                     }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = 'oklch(0.43 0.14 155 / 0.08)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--surface)'; }}
                   >
                     <ArrowDownToLine style={{ width: 14, height: 14 }} />
                     Registrar entrada
@@ -392,7 +392,7 @@ export default function Inventory() {
                       height: 36,
                       padding: '0 14px',
                       borderRadius: 10,
-                      background: '#fff',
+                      background: 'var(--surface)',
                       border: '1.5px solid oklch(0.55 0.17 70 / 0.30)',
                       color: 'oklch(0.55 0.17 70)',
                       fontSize: 13,
@@ -403,7 +403,7 @@ export default function Inventory() {
                       transition: 'background 0.15s, border-color 0.15s',
                     }}
                     onMouseEnter={(e) => { if (!cuadreLoading) e.currentTarget.style.background = 'oklch(0.70 0.17 70 / 0.08)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--surface)'; }}
                   >
                     {cuadreLoading ? (
                       <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" />
@@ -424,7 +424,7 @@ export default function Inventory() {
                   height: 36,
                   padding: '0 14px',
                   borderRadius: 10,
-                  background: '#fff',
+                  background: 'var(--surface)',
                   border: '1.5px solid oklch(0.70 0.17 70 / 0.30)',
                   color: 'oklch(0.55 0.17 70)',
                   fontSize: 13,
@@ -437,7 +437,7 @@ export default function Inventory() {
                   e.currentTarget.style.background = 'oklch(0.70 0.17 70 / 0.08)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#fff';
+                  e.currentTarget.style.background = 'var(--surface)';
                 }}
               >
                 <ClipboardCheck style={{ width: 14, height: 14 }} />
@@ -454,7 +454,7 @@ export default function Inventory() {
                   height: 36,
                   padding: '0 14px',
                   borderRadius: 10,
-                  background: '#fff',
+                  background: 'var(--surface)',
                   border: '1.5px solid oklch(0.43 0.14 155 / 0.30)',
                   color: 'oklch(0.43 0.14 155)',
                   fontSize: 13,
@@ -468,7 +468,7 @@ export default function Inventory() {
                   if (!siigoSyncing) e.currentTarget.style.background = 'oklch(0.43 0.14 155 / 0.08)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#fff';
+                  e.currentTarget.style.background = 'var(--surface)';
                 }}
               >
                 {siigoSyncing ? (
@@ -490,9 +490,9 @@ export default function Inventory() {
                     height: 36,
                     padding: '0 14px',
                     borderRadius: 10,
-                    background: '#fff',
+                    background: 'var(--surface)',
                     border: '1.5px solid rgba(0,0,0,0.08)',
-                    color: '#1d1d1f',
+                    color: 'var(--ink)',
                     fontSize: 13,
                     fontWeight: 500,
                     fontFamily: 'inherit',
@@ -500,11 +500,11 @@ export default function Inventory() {
                     transition: 'background 0.15s, border-color 0.15s',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f5f5f7';
+                    e.currentTarget.style.background = 'var(--surface2)';
                     e.currentTarget.style.borderColor = 'rgba(0,0,0,0.14)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.background = 'var(--surface)';
                     e.currentTarget.style.borderColor = 'rgba(0,0,0,0.08)';
                   }}
                 >
@@ -522,9 +522,9 @@ export default function Inventory() {
                   height: 36,
                   padding: '0 14px',
                   borderRadius: 10,
-                  background: '#fff',
+                  background: 'var(--surface)',
                   border: '1.5px solid rgba(0,0,0,0.08)',
-                  color: '#1d1d1f',
+                  color: 'var(--ink)',
                   fontSize: 13,
                   fontWeight: 500,
                   fontFamily: 'inherit',
@@ -532,11 +532,11 @@ export default function Inventory() {
                   transition: 'background 0.15s, border-color 0.15s',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#f5f5f7';
+                  e.currentTarget.style.background = 'var(--surface2)';
                   e.currentTarget.style.borderColor = 'rgba(0,0,0,0.14)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#fff';
+                  e.currentTarget.style.background = 'var(--surface)';
                   e.currentTarget.style.borderColor = 'rgba(0,0,0,0.08)';
                 }}
               >
@@ -553,9 +553,9 @@ export default function Inventory() {
                   height: 36,
                   padding: '0 16px',
                   borderRadius: 10,
-                  background: '#1d1d1f',
+                  background: 'var(--ink)',
                   border: 'none',
-                  color: '#fff',
+                  color: 'var(--surface)',
                   fontSize: 13,
                   fontWeight: 600,
                   fontFamily: 'inherit',

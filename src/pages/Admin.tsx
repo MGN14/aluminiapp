@@ -92,18 +92,18 @@ function StatCard({ label, value, sub, icon: Icon, accent }: {
   const accentColor = accent === 'success' ? 'oklch(0.43 0.14 155)'
     : accent === 'warning' ? '#664d03'
     : accent === 'danger' ? '#842029'
-    : '#1d1d1f';
+    : 'var(--ink)';
   return (
     <div style={{
-      background: '#fff',
+      background: 'var(--surface)',
       borderRadius: 14,
       padding: '18px 20px',
       border: '1.5px solid rgba(0,0,0,0.07)',
       boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <Icon style={{ width: 14, height: 14, color: '#a1a1a6' }} />
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#a1a1a6' }}>
+        <Icon style={{ width: 14, height: 14, color: 'var(--ink3)' }} />
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--ink3)' }}>
           {label}
         </span>
       </div>
@@ -111,7 +111,7 @@ function StatCard({ label, value, sub, icon: Icon, accent }: {
         {value}
       </div>
       {sub && (
-        <div style={{ fontSize: 11, color: '#6e6e73', marginTop: 2 }}>{sub}</div>
+        <div style={{ fontSize: 11, color: 'var(--ink2)', marginTop: 2 }}>{sub}</div>
       )}
     </div>
   );

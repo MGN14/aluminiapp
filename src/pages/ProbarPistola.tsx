@@ -11,7 +11,7 @@ export default function ProbarPistola() {
             <ScanLine className="h-5 w-5 text-violet-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1d1d1f', letterSpacing: '-0.6px' }}>Probar pistola</h1>
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--ink)', letterSpacing: '-0.6px' }}>Probar pistola</h1>
             <p className="text-sm text-muted-foreground">Validá que la pistola lee y escribe en la app, sin imprimir nada.</p>
           </div>
         </div>

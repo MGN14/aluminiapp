@@ -632,7 +632,7 @@ export default function InvoiceListPage({ type }: Props) {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div
             style={{
-              background: '#fff',
+              background: 'var(--surface)',
               borderRadius: 14,
               padding: '18px 20px',
               border: '1.5px solid rgba(0,0,0,0.07)',
@@ -645,7 +645,7 @@ export default function InvoiceListPage({ type }: Props) {
                 fontWeight: 600,
                 letterSpacing: '0.8px',
                 textTransform: 'uppercase',
-                color: '#a1a1a6',
+                color: 'var(--ink3)',
               }}
             >
               {summaryLabel1}
@@ -655,7 +655,7 @@ export default function InvoiceListPage({ type }: Props) {
                 fontSize: 22,
                 fontWeight: 700,
                 letterSpacing: '-0.5px',
-                color: '#1d1d1f',
+                color: 'var(--ink)',
                 marginTop: 4,
               }}
             >
@@ -664,7 +664,7 @@ export default function InvoiceListPage({ type }: Props) {
           </div>
           <div
             style={{
-              background: '#fff',
+              background: 'var(--surface)',
               borderRadius: 14,
               padding: '18px 20px',
               border: '1.5px solid rgba(0,0,0,0.07)',
@@ -677,7 +677,7 @@ export default function InvoiceListPage({ type }: Props) {
                 fontWeight: 600,
                 letterSpacing: '0.8px',
                 textTransform: 'uppercase',
-                color: '#a1a1a6',
+                color: 'var(--ink3)',
               }}
             >
               {summaryLabel2}
@@ -687,7 +687,7 @@ export default function InvoiceListPage({ type }: Props) {
                 fontSize: 22,
                 fontWeight: 700,
                 letterSpacing: '-0.5px',
-                color: '#1d1d1f',
+                color: 'var(--ink)',
                 marginTop: 4,
               }}
             >
@@ -697,7 +697,7 @@ export default function InvoiceListPage({ type }: Props) {
           {/* Total sin IVA (base gravable) = total factura − IVA */}
           <div
             style={{
-              background: '#fff',
+              background: 'var(--surface)',
               borderRadius: 14,
               padding: '18px 20px',
               border: '1.5px solid oklch(0.43 0.14 155 / 0.22)',
@@ -710,7 +710,7 @@ export default function InvoiceListPage({ type }: Props) {
                 fontWeight: 600,
                 letterSpacing: '0.8px',
                 textTransform: 'uppercase',
-                color: '#a1a1a6',
+                color: 'var(--ink3)',
               }}
             >
               Total sin IVA
@@ -726,7 +726,7 @@ export default function InvoiceListPage({ type }: Props) {
             >
               {formatCurrency(summary.sinIva)}
             </div>
-            <div style={{ fontSize: 11, color: '#a1a1a6', marginTop: 2 }}>base gravable</div>
+            <div style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 2 }}>base gravable</div>
           </div>
         </div>
 
@@ -734,7 +734,7 @@ export default function InvoiceListPage({ type }: Props) {
         {counterpartyRanking.length > 0 && (
           <div
             style={{
-              background: '#fff',
+              background: 'var(--surface)',
               borderRadius: 14,
               padding: '18px 20px',
               border: '1.5px solid rgba(0,0,0,0.07)',
@@ -747,7 +747,7 @@ export default function InvoiceListPage({ type }: Props) {
                 fontWeight: 600,
                 letterSpacing: '0.8px',
                 textTransform: 'uppercase',
-                color: '#a1a1a6',
+                color: 'var(--ink3)',
                 marginBottom: 12,
               }}
             >
@@ -772,7 +772,7 @@ export default function InvoiceListPage({ type }: Props) {
                       style={{
                         fontSize: 11,
                         fontWeight: 600,
-                        color: '#a1a1a6',
+                        color: 'var(--ink3)',
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
@@ -783,7 +783,7 @@ export default function InvoiceListPage({ type }: Props) {
                         style={{
                           fontSize: 13,
                           fontWeight: 500,
-                          color: '#1d1d1f',
+                          color: 'var(--ink)',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -794,7 +794,7 @@ export default function InvoiceListPage({ type }: Props) {
                       <div
                         style={{
                           fontSize: 11,
-                          color: '#6e6e73',
+                          color: 'var(--ink2)',
                           marginTop: 2,
                         }}
                       >
@@ -805,7 +805,7 @@ export default function InvoiceListPage({ type }: Props) {
                       style={{
                         fontSize: 14,
                         fontWeight: 600,
-                        color: '#1d1d1f',
+                        color: 'var(--ink)',
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
@@ -847,7 +847,7 @@ export default function InvoiceListPage({ type }: Props) {
                 width: '100%',
                 height: 38,
                 padding: '0 12px 0 38px',
-                background: '#fff',
+                background: 'var(--surface)',
                 border: '1.5px solid rgba(0,0,0,0.07)',
                 borderRadius: 10,
                 fontSize: 13,

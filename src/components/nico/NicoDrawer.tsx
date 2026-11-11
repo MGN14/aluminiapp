@@ -55,7 +55,7 @@ export default function NicoDrawer() {
           height: '100dvh',
           width: 420,
           maxWidth: '100vw',
-          background: '#fff',
+          background: 'var(--surface)',
           boxShadow: '-20px 0 60px rgba(0,0,0,0.12)',
           animation: 'slideInRight 0.38s cubic-bezier(0.16,1,0.3,1)',
           fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif",
@@ -95,7 +95,7 @@ export default function NicoDrawer() {
               />
             </div>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 Nico CFO
                 <span
                   style={{
@@ -113,7 +113,7 @@ export default function NicoDrawer() {
                   con memoria
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: '#6e6e73', marginTop: 2 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink2)', marginTop: 2 }}>
                 Tu mano derecha en todo el negocio
               </div>
             </div>

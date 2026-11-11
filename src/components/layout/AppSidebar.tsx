@@ -161,7 +161,7 @@ function navItemStyle(active: boolean): React.CSSProperties {
     borderRadius: 10,
     fontSize: 13,
     fontWeight: active ? 600 : 500,
-    color: active ? BRAND : '#6e6e73',
+    color: active ? BRAND : 'var(--ink2)',
     background: active ? BRAND_DIM : 'transparent',
     border: `1px solid ${active ? BRAND_BORDER : 'transparent'}`,
     transition: 'background 0.15s, color 0.15s, border-color 0.15s',
@@ -171,7 +171,7 @@ function navItemStyle(active: boolean): React.CSSProperties {
 function handleHoverEnter(active: boolean) {
   return (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (active) return;
-    e.currentTarget.style.background = '#f5f5f7';
+    e.currentTarget.style.background = 'var(--surface2)';
   };
 }
 function handleHoverLeave(active: boolean) {
@@ -355,7 +355,7 @@ function SidebarSection({
           fontWeight: 600,
           letterSpacing: '1.2px',
           textTransform: 'uppercase',
-          color: '#a1a1a6',
+          color: 'var(--ink3)',
           padding: '0 12px',
           marginBottom: 4,
         }}
@@ -410,7 +410,7 @@ export default function AppSidebar() {
     <Sidebar
       collapsible="icon"
       style={{
-        background: '#ffffff',
+        background: 'var(--surface)',
         borderRight: isGerencial ? `1px solid ${BRAND_BORDER}` : '1px solid rgba(0,0,0,0.07)',
       }}
     >
@@ -441,7 +441,7 @@ export default function AppSidebar() {
             <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>A</span>
           </div>
           {!collapsed && (
-            <span style={{ fontSize: 15, fontWeight: 700, color: '#1d1d1f', letterSpacing: '-0.3px' }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', letterSpacing: '-0.3px' }}>
               AluminIA
             </span>
           )}

@@ -170,7 +170,7 @@ export default function InventoryMetrics({ metrics, isGerencial = false }: Props
                 fontSize: 24,
                 fontWeight: 700,
                 letterSpacing: '-0.6px',
-                color: showPlaceholder ? '#a1a1a6' : '#1d1d1f',
+                color: showPlaceholder ? 'var(--ink3)' : 'var(--ink)',
                 margin: 0,
                 lineHeight: 1.1,
               }}
@@ -181,7 +181,7 @@ export default function InventoryMetrics({ metrics, isGerencial = false }: Props
               style={{
                 fontSize: 11.5,
                 fontWeight: 550,
-                color: '#1d1d1f',
+                color: 'var(--ink)',
                 margin: 0,
                 marginTop: 6,
                 letterSpacing: '0.1px',
@@ -192,7 +192,7 @@ export default function InventoryMetrics({ metrics, isGerencial = false }: Props
             <p
               style={{
                 fontSize: 10.5,
-                color: '#6e6e73',
+                color: 'var(--ink2)',
                 margin: 0,
                 marginTop: 4,
                 lineHeight: 1.4,

@@ -16,8 +16,8 @@ import {
 
 const BRAND = 'oklch(0.43 0.14 155)';
 const BRAND_BRIGHT = 'oklch(0.60 0.14 155)';
-const INK = '#1d1d1f';
-const INK2 = '#6e6e73';
+const INK = 'var(--ink)';
+const INK2 = 'var(--ink2)';
 
 // Routes where the overlay should never appear (auth / landing / onboarding).
 const HIDDEN_PATHS = new Set<string>([
@@ -85,7 +85,7 @@ export default function TourOverlay() {
           gap: 8,
           height: 44,
           padding: '0 14px 0 10px',
-          background: '#fff',
+          background: 'var(--surface)',
           border: `1px solid ${BRAND}`,
           borderRadius: 999,
           boxShadow: '0 10px 30px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.08)',
@@ -128,7 +128,7 @@ export default function TourOverlay() {
         zIndex: 60,
         width: 340,
         maxWidth: 'calc(100vw - 40px)',
-        background: '#fff',
+        background: 'var(--surface)',
         border: '1px solid rgba(0,0,0,0.08)',
         borderRadius: 16,
         boxShadow: '0 22px 50px rgba(0,0,0,0.22), 0 4px 12px rgba(0,0,0,0.08)',

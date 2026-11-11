@@ -132,14 +132,14 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
         <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
 
         {/* Estado filter */}
-        <div style={{display:'flex',background:'#fff',border:'1.5px solid rgba(0,0,0,0.07)',borderRadius:10,padding:3,gap:1,fontFamily:'inherit'}}>
+        <div style={{display:'flex',background:'var(--surface)',border:'1.5px solid rgba(0,0,0,0.07)',borderRadius:10,padding:3,gap:1,fontFamily:'inherit'}}>
           <button
             type="button"
             onClick={() => update({ estado: 'todas' })}
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
-              background: filters.estado === 'todas' ? '#1d1d1f' : 'transparent',
-              color: filters.estado === 'todas' ? '#fff' : '#6e6e73',
+              background: filters.estado === 'todas' ? 'var(--ink)' : 'transparent',
+              color: filters.estado === 'todas' ? 'var(--surface)' : 'var(--ink2)',
             }}
           >
             Todas ({counts.total})
@@ -150,7 +150,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
               background: filters.estado === 'pendientes' ? 'oklch(0.65 0.15 65)' : 'transparent',
-              color: filters.estado === 'pendientes' ? '#fff' : '#6e6e73',
+              color: filters.estado === 'pendientes' ? '#fff' : 'var(--ink2)',
             }}
           >
             Pendientes ({counts.pendientes})
@@ -161,7 +161,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
               background: filters.estado === 'conciliadas' ? 'oklch(0.43 0.14 155)' : 'transparent',
-              color: filters.estado === 'conciliadas' ? '#fff' : '#6e6e73',
+              color: filters.estado === 'conciliadas' ? '#fff' : 'var(--ink2)',
             }}
           >
             Conciliadas ({counts.conciliadas})

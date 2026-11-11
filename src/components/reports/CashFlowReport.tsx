@@ -30,8 +30,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-const INK = '#1d1d1f';
-const INK2 = '#6e6e73';
+const INK = 'var(--ink)';
+const INK2 = 'var(--ink2)';
 const INK3 = '#a1a1a6';
 const BRAND = 'oklch(0.43 0.14 155)';
 const BRAND_BRIGHT = 'oklch(0.60 0.14 155)';
@@ -431,7 +431,7 @@ export default function CashFlowReport() {
                     />
                     <Tooltip
                       contentStyle={{
-                        background: '#fff',
+                        background: 'var(--surface)',
                         border: '1px solid rgba(0,0,0,0.08)',
                         borderRadius: 10,
                         fontSize: 12,

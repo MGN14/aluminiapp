@@ -131,7 +131,7 @@ export default function InventoryInsights({ products, metrics }: Props) {
           marginBottom: 12,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#1d1d1f' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
           <div
             style={{
               width: 24,
@@ -209,10 +209,10 @@ export default function InventoryInsights({ products, metrics }: Props) {
               >
                 {ins.badge}
               </span>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#1d1d1f', marginBottom: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>
                 {ins.title}
               </div>
-              <div style={{ fontSize: 11.5, color: '#6e6e73', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--ink2)', lineHeight: 1.5 }}>
                 {ins.text}
               </div>
             </div>

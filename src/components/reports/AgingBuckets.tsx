@@ -146,7 +146,7 @@ export default function AgingBuckets({ items, selected, onSelect }: Props) {
                   fontWeight: 600,
                   padding: '2px 6px',
                   borderRadius: 99,
-                  background: '#fff',
+                  background: 'var(--surface)',
                   color: b.text,
                   border: `1px solid ${b.border}`,
                 }}
@@ -158,14 +158,14 @@ export default function AgingBuckets({ items, selected, onSelect }: Props) {
               style={{
                 fontSize: 22,
                 fontWeight: 700,
-                color: '#1d1d1f',
+                color: 'var(--ink)',
                 letterSpacing: '-0.5px',
                 lineHeight: 1.1,
               }}
             >
               {fmtShort(b.total)}
             </div>
-            <div style={{ fontSize: 11, color: '#6e6e73', marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink2)', marginTop: 4 }}>
               {b.count} {b.count === 1 ? 'factura' : 'facturas'}
             </div>
           </button>

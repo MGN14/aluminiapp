@@ -6,7 +6,7 @@ interface Props { movements: InventoryMovement[]; }
 
 const BRAND = 'oklch(0.43 0.14 155)';
 const DANGER = 'oklch(0.52 0.18 25)';
-const AXIS_COLOR = '#a1a1a6';
+const AXIS_COLOR = 'var(--ink3)';
 
 type Mode = 'daily' | 'weekly' | 'monthly';
 
@@ -106,7 +106,7 @@ export default function InventoryChart({ movements }: Props) {
   return (
     <div
       style={{
-        background: '#fff',
+        background: 'var(--surface)',
         border: '1px solid rgba(0,0,0,0.07)',
         borderRadius: 16,
         padding: 18,
@@ -125,17 +125,17 @@ export default function InventoryChart({ movements }: Props) {
         }}
       >
         <div>
-          <div style={{ fontSize: 14, fontWeight: 650, color: '#1d1d1f' }}>
+          <div style={{ fontSize: 14, fontWeight: 650, color: 'var(--ink)' }}>
             Movimientos de inventario
           </div>
-          <div style={{ fontSize: 11.5, color: '#a1a1a6', marginTop: 2 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--ink3)', marginTop: 2 }}>
             Entradas y salidas — {mode === 'monthly' ? 'últimos 3 meses' : mode === 'weekly' ? 'últimas 5 semanas' : 'últimos 30 días'}
           </div>
         </div>
         <div
           style={{
             display: 'inline-flex',
-            background: '#f5f5f7',
+            background: 'var(--surface2)',
             borderRadius: 8,
             padding: 2,
             gap: 1,
@@ -148,12 +148,12 @@ export default function InventoryChart({ movements }: Props) {
               onClick={() => setMode(m)}
               style={{
                 border: 'none',
-                background: mode === m ? '#fff' : 'transparent',
+                background: mode === m ? 'var(--surface)' : 'transparent',
                 boxShadow: mode === m ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
                 padding: '5px 10px',
                 fontSize: 11,
                 fontWeight: 550,
-                color: mode === m ? '#1d1d1f' : '#6e6e73',
+                color: mode === m ? 'var(--ink)' : 'var(--ink2)',
                 cursor: 'pointer',
                 borderRadius: 6,
                 fontFamily: 'inherit',
@@ -174,7 +174,7 @@ export default function InventoryChart({ movements }: Props) {
             alignItems: 'center',
             justifyContent: 'center',
             height: 160,
-            color: '#a1a1a6',
+            color: 'var(--ink3)',
             fontSize: 13,
           }}
         >
@@ -201,14 +201,14 @@ export default function InventoryChart({ movements }: Props) {
               <Tooltip
                 cursor={{ fill: 'rgba(0,0,0,0.03)' }}
                 contentStyle={{
-                  background: '#fff',
+                  background: 'var(--surface)',
                   border: '1px solid rgba(0,0,0,0.08)',
                   borderRadius: 10,
                   fontSize: 12,
                   padding: '8px 10px',
                   boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
                 }}
-                labelStyle={{ color: '#1d1d1f', fontWeight: 600, marginBottom: 4 }}
+                labelStyle={{ color: 'var(--ink)', fontWeight: 600, marginBottom: 4 }}
               />
               <Bar dataKey="entradas" name="Entradas" fill={BRAND} opacity={0.88} radius={[3, 3, 0, 0]} />
               <Bar dataKey="salidas" name="Salidas" fill={DANGER} opacity={0.88} radius={[3, 3, 0, 0]} />
@@ -224,7 +224,7 @@ export default function InventoryChart({ movements }: Props) {
           gap: 16,
           marginTop: 10,
           fontSize: 11.5,
-          color: '#6e6e73',
+          color: 'var(--ink2)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

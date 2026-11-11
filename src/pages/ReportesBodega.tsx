@@ -168,7 +168,7 @@ export default function ReportesBodega() {
             <Truck className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1d1d1f', letterSpacing: '-0.6px' }}>Reportes de bodega</h1>
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--ink)', letterSpacing: '-0.6px' }}>Reportes de bodega</h1>
             <p className="text-sm text-muted-foreground">Trazabilidad, tiempos, rotación y alertas de la operación física</p>
           </div>
         </div>

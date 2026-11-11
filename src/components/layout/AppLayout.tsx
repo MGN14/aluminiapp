@@ -34,7 +34,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <div
             className="min-h-screen flex w-full"
             style={{
-              background: '#f5f5f7',
+              background: 'var(--surface2)',
               fontFamily:
                 "-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif",
               WebkitFontSmoothing: 'antialiased',

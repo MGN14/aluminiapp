@@ -115,7 +115,7 @@ export default function AppHeader() {
     <header
       style={{
         height: 58,
-        background: 'rgba(255,255,255,0.85)',
+        background: 'var(--header-bg)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
         borderBottom: '1px solid rgba(0,0,0,0.07)',
@@ -205,7 +205,7 @@ export default function AppHeader() {
             className="hidden md:flex"
             style={{
               display: 'flex',
-              background: '#f5f5f7',
+              background: 'var(--surface2)',
               borderRadius: 9,
               padding: 3,
               gap: 1,
@@ -222,8 +222,8 @@ export default function AppHeader() {
                 borderRadius: 7,
                 fontSize: 12,
                 fontWeight: 500,
-                background: mode === 'dian' ? '#fff' : 'transparent',
-                color: mode === 'dian' ? '#1d1d1f' : '#6e6e73',
+                background: mode === 'dian' ? 'var(--surface)' : 'transparent',
+                color: mode === 'dian' ? 'var(--ink)' : 'var(--ink2)',
                 boxShadow: mode === 'dian' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
                 border: 'none',
                 cursor: 'pointer',
@@ -243,8 +243,8 @@ export default function AppHeader() {
                 borderRadius: 7,
                 fontSize: 12,
                 fontWeight: 500,
-                background: mode === 'gerencial' ? '#fff' : 'transparent',
-                color: mode === 'gerencial' ? BRAND : '#6e6e73',
+                background: mode === 'gerencial' ? 'var(--surface)' : 'transparent',
+                color: mode === 'gerencial' ? BRAND : 'var(--ink2)',
                 boxShadow: mode === 'gerencial' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
                 border: 'none',
                 cursor: 'pointer',

@@ -105,6 +105,8 @@
     --surface: #ffffff;
     --surface2: #f5f5f7;
     --surface3: #ebebed;
+    /* Encabezado translúcido sobre la página (AppHeader). */
+    --header-bg: rgba(255, 255, 255, 0.85);
   }
 
   .dark {
@@ -172,6 +174,18 @@
     --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 4px 6px -1px hsl(0 0% 0% / 0.1);
     --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 8px 10px -1px hsl(0 0% 0% / 0.1);
     --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+
+    /* Tokens de marca en oscuro. En claro valen lo mismo que los colores
+       fijos que reemplazan (#1d1d1f, #f5f5f7…), así que la vista clara no
+       cambia; acá siguen al tema para que el fondo de página, el texto y
+       las tarjetas "estilo Apple" no queden claros en modo oscuro. */
+    --ink: hsl(var(--foreground));
+    --ink2: hsl(var(--muted-foreground));
+    --ink3: #8e8e93;
+    --surface: hsl(var(--card));
+    --surface2: hsl(var(--background));
+    --surface3: hsl(var(--muted));
+    --header-bg: hsl(var(--background) / 0.85);
   }
 }
 

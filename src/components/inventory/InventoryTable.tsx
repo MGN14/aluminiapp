@@ -65,17 +65,17 @@ const thStyle: React.CSSProperties = {
   fontWeight: 600,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
-  color: '#6e6e73',
+  color: 'var(--ink2)',
   padding: '10px 14px',
   textAlign: 'left',
   borderBottom: '1px solid rgba(0,0,0,0.07)',
-  background: '#f5f5f7',
+  background: 'var(--surface2)',
   whiteSpace: 'nowrap',
 };
 
 const tdStyle: React.CSSProperties = {
   fontSize: 12,
-  color: '#1d1d1f',
+  color: 'var(--ink)',
   padding: '12px 14px',
   borderBottom: '1px solid rgba(0,0,0,0.07)',
   verticalAlign: 'middle',
@@ -93,7 +93,7 @@ function SortableTh({ label, active, asc, onClick, align = 'left' }: { label: st
           style={{
             width: 10,
             height: 10,
-            color: active ? 'oklch(0.43 0.14 155)' : '#a1a1a6',
+            color: active ? 'oklch(0.43 0.14 155)' : 'var(--ink3)',
             transform: active && !asc ? 'rotate(180deg)' : 'none',
             transition: 'transform 0.15s',
           }}
@@ -114,7 +114,7 @@ function ActionButton({ onClick, title, color, bgHover, children }: { onClick: (
         width: 26,
         height: 26,
         borderRadius: 7,
-        background: '#fff',
+        background: 'var(--surface)',
         border: '1px solid rgba(0,0,0,0.07)',
         color,
         cursor: 'pointer',
@@ -129,7 +129,7 @@ function ActionButton({ onClick, title, color, bgHover, children }: { onClick: (
         e.currentTarget.style.borderColor = 'transparent';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = '#fff';
+        e.currentTarget.style.background = 'var(--surface)';
         e.currentTarget.style.borderColor = 'rgba(0,0,0,0.07)';
       }}
     >
@@ -213,13 +213,13 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
           justifyContent: 'center',
           padding: '64px 24px',
           gap: 16,
-          background: '#fff',
+          background: 'var(--surface)',
           border: '1px solid rgba(0,0,0,0.07)',
           borderRadius: 16,
         }}
       >
-        <Package style={{ width: 40, height: 40, color: '#a1a1a6' }} />
-        <p style={{ fontSize: 13, color: '#6e6e73', margin: 0 }}>Agrega tu primer producto para comenzar</p>
+        <Package style={{ width: 40, height: 40, color: 'var(--ink3)' }} />
+        <p style={{ fontSize: 13, color: 'var(--ink2)', margin: 0 }}>Agrega tu primer producto para comenzar</p>
       </div>
     );
   }
@@ -227,7 +227,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
   return (
     <div
       style={{
-        background: '#fff',
+        background: 'var(--surface)',
         border: '1px solid rgba(0,0,0,0.07)',
         borderRadius: 16,
         overflow: 'hidden',
@@ -247,8 +247,8 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#1d1d1f' }}>Inventario operativo</span>
-          <span style={{ fontSize: 11, color: '#a1a1a6', marginLeft: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Inventario operativo</span>
+          <span style={{ fontSize: 11, color: 'var(--ink3)', marginLeft: 8 }}>
             {filtered.length} de {products.length}
           </span>
         </div>
@@ -270,7 +270,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
               transform: 'translateY(-50%)',
               width: 13,
               height: 13,
-              color: '#a1a1a6',
+              color: 'var(--ink3)',
               pointerEvents: 'none',
             }}
           />
@@ -281,17 +281,17 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
             onChange={(e) => setSearch(e.target.value)}
             style={{
               width: '100%',
-              background: '#f5f5f7',
+              background: 'var(--surface2)',
               border: '1px solid rgba(0,0,0,0.07)',
               borderRadius: 9,
               padding: '7px 10px 7px 30px',
               fontSize: 12,
-              color: '#1d1d1f',
+              color: 'var(--ink)',
               fontFamily: 'inherit',
               outline: 'none',
               transition: 'border 0.15s',
             }}
-            onFocus={(e) => (e.currentTarget.style.borderColor = '#1d1d1f')}
+            onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--ink)')}
             onBlur={(e) => (e.currentTarget.style.borderColor = 'rgba(0,0,0,0.07)')}
           />
         </div>
@@ -300,7 +300,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
         <div
           style={{
             display: 'inline-flex',
-            background: '#f5f5f7',
+            background: 'var(--surface2)',
             borderRadius: 9,
             padding: 2,
             gap: 1,
@@ -318,12 +318,12 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
               onClick={() => setFilter(k)}
               style={{
                 border: 'none',
-                background: filter === k ? '#fff' : 'transparent',
+                background: filter === k ? 'var(--surface)' : 'transparent',
                 boxShadow: filter === k ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
                 padding: '6px 10px',
                 fontSize: 11.5,
                 fontWeight: 550,
-                color: filter === k ? '#1d1d1f' : '#6e6e73',
+                color: filter === k ? 'var(--ink)' : 'var(--ink2)',
                 cursor: 'pointer',
                 borderRadius: 7,
                 fontFamily: 'inherit',
@@ -346,8 +346,8 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
               fontWeight: 500,
               borderRadius: 9,
               border: '1px solid rgba(0,0,0,0.08)',
-              background: systemFilter === 'all' ? '#fff' : 'oklch(0.43 0.14 155 / 0.08)',
-              color: systemFilter === 'all' ? '#6e6e73' : 'oklch(0.43 0.14 155)',
+              background: systemFilter === 'all' ? 'var(--surface)' : 'oklch(0.43 0.14 155 / 0.08)',
+              color: systemFilter === 'all' ? 'var(--ink2)' : 'oklch(0.43 0.14 155)',
               fontFamily: 'inherit',
               cursor: 'pointer',
               outline: 'none',
@@ -398,7 +398,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                 <tr
                   key={p.id}
                   style={{ transition: 'background 0.1s' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#f5f5f7')}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
                   {/* Producto: thumb UoM + ref + name */}
@@ -409,7 +409,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                           width: 32,
                           height: 32,
                           borderRadius: 7,
-                          background: '#f5f5f7',
+                          background: 'var(--surface2)',
                           border: '1px solid rgba(0,0,0,0.07)',
                           display: 'flex',
                           alignItems: 'center',
@@ -417,7 +417,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                           fontSize: 10,
                           fontWeight: 700,
                           letterSpacing: '0.02em',
-                          color: '#6e6e73',
+                          color: 'var(--ink2)',
                           flexShrink: 0,
                         }}
                       >
@@ -429,7 +429,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
                             fontSize: 12,
                             fontWeight: 600,
-                            color: '#1d1d1f',
+                            color: 'var(--ink)',
                             lineHeight: 1.2,
                           }}
                         >
@@ -438,7 +438,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                         <div
                           style={{
                             fontSize: 11,
-                            color: '#6e6e73',
+                            color: 'var(--ink2)',
                             marginTop: 2,
                             maxWidth: 240,
                             overflow: 'hidden',
@@ -492,7 +492,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                       ...tdStyle,
                       textAlign: 'right',
                       fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-                      color: hasPhysical ? '#6e6e73' : '#a1a1a6',
+                      color: hasPhysical ? 'var(--ink2)' : 'var(--ink3)',
                     }}
                   >
                     {hasPhysical ? fmt(p.stock_physical as number) : '—'}
@@ -507,12 +507,12 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                       fontWeight: 600,
                       color:
                         !hasPhysical
-                          ? '#a1a1a6'
+                          ? 'var(--ink3)'
                           : diff > 0
                           ? 'oklch(0.43 0.14 155)'
                           : diff < 0
                           ? 'oklch(0.52 0.18 25)'
-                          : '#a1a1a6',
+                          : 'var(--ink3)',
                     }}
                   >
                     {!hasPhysical ? '—' : diff === 0 ? '—' : diff > 0 ? `+${diff}` : `${diff}`}
@@ -523,7 +523,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                     style={{
                       ...tdStyle,
                       textAlign: 'right',
-                      color: '#6e6e73',
+                      color: 'var(--ink2)',
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
@@ -633,7 +633,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
                         onClick={() => onAdjust(p)}
                         title="Ajustar stock físico"
                         color="#6e6e73"
-                        bgHover="#f5f5f7"
+                        bgHover="var(--surface2)"
                       >
                         <Scale style={{ width: 13, height: 13 }} />
                       </ActionButton>
@@ -660,7 +660,7 @@ export default function InventoryTable({ products, onAdjust, onEdit, onAddMoveme
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: '#a1a1a6', padding: '40px 20px' }}>
+                <td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: 'var(--ink3)', padding: '40px 20px' }}>
                   Ningún producto cumple con los filtros actuales.
                 </td>
               </tr>

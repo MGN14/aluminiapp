@@ -13,9 +13,9 @@ import { Lock, Loader2, Crown, TrendingUp, ArrowDownUp, HandCoins, ReceiptText, 
 type ReportTab = 'pyg' | 'anticipos' | 'cxc' | 'cxp' | 'caja' | 'pagos' | 'clientes';
 
 const BRAND = 'oklch(0.43 0.14 155)';
-const INK = '#1d1d1f';
-const INK2 = '#6e6e73';
-const INK3 = '#a1a1a6';
+const INK = 'var(--ink)';
+const INK2 = 'var(--ink2)';
+const INK3 = 'var(--ink3)';
 
 const TABS: Record<ReportTab, {
   title: string;

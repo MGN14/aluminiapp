@@ -46,7 +46,7 @@ export default function Conteo() {
             <QrCode style={{ width: 22, height: 22, color: 'oklch(0.50 0.18 290)' }} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1d1d1f', letterSpacing: '-0.6px' }}>
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--ink)', letterSpacing: '-0.6px' }}>
               Etiquetas y ubicaciones
             </h1>
             <p className="text-sm text-muted-foreground">

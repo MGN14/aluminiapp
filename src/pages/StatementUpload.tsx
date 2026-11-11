@@ -368,7 +368,7 @@ export default function StatementUpload() {
               fontFamily: 'inherit',
               fontSize: 24,
               fontWeight: 700,
-              color: '#1d1d1f',
+              color: 'var(--ink)',
               marginBottom: 8,
               letterSpacing: '-0.01em',
             }}
@@ -407,7 +407,7 @@ export default function StatementUpload() {
                 style={{ marginTop: 2, flexShrink: 0, color: 'oklch(0.55 0.15 65)' }}
               />
               <div style={{ fontFamily: 'inherit' }}>
-                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6, color: '#1d1d1f', fontFamily: 'inherit' }}>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6, color: 'var(--ink)', fontFamily: 'inherit' }}>
                   Hay días sin datos entre tus extractos
                 </div>
                 <div style={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,0.7)', fontFamily: 'inherit' }}>
@@ -483,7 +483,7 @@ export default function StatementUpload() {
                   fontFamily: 'inherit',
                   fontSize: 15,
                   fontWeight: 600,
-                  color: '#1d1d1f',
+                  color: 'var(--ink)',
                   margin: 0,
                   letterSpacing: '-0.01em',
                 }}
@@ -501,7 +501,7 @@ export default function StatementUpload() {
                   fontFamily: 'inherit',
                   fontSize: 15,
                   fontWeight: 600,
-                  color: '#1d1d1f',
+                  color: 'var(--ink)',
                   margin: 0,
                   letterSpacing: '-0.01em',
                 }}
@@ -522,7 +522,7 @@ export default function StatementUpload() {
                 fontFamily: 'inherit',
                 fontSize: 15,
                 fontWeight: 600,
-                color: '#1d1d1f',
+                color: 'var(--ink)',
                 margin: 0,
                 letterSpacing: '-0.01em',
               }}
@@ -563,7 +563,7 @@ export default function StatementUpload() {
           <section style={{ fontFamily: 'inherit' }}>
             <div
               style={{
-                background: '#fff',
+                background: 'var(--surface)',
                 borderRadius: 20,
                 border: '1px solid rgba(0,0,0,0.07)',
                 padding: '24px 24px 20px',
@@ -576,7 +576,7 @@ export default function StatementUpload() {
                     fontFamily: 'inherit',
                     fontSize: 18,
                     fontWeight: 600,
-                    color: '#1d1d1f',
+                    color: 'var(--ink)',
                     margin: 0,
                     letterSpacing: '-0.01em',
                   }}
@@ -599,7 +599,7 @@ export default function StatementUpload() {
                   <div
                     key={statement.id}
                     style={{
-                      background: '#fff',
+                      background: 'var(--surface)',
                       borderRadius: 14,
                       border: '1.5px solid rgba(0,0,0,0.07)',
                       padding: '16px 18px',
@@ -623,7 +623,7 @@ export default function StatementUpload() {
                             fontFamily: 'inherit',
                             fontWeight: 500,
                             fontSize: 14,
-                            color: '#1d1d1f',
+                            color: 'var(--ink)',
                             margin: 0,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
