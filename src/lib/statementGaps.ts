@@ -86,3 +86,50 @@ export function findCoverageGaps(statements: StatementPeriodLike[]): CoverageGap
   // Más recientes primero — lo más probable es que el hueco nuevo sea el que importa.
   return gaps.sort((a, b) => b.from.localeCompare(a.from));
 }
+
+// ── Cuentas atrasadas: una serie que se quedó sin extractos ─────────────────
+
+export interface SerieAtrasada {
+  bank: string;
+  /** Último día CON datos de esa cuenta (YYYY-MM-DD). */
+  hasta: string;
+  /** Días que le lleva de ventaja la cuenta más al día. */
+  diasAtras: number;
+}
+
+/**
+ * Cuentas cuyo último extracto quedó MUY atrás de la cuenta más al día.
+ *
+ * Caso real (auditoría 2026-11-11): la cuenta principal estaba cargada hasta
+ * el 31 de octubre, pero la tarjeta de crédito solo hasta el 25 de junio y
+ * la segunda cuenta hasta el 31 de mayo. El banco seguía mostrando el pago
+ * automático de la tarjeta cada mes, marcado como traspaso — o sea que las
+ * compras de julio a octubre nunca entraron a la app. findCoverageGaps no lo
+ * ve: mira huecos ENTRE extractos, no una serie que simplemente se detuvo.
+ *
+ * Se compara contra la cuenta más al día (no contra hoy): si todavía no
+ * subiste nada del mes, eso no es una cuenta atrasada, es el mes en curso.
+ * Misma agrupación por bank_name que findCoverageGaps.
+ */
+export function findSeriesAtrasadas(
+  statements: StatementPeriodLike[],
+  toleranciaDias = 35,
+): SerieAtrasada[] {
+  const ultimoPorBanco = new Map<string, number>();
+  for (const s of statements) {
+    if (!s.period_end) continue;
+    const end = toUTC(s.period_end);
+    if (isNaN(end)) continue;
+    const bank = s.bank_name || 'Banco';
+    ultimoPorBanco.set(bank, Math.max(ultimoPorBanco.get(bank) ?? -Infinity, end));
+  }
+  if (ultimoPorBanco.size < 2) return []; // una sola cuenta: no hay contra qué comparar
+  const masAlDia = Math.max(...ultimoPorBanco.values());
+
+  const out: SerieAtrasada[] = [];
+  for (const [bank, end] of ultimoPorBanco) {
+    const diasAtras = Math.round((masAlDia - end) / DAY_MS);
+    if (diasAtras > toleranciaDias) out.push({ bank, hasta: fromUTC(end), diasAtras });
+  }
+  return out.sort((a, b) => b.diasAtras - a.diasAtras);
+}

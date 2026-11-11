@@ -10,6 +10,7 @@ import TransactionRow from '@/components/transactions/TransactionRow';
 import TransactionDetailModal from '@/components/transactions/TransactionDetailModal';
 import ReglasSugeridasCard from '@/components/transactions/ReglasSugeridasCard';
 import AuditoriaConciliacion from '@/components/transactions/AuditoriaConciliacion';
+import ExtractosFaltantesBanner from '@/components/transactions/ExtractosFaltantesBanner';
 import { TercerosListado } from '@/pages/Terceros';
 import { useReconciliationRules } from '@/hooks/useReconciliationRules';
 import ResponsibleManagement from '@/components/management/ResponsibleManagement';
@@ -42,6 +43,7 @@ import { Link } from 'react-router-dom';
 import { AnimatedNumber } from '@/components/ui/animated-number';
 import { cn } from '@/lib/utils';
 import { normalizeDesc, isNoiseAmount } from '@/lib/descriptionMatch';
+import { fetchAllPaged } from '@/lib/fetchAllPaged';
 import { computeCierreKpis, findUnmatchedTraspasos } from '@/lib/txBucket';
 import { useCardDescriptionRules } from '@/hooks/useCardDescriptionRules';
 import { useColumnWidths, ColResizer } from '@/components/transactions/columnResize';
@@ -207,30 +209,37 @@ async function queryTransactions(
   // protege contra huérfanos de deletes viejos que no cascadearon.
   if (statementIds.length === 0) return [];
 
-  let query = supabase
-    .from('transactions')
-    .select('*')
-    .is('deleted_at', null)
-    .in('statement_id', statementIds)
-    .order('date', { ascending: true })
-    .order('created_at', { ascending: true }); // Stable secondary sort
-
-  if (selectedYear !== 'all') {
-    const year = Number(selectedYear);
-    query = query
-      .gte('date', `${year}-01-01`)
-      .lt('date', `${year + 1}-01-01`);
-  }
-
-  // Apply historyMonths filter for plans with limited history
+  // Fecha de corte para planes con historia limitada (se calcula una vez).
+  let cutoffIso: string | null = null;
   if (historyMonths && historyMonths > 0) {
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - historyMonths);
-    query = query.gte('date', cutoff.toISOString().split('T')[0]);
+    cutoffIso = cutoff.toISOString().split('T')[0];
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
+  // PAGINADO: el servidor corta en 1.000 filas sin avisar y el orden es por
+  // fecha ascendente — lo que se perdía eran los movimientos MÁS NUEVOS, justo
+  // los pendientes. 2026 iba en 941 filas y "Año: Todos" ya en 1.028
+  // (auditoría 2026-11-11). El desempate por id hace estable el paginado.
+  const data = await fetchAllPaged<Transaction>((from, to) => {
+    let query = supabase
+      .from('transactions')
+      .select('*')
+      .is('deleted_at', null)
+      .in('statement_id', statementIds)
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true }) // Stable secondary sort
+      .order('id', { ascending: true });
+
+    if (selectedYear !== 'all') {
+      const year = Number(selectedYear);
+      query = query
+        .gte('date', `${year}-01-01`)
+        .lt('date', `${year + 1}-01-01`);
+    }
+    if (cutoffIso) query = query.gte('date', cutoffIso);
+    return query.range(from, to);
+  });
 
   // REGLA automática: ocultar movimientos cuyo monto es 0, redondea a 0, o no
   // es numérico (ajustes de interés de centavos, "FIN ESTADO CUENTA", etc.).
@@ -892,6 +901,10 @@ export default function Transactions() {
           {vista === 'terceros' && <TercerosListado />}
 
           <div className={vista !== 'movimientos' ? 'hidden' : 'space-y-4'}>
+          {/* Extractos por subir: cuentas que se quedaron atrás y huecos de
+              días. Antes solo se veía en la pantalla de subir extractos. */}
+          <ExtractosFaltantesBanner statements={statements} traspasosSinEspejo={traspasosSinEspejo} />
+
           {/* Reglas sugeridas por el historial: un clic las crea y barre
               los pendientes — cada mes conciliado enseña a la app. */}
           <ReglasSugeridasCard categories={categories} responsibles={responsibles} />

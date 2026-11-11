@@ -17,6 +17,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { normalizeForMatch } from '@/lib/stringUtils';
+import { fetchAllPaged } from '@/lib/fetchAllPaged';
 import type { ReconciliationRule, NewReconciliationRule } from '@/hooks/useReconciliationRules';
 
 export interface TxHistorial {
@@ -115,21 +116,43 @@ export function indexarHistorial(txs: TxHistorial[]): HistorialConciliacion {
 }
 
 /**
+ * El MISMO índice para todos los que lean el mismo arreglo de transacciones.
+ *
+ * Cada fila de Conciliación llama a useConciliacionHistorial y su useMemo es
+ * por instancia: con 150 filas visibles el índice se armaba 150 veces sobre
+ * los mismos datos (374 ms por tanda, medido en la auditoría 2026-11-11).
+ * React Query entrega la misma referencia de `data` a todos los observadores,
+ * así que cachear por identidad del arreglo lo arma UNA vez. WeakMap: cuando
+ * la query trae datos nuevos, el índice viejo se libera solo.
+ */
+const indicePorArreglo = new WeakMap<TxHistorial[], HistorialConciliacion>();
+export function indexarHistorialCompartido(txs: TxHistorial[]): HistorialConciliacion {
+  let idx = indicePorArreglo.get(txs);
+  if (!idx) {
+    idx = indexarHistorial(txs);
+    indicePorArreglo.set(txs, idx);
+  }
+  return idx;
+}
+
+/**
  * Devuelve las TRANSACCIONES planas, no el índice: el cache persistente de
  * react-query serializa a JSON y los Map del índice no sobreviven (al
  * recargar quedaba `porDesc.get is not a function`). El índice se arma en
  * memoria con useMemo en useConciliacionHistorial.
  */
 export async function fetchHistorialConciliacion(): Promise<TxHistorial[]> {
-  const { data, error } = await supabase
+  // Los 10.000 movimientos clasificados más recientes, PAGINADOS: el
+  // `.limit(10000)` de antes no levantaba el tope de 1.000 del servidor — el
+  // historial iba en 994 filas y estaba por empezar a olvidar lo más viejo.
+  return fetchAllPaged<TxHistorial>((from, to) => supabase
     .from('transactions')
     .select('id, description, amount, date, category_id, responsible_id')
     .is('deleted_at', null)
     .or('category_id.not.is.null,responsible_id.not.is.null')
     .order('date', { ascending: false })
-    .limit(10000);
-  if (error) throw error;
-  return (data ?? []) as TxHistorial[];
+    .order('id', { ascending: true })
+    .range(from, to), { maxRows: 10_000 });
 }
 
 // ── 1. Beneficiario sugerido por categoría + monto ──────────────────────────
@@ -160,6 +183,27 @@ export interface ContextoSugerencia {
    *  tener la fila que se acaba de asignar; la lista de la página sí (el
    *  patch optimista). Pisan al historial por id. */
   recientes?: TxHistorial[];
+}
+
+/** Las transacciones frescas de la página, agrupadas UNA vez por arreglo
+ *  (categoría|beneficiario|signo): cada fila consulta su grupo en O(1) en vez
+ *  de recorrer todo el año por cada candidato. */
+interface RecientesIndex { ids: Set<string>; porClave: Map<string, PagoHistorial[]> }
+const recientesPorArreglo = new WeakMap<TxHistorial[], RecientesIndex>();
+function indexarRecientes(recientes: TxHistorial[]): RecientesIndex {
+  let idx = recientesPorArreglo.get(recientes);
+  if (idx) return idx;
+  idx = { ids: new Set(), porClave: new Map() };
+  for (const t of recientes) {
+    if (t.id) idx.ids.add(t.id);
+    if (!t.category_id || !t.responsible_id) continue;
+    const clave = claveCatResp(t.category_id, t.responsible_id, signoDe(t.amount));
+    const arr = idx.porClave.get(clave) ?? [];
+    arr.push({ id: t.id, date: (t.date ?? '').slice(0, 10), monto: Math.abs(Number(t.amount ?? 0)) });
+    idx.porClave.set(clave, arr);
+  }
+  recientesPorArreglo.set(recientes, idx);
+  return idx;
 }
 
 const DAY_MS = 86_400_000;
@@ -227,16 +271,13 @@ export function sugerirBeneficiario(
 
   // Pagos frescos de la pantalla: pisan al historial por id (la fila recién
   // asignada todavía no está en el cache del historial).
-  const recientes = ctx?.recientes ?? [];
-  const idsRecientes = new Set(recientes.map((t) => t.id).filter((id): id is string => !!id));
+  const frescas = ctx?.recientes?.length ? indexarRecientes(ctx.recientes) : null;
   const fecha = ctx?.date ? ctx.date.slice(0, 10) : null;
   const yaCobro = (responsibleId: string, stats: StatsCatResp | undefined): string | null => {
     if (!fecha || monto <= 0) return null;
     const pagos: PagoHistorial[] = [
-      ...(stats?.pagos ?? []).filter((p) => !(p.id && idsRecientes.has(p.id))),
-      ...recientes
-        .filter((t) => t.category_id === categoryId && t.responsible_id === responsibleId && signoDe(t.amount) === signo)
-        .map((t) => ({ id: t.id, date: (t.date ?? '').slice(0, 10), monto: Math.abs(Number(t.amount ?? 0)) })),
+      ...(stats?.pagos ?? []).filter((p) => !(p.id && frescas?.ids.has(p.id))),
+      ...(frescas?.porClave.get(claveCatResp(categoryId, responsibleId, signo)) ?? []),
     ].filter((p) => p.date && !(ctx?.txId && p.id === ctx.txId));
     const ventana = ventanaPeriodo(pagos.map((p) => p.date));
     const iguales = pagos

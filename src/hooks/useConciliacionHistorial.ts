@@ -10,9 +10,20 @@
 
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { indexarHistorial, fetchHistorialConciliacion } from '@/lib/conciliacionHistorial';
+import { indexarHistorialCompartido, fetchHistorialConciliacion } from '@/lib/conciliacionHistorial';
 import { fetchExclusiones, agregarExclusion, quitarExclusion } from '@/lib/conciliacionExclusiones';
 import { normalizeForMatch } from '@/lib/stringUtils';
+
+/** Referencia estable mientras carga: un `[]` nuevo por render rehacía el memo. */
+const SIN_EXCLUSIONES: string[] = [];
+
+/** Un solo Set por arreglo de exclusiones (mismo motivo que el índice). */
+const setPorArreglo = new WeakMap<string[], Set<string>>();
+function setCompartido(arr: string[]): Set<string> {
+  let s = setPorArreglo.get(arr);
+  if (!s) { s = new Set(arr); setPorArreglo.set(arr, s); }
+  return s;
+}
 
 export function useConciliacionHistorial(enabled = true) {
   const qc = useQueryClient();
@@ -25,17 +36,19 @@ export function useConciliacionHistorial(enabled = true) {
     gcTime: 30 * 60_000,
   });
 
-  const historial = useMemo(() => (txs ? indexarHistorial(txs) : null), [txs]);
+  // Índice COMPARTIDO por identidad del arreglo: este hook vive en cada fila
+  // de la tabla y antes cada una armaba su propia copia del mismo índice.
+  const historial = useMemo(() => (txs ? indexarHistorialCompartido(txs) : null), [txs]);
 
   // Descripciones "no auditar": beneficiario/categoría varían legítimamente
   // (pagos de clientes por transferencia/consignación/Nequi).
-  const { data: exclusionesArr = [] } = useQuery({
+  const { data: exclusionesArr = SIN_EXCLUSIONES } = useQuery({
     queryKey: ['conciliacion', 'exclusiones'],
     queryFn: fetchExclusiones,
     enabled,
     staleTime: 5 * 60_000,
   });
-  const excluidas = useMemo(() => new Set(exclusionesArr), [exclusionesArr]);
+  const excluidas = useMemo(() => setCompartido(exclusionesArr), [exclusionesArr]);
 
   const invalidar = () => qc.invalidateQueries({ queryKey: ['conciliacion', 'exclusiones'] });
   const excluir = useMutation({ mutationFn: agregarExclusion, onSuccess: invalidar });

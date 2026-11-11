@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   indexarHistorial, sugerirBeneficiario, sugerirCategoria,
   alertaCategoriaInusual, alertaMontoInusual, sugerirReglas,
-  agruparPorDescripcion, detectarAlertasAuditoria, ventanaPeriodo,
+  agruparPorDescripcion, detectarAlertasAuditoria, ventanaPeriodo, indexarHistorialCompartido,
   type TxHistorial,
 } from './conciliacionHistorial';
 import type { ReconciliationRule } from '@/hooks/useReconciliationRules';
@@ -302,5 +302,22 @@ describe('sugerirBeneficiario — no repetir a quien YA cobró en el período (N
     expect(ventanaPeriodo(['2026-10-28', '2026-11-28'])).toBe(7);
     expect(ventanaPeriodo(['2026-01-01', '2026-01-03', '2026-01-05', '2026-01-07'])).toBe(5);
     expect(ventanaPeriodo(['2025-01-01', '2026-01-01', '2027-01-01'])).toBe(20);
+  });
+});
+
+describe('indexarHistorialCompartido — un índice por arreglo, no uno por fila', () => {
+  it('el mismo arreglo devuelve el MISMO índice; otro arreglo, otro índice', () => {
+    const datos = [tx({ category_id: NOMINA, responsible_id: ROCIO }), tx({ category_id: SERVICIOS, responsible_id: CAMILO })];
+    const a = indexarHistorialCompartido(datos);
+    expect(indexarHistorialCompartido(datos)).toBe(a);              // 150 filas → 1 solo armado
+    const otro = indexarHistorialCompartido([...datos]);            // refetch = arreglo nuevo
+    expect(otro).not.toBe(a);
+    expect(otro.porCategoria.get(NOMINA)?.get(ROCIO)).toBe(1);
+  });
+
+  it('da el mismo resultado que indexarHistorial', () => {
+    const datos = [...pagosRocio, ...pagosCamilo];
+    const compartido = indexarHistorialCompartido(datos);
+    expect(sugerirBeneficiario(compartido, NOMINA, -1_250_000)).toEqual(sugerirBeneficiario(indexarHistorial(datos), NOMINA, -1_250_000));
   });
 });

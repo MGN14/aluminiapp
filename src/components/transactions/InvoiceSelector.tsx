@@ -8,6 +8,7 @@ import { FileText, Search, X, ShieldCheck, Receipt, Plus, Wallet, CreditCard, Sh
 import { useToast } from '@/hooks/use-toast';
 import { suggestPaymentSplit, summarizeCredit, capitalFijoMensual, type AmortizationType } from '@/lib/amortization';
 import { fetchTrmForDate } from '@/hooks/useImportPayments';
+import { fetchAllPaged } from '@/lib/fetchAllPaged';
 import { invoiceRetenciones } from '@/lib/invoiceBalance';
 import { calculateAllClientReceivables } from '@/lib/clientReceivables';
 import { normalizeCompanyName } from '@/lib/stringUtils';
@@ -149,35 +150,36 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
     const rawList = rawInvoices as unknown as Array<Record<string, unknown>>;
     const invoiceIds = rawList.map(i => i.id as string);
 
-    // Fetch direct transaction payments (exclude current transaction)
-    const directQuery = supabase
-      .from('transactions')
-      .select('invoice_id, amount')
-      .is('deleted_at', null)
-      .in('invoice_id', invoiceIds);
-
-    // Fetch match payments
-    const matchQuery = supabase
-      .from('invoice_transaction_matches')
-      .select('invoice_id, matched_amount')
-      .in('invoice_id', invoiceIds);
-
-    // Anticipos cruzados a una factura específica (initial_state_details).
-    // Sin esto, una factura con anticipo aplicado seguía mostrando el saldo
-    // completo en Conciliación, divergiendo de "Lo que me deben".
-    const anticiposQuery = supabase
-      .from('initial_state_details')
-      .select('invoice_id, amount')
-      .eq('field_type', 'anticipos_de_clientes')
-      .in('invoice_id', invoiceIds);
-
-    const [directRes, matchRes, anticiposRes] = await Promise.all([directQuery, matchQuery, anticiposQuery]);
-    if (directRes.error) throw directRes.error;
-    if (matchRes.error) throw matchRes.error;
-    if (anticiposRes.error) throw anticiposRes.error;
-    const directPayments = directRes.data;
-    const matchPayments = matchRes.data;
-    const anticiposPayments = anticiposRes.data;
+    // Pagos vinculados a esas facturas — PAGINADOS: son varios abonos por
+    // factura y el servidor corta en 1.000 filas sin avisar; con la lista
+    // cortada una factura ya pagada volvía a mostrar saldo.
+    const [directPayments, matchPayments, anticiposPayments] = await Promise.all([
+      // Pagos directos (transactions.invoice_id)
+      fetchAllPaged<{ invoice_id: string | null; amount: number | null }>((a, b) => supabase
+        .from('transactions')
+        .select('invoice_id, amount')
+        .is('deleted_at', null)
+        .in('invoice_id', invoiceIds)
+        .order('id')
+        .range(a, b)),
+      // Pagos repartidos entre varias facturas (invoice_transaction_matches)
+      fetchAllPaged<{ invoice_id: string; matched_amount: number }>((a, b) => supabase
+        .from('invoice_transaction_matches')
+        .select('invoice_id, matched_amount')
+        .in('invoice_id', invoiceIds)
+        .order('id')
+        .range(a, b)),
+      // Anticipos cruzados a una factura específica (initial_state_details).
+      // Sin esto, una factura con anticipo aplicado seguía mostrando el saldo
+      // completo en Conciliación, divergiendo de "Lo que me deben".
+      fetchAllPaged<{ invoice_id: string | null; amount: number | null }>((a, b) => supabase
+        .from('initial_state_details')
+        .select('invoice_id, amount')
+        .eq('field_type', 'anticipos_de_clientes')
+        .in('invoice_id', invoiceIds)
+        .order('id')
+        .range(a, b)),
+    ]);
 
     // Saldo REAL por factura de venta con imputación de pagos FIFO: reusa la
     // atribución probada de clientReceivables (responsible_id + aliases + matches

@@ -22,6 +22,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { normalizeForMatch, normalizeCompanyName } from '@/lib/stringUtils';
+import { fetchAllPaged } from '@/lib/fetchAllPaged';
 
 const db = supabase as never as { from: (t: string) => any };
 
@@ -266,42 +267,50 @@ export function sugerirClienteParaPago(
 // ── Fetch ───────────────────────────────────────────────────────────────────
 
 export async function fetchDatosVentasProbable(): Promise<DatosVentasProbable> {
-  const [clientesRes, aliasRes, abiertasRes, cobrosRes, emisionRes] = await Promise.all([
-    db.from('responsibles').select('id, name').eq('active', true),
-    db.from('responsible_aliases').select('responsible_id, alias'),
-    db.from('invoices')
+  // Todo PAGINADO (el servidor corta en 1.000 filas sin avisar; los
+  // `.limit(4000)` de antes no levantaban ese tope). Orden estable por id.
+  const [clientes, aliases, abiertas, cobros, emisiones] = await Promise.all([
+    fetchAllPaged<{ id: string; name: string }>((a, b) =>
+      db.from('responsibles').select('id, name').eq('active', true).order('id').range(a, b)),
+    fetchAllPaged<{ responsible_id: string; alias: string }>((a, b) =>
+      db.from('responsible_aliases').select('responsible_id, alias').order('id').range(a, b)),
+    fetchAllPaged<FacturaAbierta>((a, b) => db.from('invoices')
       .select('id, invoice_number, responsible_id, issue_date, balance_pending')
       .eq('type', 'venta')
       .gt('balance_pending', 0)
       // Solo excluir anulación TOTAL: una NC parcial deja saldo vivo y esa
       // factura SÍ es candidata de cobro (antes .is('voided_at', null) las
       // botaba también).
-      .or('void_type.is.null,void_type.eq.partial'),
-    db.from('transactions')
+      .or('void_type.is.null,void_type.eq.partial')
+      .order('id')
+      .range(a, b)),
+    fetchAllPaged<DatosVentasProbable['cobros'][number]>((a, b) => db.from('transactions')
       .select('responsible_id, invoice_id, amount, date')
       .is('deleted_at', null)
       .gt('amount', 0)
       .or('responsible_id.not.is.null,invoice_id.not.is.null')
       .order('date', { ascending: false })
-      .limit(4000),
-    db.from('invoices')
+      .order('id')
+      .range(a, b), { maxRows: 4000 }),
+    fetchAllPaged<EmisionFactura>((a, b) => db.from('invoices')
       .select('id, issue_date, responsible_id')
       .eq('type', 'venta')
       // Una factura anulada nunca se pagó: no aporta al hábito de pago.
       .or('void_type.is.null,void_type.eq.partial')
       .order('issue_date', { ascending: false })
-      .limit(4000),
+      .order('id')
+      .range(a, b), { maxRows: 4000 }),
   ]);
 
   return {
-    clientes: (clientesRes.data ?? []) as { id: string; name: string }[],
-    aliases: (aliasRes.data ?? []) as { responsible_id: string; alias: string }[],
-    facturasAbiertas: ((abiertasRes.data ?? []) as FacturaAbierta[]).map((f) => ({
+    clientes,
+    aliases,
+    facturasAbiertas: abiertas.map((f) => ({
       ...f, balance_pending: Number(f.balance_pending ?? 0),
     })),
-    cobros: ((cobrosRes.data ?? []) as DatosVentasProbable['cobros']).map((c) => ({
+    cobros: cobros.map((c) => ({
       ...c, amount: Number(c.amount ?? 0),
     })),
-    emisiones: (emisionRes.data ?? []) as EmisionFactura[],
+    emisiones,
   };
 }
