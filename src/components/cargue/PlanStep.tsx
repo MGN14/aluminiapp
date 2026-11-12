@@ -24,8 +24,10 @@ interface Props {
   readOnly: boolean;
   onEmpezar: () => void;
   /** Guarda paquete/peso en Referencias por variante. null = no se puede (práctica o sin migración). */
-  onGuardarReferencia: ((reference: string, cambio: CambioEmpaque) => Promise<{ existe: boolean; cambiadas: number }>) | null;
+  onGuardarReferencia: ((reference: string, cambio: CambioEmpaque) => Promise<{ existe: boolean; cambiadas: number; enColores: boolean }>) | null;
 }
+
+const SIN_SQL = 'Falta aplicar en Supabase el SQL de paquete y peso (las dos columnas nuevas de Referencias por variante). Mientras tanto, el paquete que pongás queda solo en esta remisión.';
 
 const FUENTE: Record<EmpaqueRef['fuente'], string> = {
   plan: 'ajustado para esta remisión',
@@ -59,10 +61,20 @@ export default function PlanStep({ lines, empaques, ubicaciones, totales, plan, 
     try {
       const r = await onGuardarReferencia(reference, cambio);
       if (!r.existe) {
-        toast({ title: `${reference} no está en Referencias por variante`, description: 'Agregala en Inventarios → Maestro de Productos para guardar el dato. Por ahora queda solo en esta remisión.', variant: 'destructive' });
+        toast({
+          title: `${reference} no está en Referencias por variante`,
+          description: 'Ni la referencia ni sus colores están en Inventarios → Maestro de Productos → Referencias por variante. Agregala ahí para guardar el dato.'
+            + ('unidades_por_paquete' in cambio ? ' Por ahora el paquete queda solo en esta remisión.' : ''),
+          variant: 'destructive',
+        });
         return false;
       }
-      toast({ title: `${reference}: guardado en la referencia`, description: r.cambiadas > 1 ? `También se llenaron ${r.cambiadas - 1} colores que no tenían dato.` : 'La próxima remisión ya lo trae.' });
+      toast({
+        title: `${reference}: guardado`,
+        description: r.cambiadas === 0 ? 'Ya tenía ese dato.' : r.enColores
+          ? `Se guardó en sus ${r.cambiadas} color${r.cambiadas === 1 ? '' : 'es'} de Referencias por variante. La próxima remisión ya lo trae.`
+          : r.cambiadas > 1 ? `También se llenaron ${r.cambiadas - 1} colores que no tenían dato.` : 'La próxima remisión ya lo trae.',
+      });
       // Ya es el dato oficial: se quita el ajuste puntual de esta remisión.
       if ('unidades_por_paquete' in cambio && plan.empaques[key]) {
         const empaquesPlan = { ...plan.empaques };
@@ -107,6 +119,9 @@ export default function PlanStep({ lines, empaques, ubicaciones, totales, plan, 
               </button>
             ))}
           </div>
+          {!readOnly && !onGuardarReferencia && (
+            <p className={`rounded-xl border border-warning/50 ${TINT.warning} px-3 py-2 text-xs font-semibold text-warning`}>{SIN_SQL}</p>
+          )}
           {plan.criterio === 'manual' && (
             <p className="text-xs font-semibold text-muted-foreground">Orden a mano (lo moviste con las flechas). Tocá un criterio para volver a ordenarlo solo.</p>
           )}
@@ -144,12 +159,16 @@ export default function PlanStep({ lines, empaques, ubicaciones, totales, plan, 
                     </button>
                     <button
                       type="button"
-                      disabled={readOnly || !onGuardarReferencia}
-                      onClick={tap(() => setEditPeso(l.key))}
-                      className={`inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 ${peso != null ? 'border-transparent text-muted-foreground' : 'border-warning/60 text-warning font-semibold'} disabled:border-transparent`}
+                      disabled={readOnly}
+                      onClick={tap(() => {
+                        if (onGuardarReferencia) { setEditPeso(l.key); return; }
+                        toast({ title: 'Todavía no se puede guardar el peso', description: SIN_SQL, variant: 'destructive' });
+                      })}
+                      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${peso != null ? 'border-border text-muted-foreground' : 'border-warning/60 text-warning font-semibold'} disabled:border-transparent`}
                       title={e?.kgPorUnidad ? `${String(Math.round(e.kgPorUnidad * 1000) / 1000).replace('.', ',')} kg por pieza` : 'Poner el peso de una pieza'}
                     >
-                      <Scale className="h-3 w-3" />{peso != null ? `≈ ${fmtKg(peso)}` : onGuardarReferencia ? 'Poner peso' : 'sin peso'}
+                      <Scale className="h-3 w-3" />{peso != null ? `≈ ${fmtKg(peso)}` : 'Poner peso'}
+                      {!readOnly && <Pencil className="h-3 w-3 opacity-60" />}
                     </button>
                     {ubic.length > 0 && <span className="inline-flex items-center gap-0.5 text-muted-foreground"><MapPin className="h-3 w-3" />{ubic.join(', ')}</span>}
                   </div>

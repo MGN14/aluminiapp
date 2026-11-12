@@ -27,7 +27,7 @@ import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
 import { applyColorSuffix, canonicalizeRef } from '@/lib/refFamily';
 import { fetchAllPaged } from '@/lib/fetchAllPaged';
 import { resolverEmpaques, type ImportItemLite } from '@/lib/cargueEmpaque';
-import { esFaltaColumna, parseDecimal, planGuardadoEmpaque, type CambioEmpaque } from '@/lib/referenciaEmpaque';
+import { actualizarVariante, esFaltaColumna, parseDecimal, planGuardadoEmpaque, type CambioEmpaque } from '@/lib/referenciaEmpaque';
 
 const db = supabase as never as { from: (t: string) => any };
 
@@ -165,16 +165,14 @@ export default function VariantRefsMaestro() {
         refs.filter((r) => r.active).map((r) => ({ id: r.id, variant_reference: r.variant_reference, unidades_por_paquete: r.unidades_por_paquete ?? null, kg_por_unidad: r.kg_por_unidad ?? null })),
         p.reference, p.cambio, p.todosLosColores,
       );
-      for (const { id, patch } of plan) {
-        const { error } = await db.from('inventory_variants').update(patch).eq('id', id);
-        if (error) throw error;
-      }
+      for (const { id, patch } of plan) await actualizarVariante(id, patch);
       return plan.length;
     },
     onSuccess: (n, p) => {
       qc.invalidateQueries({ queryKey: ['variant-refs-maestro'] });
       qc.invalidateQueries({ queryKey: ['cargue-variantes-empaque'] });
       if (n > 1) toast({ title: `${p.reference}: guardado en ${n} referencias`, description: p.todosLosColores ? 'Se aplicó a todos los colores de la familia.' : 'También se llenaron los otros colores que no tenían dato.' });
+      else if (n === 1) toast({ title: `${p.reference}: guardado` });
     },
     onError: (e) => toast({ title: 'No se pudo guardar', description: (e as Error).message, variant: 'destructive' }),
   });
@@ -189,8 +187,7 @@ export default function VariantRefsMaestro() {
         if (r.unidades_por_paquete == null && sug.pp) patch.unidades_por_paquete = sug.pp;
         if (r.kg_por_unidad == null && sug.kg) patch.kg_por_unidad = Math.round(sug.kg * 1000) / 1000;
         if (!Object.keys(patch).length) continue;
-        const { error } = await db.from('inventory_variants').update(patch).eq('id', r.id);
-        if (error) throw error;
+        await actualizarVariante(r.id, patch);
         n++;
       }
       return n;
@@ -359,8 +356,8 @@ export default function VariantRefsMaestro() {
         )}
       </div>
       {faltaMigracion && (
-        <p className="text-xs font-semibold text-warning">
-          Para guardar piezas por paquete y peso falta aplicar la actualización de la base (SQL de paquete y peso).
+        <p className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-xs font-semibold text-warning">
+          Las columnas «Piezas por paquete» y «Peso por pieza» aparecen cuando se aplique en Supabase el SQL de paquete y peso (dos columnas nuevas en Referencias por variante).
         </p>
       )}
 
