@@ -20,6 +20,7 @@ import {
   type CargueLocalState, type DispatchEvent, type SyncClient,
 } from '@/lib/dispatchQueue';
 import { cerrarDespacho, planearCierre, itemsParaImprimir, type CierreResultado, type ItemCierre } from '@/lib/despachoCierre';
+import { cargarEmpaquesVariantes } from '@/lib/referenciaEmpaque';
 
 export interface RemisionCargue {
   id: string;
@@ -120,6 +121,15 @@ export function useCargueDatos(remisionId: string) {
     },
   });
 
+  // Paquete y peso oficiales (Referencias por variante). Sin la migración: [].
+  const variantesQ = useQuery({
+    queryKey: ['cargue-variantes-empaque', userId],
+    enabled: !!userId,
+    staleTime: 5 * 60_000,
+    queryFn: () => cargarEmpaquesVariantes(),
+  });
+  const referencias = useMemo(() => variantesQ.data?.variantes ?? [], [variantesQ.data]);
+
   const remision = remQuery.data ?? null;
   const items = useMemo(() => remision?.remision_items ?? [], [remision]);
   const canon = useMemo(() => makeCanon(aliases), [aliases]);
@@ -153,7 +163,8 @@ export function useCargueDatos(remisionId: string) {
   }, [products, locs, lines, canon]);
 
   return {
-    remision, items, aliases, canon, lines, ubicaciones, products, importItems,
+    remision, items, aliases, canon, lines, ubicaciones, products, importItems, referencias,
+    referenciasSinMigracion: !!variantesQ.data?.faltaMigracion,
     loading: remQuery.isLoading, refetch: remQuery.refetch,
   };
 }

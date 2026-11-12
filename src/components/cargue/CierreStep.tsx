@@ -4,8 +4,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { useDataOwner } from '@/hooks/useDataOwner';
 import { SEGURIDAD, type SeguridadId, type TotalesCargue } from '@/lib/cargueEmpaque';
 import {
-  listarFotos, subirFoto, borrarFoto, urlsFirmadas, contarPaquetesIA, type FotoCargue,
+  listarFotos, subirFoto, borrarFoto, urlsFirmadas, contarPaquetesIA, comprimirFoto, type FotoCargue,
 } from '@/lib/cargueStore';
+import { claves, leer, guardar as guardarLocal } from './persistencia';
 import type { CargueConteoApi } from './useCargue';
 import { TINT, fmt, tap } from './CargueUI';
 import {
@@ -32,7 +33,9 @@ export default function CierreStep({ remisionId, numero, api, totales, practica,
   const [errorFoto, setErrorFoto] = useState<string | null>(null);
   const [contando, setContando] = useState<Record<string, boolean>>({});
   const [errorIA, setErrorIA] = useState<string | null>(null);
-  const [fotosPractica, setFotosPractica] = useState<string[]>([]);
+  // Práctica: las fotos quedan en el iPad (chicas) para que salir y volver no las borre.
+  const [fotosPractica, setFotosPractica] = useState<string[]>(() => (practica ? leer<string[]>(claves(remisionId).fotosPractica) ?? [] : []));
+  useEffect(() => { if (practica) guardarLocal(claves(remisionId).fotosPractica, fotosPractica); }, [practica, remisionId, fotosPractica]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,7 +52,6 @@ export default function CierreStep({ remisionId, numero, api, totales, practica,
     staleTime: 30 * 60_000,
     queryFn: () => urlsFirmadas(fotos.map((f) => f.storage_path)),
   });
-  useEffect(() => () => { fotosPractica.forEach((u) => URL.revokeObjectURL(u)); }, [fotosPractica]);
 
   const contar = async (foto: FotoCargue) => {
     setErrorIA(null);
@@ -67,7 +69,20 @@ export default function CierreStep({ remisionId, numero, api, totales, practica,
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     setErrorFoto(null);
-    if (practica) { setFotosPractica((p) => [...p, URL.createObjectURL(file)]); return; }
+    if (practica) {
+      try {
+        const blob = await comprimirFoto(file, 900, 0.7);
+        const dataUrl = await new Promise<string>((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(String(fr.result));
+          fr.onerror = () => rej(fr.error);
+          fr.readAsDataURL(blob);
+        });
+        setFotosPractica((p) => [...p, dataUrl].slice(-4));
+      } catch { setErrorFoto('No se pudo leer la foto.'); }
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
     if (!user?.id || !dataOwnerId) { setErrorFoto('Todavía no se cargó tu cuenta. Probá de nuevo en un momento.'); return; }
     setSubiendo(true);
     try {
@@ -145,8 +160,12 @@ export default function CierreStep({ remisionId, numero, api, totales, practica,
           {(nFotos > 0) && (
             <div className="grid grid-cols-2 gap-2">
               {practica
-                ? fotosPractica.map((u) => (
-                  <img key={u} src={u} alt="Foto de práctica del cargue" className="w-full aspect-[4/3] object-cover rounded-2xl border border-border" />
+                ? fotosPractica.map((u, i) => (
+                  <div key={i} className="relative">
+                    <img src={u} alt="Foto de práctica del cargue" className="w-full aspect-[4/3] object-cover rounded-2xl border border-border" />
+                    <button type="button" aria-label="Borrar foto" onClick={tap(() => setFotosPractica((p) => p.filter((_, j) => j !== i)))}
+                      className="absolute top-2 right-2 h-9 w-9 rounded-lg border border-border bg-card flex items-center justify-center text-muted-foreground"><Trash2 className="h-4 w-4" /></button>
+                  </div>
                 ))
                 : fotos.map((f) => (
                   <div key={f.id} className="rounded-2xl border border-border overflow-hidden bg-background">
@@ -198,7 +217,7 @@ export default function CierreStep({ remisionId, numero, api, totales, practica,
       </div>
 
       {/* Resumen y despacho */}
-      <section className="rounded-3xl border border-border bg-card p-4 space-y-3 lg:sticky lg:top-4">
+      <section className="rounded-3xl border border-border bg-card p-4 space-y-3 lg:sticky lg:top-[74px]">
         <h2 className="text-lg font-bold">Cerrar cargue · {numero}</h2>
         <div className="grid grid-cols-3 gap-2">
           <Dato label="Paquetes" value={`${fmt(totales.paquetesCargados)} de ${fmt(totales.paquetesPlan)}`} />

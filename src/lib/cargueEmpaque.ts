@@ -7,15 +7,16 @@ import { ordenarPorUbicacion } from '@/lib/despachoCargue';
 // Los perfiles salen por PAQUETES de una medida estándar (6, 10, 20 piezas…)
 // con excepciones (el último paquete viene de 4). Acá se calcula:
 //   - de dónde sale la medida estándar y el peso por pieza: lo que se ajustó a
-//     mano en el plan > packing list de Importaciones (cantidad ÷ bultos,
-//     peso ÷ cantidad) > maestro de productos (units_per_package);
+//     mano en el plan de ESA remisión > Referencias por variante (el dato
+//     oficial) > packing list de Importaciones (cantidad ÷ bultos, peso ÷
+//     cantidad) > maestro -5 (units_per_package);
 //   - cuántos paquetes lleva cada línea (completos + uno incompleto);
 //   - en qué orden se carga el camión (lo más pesado primero, por ubicación,
 //     como viene la remisión o a mano).
 //
 // Todo con objetos planos (Record): parte de esto pasa por el cache persistido.
 
-export type FuenteEmpaque = 'plan' | 'contenedor' | 'contenedor-familia' | 'maestro' | 'sin-dato';
+export type FuenteEmpaque = 'plan' | 'referencia' | 'referencia-familia' | 'contenedor' | 'contenedor-familia' | 'maestro' | 'sin-dato';
 
 export interface EmpaqueRef {
   porPaquete: number | null;   // unidades por paquete estándar
@@ -35,6 +36,13 @@ export interface ImportItemLite {
 export interface ProductoEmpaque {
   reference: string;
   units_per_package: number | null;
+}
+
+/** Dato oficial de Referencias por variante (inventory_variants). */
+export interface ReferenciaEmpaque {
+  variant_reference: string;
+  unidades_por_paquete: number | null;
+  kg_por_unidad: number | null;
 }
 
 /** Unidades que se cuentan por pieza (no por kilo/metro). */
@@ -75,8 +83,9 @@ function medidasDeContenedores(items: ImportItemLite[], llave: (ref: string) => 
 
 /**
  * Medida de empaque y peso por referencia (llave canónica de la línea).
- * Prioridad: ajuste del plan > contenedor (misma ref) > contenedor (misma
- * familia de color: el empaque y el peso no cambian con el color) > maestro.
+ * Prioridad: ajuste del plan de esta remisión > Referencias por variante
+ * (misma ref, luego otro color de la familia) > contenedor (misma ref, luego
+ * familia: el empaque y el peso no cambian con el color) > maestro -5.
  */
 export function resolverEmpaques(
   lines: Pick<CargueLine, 'key' | 'reference'>[],
@@ -84,9 +93,22 @@ export function resolverEmpaques(
   opts: {
     importItems?: ImportItemLite[];
     productos?: ProductoEmpaque[];
+    referencias?: ReferenciaEmpaque[];
     ajustes?: Record<string, number>;
   } = {},
 ): Record<string, EmpaqueRef> {
+  const refExacta: Record<string, ReferenciaEmpaque> = {};
+  const refFamilia: Record<string, { pp: number | null; kg: number | null }> = {};
+  for (const r of opts.referencias ?? []) {
+    const k = canon(r.variant_reference ?? '');
+    if (k) refExacta[k] = r;
+    const f = refFamilyKey(r.variant_reference);
+    if (!f) continue;
+    const cur = refFamilia[f] ?? { pp: null, kg: null };
+    if (cur.pp == null && Number(r.unidades_por_paquete) > 0) cur.pp = Number(r.unidades_por_paquete);
+    if (cur.kg == null && Number(r.kg_por_unidad) > 0) cur.kg = Number(r.kg_por_unidad);
+    refFamilia[f] = cur;
+  }
   const porRef = medidasDeContenedores(opts.importItems ?? [], canon);
   const porFamilia = medidasDeContenedores(opts.importItems ?? [], (r) => refFamilyKey(r));
   const maestro: Record<string, number> = {};
@@ -104,9 +126,15 @@ export function resolverEmpaques(
     const fam = refFamilyKey(l.reference);
     const exacta = porRef[l.key];
     const familia = porFamilia[fam];
-    const kg = exacta?.kgPorUnidad ?? familia?.kgPorUnidad ?? null;
+    const oficial = refExacta[l.key];
+    const oficialPp = Number(oficial?.unidades_por_paquete) > 0 ? Number(oficial!.unidades_por_paquete) : null;
+    const oficialKg = Number(oficial?.kg_por_unidad) > 0 ? Number(oficial!.kg_por_unidad) : null;
+    const famOficial = refFamilia[fam];
+    const kg = oficialKg ?? famOficial?.kg ?? exacta?.kgPorUnidad ?? familia?.kgPorUnidad ?? null;
     const ajuste = Number(opts.ajustes?.[l.key]) || 0;
     if (ajuste > 0) { out[l.key] = { porPaquete: ajuste, kgPorUnidad: kg, fuente: 'plan' }; continue; }
+    if (oficialPp) { out[l.key] = { porPaquete: oficialPp, kgPorUnidad: kg, fuente: 'referencia' }; continue; }
+    if (famOficial?.pp) { out[l.key] = { porPaquete: famOficial.pp, kgPorUnidad: kg, fuente: 'referencia-familia' }; continue; }
     if (exacta?.porPaquete) { out[l.key] = { porPaquete: exacta.porPaquete, kgPorUnidad: kg, fuente: 'contenedor' }; continue; }
     if (familia?.porPaquete) { out[l.key] = { porPaquete: familia.porPaquete, kgPorUnidad: kg, fuente: 'contenedor-familia' }; continue; }
     const m = maestro[l.key] ?? maestroFam[fam];

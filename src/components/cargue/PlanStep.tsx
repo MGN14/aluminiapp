@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
+import type { CambioEmpaque } from '@/lib/referenciaEmpaque';
 import type { CargueLine } from '@/lib/despachoCargue';
 import {
   CRITERIOS, paquetesDe, textoPaquetes, pesoLinea, moverEnOrden,
@@ -20,20 +23,60 @@ interface Props {
   onChange: (p: PlanCargue) => void;
   readOnly: boolean;
   onEmpezar: () => void;
+  /** Guarda paquete/peso en Referencias por variante. null = no se puede (práctica o sin migración). */
+  onGuardarReferencia: ((reference: string, cambio: CambioEmpaque) => Promise<{ existe: boolean; cambiadas: number }>) | null;
 }
 
 const FUENTE: Record<EmpaqueRef['fuente'], string> = {
-  plan: 'ajustado a mano',
+  plan: 'ajustado para esta remisión',
+  referencia: 'de Referencias por variante',
+  'referencia-familia': 'de Referencias por variante (otro color)',
   contenedor: 'del packing list',
   'contenedor-familia': 'del packing list (otro color)',
   maestro: 'del maestro',
   'sin-dato': 'sin dato',
 };
 
-export default function PlanStep({ lines, empaques, ubicaciones, totales, plan, orden, onChange, readOnly, onEmpezar }: Props) {
+export default function PlanStep({ lines, empaques, ubicaciones, totales, plan, orden, onChange, readOnly, onEmpezar, onGuardarReferencia }: Props) {
+  const { toast } = useToast();
   const [editEmpaque, setEditEmpaque] = useState<string | null>(null);
+  const [editPeso, setEditPeso] = useState<string | null>(null);
   const [editCapacidad, setEditCapacidad] = useState(false);
+  const [dondeGuardar, setDondeGuardar] = useState<{ key: string; reference: string; valor: number } | null>(null);
+  const [guardando, setGuardando] = useState(false);
   const lineaEdit = editEmpaque ? lines.find((l) => l.key === editEmpaque) ?? null : null;
+  const lineaPeso = editPeso ? lines.find((l) => l.key === editPeso) ?? null : null;
+
+  const soloEstaRemision = (key: string, valor: number) => {
+    const empaquesPlan = { ...plan.empaques };
+    if (valor > 0) empaquesPlan[key] = valor; else delete empaquesPlan[key];
+    onChange({ ...plan, empaques: empaquesPlan });
+  };
+
+  const guardarEnReferencia = async (key: string, reference: string, cambio: CambioEmpaque): Promise<boolean> => {
+    if (!onGuardarReferencia) return false;
+    setGuardando(true);
+    try {
+      const r = await onGuardarReferencia(reference, cambio);
+      if (!r.existe) {
+        toast({ title: `${reference} no está en Referencias por variante`, description: 'Agregala en Inventarios → Maestro de Productos para guardar el dato. Por ahora queda solo en esta remisión.', variant: 'destructive' });
+        return false;
+      }
+      toast({ title: `${reference}: guardado en la referencia`, description: r.cambiadas > 1 ? `También se llenaron ${r.cambiadas - 1} colores que no tenían dato.` : 'La próxima remisión ya lo trae.' });
+      // Ya es el dato oficial: se quita el ajuste puntual de esta remisión.
+      if ('unidades_por_paquete' in cambio && plan.empaques[key]) {
+        const empaquesPlan = { ...plan.empaques };
+        delete empaquesPlan[key];
+        onChange({ ...plan, empaques: empaquesPlan });
+      }
+      return true;
+    } catch (e) {
+      toast({ title: 'No se pudo guardar en la referencia', description: (e as Error).message, variant: 'destructive' });
+      return false;
+    } finally {
+      setGuardando(false);
+    }
+  };
   const excede = !!plan.capacidad_kg && totales.pesoKg > plan.capacidad_kg;
 
   const mover = (key: string, delta: number) => onChange({ ...plan, criterio: 'manual', orden: moverEnOrden(orden, key, delta) });
@@ -99,7 +142,15 @@ export default function PlanStep({ lines, empaques, ubicaciones, totales, plan, 
                       {e?.porPaquete ? textoPaquetes(paq, e.porPaquete) : 'Poner medida de paquete'}
                       {!readOnly && <Pencil className="h-3 w-3 opacity-60" />}
                     </button>
-                    <span className="inline-flex items-center gap-0.5 text-muted-foreground"><Scale className="h-3 w-3" />{peso != null ? `≈ ${fmtKg(peso)}` : 'sin peso'}</span>
+                    <button
+                      type="button"
+                      disabled={readOnly || !onGuardarReferencia}
+                      onClick={tap(() => setEditPeso(l.key))}
+                      className={`inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 ${peso != null ? 'border-transparent text-muted-foreground' : 'border-warning/60 text-warning font-semibold'} disabled:border-transparent`}
+                      title={e?.kgPorUnidad ? `${String(Math.round(e.kgPorUnidad * 1000) / 1000).replace('.', ',')} kg por pieza` : 'Poner el peso de una pieza'}
+                    >
+                      <Scale className="h-3 w-3" />{peso != null ? `≈ ${fmtKg(peso)}` : onGuardarReferencia ? 'Poner peso' : 'sin peso'}
+                    </button>
                     {ubic.length > 0 && <span className="inline-flex items-center gap-0.5 text-muted-foreground"><MapPin className="h-3 w-3" />{ubic.join(', ')}</span>}
                   </div>
                 </div>
@@ -116,7 +167,7 @@ export default function PlanStep({ lines, empaques, ubicaciones, totales, plan, 
       </div>
 
       {/* Totales, vehículo y seguridad */}
-      <div className="space-y-3 lg:sticky lg:top-4">
+      <div className="space-y-3 lg:sticky lg:top-[74px]">
         <div className="rounded-3xl border border-border bg-card p-4 space-y-3">
           <div className="grid grid-cols-3 gap-2">
             <Dato label="Paquetes" value={fmt(totales.paquetesPlan)} />
@@ -182,13 +233,62 @@ export default function PlanStep({ lines, empaques, ubicaciones, totales, plan, 
         onClose={() => setEditEmpaque(null)}
         onSubmit={(v) => {
           if (lineaEdit) {
-            const empaquesPlan = { ...plan.empaques };
-            if (v > 0) empaquesPlan[lineaEdit.key] = v; else delete empaquesPlan[lineaEdit.key];
-            onChange({ ...plan, empaques: empaquesPlan });
+            const valor = Math.round(v);
+            // Con migración y fuera de práctica: preguntar si es la medida de
+            // siempre (va a la referencia) o una excepción de esta remisión.
+            if (valor > 0 && onGuardarReferencia) setDondeGuardar({ key: lineaEdit.key, reference: lineaEdit.reference, valor });
+            else soloEstaRemision(lineaEdit.key, valor);
           }
           setEditEmpaque(null);
         }}
       />
+      <NumPad
+        open={!!lineaPeso}
+        decimal
+        title={lineaPeso ? `¿Cuánto pesa una pieza de ${lineaPeso.reference}? (kg)` : ''}
+        description="Se guarda en Referencias por variante y sirve para todas las remisiones (también llena los otros colores sin dato)."
+        initial={lineaPeso ? Math.round((empaques[lineaPeso.key]?.kgPorUnidad ?? 0) * 1000) / 1000 : 0}
+        onClose={() => setEditPeso(null)}
+        onSubmit={(v) => {
+          const linea = lineaPeso;
+          setEditPeso(null);
+          if (linea && v > 0) void guardarEnReferencia(linea.key, linea.reference, { kg_por_unidad: Math.round(v * 1000) / 1000 });
+        }}
+      />
+      <Dialog open={!!dondeGuardar} onOpenChange={(o) => { if (!o && !guardando) setDondeGuardar(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg">¿{dondeGuardar?.valor} piezas por paquete es la medida de siempre?</DialogTitle>
+            <DialogDescription className="text-sm">
+              {dondeGuardar?.reference}: si es la medida normal, guardala en la referencia y las próximas remisiones ya la traen.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <button
+              type="button"
+              disabled={guardando}
+              onClick={async () => {
+                const d = dondeGuardar;
+                if (!d) return;
+                const ok = await guardarEnReferencia(d.key, d.reference, { unidades_por_paquete: d.valor });
+                if (!ok) soloEstaRemision(d.key, d.valor);
+                setDondeGuardar(null);
+              }}
+              className="w-full h-14 rounded-2xl bg-primary text-primary-foreground text-base font-bold active:scale-[0.98] disabled:opacity-60"
+            >
+              Sí, guardarla en la referencia
+            </button>
+            <button
+              type="button"
+              disabled={guardando}
+              onClick={() => { if (dondeGuardar) soloEstaRemision(dondeGuardar.key, dondeGuardar.valor); setDondeGuardar(null); }}
+              className="w-full h-12 rounded-2xl border border-border bg-background text-base font-semibold active:scale-[0.98]"
+            >
+              No, solo para esta remisión
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <NumPad
         open={editCapacidad}
         title="Capacidad del vehículo (kg)"

@@ -124,7 +124,7 @@ export default function RegistroCargue({ remision, lines, canon, empaques, cargu
         )}
       </div>
 
-      <div className="space-y-3 lg:sticky lg:top-4">
+      <div className="space-y-3 lg:sticky lg:top-[74px]">
         <section className="rounded-3xl border border-border bg-card p-4 space-y-3">
           <div className="flex items-center gap-2"><Camera className="h-5 w-5" /><h2 className="text-lg font-bold">Fotos del cargue</h2></div>
           {fotosData?.faltaMigracion && <p className="text-sm text-muted-foreground">Las fotos se guardan cuando se aplique la actualización de la base del cargue.</p>}

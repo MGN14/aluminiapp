@@ -3,6 +3,7 @@ import { estadoLinea, type CargueLine } from '@/lib/despachoCargue';
 import { paquetesDe, siguientePaquete, type EmpaqueRef } from '@/lib/cargueEmpaque';
 import type { CargueConteoApi } from './useCargue';
 import NumPad from './NumPad';
+import Calculadora from './Calculadora';
 import { FlashBanner, TINT, fmt, tap } from './CargueUI';
 import {
   AlertTriangle, ArrowRight, Ban, CheckCircle2, Circle, CircleDot, Keyboard, MapPin, Minus, PackagePlus, Undo2, PackageOpen,
@@ -21,6 +22,9 @@ export default function ConteoStep({ api, empaques, ubicaciones, onCerrar, bloqu
   const lineaNum = numpad ? api.ordenadas.find((l) => l.key === numpad.key) ?? null : null;
   const totalPaqPlan = api.ordenadas.reduce((s, l) => s + paquetesDe(l.pedido, empaques[l.key]?.porPaquete ?? null).total, 0);
   const totalPaq = api.ordenadas.reduce((s, l) => s + (api.paquetes[l.key]?.paquetes ?? 0), 0);
+  const usarPaquetes = api.activeLine && !bloqueado
+    ? { reference: api.activeLine.reference, usar: (n: number) => api.fijarPaquetes(api.activeLine!.key, n) }
+    : null;
 
   return (
     <>
@@ -42,7 +46,8 @@ export default function ConteoStep({ api, empaques, ubicaciones, onCerrar, bloqu
       )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
-        <ol className="space-y-2 min-w-0">
+        <div className="space-y-3 min-w-0">
+        <ol className="space-y-2">
           {api.ordenadas.map((l, i) => (
             <Fila
               key={l.key}
@@ -57,9 +62,14 @@ export default function ConteoStep({ api, empaques, ubicaciones, onCerrar, bloqu
             />
           ))}
         </ol>
+          {/* Calculadora (vertical): debajo de la lista */}
+          <div className="lg:hidden">
+            <Calculadora onUsarPaquetes={usarPaquetes} />
+          </div>
+        </div>
 
-        {/* Contador grande (horizontal) */}
-        <div className="hidden lg:block lg:sticky lg:top-4">
+        {/* Contador grande + calculadora (horizontal). Si no cabe, se desplaza por dentro. */}
+        <div className="hidden lg:block lg:sticky lg:top-[74px] lg:max-h-[calc(100dvh-11.5rem)] lg:overflow-y-auto space-y-3 rounded-3xl">
           <div className="rounded-3xl border border-border bg-card p-4 space-y-3">
             <FlashBanner flash={api.flash} hideIdle />
             {api.activeLine && !bloqueado && (
@@ -68,6 +78,7 @@ export default function ConteoStep({ api, empaques, ubicaciones, onCerrar, bloqu
                 onEscribir={() => setNumpad({ key: api.activeLine!.key, modo: 'paquetes' })} />
             )}
           </div>
+          <Calculadora onUsarPaquetes={usarPaquetes} />
         </div>
       </div>
 

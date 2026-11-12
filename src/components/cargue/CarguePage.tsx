@@ -19,6 +19,8 @@ import ConteoStep from './ConteoStep';
 import CierreStep from './CierreStep';
 import RegistroCargue from './RegistroCargue';
 import { ErrorFrame, SyncChip, TINT, fmt, tap } from './CargueUI';
+import { claves, leer, guardar as guardarLocal, estaPracticando, marcarPractica, limpiarPractica, limpiarCargueReal } from './persistencia';
+import { guardarEmpaqueReferencia, type CambioEmpaque } from '@/lib/referenciaEmpaque';
 import { ArrowLeft, CheckCircle2, ClipboardList, Camera, GraduationCap, Loader2, PackageCheck, Printer } from 'lucide-react';
 
 type Paso = 'plan' | 'cargar' | 'cerrar';
@@ -33,12 +35,18 @@ type Company = { company_name?: string; company_nit?: string; company_address?: 
 /** /remisiones/:id/cargue — el despacho nace de la remisión. */
 export default function CarguePage() {
   const { id = '' } = useParams();
+  return <CargueRemision key={id} id={id} />;
+}
+
+function CargueRemision({ id }: { id: string }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { dataOwnerId } = useDataOwner();
   const datos = useCargueDatos(id);
   const rem = datos.remision;
-  const [practica, setPractica] = useState(false);
+  // Si estabas practicando, al volver sigue la práctica (no hay que darle otra vez).
+  const [practica, setPracticaState] = useState<boolean>(() => estaPracticando(id));
+  const setPractica = (si: boolean) => { marcarPractica(id, si); setPracticaState(si); };
   // El resultado vive acá: al despachar, la remisión pasa a "despachado" y sin
   // esto la página saltaría al registro sin mostrar la pantalla de cierre.
   const [hecho, setHecho] = useState<(CierreResultado & { practica: boolean }) | null>(null);
@@ -69,8 +77,8 @@ export default function CarguePage() {
   });
 
   const empaquesRegistro = useMemo(() => resolverEmpaques(datos.lines, datos.canon, {
-    importItems: datos.importItems, productos: datos.products, ajustes: cargueQ.data?.cargue?.empaques ?? {},
-  }), [datos.lines, datos.canon, datos.importItems, datos.products, cargueQ.data]);
+    importItems: datos.importItems, productos: datos.products, referencias: datos.referencias, ajustes: cargueQ.data?.cargue?.empaques ?? {},
+  }), [datos.lines, datos.canon, datos.importItems, datos.products, datos.referencias, cargueQ.data]);
 
   if (datos.loading || (cargueQ.isLoading && !cargueQ.data)) {
     return <div className="flex items-center justify-center py-32"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
@@ -85,7 +93,7 @@ export default function CarguePage() {
   }
 
   if (hecho) {
-    return <CargueHecho res={hecho} company={company} onExit={() => { if (hecho.practica) setPractica(false); setHecho(null); navigate('/remisiones'); }} />;
+    return <CargueHecho res={hecho} company={company} onExit={() => { if (hecho.practica) { limpiarPractica(id); setPractica(false); } setHecho(null); navigate('/remisiones'); }} />;
   }
 
   const pendiente = rem.status === 'pendiente';
@@ -115,33 +123,45 @@ export default function CarguePage() {
       inicial={cargueQ.data ?? { cargue: null, local: null, faltaMigracion: false }}
       onHecho={setHecho}
       onSalir={() => navigate('/remisiones')}
+      onTerminarPractica={() => { limpiarPractica(id); setPractica(false); }}
     />
   );
 }
 
-function CargueActivo({ remisionId: id, practica, datos, inicial, onHecho, onSalir }: {
+function CargueActivo({ remisionId: id, practica, datos, inicial, onHecho, onSalir, onTerminarPractica }: {
   remisionId: string;
   practica: boolean;
   datos: ReturnType<typeof useCargueDatos>;
   inicial: { cargue: CargueRow | null; local: PlanCargue | null; faltaMigracion: boolean };
   onHecho: (r: CierreResultado & { practica: boolean }) => void;
   onSalir: () => void;
+  onTerminarPractica: () => void;
 }) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const rem = datos.remision!;
   const faltaMigracion = inicial.faltaMigracion;
 
+  const k = claves(id);
+  // Plan: la copia del iPad gana si es más nueva que la del servidor (un
+  // cambio hecho justo antes de salir no se pierde aunque no alcance a subir).
   const [plan, setPlan] = useState<PlanCargue>(() => {
+    const local = leer<{ plan: PlanCargue; savedAt: number }>(k.plan(practica));
+    if (practica) return local?.plan ?? { ...PLAN_VACIO, criterio: 'peso' };
     const c = inicial.cargue;
-    if (c && !practica) return { criterio: c.criterio as PlanCargue['criterio'], orden: c.orden ?? [], empaques: c.empaques ?? {}, vehiculo: c.vehiculo, conductor: c.conductor, capacidad_kg: c.capacidad_kg };
-    return (!practica && inicial.local) || { ...PLAN_VACIO, criterio: 'peso' };
+    const delServidor = c ? { criterio: c.criterio as PlanCargue['criterio'], orden: c.orden ?? [], empaques: c.empaques ?? {}, vehiculo: c.vehiculo, conductor: c.conductor, capacidad_kg: c.capacidad_kg } : null;
+    const servidorAt = c?.updated_at ? Date.parse(c.updated_at) : 0;
+    if (local && (!delServidor || local.savedAt > servidorAt)) return local.plan;
+    return delServidor ?? inicial.local ?? { ...PLAN_VACIO, criterio: 'peso' };
   });
-  const [seguridad, setSeguridad] = useState<Partial<Record<SeguridadId, boolean>>>(() => (!practica && inicial.cargue?.seguridad) || {});
+  useEffect(() => { guardarLocal(k.plan(practica), { plan, savedAt: Date.now() }); }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [seguridad, setSeguridad] = useState<Partial<Record<SeguridadId, boolean>>>(() =>
+    leer<Partial<Record<SeguridadId, boolean>>>(k.seguridad(practica)) ?? ((!practica && inicial.cargue?.seguridad) || {}));
+  useEffect(() => { guardarLocal(k.seguridad(practica), seguridad); }, [seguridad]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const empaques: Record<string, EmpaqueRef> = useMemo(() => resolverEmpaques(datos.lines, datos.canon, {
-    importItems: datos.importItems, productos: datos.products, ajustes: plan.empaques,
-  }), [datos.lines, datos.canon, datos.importItems, datos.products, plan.empaques]);
+    importItems: datos.importItems, productos: datos.products, referencias: datos.referencias, ajustes: plan.empaques,
+  }), [datos.lines, datos.canon, datos.importItems, datos.products, datos.referencias, plan.empaques]);
   const orden = useMemo(() => ordenarCargue(datos.lines, plan.criterio, {
     empaques, ubicaciones: datos.ubicaciones, ordenManual: plan.orden,
   }), [datos.lines, plan.criterio, plan.orden, empaques, datos.ubicaciones]);
@@ -156,24 +176,46 @@ function CargueActivo({ remisionId: id, practica, datos, inicial, onHecho, onSal
     (s, l) => s + (pesoLinea(conteo.cargado[l.key] ?? 0, empaques[l.key]?.kgPorUnidad ?? null) ?? 0), 0,
   ), [datos.lines, conteo.cargado, empaques]);
 
-  // Autoguardado del plan (nunca en práctica).
+  // Autoguardado del plan en el servidor (nunca en práctica). Si salís antes
+  // de que se cumpla la espera, se sube igual al salir.
   const [guardado, setGuardado] = useState<'ok' | 'local' | 'guardando' | 'error' | null>(null);
   const primera = useRef(true);
+  const pendiente = useRef<PlanCargue | null>(null);
+  const userIdRef = useRef(user?.id ?? null);
+  userIdRef.current = user?.id ?? null;
   useEffect(() => {
     if (practica || !user?.id) return;
     if (primera.current) { primera.current = false; return; }
     setGuardado('guardando');
+    pendiente.current = { ...plan, orden };
     const t = window.setTimeout(async () => {
+      const aSubir = pendiente.current;
+      if (!aSubir) return;
       try {
-        const res = await guardarPlan(id, { ...plan, orden }, user.id);
+        const res = await guardarPlan(id, aSubir, user.id);
+        if (pendiente.current === aSubir) pendiente.current = null;
         setGuardado(res.guardadoLocal ? 'local' : 'ok');
       } catch { setGuardado('error'); }
     }, 700);
     return () => window.clearTimeout(t);
   }, [plan, orden, practica, user?.id, id]);
+  useEffect(() => () => {
+    const aSubir = pendiente.current;
+    if (aSubir && userIdRef.current) void guardarPlan(id, aSubir, userIdRef.current).catch(() => undefined);
+  }, [id]);
+
+  // Paquete/peso a la referencia (no en práctica: ahí no se guarda nada).
+  const onGuardarReferencia = practica || datos.referenciasSinMigracion
+    ? null
+    : async (reference: string, cambio: CambioEmpaque) => {
+      const r = await guardarEmpaqueReferencia(reference, cambio, { variantes: datos.referencias });
+      await qc.invalidateQueries({ queryKey: ['cargue-variantes-empaque'] });
+      qc.invalidateQueries({ queryKey: ['variant-refs-maestro'] });
+      return r;
+    };
 
   // Paso actual (sobrevive una recarga). Si ya hay plan guardado, arranca en Cargar.
-  const pasoKey = `cargue:paso:v1:${practica ? 'p:' : ''}${id}`;
+  const pasoKey = k.paso(practica);
   const [paso, setPasoState] = useState<Paso>(() => {
     try {
       const guardadoPaso = localStorage.getItem(pasoKey) as Paso | null;
@@ -190,9 +232,12 @@ function CargueActivo({ remisionId: id, practica, datos, inicial, onHecho, onSal
   useWakeLock(true);
   useScannerGun({ onScan: conteo.handleScan, enabled: paso === 'cargar' });
 
-  const salir = () => {
-    if (practica) { conteo.descartarPractica(); try { localStorage.removeItem(pasoKey); } catch { /* ignore */ } }
-    onSalir();
+  // Salir NO borra nada (ni en práctica): al volver sigue donde estaba.
+  const salir = () => onSalir();
+  const terminarPractica = () => {
+    if (!window.confirm('¿Terminar la práctica? Se borra lo que contaste en esta práctica.')) return;
+    conteo.descartarPractica();
+    onTerminarPractica();
   };
 
   const despachar = async (ajustar: boolean, nFotos: number) => {
@@ -214,8 +259,7 @@ function CargueActivo({ remisionId: id, practica, datos, inicial, onHecho, onSal
       qc.invalidateQueries({ queryKey: ['remision-cargue', id] });
       qc.invalidateQueries({ queryKey: ['remision-cargues'] });
     }
-    try { localStorage.removeItem(pasoKey); } catch { /* ignore */ }
-    if (practica) conteo.descartarPractica();
+    if (practica) conteo.descartarPractica(); else limpiarCargueReal(id);
     onHecho(res);
   };
 
@@ -242,7 +286,10 @@ function CargueActivo({ remisionId: id, practica, datos, inicial, onHecho, onSal
       {practica && (
         <div className={`rounded-2xl border border-warning/50 ${TINT.warning} px-4 py-2.5 text-sm font-semibold text-warning flex items-center gap-2`}>
           <GraduationCap className="h-5 w-5 flex-shrink-0" />
-          Práctica: esta remisión ya salió. Planeá, contá y tomá fotos como si fuera de verdad; no se guarda nada.
+          <span className="flex-1">Práctica: esta remisión ya salió. Planeá, contá y tomá fotos como si fuera de verdad; no toca la remisión. Si salís, al volver sigue donde quedó.</span>
+          <button type="button" onClick={tap(terminarPractica)} className="h-10 px-3 rounded-xl border border-warning/60 bg-card text-sm font-semibold text-warning whitespace-nowrap active:scale-95">
+            Terminar práctica
+          </button>
         </div>
       )}
       {faltaMigracion && !practica && (
@@ -279,6 +326,7 @@ function CargueActivo({ remisionId: id, practica, datos, inicial, onHecho, onSal
           onChange={setPlan}
           readOnly={false}
           onEmpezar={() => setPaso('cargar')}
+          onGuardarReferencia={onGuardarReferencia}
         />
       )}
       {paso === 'cargar' && (

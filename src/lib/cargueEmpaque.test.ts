@@ -43,6 +43,18 @@ describe('resolverEmpaques', () => {
     const e = resolverEmpaques(lines, canon, { importItems, productos, ajustes: { 'pc635-3': 6 } });
     expect(e['pc635-3']).toEqual({ porPaquete: 6, kgPorUnidad: 2.5, fuente: 'plan' });
   });
+  it('Referencias por variante manda sobre el packing list (misma ref y otro color)', () => {
+    const referencias = [
+      { variant_reference: 'PC635-3', unidades_por_paquete: 8, kg_por_unidad: 2.8 },
+      { variant_reference: 'GL4102-0', unidades_por_paquete: 12, kg_por_unidad: null },
+    ];
+    const e = resolverEmpaques(lines, canon, { importItems, productos, referencias });
+    expect(e['pc635-3']).toEqual({ porPaquete: 8, kgPorUnidad: 2.8, fuente: 'referencia' });
+    // GL4102-3 toma el paquete de su familia (-0) y el peso del contenedor
+    expect(e['gl4102-3']).toEqual({ porPaquete: 12, kgPorUnidad: 5, fuente: 'referencia-familia' });
+    // el ajuste de la remisión sigue mandando sobre todo
+    expect(resolverEmpaques(lines, canon, { referencias, ajustes: { 'pc635-3': 5 } })['pc635-3'].porPaquete).toBe(5);
+  });
   it('sin ningún dato queda marcado', () => {
     expect(resolverEmpaques([{ key: 'x', reference: 'X' }], canon)['x']).toEqual({ porPaquete: null, kgPorUnidad: null, fuente: 'sin-dato' });
   });
