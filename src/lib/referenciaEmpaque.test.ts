@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
 
-import { parseDecimal, planGuardadoEmpaque, esFaltaColumna, type EmpaqueVariante } from './referenciaEmpaque';
+import { parseDecimal, planGuardadoEmpaque, esFaltaColumna, destinoGuardado, type EmpaqueVariante } from './referenciaEmpaque';
 
 const v = (id: string, ref: string, pp: number | null = null, kg: number | null = null): EmpaqueVariante =>
   ({ id, variant_reference: ref, unidades_por_paquete: pp, kg_por_unidad: kg });
@@ -55,5 +55,20 @@ describe('esFaltaColumna', () => {
   it('reconoce la migración sin aplicar', () => {
     expect(esFaltaColumna({ code: '42703', message: 'column inventory_variants.kg_por_unidad does not exist' })).toBe(true);
     expect(esFaltaColumna({ code: '23505', message: 'duplicate' })).toBe(false);
+  });
+});
+
+describe('destinoGuardado', () => {
+  const vars = [v('a', 'LIV-35'), v('b', 'LIV-35-2'), v('c', 'LIV-35-3'), v('d', 'GL4102-3')];
+  it('la referencia misma si es una variante', () => {
+    expect(destinoGuardado(vars, 'LIV-35-3')).toBe('exacta');
+    expect(destinoGuardado(vars, ' liv-35-2 ')).toBe('exacta');
+  });
+  it('la -5 de una factura DIAN va a los colores del perfil', () => {
+    expect(destinoGuardado(vars, 'LIV-35-5')).toBe('familia');
+    expect(planGuardadoEmpaque(vars, 'LIV-35-5', { kg_por_unidad: 2.4 }, true).map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  });
+  it('sin la referencia ni sus colores no hay dónde guardar', () => {
+    expect(destinoGuardado(vars, 'T116-5')).toBe('ninguna');
   });
 });
