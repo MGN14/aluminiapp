@@ -216,9 +216,9 @@ export default function Inventory() {
 
   return (
     <AppLayout>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-5">
         {/* Tabs */}
-        <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit">
+        <div className="flex w-fit max-w-full flex-wrap items-center gap-1 rounded-lg border bg-muted/60 p-1">
           <button
             onClick={() => setTab('inventario')}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${tab === 'inventario' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
@@ -587,8 +587,7 @@ export default function Inventory() {
             <div className="mb-4">
               <h2 className="text-lg font-bold text-foreground">Maestro de Productos</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Tabla maestra de referencias — Siigo, Local, Proveedor A/B/C y unidad de medida.
-                Solo el administrador puede editar.
+                Consultá el catálogo Siigo y administrá los datos de las variantes internas.
               </p>
             </div>
             <MaestroProductos />
@@ -598,7 +597,7 @@ export default function Inventory() {
         {/* Conteo físico tab (escáner) */}
         {tab === 'conteo' && (
           <div className="animate-fade-in space-y-4">
-            <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit">
+            <div className="flex w-fit max-w-full flex-wrap items-center gap-1 rounded-lg border bg-muted/60 p-1">
               <button
                 onClick={() => setConteoSub('contar')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${conteoSub === 'contar' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}

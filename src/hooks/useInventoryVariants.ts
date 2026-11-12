@@ -27,6 +27,8 @@ export interface InventoryVariant {
   stock_inicial_date: string | null;
   last_count_date: string | null;
   active: boolean;
+  unidades_por_paquete?: number | null;
+  kg_por_unidad?: number | null;
 }
 
 /** Fila de la maestra ya parseada del Excel. */
@@ -126,7 +128,7 @@ export function useInventoryVariants() {
     queryFn: async (): Promise<InventoryVariant[]> => {
       const { data, error } = await db
         .from('inventory_variants')
-        .select('id, variant_reference, name, system, stock, avg_cost, stock_inicial, stock_inicial_date, last_count_date, active')
+        .select('*')
         .eq('active', true)
         .order('variant_reference');
       if (error) throw error;

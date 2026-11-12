@@ -332,7 +332,7 @@ export default function MaestroProductos() {
     <div className="space-y-4">
       {/* Sub-pestañas: el maestro Siigo (-5) y la fuente de verdad de
           referencias por variante (Nico, 2026-08-04). */}
-      <div className="inline-flex rounded-lg bg-muted p-1 gap-1">
+      <div className="flex w-fit max-w-full flex-wrap gap-1 rounded-lg border bg-muted/50 p-1">
         <button
           onClick={() => setSubTab('siigo')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subTab === 'siigo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
@@ -349,7 +349,7 @@ export default function MaestroProductos() {
         </button>
       </div>
 
-      {subTab === 'variantes' && <VariantRefsMaestro />}
+      {subTab === 'variantes' && <VariantRefsMaestro canEdit={canEdit} />}
 
       {subTab === 'siigo' && (<>
       {/* Header */}

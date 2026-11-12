@@ -17,14 +17,15 @@
  * desde el plan de cargue.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Layers, Loader2, Search, Upload, Wand2, Copy } from 'lucide-react';
+import { Loader2, Search, Upload, Wand2, Copy, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
-import { applyColorSuffix, canonicalizeRef } from '@/lib/refFamily';
+import { applyColorSuffix, canonicalizeRef, colorLabel } from '@/lib/refFamily';
 import { fetchAllPaged } from '@/lib/fetchAllPaged';
 import { resolverEmpaques, type ImportItemLite } from '@/lib/cargueEmpaque';
 import { esFaltaColumna, parseDecimal, planGuardadoEmpaque, type CambioEmpaque } from '@/lib/referenciaEmpaque';
@@ -37,6 +38,7 @@ interface VariantRef {
   name: string | null;
   system: string | null;
   active: boolean;
+  catalog_color?: string | null;
   unidades_por_paquete?: number | null;
   kg_por_unidad?: number | null;
 }
@@ -108,28 +110,31 @@ export function parseReferencias(rows: string[][]): { data: FilaArchivo[]; error
   return data.length ? { data, error: null } : { data: [], error: 'No hay filas de datos debajo del encabezado.' };
 }
 
-export default function VariantRefsMaestro() {
+export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState('');
 
-  const { data: refsData, isPending } = useQuery({
+  const [system, setSystem] = useState('');
+  const [color, setColor] = useState('');
+  const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState<VariantRef | null>(null);
+  const { data: refsData, isPending, isError, refetch } = useQuery({
     queryKey: ['variant-refs-maestro'],
-    queryFn: async (): Promise<{ refs: VariantRef[]; faltaMigracion: boolean }> => {
-      const full = await db
-        .from('inventory_variants')
-        .select('id, variant_reference, name, system, active, unidades_por_paquete, kg_por_unidad')
-        .order('variant_reference');
-      if (!full.error) return { refs: (full.data ?? []) as VariantRef[], faltaMigracion: false };
-      if (!esFaltaColumna(full.error)) throw full.error;
-      // Migración de paquete/peso sin aplicar: la lista sigue funcionando.
-      const { data, error } = await db
-        .from('inventory_variants')
-        .select('id, variant_reference, name, system, active')
-        .order('variant_reference');
-      if (error) throw error;
-      return { refs: (data ?? []) as VariantRef[], faltaMigracion: true };
+    queryFn: async () => {
+      const refs = await fetchAllPaged<VariantRef>((from, to) =>
+        db.from('inventory_variants').select('*').order('variant_reference').order('id').range(from, to));
+      if (refs.length) {
+        return {
+          refs,
+          faltaMigracion: !('unidades_por_paquete' in refs[0] && 'kg_por_unidad' in refs[0]),
+          colorEditable: 'catalog_color' in refs[0],
+        };
+      }
+      const { error } = await db.from('inventory_variants').select('unidades_por_paquete, kg_por_unidad').limit(1);
+      if (error && !esFaltaColumna(error)) throw error;
+      return { refs, faltaMigracion: !!error, colorEditable: false };
     },
     staleTime: 60_000,
   });
@@ -174,7 +179,25 @@ export default function VariantRefsMaestro() {
     onSuccess: (n, p) => {
       qc.invalidateQueries({ queryKey: ['variant-refs-maestro'] });
       qc.invalidateQueries({ queryKey: ['cargue-variantes-empaque'] });
+      qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       if (n > 1) toast({ title: `${p.reference}: guardado en ${n} referencias`, description: p.todosLosColores ? 'Se aplicó a todos los colores de la familia.' : 'También se llenaron los otros colores que no tenían dato.' });
+    },
+    onError: (e) => toast({ title: 'No se pudo guardar', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  const guardarFila = useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: Record<string, string | number | null> }) => {
+      const { error } = await db.from('inventory_variants').update(patch).eq('id', id).select('id').single();
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['variant-refs-maestro'] }),
+        qc.invalidateQueries({ queryKey: ['inventory-variants'] }),
+        qc.invalidateQueries({ queryKey: ['cargue-variantes-empaque'] }),
+      ]);
+      setEditing(null);
+      toast({ title: 'Referencia actualizada' });
     },
     onError: (e) => toast({ title: 'No se pudo guardar', description: (e as Error).message, variant: 'destructive' }),
   });
@@ -198,6 +221,7 @@ export default function VariantRefsMaestro() {
     onSuccess: (n) => {
       qc.invalidateQueries({ queryKey: ['variant-refs-maestro'] });
       qc.invalidateQueries({ queryKey: ['cargue-variantes-empaque'] });
+      qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       toast({ title: `${n} referencias completadas con los packing lists`, description: 'Las que queden vacías no vinieron en ningún contenedor: llenalas a mano o en el Excel.' });
     },
     onError: (e) => toast({ title: 'No se pudo completar', description: (e as Error).message, variant: 'destructive' }),
@@ -207,11 +231,10 @@ export default function VariantRefsMaestro() {
     mutationFn: async (filas: FilaArchivo[]) => {
       // Cruce canónico contra lo existente: "38*38-3" y "38X38-3" son la
       // misma variante — respetar la escritura ya registrada.
-      const { data: exData, error: exErr } = await db
-        .from('inventory_variants')
-        .select(faltaMigracion ? 'id, variant_reference, name, system, active' : 'id, variant_reference, name, system, active, unidades_por_paquete, kg_por_unidad');
-      if (exErr) throw exErr;
-      const existentes = (exData ?? []) as VariantRef[];
+      const existentes = await fetchAllPaged<VariantRef>((from, to) =>
+        db.from('inventory_variants')
+          .select(faltaMigracion ? 'id, variant_reference, name, system, active' : 'id, variant_reference, name, system, active, unidades_por_paquete, kg_por_unidad')
+          .order('id').range(from, to));
       const porCanon = new Map<string, VariantRef>();
       for (const v of existentes) {
         const k = canonicalizeRef(v.variant_reference);
@@ -264,6 +287,7 @@ export default function VariantRefsMaestro() {
       qc.invalidateQueries({ queryKey: ['variant-refs-maestro'] });
       qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       qc.invalidateQueries({ queryKey: ['remisiones-sin-cruce'] });
+      qc.invalidateQueries({ queryKey: ['cargue-variantes-empaque'] });
       toast({
         title: `Referencias cargadas: ${r.creadas} nuevas · ${r.actualizadas} actualizadas${r.reactivadas ? ` · ${r.reactivadas} reactivadas` : ''}`,
         description: `${r.total} referencias en el archivo. El stock NO se tocó — eso lo pone el conteo de bodega. Si había remisiones sin cruce, andá a Por variante y apretá «Recuadrar movimientos».`,
@@ -286,12 +310,18 @@ export default function VariantRefsMaestro() {
         toast({ title: 'No pude leer el archivo', description: parsed.error, variant: 'destructive' });
         return;
       }
+      if (faltaMigracion && parsed.data.some((row) => row.porPaquete != null || row.kg != null)) {
+        toast({ title: 'El guardado de empaque y peso está pendiente', description: 'Habilitá esos campos en la base antes de subir el archivo con esos datos.', variant: 'destructive' });
+        return;
+      }
       if (!window.confirm(
         `Leí ${parsed.data.length} referencias.\n\n` +
         'Se crean las que falten y se actualiza nombre, sistema, paquete y peso de las existentes. ' +
         'El stock y los costos NO se tocan.\n\n¿Continuar?',
       )) return;
       subir.mutate(parsed.data);
+    } catch (error) {
+      toast({ title: 'No se pudo leer el Excel', description: (error as Error).message, variant: 'destructive' });
     } finally {
       if (fileRef.current) fileRef.current.value = '';
     }
@@ -304,206 +334,258 @@ export default function VariantRefsMaestro() {
     const sug = sugerenciaDe(r);
     return (r.unidades_por_paquete == null && !!sug.pp) || (r.kg_por_unidad == null && !!sug.kg);
   }).length;
-  const visibles = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    let arr = soloSinDato ? activas.filter((r) => r.unidades_por_paquete == null || r.kg_por_unidad == null) : activas;
-    if (s) arr = arr.filter((r) => r.variant_reference.toLowerCase().includes(s) || (r.name ?? '').toLowerCase().includes(s));
-    return arr;
-  }, [activas, q, soloSinDato]);
+  const systems = [...new Set(activas.map((r) => r.system).filter((value): value is string => !!value))].sort((a, b) => a.localeCompare(b, 'es'));
+  const colors = [...new Set(activas.map(getColor))].sort((a, b) => a.localeCompare(b, 'es'));
+  const search = q.trim().toLocaleLowerCase('es-CO');
+  const visibles = activas.filter((r) =>
+    (!search || [r.variant_reference, r.name].some((value) => value?.toLocaleLowerCase('es-CO').includes(search))) &&
+    (!system || (r.system ?? '') === system) &&
+    (!color || getColor(r) === color) &&
+    (!soloSinDato || r.unidades_por_paquete == null || r.kg_por_unidad == null)
+  );
+  const pageSize = 25;
+  const pageCount = Math.max(1, Math.ceil(visibles.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const offset = (currentPage - 1) * pageSize;
+  const filtered = !!(q || system || color || soloSinDato);
+  const colorEditable = !!refsData?.colorEditable;
+  const busy = guardar.isPending || guardarFila.isPending || usarTodas.isPending || subir.isPending;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h3 className="text-sm font-bold flex items-center gap-2">
-            <Layers className="h-4 w-4 text-primary" /> Referencias por variante — fuente de verdad
-          </h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
-            El listado completo de referencias del inventario interno (con sufijo de color). Toda remisión
-            y todo contenedor cruzan contra esto. Subir el archivo <strong>solo crea/actualiza referencias</strong> —
-            el stock lo pone el conteo de bodega en Inventario → Por variante.
-          </p>
-        </div>
-        <div>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
-            onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
-          <Button onClick={() => fileRef.current?.click()} disabled={subir.isPending}>
-            {subir.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
-            Subir referencias
-          </Button>
-          <p className="text-xs text-muted-foreground mt-1 text-right">
-            Columnas: <strong>REF</strong> (obligatoria) · Descripción · Sistema · Color · Paquete · Peso
-          </p>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative max-w-xs flex-1 min-w-48">
-          <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar referencia…"
-            className="w-full pl-9 pr-3 py-1.5 text-xs rounded-md border border-border bg-background" />
-        </div>
-        <span className="text-xs text-muted-foreground">{visibles.length} de {activas.length} referencias activas</span>
-        {!faltaMigracion && sinDato > 0 && (
-          <button type="button" onClick={() => setSoloSinDato((v) => !v)}
-            className={`text-xs font-semibold px-2.5 py-1.5 rounded-md border ${soloSinDato ? 'bg-primary text-primary-foreground border-primary' : 'bg-card border-border hover:bg-muted'}`}>
-            Sin paquete o peso · {sinDato}
-          </button>
-        )}
-        {!faltaMigracion && conSugerencia > 0 && (
-          <Button size="sm" variant="outline" disabled={usarTodas.isPending}
-            onClick={() => { if (window.confirm(`Llenar ${conSugerencia} referencias vacías con el paquete y el peso de los packing lists? Lo que ya tiene dato no se toca.`)) usarTodas.mutate(); }}>
-            {usarTodas.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Wand2 className="h-4 w-4 mr-1" />}
-            Completar desde contenedores · {conSugerencia}
-          </Button>
-        )}
-      </div>
-      {faltaMigracion && (
-        <p className="text-xs font-semibold text-warning">
-          Para guardar piezas por paquete y peso falta aplicar la actualización de la base (SQL de paquete y peso).
-        </p>
-      )}
-
-      {isPending ? (
-        <div className="flex items-center justify-center py-16 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Cargando…
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-xs">
-            <thead className="bg-muted/60">
-              <tr className="text-left">
-                <th className="px-3 py-2 font-semibold">Referencia</th>
-                <th className="px-3 py-2 font-semibold">Descripción</th>
-                <th className="px-3 py-2 font-semibold">Sistema</th>
-                {!faltaMigracion && <th className="px-3 py-2 font-semibold text-right" title="Piezas que trae un paquete estándar">Piezas por paquete</th>}
-                {!faltaMigracion && <th className="px-3 py-2 font-semibold text-right" title="Peso de una pieza">Peso por pieza</th>}
-                {!faltaMigracion && <th className="px-3 py-2" />}
-              </tr>
-            </thead>
-            <tbody>
-              {visibles.length === 0 ? (
-                <tr><td colSpan={faltaMigracion ? 3 : 6} className="px-3 py-8 text-center text-muted-foreground">
-                  {activas.length === 0
-                    ? 'Todavía no hay referencias. Subí el listado completo con el botón de arriba.'
-                    : 'Sin resultados para esa búsqueda.'}
-                </td></tr>
-              ) : visibles.slice(0, 400).map((r) => (
-                <tr key={r.id} className="border-t border-border/60 hover:bg-muted/30">
-                  <td className="px-3 py-1.5 font-mono font-medium">{r.variant_reference}</td>
-                  <td className="px-3 py-1.5 text-muted-foreground">{r.name ?? '—'}</td>
-                  <td className="px-3 py-1.5 text-muted-foreground">{r.system ?? '—'}</td>
-                  {!faltaMigracion && (() => {
-                    const sug = sugerenciaDe(r);
-                    return (
-                      <>
-                        <td className="px-3 py-1 text-right">
-                          <CeldaNumero
-                            valor={r.unidades_por_paquete ?? null}
-                            sugerido={sug.pp}
-                            origen={sug.familia ? 'contenedor (otro color)' : 'contenedor'}
-                            entero
-                            sufijo="piezas"
-                            onGuardar={(v) => guardar.mutate({ reference: r.variant_reference, cambio: { unidades_por_paquete: v } })}
-                          />
-                        </td>
-                        <td className="px-3 py-1 text-right">
-                          <CeldaNumero
-                            valor={r.kg_por_unidad ?? null}
-                            sugerido={sug.kg ? Math.round(sug.kg * 1000) / 1000 : null}
-                            origen={sug.familia ? 'contenedor (otro color)' : 'contenedor'}
-                            sufijo="kg"
-                            onGuardar={(v) => guardar.mutate({ reference: r.variant_reference, cambio: { kg_por_unidad: v } })}
-                          />
-                        </td>
-                        <td className="px-2 py-1 text-right">
-                          {(r.unidades_por_paquete != null || r.kg_por_unidad != null) && (
-                            <button type="button" title="Aplicar paquete y peso a todos los colores de esta referencia"
-                              className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-border hover:bg-muted"
-                              onClick={() => {
-                                const cambio: CambioEmpaque = {};
-                                if (r.unidades_por_paquete != null) cambio.unidades_por_paquete = r.unidades_por_paquete;
-                                if (r.kg_por_unidad != null) cambio.kg_por_unidad = r.kg_por_unidad;
-                                if (window.confirm(`¿Poner el paquete y el peso de ${r.variant_reference} a TODOS sus colores (aunque ya tengan dato)?`)) {
-                                  guardar.mutate({ reference: r.variant_reference, cambio, todosLosColores: true });
-                                }
-                              }}>
-                              <Copy className="h-4 w-4" />
-                            </button>
-                          )}
-                        </td>
-                      </>
-                    );
-                  })()}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {visibles.length > 400 && (
-            <p className="px-3 py-2 text-xs text-muted-foreground">Mostrando 400 de {visibles.length} — usá el buscador.</p>
+    <section className="overflow-hidden rounded-xl border bg-card shadow-sm" aria-label="Referencias por variante">
+      <div className="space-y-4 border-b p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold">Referencias por variante</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Administrá los datos de cada referencia del inventario interno.</p>
+          </div>
+          {canEdit && (
+            <div className="flex flex-wrap items-center gap-2">
+              <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
+                onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+              {!faltaMigracion && conSugerencia > 0 && (
+                <Button size="sm" variant="outline" disabled={busy || !!editing}
+                  onClick={() => { if (window.confirm(`¿Completar ${conSugerencia} referencias con datos de los contenedores?`)) usarTodas.mutate(); }}>
+                  <Wand2 className="mr-2 h-4 w-4" /> Completar desde contenedores
+                </Button>
+              )}
+              <Button size="sm" disabled={busy || !!editing || isPending || isError} onClick={() => fileRef.current?.click()}>
+                {subir.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                Subí referencias
+              </Button>
+              <details className="w-full text-xs text-muted-foreground">
+                <summary className="w-fit cursor-pointer">Formato del Excel</summary>
+                <p className="mt-1">REF obligatoria · Descripción · Sistema · Color (sufijo) · Paquete (piezas) · Peso (kg por pieza)</p>
+              </details>
+            </div>
           )}
         </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(12rem,1fr)_minmax(9rem,auto)_minmax(9rem,auto)_auto_auto]">
+          <label className="relative">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <input aria-label="Buscar referencia o descripción" value={q} placeholder="Buscá referencia o descripción"
+              onChange={(e) => { setQ(e.target.value); setPage(1); }} className={fieldClass + ' pl-9'} />
+          </label>
+          <select aria-label="Filtrar por sistema" value={system} onChange={(e) => { setSystem(e.target.value); setPage(1); }} className={fieldClass}>
+            <option value="">Todos los sistemas</option>
+            {systems.map((value) => <option key={value}>{value}</option>)}
+          </select>
+          <select aria-label="Filtrar por color" value={color} onChange={(e) => { setColor(e.target.value); setPage(1); }} className={fieldClass}>
+            <option value="">Todos los colores</option>
+            {colors.map((value) => <option key={value}>{value}</option>)}
+          </select>
+          {!faltaMigracion && (
+            <Button variant={soloSinDato ? 'secondary' : 'outline'} aria-pressed={soloSinDato}
+              onClick={() => { setSoloSinDato(!soloSinDato); setPage(1); }}>Sin paquete o peso · {sinDato}</Button>
+          )}
+          {filtered && <Button variant="ghost" onClick={() => { setQ(''); setSystem(''); setColor(''); setSoloSinDato(false); setPage(1); }}>Limpiá filtros</Button>}
+        </div>
+        {canEdit && refsData && (faltaMigracion || !colorEditable) && (
+          <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-foreground">
+            Habilitá en la base el guardado de {faltaMigracion && !colorEditable ? 'color de catálogo, piezas y peso' : faltaMigracion ? 'piezas y peso' : 'color de catálogo'}.
+          </p>
+        )}
+      </div>
+
+      {isError ? (
+        <div className="p-8 text-center text-sm">No se pudieron cargar las referencias. <Button variant="outline" onClick={() => refetch()}>Reintentá</Button></div>
+      ) : isPending ? (
+        <div role="status" className="flex justify-center gap-2 p-12 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Cargando referencias…</div>
+      ) : (
+        <>
+          <div className="md:max-h-[65vh] md:overflow-auto">
+            <table className="block w-full text-sm md:table">
+              <thead className="sr-only bg-muted md:not-sr-only md:sticky md:top-0 md:z-10">
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th scope="col" className="px-4 py-3">Referencia</th>
+                  <th scope="col" className="px-3 py-3">Sistema</th>
+                  <th scope="col" className="px-3 py-3">Color</th>
+                  <th scope="col" className="px-3 py-3 text-right">Piezas por paquete</th>
+                  <th scope="col" className="px-3 py-3 text-right">Peso por pieza</th>
+                  {canEdit && <th scope="col" className="px-4 py-3 text-right">Acciones</th>}
+                </tr>
+              </thead>
+              <tbody className="block md:table-row-group">
+                {!visibles.length && <tr className="block md:table-row"><td className="block p-8 text-center text-muted-foreground md:table-cell" colSpan={canEdit ? 6 : 5}>{filtered ? 'No hay referencias con esos filtros.' : 'Todavía no hay referencias activas.'}</td></tr>}
+                {visibles.slice(offset, offset + pageSize).map((r) => {
+                  return (
+                    <tr key={r.id} className="grid grid-cols-2 gap-3 border-b p-4 last:border-b-0 md:table-row md:p-0 md:hover:bg-muted/30">
+                      <td className="col-span-2 md:px-4 md:py-3">
+                        <span className="font-semibold">{r.variant_reference}</span>
+                        {r.name && <span className="mt-0.5 block text-xs text-muted-foreground">{r.name}</span>}
+                      </td>
+                      <td className="md:px-3 md:py-3"><MobileLabel>Sistema</MobileLabel>{r.system || 'Sin sistema'}</td>
+                      <td className="md:px-3 md:py-3"><MobileLabel>Color</MobileLabel><span className="inline-block rounded-md bg-muted px-2 py-0.5 text-xs capitalize">{getColor(r)}</span></td>
+                      <td className="tabular-nums md:px-3 md:py-3 md:text-right"><MobileLabel>Piezas por paquete</MobileLabel>{formatMeasure(r.unidades_por_paquete, 'piezas', faltaMigracion)}</td>
+                      <td className="tabular-nums md:px-3 md:py-3 md:text-right"><MobileLabel>Peso por pieza</MobileLabel>{formatMeasure(r.kg_por_unidad, 'kg', faltaMigracion)}</td>
+                      {canEdit && (
+                        <td className="col-span-2 md:px-4 md:py-2 md:text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" variant="outline" disabled={busy} aria-label={`Editar ${r.variant_reference}`} onClick={() => setEditing(r)}>
+                              <Pencil className="mr-1.5 h-3.5 w-3.5" /> Editá
+                            </Button>
+                            {!faltaMigracion && (r.unidades_por_paquete != null || r.kg_por_unidad != null) && (
+                              <Button size="icon" variant="ghost" className="h-9 w-9" disabled={busy}
+                                aria-label={`Aplicar empaque y peso de ${r.variant_reference} a todos sus colores`}
+                                title="Aplicar empaque y peso a todos sus colores"
+                                onClick={() => {
+                                  const cambio: CambioEmpaque = {};
+                                  if (r.unidades_por_paquete != null) cambio.unidades_por_paquete = r.unidades_por_paquete;
+                                  if (r.kg_por_unidad != null) cambio.kg_por_unidad = r.kg_por_unidad;
+                                  if (window.confirm(`¿Reemplazar el empaque y peso de todos los colores con los datos de ${r.variant_reference}?`)) {
+                                    guardar.mutate({ reference: r.variant_reference, cambio, todosLosColores: true });
+                                  }
+                                }}>
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
+            <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+              {visibles.length ? `${offset + 1}–${Math.min(offset + pageSize, visibles.length)} de ${visibles.length}` : '0 resultados'} · {activas.length} activas
+            </p>
+            <div className="flex items-center gap-2">
+              <Button size="icon" variant="outline" aria-label="Página anterior" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+              <span className="text-xs tabular-nums">{currentPage} de {pageCount}</span>
+              <Button size="icon" variant="outline" aria-label="Página siguiente" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}><ChevronRight className="h-4 w-4" /></Button>
+            </div>
+          </div>
+        </>
       )}
-    </div>
+      {canEdit && editing && <VariantEditor row={editing} systems={systems} colors={colors}
+        suggestion={sugerenciaDe(editing)} faltaMigracion={faltaMigracion} colorEditable={colorEditable}
+        saving={guardarFila.isPending} onClose={() => setEditing(null)}
+        onSave={(patch) => guardarFila.mutate({ id: editing.id, patch })} />}
+    </section>
   );
 }
 
-/**
- * Celda editable de número: muestra el valor; si está vacía y hay un dato del
- * contenedor lo sugiere en gris con «Usar». Tocar edita en el lugar (Enter
- * guarda, Escape cancela). Vacío = borrar el dato.
- */
-function CeldaNumero({ valor, sugerido, origen, entero = false, sufijo, onGuardar }: {
-  valor: number | null;
-  sugerido: number | null;
-  origen: string;
-  entero?: boolean;
-  sufijo: string;
-  onGuardar: (v: number | null) => void;
+const fieldClass = 'h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const numberFormat = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 3 });
+const getColor = (r: VariantRef) => r.catalog_color?.trim() || colorLabel(r.variant_reference);
+
+function formatMeasure(value: number | null | undefined, unit: string, unavailable: boolean) {
+  if (value != null) return `${numberFormat.format(value)} ${unit}`;
+  return <span className="text-xs text-muted-foreground">{unavailable ? 'Por habilitar' : 'Sin dato'}</span>;
+}
+
+function MobileLabel({ children }: { children: string }) {
+  return <span className="mb-0.5 block text-xs text-muted-foreground md:hidden">{children}</span>;
+}
+
+function VariantEditor({ row, systems, colors, suggestion, faltaMigracion, colorEditable, saving, onClose, onSave }: {
+  row: VariantRef;
+  systems: string[];
+  colors: string[];
+  suggestion: { pp: number | null; kg: number | null; familia: boolean };
+  faltaMigracion: boolean;
+  colorEditable: boolean;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (patch: Record<string, string | number | null>) => void;
 }) {
-  const [editando, setEditando] = useState(false);
-  const [texto, setTexto] = useState('');
-  const fmt = (n: number) => n.toLocaleString('es-CO', { maximumFractionDigits: 3 });
-  const guardar = () => {
-    setEditando(false);
-    const n = parseDecimal(texto);
-    const v = n == null ? null : entero ? Math.round(n) : Math.round(n * 1000) / 1000;
-    if (v !== valor) onGuardar(v);
-  };
-  if (editando) {
-    return (
-      <input
-        autoFocus
-        inputMode="decimal"
-        value={texto}
-        onChange={(e) => setTexto(e.target.value)}
-        onBlur={guardar}
-        onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEditando(false); }}
-        className="w-24 h-8 px-2 text-right text-xs tabular-nums rounded-md border border-primary bg-background"
-        aria-label={`Editar ${sufijo}`}
-      />
-    );
+  const [system, setSystem] = useState(row.system ?? '');
+  const [color, setColor] = useState(row.catalog_color ?? '');
+  const [pieces, setPieces] = useState(String(row.unidades_por_paquete ?? ''));
+  const [weight, setWeight] = useState(String(row.kg_por_unidad ?? '').replace('.', ','));
+  const [error, setError] = useState('');
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const count = pieces.trim() ? Number(pieces.trim()) : null;
+    const kg = weight.trim() ? Number(weight.trim().replace(',', '.')) : null;
+    if (!faltaMigracion && count !== null && count !== row.unidades_por_paquete && (!/^\d+$/.test(pieces.trim()) || !Number.isSafeInteger(count) || count < 1)) {
+      setError('Ingresá una cantidad entera de piezas mayor que cero.');
+      return;
+    }
+    if (!faltaMigracion && kg !== null && kg !== row.kg_por_unidad && (!/^\d+(?:[.,]\d{1,3})?$/.test(weight.trim()) || !Number.isFinite(kg) || kg <= 0)) {
+      setError('Ingresá un peso mayor que cero, con hasta tres decimales.');
+      return;
+    }
+    const patch: Record<string, string | number | null> = {};
+    if ((system.trim() || null) !== (row.system ?? null)) patch.system = system.trim() || null;
+    if (colorEditable && (color.trim() || null) !== (row.catalog_color ?? null)) patch.catalog_color = color.trim() || null;
+    if (!faltaMigracion && count !== (row.unidades_por_paquete ?? null)) patch.unidades_por_paquete = count;
+    if (!faltaMigracion && kg !== (row.kg_por_unidad ?? null)) patch.kg_por_unidad = kg;
+    if (Object.keys(patch).length) onSave(patch);
+    else onClose();
   }
-  if (valor != null) {
-    return (
-      <button type="button" onClick={() => { setTexto(String(valor).replace('.', ',')); setEditando(true); }}
-        className="h-8 px-2 rounded-md hover:bg-muted tabular-nums font-semibold">
-        {fmt(valor)} <span className="font-normal text-muted-foreground">{sufijo}</span>
-      </button>
-    );
-  }
+
   return (
-    <span className="inline-flex items-center gap-1.5 justify-end">
-      {sugerido != null && (
-        <button type="button" onClick={() => onGuardar(sugerido)} title={`Dato del ${origen}`}
-          className="h-8 px-2 rounded-md border border-dashed border-border text-muted-foreground hover:bg-muted tabular-nums whitespace-nowrap">
-          {fmt(sugerido)} {sufijo} · Usar
-        </button>
-      )}
-      <button type="button" onClick={() => { setTexto(''); setEditando(true); }}
-        className="h-8 px-2 rounded-md text-muted-foreground hover:bg-muted">
-        {sugerido != null ? 'Otro' : 'Poner'}
-      </button>
-    </span>
+    <Dialog open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editá {row.variant_reference}</DialogTitle>
+          <DialogDescription>{row.name || 'Datos de la referencia'} · Color del código: {colorLabel(row.variant_reference)}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <fieldset disabled={saving} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-sm">
+              <span>Sistema</span>
+              <input autoFocus list="maestro-sistemas" className={fieldClass} value={system} onChange={(e) => setSystem(e.target.value)} placeholder="Elegí o escribí" />
+              <datalist id="maestro-sistemas">{systems.map((value) => <option key={value} value={value} />)}</datalist>
+            </label>
+            <label className="space-y-1 text-sm">
+              <span>Color de catálogo</span>
+              <input list="maestro-colores" className={fieldClass} disabled={!colorEditable} value={color} onChange={(e) => setColor(e.target.value)} placeholder={colorLabel(row.variant_reference)} />
+              <datalist id="maestro-colores">{colors.map((value) => <option key={value} value={value} />)}</datalist>
+            </label>
+            <div className="space-y-1">
+              <label className="block space-y-1 text-sm">
+                <span>Piezas por paquete</span>
+                <input className={fieldClass + ' tabular-nums'} inputMode="numeric" disabled={faltaMigracion} value={pieces} onChange={(e) => setPieces(e.target.value)} placeholder="Ej. 20" />
+              </label>
+              {!faltaMigracion && row.unidades_por_paquete == null && suggestion.pp != null && (
+                <Button type="button" size="sm" variant="outline" onClick={() => setPieces(String(suggestion.pp))}>Usá {suggestion.pp} piezas</Button>
+              )}
+            </div>
+            <div className="space-y-1">
+              <label className="block space-y-1 text-sm">
+                <span>Peso por pieza (kg)</span>
+                <input className={fieldClass + ' tabular-nums'} inputMode="decimal" disabled={faltaMigracion} value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="Ej. 1,250" />
+              </label>
+              {!faltaMigracion && row.kg_por_unidad == null && suggestion.kg != null && (
+                <Button type="button" size="sm" variant="outline" onClick={() => setWeight(String(Number(suggestion.kg.toFixed(3))).replace('.', ','))}>Usá {numberFormat.format(suggestion.kg)} kg</Button>
+              )}
+            </div>
+          </fieldset>
+          {!faltaMigracion && ((row.unidades_por_paquete == null && suggestion.pp != null) || (row.kg_por_unidad == null && suggestion.kg != null)) &&
+            <p className="text-xs text-muted-foreground">Sugerencia de contenedor{suggestion.familia ? ' de otro color de la misma referencia' : ''}.</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancelá</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Guardando…' : 'Guardá cambios'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

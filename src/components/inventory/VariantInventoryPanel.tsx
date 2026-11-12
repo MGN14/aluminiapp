@@ -449,15 +449,15 @@ export default function VariantInventoryPanel() {
       {/* Resumen */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="rounded-lg border border-border bg-card px-4 py-3">
-          <p className="text-[11px] text-muted-foreground">Variantes activas</p>
+          <p className="text-xs text-muted-foreground">Variantes activas</p>
           <p className="text-xl font-bold text-foreground">{fmt(variants.length)}</p>
         </div>
         <div className="rounded-lg border border-border bg-card px-4 py-3">
-          <p className="text-[11px] text-muted-foreground">Unidades en stock</p>
+          <p className="text-xs text-muted-foreground">Unidades en stock</p>
           <p className="text-xl font-bold text-foreground">{fmt(totalUnidades)}</p>
         </div>
         <div className="rounded-lg border border-border bg-card px-4 py-3">
-          <p className="text-[11px] text-muted-foreground">Valor (costo landed)</p>
+          <p className="text-xs text-muted-foreground">Valor (costo landed)</p>
           <p className="text-xl font-bold text-foreground">${fmt(totalValor)}</p>
         </div>
       </div>
@@ -492,10 +492,10 @@ export default function VariantInventoryPanel() {
             />
           </div>
 
-          <div className="rounded-lg border border-border overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+            <div className="max-h-[65vh] overflow-auto">
               <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-muted-foreground">
+                <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
                   <tr>
                     <th className="text-left font-medium px-4 py-2.5">Referencia</th>
                     <th className="text-left font-medium px-4 py-2.5">Descripción</th>
@@ -523,6 +523,8 @@ export default function VariantInventoryPanel() {
                         </button>
                       </th>
                     ))}
+                    <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-right font-medium">Piezas / paquete</th>
+                    <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-right font-medium">Peso / pieza</th>
                     <th className="px-2 py-2.5"></th>
                   </tr>
                 </thead>
@@ -568,6 +570,12 @@ export default function VariantInventoryPanel() {
                       <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
                         {v.avg_cost ? `$${fmt(v.avg_cost)}` : '—'}
                       </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {v.unidades_por_paquete != null ? fmt(v.unidades_por_paquete) : '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {v.kg_por_unidad != null ? `${v.kg_por_unidad.toLocaleString('es-CO', { maximumFractionDigits: 3 })} kg` : '—'}
+                      </td>
                       <td className="px-2 py-2 text-right">
                         {editId === v.id && (
                           <span className="inline-flex gap-1">
@@ -583,7 +591,7 @@ export default function VariantInventoryPanel() {
               </table>
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {filtered.length} de {variants.length} variantes · clic en el stock para ajustar · re-subir la maestra
             vuelve a cuadrar el conteo inicial.
           </p>
