@@ -26,6 +26,7 @@
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { computeReceivables } from "../_shared/receivables.ts";
+import { computePayables, type SharedPayable } from "../_shared/payables.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -512,56 +513,11 @@ async function loadReceivables(
 }
 
 // CxP: saldo real de facturas de COMPRA (lo que le debés a proveedores).
-// Espejo de loadReceivables: total − pagado − retenciones (compra = reteica +
-// autoretefuente; no hay retefuente de proveedor en invoices). Excluye NC totales.
-interface PayableInvoice {
-  id: string; supplier: string; issue_date: string; due_date: string | null;
-  dias_credito: number | null; total_amount: number; paid: number; saldo: number;
-}
-
+// Vive en _shared/payables.ts: la MISMA fuente que el consejo del CFO.
 async function loadPayables(
   db: SupabaseClient, userId: string, opts: { from?: string; to?: string } = {},
-): Promise<PayableInvoice[]> {
-  let q = db.from("invoices")
-    .select("id, counterparty_name, issue_date, due_date, dias_credito, total_amount, reteica_amount, autoretefuente_amount, void_type, type")
-    .eq("user_id", userId)
-    .eq("type", "compra")
-    .or("void_type.is.null,void_type.eq.partial");
-  if (opts.from) q = q.gte("issue_date", opts.from);
-  if (opts.to) q = q.lte("issue_date", opts.to);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  const invoices = (data ?? []) as Record<string, unknown>[];
-  if (invoices.length === 0) return [];
-  const ids = invoices.map((i) => i.id as string);
-  const [directRes, matchRes] = await Promise.all([
-    db.from("transactions").select("invoice_id, amount").eq("user_id", userId).is("deleted_at", null).in("invoice_id", ids),
-    db.from("invoice_transaction_matches").select("invoice_id, matched_amount").in("invoice_id", ids),
-  ]);
-  const paidById = new Map<string, number>();
-  const addPaid = (id: unknown, amt: unknown) => {
-    if (!id) return;
-    const k = id as string;
-    paidById.set(k, (paidById.get(k) ?? 0) + Math.abs(Number(amt ?? 0)));
-  };
-  for (const r of (directRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.amount);
-  for (const r of (matchRes.data ?? []) as Record<string, unknown>[]) addPaid(r.invoice_id, r.matched_amount);
-  return invoices.map((i) => {
-    const total = Number(i.total_amount ?? 0);
-    const paid = paidById.get(i.id as string) ?? 0;
-    const retenciones = invoiceRetenciones(i); // rama compra: reteica + autoretefuente
-    const saldo = Math.max(0, total - paid - retenciones);
-    return {
-      id: i.id as string,
-      supplier: (i.counterparty_name as string) ?? "(sin nombre)",
-      issue_date: i.issue_date as string,
-      due_date: (i.due_date as string | null) ?? null,
-      dias_credito: (i.dias_credito as number | null) ?? null,
-      total_amount: round2(total),
-      paid: round2(paid),
-      saldo: round2(saldo),
-    };
-  });
+): Promise<SharedPayable[]> {
+  return await computePayables(db, userId, opts);
 }
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {

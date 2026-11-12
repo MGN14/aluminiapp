@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { computeReceivables } from "../_shared/receivables.ts";
+import { computePayables } from "../_shared/payables.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -405,112 +407,69 @@ Deno.serve(async (req) => {
     }
 
     // ─── INSIGHT D: Cuentas por cobrar ───
-    // Same logic as AccountsReceivableReport: subtract payments + retefuente + initial advances
-    const salesInvoices = invYear.filter((i: any) => i.type === "venta");
-    if (salesInvoices.length > 0) {
-      const salesIds = salesInvoices.map((i: any) => i.id);
-      const { data: directPayments } = await admin
-        .from("transactions")
-        .select("invoice_id, amount")
-        .eq("user_id", userId)
-        .is("deleted_at", null)
-        .in("invoice_id", salesIds);
+    // Fuente única de cartera (_shared/receivables.ts): la MISMA de la pantalla
+    // de Cobranza, el MCP, el score y el link Wompi. Antes este consejo solo
+    // restaba los pagos amarrados directo a cada factura y decía $983M por
+    // cobrar cuando la cartera real era $98,8M (auditoría 2026-11-12).
+    const cartera = await computeReceivables(admin, userId, Number(year));
+    const deudores = cartera.clients.filter((c) => c.saldo_neto > 1);
+    const totalCxC = cartera.total_saldo_pendiente;
+    if (totalCxC > 1) {
+      const lineas = deudores.flatMap((c) => c.invoices_pendientes);
+      const cxcCount = lineas.length;
+      const vencido30 = lineas
+        .filter((l) => l.days_overdue > 30)
+        .reduce((s, l) => s + l.effective_pending, 0);
+      // Saldo inicial que los cobros del año todavía no cubren (el FIFO lo
+      // cubre primero por ser la deuda más vieja).
+      const inicialPendiente = deudores.reduce((s, c) =>
+        s + Math.max(0, c.cxc_inicial - (c.cobrado_banco + c.cobrado_efectivo + c.anticipos_total)), 0);
+      const topDeudor = deudores[0]; // vienen ordenados por saldo, mayor primero
 
-      const payments = new Map<string, number>();
-      // Direct transaction payments
-      (directPayments || []).forEach((p: any) => {
-        if (p.invoice_id) payments.set(p.invoice_id, (payments.get(p.invoice_id) || 0) + Math.abs(p.amount ?? 0));
+      let text = `Tenés ${fmt(totalCxC)} pendientes de cobro`;
+      if (inicialPendiente > 1) text += ` (incluye ${fmt(inicialPendiente)} del saldo inicial)`;
+      if (cxcCount > 0) text += ` en ${cxcCount} factura${cxcCount > 1 ? "s" : ""}`;
+      text += ".";
+      if (vencido30 > 1) text += ` De eso, ${fmt(vencido30)} lleva más de 30 días vencido.`;
+      if (topDeudor) text += ` Tu mayor deudor es ${topDeudor.client_name} con ${fmt(topDeudor.saldo_neto)}.`;
+
+      insights.push({
+        key: "cxc",
+        title: "Cuentas por cobrar 🔔",
+        text,
+        recommendation: vencido30 > 1
+          ? "Priorizá el cobro de lo que lleva más de 30 días vencido. Un recordatorio amable puede hacer la diferencia."
+          : "Hacé seguimiento a estos saldos para que no se vuelvan morosos.",
+        action: { label: "Ver cartera", path: "/reportes/clientes" },
+        impact: totalCxC,
       });
-      // Manual matches
-      matches.forEach((m: any) => {
-        payments.set(m.invoice_id, (payments.get(m.invoice_id) || 0) + Math.abs(m.matched_amount));
-      });
-      // Initial state advance payments linked to invoices
-      initialDetails.filter((d: any) => d.invoice_id).forEach((d: any) => {
-        payments.set(d.invoice_id, (payments.get(d.invoice_id) || 0) + Math.abs(d.amount ?? 0));
-      });
-
-      let totalCxC = 0;
-      let cxcCount = 0;
-      let overdue30 = 0;
-      const clientDebt = new Map<string, number>();
-      const today = new Date();
-
-      salesInvoices.forEach((inv: any) => {
-        const paid = payments.get(inv.id) || 0;
-        // Subtract retefuente cliente — SOLO si es explícito (sin fallback 2.5%
-        // fantasma: clientes que no retienen no deben perder saldo). Mismo
-        // criterio que cobranza/anticipos.
-        const savedRetefuente = inv.retefuente_cliente_amount ?? 0;
-        const rawRate = inv.retefuente_cliente_rate;
-        const hasExplicitRate = rawRate !== null && rawRate !== undefined;
-        const retefuenteCliente = savedRetefuente > 0
-          ? savedRetefuente
-          : hasExplicitRate ? Math.round((inv.subtotal_base ?? 0) * Number(rawRate)) : 0;
-
-        const totalDeducted = paid + retefuenteCliente;
-        const pending = Math.max(0, inv.total_amount - totalDeducted);
-        if (pending > 0) {
-          totalCxC += pending;
-          cxcCount++;
-          const name = inv.counterparty_name || "Sin nombre";
-          clientDebt.set(name, (clientDebt.get(name) || 0) + pending);
-          const issueDate = new Date(inv.issue_date);
-          const daysSince = Math.floor((today.getTime() - issueDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysSince > 30) overdue30 += pending;
-        }
-      });
-
-      // Add initial CxC if configured
-      const initialCxC = initialState?.cuentas_por_cobrar || 0;
-      totalCxC += initialCxC;
-
-      if (totalCxC > 0) {
-        const topDebtor = Array.from(clientDebt.entries()).sort((a, b) => b[1] - a[1])[0];
-        let text = `Tienes ${fmt(totalCxC)} pendientes de cobro`;
-        if (initialCxC > 0) {
-          text += ` (incluye ${fmt(initialCxC)} del saldo inicial)`;
-        }
-        text += ` en ${cxcCount} factura${cxcCount > 1 ? "s" : ""}.`;
-        if (overdue30 > 0) {
-          text += ` De eso, ${fmt(overdue30)} tiene más de 30 días.`;
-        }
-        if (topDebtor) {
-          text += ` Tu mayor deudor es ${topDebtor[0]} con ${fmt(topDebtor[1])}.`;
-        }
-
-        insights.push({
-          key: "cxc",
-          title: "Cuentas por cobrar 🔔",
-          text,
-          recommendation: overdue30 > 0
-            ? "Prioriza el cobro de las facturas con más de 30 días. Un recordatorio amable puede hacer la diferencia."
-            : "Mantén seguimiento de estos saldos para evitar que se vuelvan morosos.",
-          action: { label: "Ver CxC", path: "/reports" },
-          impact: totalCxC,
-        });
-      }
     }
 
-    // ─── INSIGHT D2: Cuentas por pagar (from initial state + purchase invoices) ───
-    const purchaseInvoices = invYear.filter((i: any) => i.type === "compra");
-    const totalCxPInvoices = purchaseInvoices.reduce((s: number, i: any) => s + (i.total_amount || 0), 0);
-    const initialCxP = initialState?.cuentas_por_pagar || 0;
-    const totalCxP = totalCxPInvoices + initialCxP;
+    // ─── INSIGHT D2: Cuentas por pagar ───
+    // Fuente única (_shared/payables.ts), la misma del MCP: saldo real de cada
+    // factura de compra (total − pagado − retenciones). Antes sumaba el TOTAL
+    // de las facturas de compra del año más el saldo inicial, sin restar
+    // pagos: decía $327M cuando se debían $38M (auditoría 2026-11-12).
+    const porPagar = (await computePayables(admin, userId)).filter((p) => p.saldo > 1);
+    const totalCxP = porPagar.reduce((s, p) => s + p.saldo, 0);
+    if (totalCxP > 1) {
+      const vencidoCxP = porPagar.filter((p) => p.days_overdue > 0).reduce((s, p) => s + p.saldo, 0);
+      const porProveedor: Record<string, number> = {};
+      for (const p of porPagar) porProveedor[p.supplier] = (porProveedor[p.supplier] ?? 0) + p.saldo;
+      const topProveedor = Object.entries(porProveedor).sort((a, b) => b[1] - a[1])[0];
 
-    if (totalCxP > 0) {
-      let text = `Tienes ${fmt(totalCxP)} en cuentas por pagar`;
-      if (initialCxP > 0) {
-        text += ` (incluye ${fmt(initialCxP)} del saldo inicial)`;
-      }
-      text += `.`;
+      let text = `Le debés ${fmt(totalCxP)} a tus proveedores en ${porPagar.length} factura${porPagar.length > 1 ? "s" : ""}.`;
+      if (vencidoCxP > 1) text += ` De eso, ${fmt(vencidoCxP)} ya está vencido.`;
+      if (topProveedor) text += ` El saldo más grande es con ${topProveedor[0]} por ${fmt(topProveedor[1])}.`;
 
       insights.push({
         key: "cxp",
         title: "Cuentas por pagar 💳",
         text,
-        recommendation: "Revisa los plazos de pago de tus proveedores y prioriza las obligaciones más urgentes.",
-        action: { label: "Ver CxP", path: "/reports" },
+        recommendation: vencidoCxP > 1
+          ? "Revisá las facturas vencidas: si ya las pagaste, amarrá el pago en Conciliación para que dejen de aparecer."
+          : "Revisá los plazos de tus proveedores y priorizá lo más urgente.",
+        action: { label: "Ver CxP", path: "/reportes/cuentas-por-pagar" },
         impact: totalCxP,
       });
     }
