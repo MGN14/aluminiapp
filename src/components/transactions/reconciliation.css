@@ -4,19 +4,15 @@
   font-variant-numeric: tabular-nums;
 }
 .reconciliation-hero {
-  padding: clamp(1rem, 3vw, 1.75rem);
-  border-radius: 1.25rem;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-}
-.reconciliation-hero > div:first-child > p {
-  color: hsl(var(--primary-foreground) / .88);
+  padding: .75rem 0 1rem;
+  border-bottom: 1px solid hsl(var(--border));
 }
 .reconciliation-controls {
-  padding: .625rem;
-  border-radius: .75rem;
+  color: hsl(var(--muted-foreground));
+}
+.reconciliation-controls button {
   background: hsl(var(--card));
-  color: hsl(var(--card-foreground));
+  color: hsl(var(--foreground));
 }
 .reconciliation-metric {
   display: flex;
@@ -24,16 +20,13 @@
   gap: .5rem;
   min-width: 0;
   border: 1px solid hsl(var(--border));
-  border-top: 3px solid hsl(var(--primary));
   background: hsl(var(--card));
   border-radius: .875rem;
   padding: .875rem 1rem;
 }
-.reconciliation-metric[data-attention="true"] { border-top-color: hsl(var(--warning)); }
 .reconciliation-metric > p { font-size: .875rem; font-weight: 650; }
 .reconciliation-metric > strong { font-size: 1.75rem; line-height: 1.15; letter-spacing: -.035em; }
 .reconciliation-metric > small { font-size: .75rem; color: hsl(var(--muted-foreground)); }
-.reconciliation-assignment { border-top-color: hsl(var(--border)); background: hsl(var(--muted) / .3); }
 .reconciliation-scroll { overflow: auto; max-height: min(72dvh, 54rem); }
 .reconciliation-scroll:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
 .reconciliation-table thead th {

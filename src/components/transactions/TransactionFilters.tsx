@@ -117,9 +117,10 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
   const activeResponsibles = responsibles.filter(r => r.active);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 rounded-xl border border-border bg-card p-4">
       {/* Búsqueda por descripción — dropdown de descripciones parseadas + texto libre */}
-      <div className="flex items-center gap-2">
+      <div className="space-y-2">
+        <label htmlFor="reconciliation-description-search" className="block text-sm font-semibold text-foreground">Buscá un movimiento</label>
         <DescriptionSearch
           value={filters.descSearch ?? ''}
           onChange={(v) => update({ descSearch: v })}
@@ -132,14 +133,14 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
         <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
 
         {/* Estado filter */}
-        <div style={{display:'flex',background:'var(--surface)',border:'1.5px solid rgba(0,0,0,0.07)',borderRadius:10,padding:3,gap:1,fontFamily:'inherit'}}>
+        <div style={{display:'flex',flexWrap:'wrap',background:'var(--surface)',border:'1.5px solid rgba(0,0,0,0.07)',borderRadius:10,padding:3,gap:1,fontFamily:'inherit'}}>
           <button
             type="button"
             onClick={() => update({ estado: 'todas' })}
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
-              background: filters.estado === 'todas' ? 'var(--ink)' : 'transparent',
-              color: filters.estado === 'todas' ? 'var(--surface)' : 'var(--ink2)',
+              background: filters.estado === 'todas' ? 'hsl(var(--muted))' : 'transparent',
+              color: filters.estado === 'todas' ? 'hsl(var(--foreground))' : 'var(--ink2)',
             }}
           >
             Todas ({counts.total})
@@ -149,8 +150,8 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
             onClick={() => update({ estado: 'pendientes' })}
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
-              background: filters.estado === 'pendientes' ? 'hsl(var(--warning))' : 'transparent',
-              color: filters.estado === 'pendientes' ? 'hsl(var(--warning-foreground))' : 'var(--ink2)',
+              background: filters.estado === 'pendientes' ? 'hsl(var(--muted))' : 'transparent',
+              color: filters.estado === 'pendientes' ? 'hsl(var(--foreground))' : 'var(--ink2)',
             }}
           >
             Por asignar ({counts.pendientes})
@@ -160,8 +161,8 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
             onClick={() => update({ estado: 'conciliadas' })}
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
-              background: filters.estado === 'conciliadas' ? 'oklch(0.43 0.14 155)' : 'transparent',
-              color: filters.estado === 'conciliadas' ? '#fff' : 'var(--ink2)',
+              background: filters.estado === 'conciliadas' ? 'hsl(var(--muted))' : 'transparent',
+              color: filters.estado === 'conciliadas' ? 'hsl(var(--foreground))' : 'var(--ink2)',
             }}
           >
             Asignados ({counts.conciliadas})

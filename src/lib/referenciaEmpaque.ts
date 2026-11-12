@@ -89,22 +89,46 @@ export async function cargarEmpaquesVariantes(): Promise<{ variantes: EmpaqueVar
 }
 
 /**
+ * A dónde va el dato que se escribe para una referencia del pedido:
+ *  - 'exacta': la referencia está en Referencias por variante (LIV-35-3);
+ *  - 'familia': no está, pero sí sus colores. Pasa con las remisiones que
+ *    vienen de facturas DIAN/Siigo, que usan la "-5" (el total, que no es una
+ *    variante): el dato es del perfil y va a TODOS sus colores;
+ *  - 'ninguna': ni la referencia ni sus colores existen.
+ */
+export function destinoGuardado(variantes: Pick<EmpaqueVariante, 'variant_reference'>[], reference: string): 'exacta' | 'familia' | 'ninguna' {
+  const canon = canonicalizeRef(reference);
+  const fam = refFamilyKey(reference);
+  let familia = false;
+  for (const v of variantes) {
+    if (canonicalizeRef(v.variant_reference) === canon) return 'exacta';
+    if (refFamilyKey(v.variant_reference) === fam) familia = true;
+  }
+  return familia ? 'familia' : 'ninguna';
+}
+
+/** Actualiza una variante y avisa si no se guardó nada (permiso o fila borrada). */
+export async function actualizarVariante(id: string, patch: CambioEmpaque): Promise<void> {
+  const { data, error } = await db.from('inventory_variants').update(patch).eq('id', id).select('id');
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error('La base no dejó guardar el cambio (la referencia no existe o tu usuario no tiene permiso para editarla).');
+}
+
+/**
  * Guarda paquete y/o peso de una referencia (y rellena sus otros colores
- * vacíos). Devuelve cuántas variantes cambiaron; 0 si la referencia no está en
- * Referencias por variante.
+ * vacíos). Si la referencia no es una variante pero sus colores sí (la "-5"),
+ * lo guarda en todos sus colores. `existe` = false si no hay dónde guardarlo.
  */
 export async function guardarEmpaqueReferencia(
   reference: string,
   cambio: CambioEmpaque,
   opts: { todosLosColores?: boolean; variantes?: EmpaqueVariante[] } = {},
-): Promise<{ cambiadas: number; existe: boolean }> {
+): Promise<{ cambiadas: number; existe: boolean; enColores: boolean }> {
   const variantes = opts.variantes ?? (await cargarEmpaquesVariantes()).variantes;
-  const existe = variantes.some((v) => canonicalizeRef(v.variant_reference) === canonicalizeRef(reference));
-  if (!existe) return { cambiadas: 0, existe: false };
-  const plan = planGuardadoEmpaque(variantes, reference, cambio, opts.todosLosColores);
-  for (const { id, patch } of plan) {
-    const { error } = await db.from('inventory_variants').update(patch).eq('id', id);
-    if (error) throw error;
-  }
-  return { cambiadas: plan.length, existe: true };
+  const destino = destinoGuardado(variantes, reference);
+  if (destino === 'ninguna') return { cambiadas: 0, existe: false, enColores: false };
+  const enColores = destino === 'familia';
+  const plan = planGuardadoEmpaque(variantes, reference, cambio, opts.todosLosColores || enColores);
+  for (const { id, patch } of plan) await actualizarVariante(id, patch);
+  return { cambiadas: plan.length, existe: true, enColores };
 }

@@ -204,8 +204,10 @@ function CargueActivo({ remisionId: id, practica, datos, inicial, onHecho, onSal
     if (aSubir && userIdRef.current) void guardarPlan(id, aSubir, userIdRef.current).catch(() => undefined);
   }, [id]);
 
-  // Paquete/peso a la referencia (no en práctica: ahí no se guarda nada).
-  const onGuardarReferencia = practica || datos.referenciasSinMigracion
+  // Paquete/peso a la referencia. También en práctica: es un dato del perfil
+  // (Referencias por variante), no de la remisión, y sirve para los cargues de
+  // verdad. Solo se apaga si falta el SQL de las dos columnas.
+  const onGuardarReferencia = datos.referenciasSinMigracion
     ? null
     : async (reference: string, cambio: CambioEmpaque) => {
       const r = await guardarEmpaqueReferencia(reference, cambio, { variantes: datos.referencias });

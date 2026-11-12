@@ -47,15 +47,16 @@ export default function DescriptionSearch({ value, onChange, options }: Props) {
   const filtered = (nq ? options.filter((o) => normalizeDesc(o.description).includes(nq)) : options).slice(0, 60);
 
   return (
-    <div ref={wrapRef} className="relative flex-1 max-w-md">
-      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+    <div ref={wrapRef} className="relative w-full">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
       <input
         type="text"
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        placeholder="Buscar por descripción (ej: 4x1000, NEQUI, transferencia...)"
-        className="w-full h-8 pl-8 pr-8 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring/30"
+        id="reconciliation-description-search"
+        placeholder="Ej. NEQUI, 4x1000 o transferencia"
+        className="w-full h-11 pl-10 pr-9 text-sm rounded-lg border border-foreground/20 bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
       />
       {value.length > 0 && (
         <button
@@ -68,7 +69,7 @@ export default function DescriptionSearch({ value, onChange, options }: Props) {
         </button>
       )}
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full min-w-[320px] max-h-72 overflow-y-auto rounded-xl border border-border bg-popover shadow-lg p-1">
+        <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-xl border border-border bg-popover shadow-lg p-1">
           {filtered.map((o) => (
             <button
               key={o.description}
@@ -80,7 +81,7 @@ export default function DescriptionSearch({ value, onChange, options }: Props) {
                 <span className="truncate">{o.description}</span>
                 {(o.variantCount ?? 1) > 1 && (
                   <span
-                    className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-primary/10 text-primary px-1.5 py-px text-[9px] font-medium"
+                    className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-primary/10 text-primary px-1.5 py-px text-xs font-medium"
                     title={`${o.variantCount} descripciones parecidas agrupadas`}
                   >
                     <Layers className="h-2.5 w-2.5" />{o.variantCount}
@@ -88,7 +89,7 @@ export default function DescriptionSearch({ value, onChange, options }: Props) {
                 )}
               </span>
               <span className="shrink-0 flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground tabular-nums">{o.count}×</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{o.count}×</span>
                 <span className={cn('text-xs font-semibold tabular-nums', o.total >= 0 ? 'text-success' : 'text-destructive')}>
                   {fmt(o.total)}
                 </span>

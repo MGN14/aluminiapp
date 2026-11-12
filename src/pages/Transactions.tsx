@@ -36,8 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { FileText, Loader2, AlertCircle, Users, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Check } from 'lucide-react';
+import { FileText, Loader2, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Check } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
 import { AnimatedNumber } from '@/components/ui/animated-number';
@@ -677,25 +676,6 @@ export default function Transactions() {
             </div>
             
             <div className="reconciliation-controls flex min-w-0 max-w-full items-center gap-3 flex-wrap">
-              {/* Pending reconciliation counter */}
-              {filterCounts.pendientes > 0 && (
-                <Button type="button" variant="outline" className="gap-2 border-warning/40 text-warning"
-                  onClick={() => { setVista('movimientos'); handleFiltersChange({ ...filters, estado: 'pendientes' }); }}>
-                  <AlertCircle className="size-4" />
-                  {filterCounts.pendientes} por asignar
-                </Button>
-              )}
-              
-              {filterCounts.pendientes === 0 && filterCounts.total > 0 && (
-                <Badge 
-                  variant="outline" 
-                  className="flex items-center gap-1.5 text-success border-success"
-                >
-                  <Users className="h-3 w-3" />
-                  <span>Beneficiarios al día</span>
-                </Badge>
-              )}
-              
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Año:</span>
                 <Select value={selectedYear} onValueChange={setSelectedYear}>
@@ -824,12 +804,12 @@ export default function Transactions() {
                 </div>
                 <small>{cierre.cobrosConciliados} de {cierre.cobrosVenta} cobros con factura o N/A explícito</small>
               </div>
-              <div className="reconciliation-metric" data-attention={cierre.sinExplicar > 0}>
+              <div className="reconciliation-metric">
                 <p>Movimientos sin explicar</p>
                 <strong><AnimatedNumber value={cierre.sinExplicar} /></strong>
                 <small>Sin categoría ni factura</small>
               </div>
-              <div className="reconciliation-metric" data-attention={traspasosSinEspejo.length > 0}>
+              <div className="reconciliation-metric">
                 <p>Traspasos sin contraparte</p>
                 <strong><AnimatedNumber value={traspasosSinEspejo.length} /></strong>
                 <small>{traspasosSinEspejo.length ? 'Revisá las cuentas del alcance seleccionado' : 'Sin faltantes detectados'}</small>
@@ -844,10 +824,18 @@ export default function Transactions() {
                   </details>
                 )}
               </div>
-              <div className="reconciliation-metric reconciliation-assignment">
+              <div className="reconciliation-metric">
                 <p>Beneficiarios asignados</p>
                 <strong><AnimatedNumber value={reconciledPct} />%</strong>
-                <small>{filterCounts.pendientes} por asignar · avance de clasificación</small>
+                <div className="h-2 rounded-full bg-muted overflow-hidden" aria-hidden="true">
+                  <div className="h-full bg-success rounded-full" style={{ width: `${reconciledPct}%` }} />
+                </div>
+                {filterCounts.pendientes > 0 ? (
+                  <button type="button" className="self-start text-left text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                    onClick={() => { setVista('movimientos'); handleFiltersChange({ ...filters, estado: 'pendientes' }); }}>
+                    {filterCounts.pendientes} por asignar
+                  </button>
+                ) : <small>{filterCounts.total > 0 ? 'Todos asignados' : 'Sin movimientos'}</small>}
               </div>
             </div>
           </section>
@@ -858,7 +846,7 @@ export default function Transactions() {
             {([['movimientos', 'Movimientos'], ['auditoria', 'Auditoría'], ['terceros', 'Terceros']] as const).map(([k, label]) => (
               <button type="button" key={k} aria-pressed={vista === k} onClick={() => setVista(k)}
                 className={cn('px-4 py-2 rounded-md text-sm font-medium transition-all',
-                  vista === k ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                  vista === k ? 'bg-muted text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground')}>
                 {label}
               </button>
             ))}
@@ -872,7 +860,6 @@ export default function Transactions() {
           <div className={vista !== 'movimientos' ? 'hidden' : 'space-y-4'}>
           {/* Extractos por subir: cuentas que se quedaron atrás y huecos de
               días. Antes solo se veía en la pantalla de subir extractos. */}
-          <ExtractosFaltantesBanner statements={statements} traspasosSinEspejo={traspasosSinEspejo} />
 
           {/* Reglas sugeridas por el historial: un clic las crea y barre
               los pendientes — cada mes conciliado enseña a la app. */}
@@ -890,6 +877,8 @@ export default function Transactions() {
             statementFilterLabel={statementFilterLabel}
             onClearStatementFilter={() => setSelectedStatement('all')}
           />
+
+          <ExtractosFaltantesBanner statements={statements} traspasosSinEspejo={traspasosSinEspejo} />
 
           <Card className="rounded-2xl border-border overflow-hidden">
             <CardHeader className="pb-3">
