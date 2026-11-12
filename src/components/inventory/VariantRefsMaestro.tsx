@@ -19,7 +19,7 @@
 
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Search, Upload, Wand2, Copy, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, Search, Upload, Wand2, Copy, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,7 +27,7 @@ import { addCatalogCandidates, previewRemisionCatalog } from '@/lib/remisionCata
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
-import { applyColorSuffix, canonicalizeRef, colorLabel } from '@/lib/refFamily';
+import { applyColorSuffix, canonicalizeRef, colorFromSuffix, colorLabel } from '@/lib/refFamily';
 import { fetchAllPaged } from '@/lib/fetchAllPaged';
 import { resolverEmpaques, type ImportItemLite } from '@/lib/cargueEmpaque';
 import { esFaltaColumna, parseDecimal, planGuardadoEmpaque, type CambioEmpaque } from '@/lib/referenciaEmpaque';
@@ -123,7 +123,6 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
 
   const [system, setSystem] = useState('');
   const [color, setColor] = useState('');
-  const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<VariantRef | null>(null);
   const { data: refsData, isPending, isError, refetch } = useQuery({
     queryKey: ['variant-refs-maestro'],
@@ -156,7 +155,6 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
     onSuccess: (inserted) => {
       setShowImport(false);
       setCatalogStatus('inactive');
-      setPage(1);
       setQ('');
       setSystem('');
       setColor('');
@@ -375,10 +373,11 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
     (!color || getColor(r) === color) &&
     (!soloSinDato || r.unidades_por_paquete == null || r.kg_por_unidad == null)
   );
-  const pageSize = 25;
-  const pageCount = Math.max(1, Math.ceil(visibles.length / pageSize));
-  const currentPage = Math.min(page, pageCount);
-  const offset = (currentPage - 1) * pageSize;
+  const groups = colorGroups.map((group) => ({ ...group, rows: [] as VariantRef[] }));
+  const groupsByColor = new Map(groups.map((group) => [group.color, group]));
+  for (const row of visibles) {
+    groupsByColor.get(colorFromSuffix(row.variant_reference))?.rows.push(row);
+  }
   const filtered = !!(q || system || color || soloSinDato || catalogStatus !== 'all');
   const colorEditable = !!refsData?.colorEditable;
   const busy = guardar.isPending || guardarFila.isPending || usarTodas.isPending || subir.isPending || importarRemisiones.isPending;
@@ -419,27 +418,27 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
           <label className="relative">
             <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <input aria-label="Buscar referencia o descripción" value={q} placeholder="Buscá referencia o descripción"
-              onChange={(e) => { setQ(e.target.value); setPage(1); }} className={fieldClass + ' pl-9'} />
+              onChange={(e) => { setQ(e.target.value); }} className={fieldClass + ' pl-9'} />
           </label>
-          <select aria-label="Filtrar por sistema" value={system} onChange={(e) => { setSystem(e.target.value); setPage(1); }} className={fieldClass}>
+          <select aria-label="Filtrar por sistema" value={system} onChange={(e) => { setSystem(e.target.value); }} className={fieldClass}>
             <option value="">Todos los sistemas</option>
             {systems.map((value) => <option key={value}>{value}</option>)}
           </select>
-          <select aria-label="Filtrar por color" value={color} onChange={(e) => { setColor(e.target.value); setPage(1); }} className={fieldClass}>
+          <select aria-label="Filtrar por color" value={color} onChange={(e) => { setColor(e.target.value); }} className={fieldClass}>
             <option value="">Todos los colores</option>
             {colors.map((value) => <option key={value}>{value}</option>)}
           </select>
           <select aria-label="Filtrar por estado de inventario" value={catalogStatus}
-            onChange={(e) => { setCatalogStatus(e.target.value); setPage(1); }} className={fieldClass}>
+            onChange={(e) => { setCatalogStatus(e.target.value); }} className={fieldClass}>
             <option value="all">Todos los estados</option>
             <option value="active">En inventario</option>
             <option value="inactive">Fuera de inventario</option>
           </select>
           {!faltaMigracion && (
             <Button variant={soloSinDato ? 'secondary' : 'outline'} aria-pressed={soloSinDato}
-              onClick={() => { setSoloSinDato(!soloSinDato); setPage(1); }}>Sin paquete o peso · {sinDato}</Button>
+              onClick={() => { setSoloSinDato(!soloSinDato); }}>Sin paquete o peso · {sinDato}</Button>
           )}
-          {filtered && <Button variant="ghost" onClick={() => { setQ(''); setSystem(''); setColor(''); setSoloSinDato(false); setCatalogStatus('all'); setPage(1); }}>Limpiá filtros</Button>}
+          {filtered && <Button variant="ghost" onClick={() => { setQ(''); setSystem(''); setColor(''); setSoloSinDato(false); setCatalogStatus('all'); }}>Limpiá filtros</Button>}
         </div>
         {canEdit && refsData && (faltaMigracion || !colorEditable) && (
           <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-foreground">
@@ -454,11 +453,16 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
         <div role="status" className="flex justify-center gap-2 p-12 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Cargando referencias…</div>
       ) : (
         <>
-          <div className="md:max-h-[65vh] md:overflow-auto">
-            <table className="block w-full text-sm md:table">
-              <thead className="sr-only bg-muted md:not-sr-only md:sticky md:top-0 md:z-10">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-xs text-muted-foreground">
+            <p className="tabular-nums" aria-live="polite">{visibles.length} de {refs.length} referencias</p>
+            <p className="lg:hidden">Deslizá hacia los lados para ver más columnas</p>
+          </div>
+          <div tabIndex={0} role="region" aria-label="Tabla de referencias agrupadas por color"
+            className="max-h-[70vh] overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="sticky top-0 z-20 bg-muted">
                 <tr className="text-left text-xs text-muted-foreground">
-                  <th scope="col" className="px-4 py-3">Referencia</th>
+                  <th scope="col" className="sticky left-0 z-10 bg-muted px-4 py-3">Referencia</th>
                   <th scope="col" className="px-3 py-3">Sistema</th>
                   <th scope="col" className="px-3 py-3">Color</th>
                   <th scope="col" className="px-3 py-3 text-right">Piezas por paquete</th>
@@ -466,22 +470,35 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
                   {canEdit && <th scope="col" className="px-4 py-3 text-right">Acciones</th>}
                 </tr>
               </thead>
-              <tbody className="block md:table-row-group">
-                {!visibles.length && <tr className="block md:table-row"><td className="block p-8 text-center text-muted-foreground md:table-cell" colSpan={canEdit ? 6 : 5}>{filtered ? 'No hay referencias con esos filtros.' : 'Todavía no hay referencias.'}</td></tr>}
-                {visibles.slice(offset, offset + pageSize).map((r) => {
-                  return (
-                    <tr key={r.id} className="grid grid-cols-2 gap-3 border-b p-4 last:border-b-0 md:table-row md:p-0 md:hover:bg-muted/30">
-                      <td className="col-span-2 md:px-4 md:py-3">
+              {!visibles.length && (
+                <tbody><tr><td className="px-4 py-8 text-muted-foreground" colSpan={canEdit ? 6 : 5}>
+                  {filtered ? 'No hay referencias con esos filtros.' : 'Todavía no hay referencias.'}
+                </td></tr></tbody>
+              )}
+              {groups.filter(({ rows }) => rows.length > 0).map(({ label, suffix, rows }) => (
+                <tbody key={label}>
+                  <tr className="border-y bg-muted/70">
+                    <th colSpan={canEdit ? 6 : 5} className="px-4 py-2.5 text-left">
+                      <span className="sticky left-4 inline-flex items-center gap-2">
+                        {label}
+                        <span className="text-xs font-normal text-muted-foreground">{suffix}</span>
+                        <span className="rounded-md bg-background px-1.5 py-0.5 text-xs font-medium tabular-nums">{rows.length}</span>
+                      </span>
+                    </th>
+                  </tr>
+                  {rows.map((r) => (
+                    <tr key={r.id} className="group border-b hover:bg-muted/30">
+                      <td className="sticky left-0 z-10 w-36 max-w-40 break-words bg-card px-4 py-3 group-hover:bg-muted sm:w-52 sm:max-w-56">
                         <span className="font-semibold">{r.variant_reference}</span>
                         {!r.active && <span className="ml-2 inline-block rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Fuera de inventario</span>}
                         {r.name && <span className="mt-0.5 block text-xs text-muted-foreground">{r.name}</span>}
                       </td>
-                      <td className="md:px-3 md:py-3"><MobileLabel>Sistema</MobileLabel>{r.system || 'Sin sistema'}</td>
-                      <td className="md:px-3 md:py-3"><MobileLabel>Color</MobileLabel><span className="inline-block rounded-md bg-muted px-2 py-0.5 text-xs capitalize">{getColor(r)}</span></td>
-                      <td className="tabular-nums md:px-3 md:py-3 md:text-right"><MobileLabel>Piezas por paquete</MobileLabel>{formatMeasure(r.unidades_por_paquete, 'piezas', faltaMigracion)}</td>
-                      <td className="tabular-nums md:px-3 md:py-3 md:text-right"><MobileLabel>Peso por pieza</MobileLabel>{formatMeasure(r.kg_por_unidad, 'kg', faltaMigracion)}</td>
+                      <td className="px-3 py-3">{r.system || 'Sin sistema'}</td>
+                      <td className="px-3 py-3"><span className="inline-block rounded-md bg-muted px-2 py-0.5 text-xs capitalize">{getColor(r)}</span></td>
+                      <td className="tabular-nums px-3 py-3 text-right">{formatMeasure(r.unidades_por_paquete, 'piezas', faltaMigracion)}</td>
+                      <td className="tabular-nums px-3 py-3 text-right">{formatMeasure(r.kg_por_unidad, 'kg', faltaMigracion)}</td>
                       {canEdit && (
-                        <td className="col-span-2 md:px-4 md:py-2 md:text-right">
+                        <td className="px-4 py-2 text-right">
                           <div className="flex justify-end gap-1">
                             <Button size="sm" variant="outline" disabled={busy} aria-label={`Editar ${r.variant_reference}`} onClick={() => setEditing(r)}>
                               <Pencil className="mr-1.5 h-3.5 w-3.5" /> Editá
@@ -505,20 +522,10 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
                         </td>
                       )}
                     </tr>
-                  );
-                })}
-              </tbody>
+                  ))}
+                </tbody>
+              ))}
             </table>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
-            <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
-              {visibles.length ? `${offset + 1}–${Math.min(offset + pageSize, visibles.length)} de ${visibles.length}` : '0 resultados'} · {refs.length} en el Maestro
-            </p>
-            <div className="flex items-center gap-2">
-              <Button size="icon" variant="outline" aria-label="Página anterior" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-              <span className="text-xs tabular-nums">{currentPage} de {pageCount}</span>
-              <Button size="icon" variant="outline" aria-label="Página siguiente" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}><ChevronRight className="h-4 w-4" /></Button>
-            </div>
           </div>
         </>
       )}
@@ -571,6 +578,14 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
   );
 }
 
+const colorGroups = [
+  { color: 'crudo', label: 'Crudo', suffix: '-0' },
+  { color: null, label: 'Mate', suffix: 'Sin sufijo' },
+  { color: 'blanco', label: 'Blanco', suffix: '-2' },
+  { color: 'negro', label: 'Negro', suffix: '-3' },
+  { color: 'total', label: 'Sin discriminar', suffix: '-5' },
+] as const;
+
 const fieldClass = 'h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const numberFormat = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 3 });
 const getColor = (r: VariantRef) => r.catalog_color?.trim() || colorLabel(r.variant_reference);
@@ -578,10 +593,6 @@ const getColor = (r: VariantRef) => r.catalog_color?.trim() || colorLabel(r.vari
 function formatMeasure(value: number | null | undefined, unit: string, unavailable: boolean) {
   if (value != null) return `${numberFormat.format(value)} ${unit}`;
   return <span className="text-xs text-muted-foreground">{unavailable ? 'Por habilitar' : 'Sin dato'}</span>;
-}
-
-function MobileLabel({ children }: { children: string }) {
-  return <span className="mb-0.5 block text-xs text-muted-foreground md:hidden">{children}</span>;
 }
 
 function VariantEditor({ row, systems, colors, suggestion, faltaMigracion, colorEditable, saving, onClose, onSave }: {
