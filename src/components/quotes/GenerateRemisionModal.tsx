@@ -5,6 +5,7 @@
 // Al confirmar usa el mismo write path que NewRemisionModal: insert remisión
 // (con quotation_id → trazabilidad), items, applyRemisionInventory.
 
+import { addRemisionCatalogReferences } from '@/lib/remisionCatalog';
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -126,6 +127,17 @@ export default function GenerateRemisionModal({ open, onOpenChange, detail, onCr
         items: validLines,
         productMap,
       });
+
+      try {
+        const added = await addRemisionCatalogReferences(itemsToInsert, user.id);
+        if (added) void queryClient.invalidateQueries({ queryKey: ['variant-refs-maestro'] });
+        void queryClient.invalidateQueries({ queryKey: ['maestro-candidatas-remisiones'] });
+      } catch {
+        toast({
+          title: 'La remisión se guardó',
+          description: 'Podés recuperar sus referencias desde el Maestro con «Traé referencias de remisiones».',
+        });
+      }
 
       let description = `${validLines.length} referencias desde la cotización ${detail.quote_number}.`;
       if (result.applied > 0 || result.variantesAplicadas > 0) description += ' Stock descontado.';

@@ -22,6 +22,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Search, Upload, Wand2, Copy, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useAuth } from '@/hooks/useAuth';
+import { addCatalogCandidates, previewRemisionCatalog } from '@/lib/remisionCatalog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { readXlsxFile, isExcelFile } from '@/lib/readXlsx';
@@ -112,6 +114,9 @@ export function parseReferencias(rows: string[][]): { data: FilaArchivo[]; error
 
 export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const [showImport, setShowImport] = useState(false);
+  const [catalogStatus, setCatalogStatus] = useState('all');
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState('');
@@ -137,6 +142,32 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
       return { refs, faltaMigracion: !!error, colorEditable: false };
     },
     staleTime: 60_000,
+  });
+  const preview = useQuery({
+    queryKey: ['maestro-candidatas-remisiones', user?.id],
+    queryFn: previewRemisionCatalog,
+    enabled: showImport && canEdit && !!user?.id,
+  });
+  const importarRemisiones = useMutation({
+    mutationFn: async () => {
+      if (!user?.id || !preview.data) throw new Error('Volvé a cargar la lista antes de confirmar.');
+      return addCatalogCandidates(preview.data.candidates, user.id);
+    },
+    onSuccess: (inserted) => {
+      setShowImport(false);
+      setCatalogStatus('inactive');
+      setPage(1);
+      setQ('');
+      setSystem('');
+      setColor('');
+      setSoloSinDato(false);
+      toast({ title: inserted ? `${inserted} referencias agregadas al Maestro` : 'Las referencias ya están en el Maestro' });
+    },
+    onError: (error) => toast({ title: 'La carga no pudo completarse', description: `${error.message} Podés reintentar para agregar las que falten.`, variant: 'destructive' }),
+    onSettled: () => Promise.all([
+      qc.invalidateQueries({ queryKey: ['variant-refs-maestro'] }),
+      qc.invalidateQueries({ queryKey: ['maestro-candidatas-remisiones'] }),
+    ]),
   });
   const refs = useMemo(() => refsData?.refs ?? [], [refsData]);
   const faltaMigracion = !!refsData?.faltaMigracion;
@@ -329,15 +360,16 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
 
   const [soloSinDato, setSoloSinDato] = useState(false);
   const activas = useMemo(() => refs.filter((r) => r.active), [refs]);
-  const sinDato = useMemo(() => activas.filter((r) => r.unidades_por_paquete == null || r.kg_por_unidad == null).length, [activas]);
+  const sinDato = useMemo(() => refs.filter((r) => r.unidades_por_paquete == null || r.kg_por_unidad == null).length, [refs]);
   const conSugerencia = activas.filter((r) => {
     const sug = sugerenciaDe(r);
     return (r.unidades_por_paquete == null && !!sug.pp) || (r.kg_por_unidad == null && !!sug.kg);
   }).length;
-  const systems = [...new Set(activas.map((r) => r.system).filter((value): value is string => !!value))].sort((a, b) => a.localeCompare(b, 'es'));
-  const colors = [...new Set(activas.map(getColor))].sort((a, b) => a.localeCompare(b, 'es'));
+  const systems = [...new Set(refs.map((r) => r.system).filter((value): value is string => !!value))].sort((a, b) => a.localeCompare(b, 'es'));
+  const colors = [...new Set(refs.map(getColor))].sort((a, b) => a.localeCompare(b, 'es'));
   const search = q.trim().toLocaleLowerCase('es-CO');
-  const visibles = activas.filter((r) =>
+  const visibles = refs.filter((r) =>
+    (catalogStatus === 'all' || r.active === (catalogStatus === 'active')) &&
     (!search || [r.variant_reference, r.name].some((value) => value?.toLocaleLowerCase('es-CO').includes(search))) &&
     (!system || (r.system ?? '') === system) &&
     (!color || getColor(r) === color) &&
@@ -347,9 +379,9 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
   const pageCount = Math.max(1, Math.ceil(visibles.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const offset = (currentPage - 1) * pageSize;
-  const filtered = !!(q || system || color || soloSinDato);
+  const filtered = !!(q || system || color || soloSinDato || catalogStatus !== 'all');
   const colorEditable = !!refsData?.colorEditable;
-  const busy = guardar.isPending || guardarFila.isPending || usarTodas.isPending || subir.isPending;
+  const busy = guardar.isPending || guardarFila.isPending || usarTodas.isPending || subir.isPending || importarRemisiones.isPending;
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-sm" aria-label="Referencias por variante">
@@ -369,6 +401,9 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
                   <Wand2 className="mr-2 h-4 w-4" /> Completar desde contenedores
                 </Button>
               )}
+              <Button size="sm" variant="outline" disabled={busy || !!editing} onClick={() => setShowImport(true)}>
+                Traé referencias de remisiones
+              </Button>
               <Button size="sm" disabled={busy || !!editing || isPending || isError} onClick={() => fileRef.current?.click()}>
                 {subir.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                 Subí referencias
@@ -380,7 +415,7 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
             </div>
           )}
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(12rem,1fr)_minmax(9rem,auto)_minmax(9rem,auto)_auto_auto]">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_repeat(3,minmax(8rem,auto))_auto]">
           <label className="relative">
             <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <input aria-label="Buscar referencia o descripción" value={q} placeholder="Buscá referencia o descripción"
@@ -394,11 +429,17 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
             <option value="">Todos los colores</option>
             {colors.map((value) => <option key={value}>{value}</option>)}
           </select>
+          <select aria-label="Filtrar por estado de inventario" value={catalogStatus}
+            onChange={(e) => { setCatalogStatus(e.target.value); setPage(1); }} className={fieldClass}>
+            <option value="all">Todos los estados</option>
+            <option value="active">En inventario</option>
+            <option value="inactive">Fuera de inventario</option>
+          </select>
           {!faltaMigracion && (
             <Button variant={soloSinDato ? 'secondary' : 'outline'} aria-pressed={soloSinDato}
               onClick={() => { setSoloSinDato(!soloSinDato); setPage(1); }}>Sin paquete o peso · {sinDato}</Button>
           )}
-          {filtered && <Button variant="ghost" onClick={() => { setQ(''); setSystem(''); setColor(''); setSoloSinDato(false); setPage(1); }}>Limpiá filtros</Button>}
+          {filtered && <Button variant="ghost" onClick={() => { setQ(''); setSystem(''); setColor(''); setSoloSinDato(false); setCatalogStatus('all'); setPage(1); }}>Limpiá filtros</Button>}
         </div>
         {canEdit && refsData && (faltaMigracion || !colorEditable) && (
           <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-foreground">
@@ -426,12 +467,13 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
                 </tr>
               </thead>
               <tbody className="block md:table-row-group">
-                {!visibles.length && <tr className="block md:table-row"><td className="block p-8 text-center text-muted-foreground md:table-cell" colSpan={canEdit ? 6 : 5}>{filtered ? 'No hay referencias con esos filtros.' : 'Todavía no hay referencias activas.'}</td></tr>}
+                {!visibles.length && <tr className="block md:table-row"><td className="block p-8 text-center text-muted-foreground md:table-cell" colSpan={canEdit ? 6 : 5}>{filtered ? 'No hay referencias con esos filtros.' : 'Todavía no hay referencias.'}</td></tr>}
                 {visibles.slice(offset, offset + pageSize).map((r) => {
                   return (
                     <tr key={r.id} className="grid grid-cols-2 gap-3 border-b p-4 last:border-b-0 md:table-row md:p-0 md:hover:bg-muted/30">
                       <td className="col-span-2 md:px-4 md:py-3">
                         <span className="font-semibold">{r.variant_reference}</span>
+                        {!r.active && <span className="ml-2 inline-block rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Fuera de inventario</span>}
                         {r.name && <span className="mt-0.5 block text-xs text-muted-foreground">{r.name}</span>}
                       </td>
                       <td className="md:px-3 md:py-3"><MobileLabel>Sistema</MobileLabel>{r.system || 'Sin sistema'}</td>
@@ -444,7 +486,7 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
                             <Button size="sm" variant="outline" disabled={busy} aria-label={`Editar ${r.variant_reference}`} onClick={() => setEditing(r)}>
                               <Pencil className="mr-1.5 h-3.5 w-3.5" /> Editá
                             </Button>
-                            {!faltaMigracion && (r.unidades_por_paquete != null || r.kg_por_unidad != null) && (
+                            {r.active && !faltaMigracion && (r.unidades_por_paquete != null || r.kg_por_unidad != null) && (
                               <Button size="icon" variant="ghost" className="h-9 w-9" disabled={busy}
                                 aria-label={`Aplicar empaque y peso de ${r.variant_reference} a todos sus colores`}
                                 title="Aplicar empaque y peso a todos sus colores"
@@ -470,7 +512,7 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
             <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
-              {visibles.length ? `${offset + 1}–${Math.min(offset + pageSize, visibles.length)} de ${visibles.length}` : '0 resultados'} · {activas.length} activas
+              {visibles.length ? `${offset + 1}–${Math.min(offset + pageSize, visibles.length)} de ${visibles.length}` : '0 resultados'} · {refs.length} en el Maestro
             </p>
             <div className="flex items-center gap-2">
               <Button size="icon" variant="outline" aria-label="Página anterior" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}><ChevronLeft className="h-4 w-4" /></Button>
@@ -479,6 +521,47 @@ export default function VariantRefsMaestro({ canEdit }: { canEdit: boolean }) {
             </div>
           </div>
         </>
+      )}
+      {canEdit && showImport && (
+        <Dialog open onOpenChange={(open) => { if (!open && !importarRemisiones.isPending) setShowImport(false); }}>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="pr-5">Traé referencias de remisiones</DialogTitle>
+              <DialogDescription>Las referencias nuevas quedan en el Maestro, fuera de inventario, para que completés sus datos.</DialogDescription>
+            </DialogHeader>
+            {preview.isPending && <p role="status" className="text-sm">Buscando referencias…</p>}
+            {preview.isError && <Button variant="outline" onClick={() => preview.refetch()}>Reintentá la búsqueda</Button>}
+            {preview.data && (
+              <div className="space-y-3">
+                <p className="text-sm font-medium">{preview.data.candidates.length} {preview.data.candidates.length === 1 ? 'referencia nueva' : 'referencias nuevas'}</p>
+                {!!preview.data.candidates.length && (
+                  <ul aria-label="Referencias nuevas" className="max-h-64 divide-y overflow-y-auto rounded-md border text-sm">
+                    {preview.data.candidates.map(({ reference, name }) => (
+                      <li key={reference} className="flex flex-wrap gap-x-3 px-3 py-2">
+                        <span className="font-medium">{reference}</span><span className="text-muted-foreground">{name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {!!preview.data.omitted.length && (
+                  <details className="text-sm text-muted-foreground">
+                    <summary className="cursor-pointer">{preview.data.omitted.length} {preview.data.omitted.length === 1 ? 'código para revisar' : 'códigos para revisar'}</summary>
+                    <ul className="mt-2 max-h-32 list-disc overflow-auto pl-5">
+                      {preview.data.omitted.map((reference) => <li key={reference}>{reference}</li>)}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" disabled={importarRemisiones.isPending} onClick={() => setShowImport(false)}>Cerrá</Button>
+              <Button disabled={!preview.data?.candidates.length || preview.isFetching || importarRemisiones.isPending}
+                onClick={() => importarRemisiones.mutate()}>
+                {importarRemisiones.isPending ? 'Agregando…' : 'Agregá al Maestro'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
       {canEdit && editing && <VariantEditor row={editing} systems={systems} colors={colors}
         suggestion={sugerenciaDe(editing)} faltaMigracion={faltaMigracion} colorEditable={colorEditable}

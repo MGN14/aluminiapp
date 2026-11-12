@@ -1,3 +1,4 @@
+import { addRemisionCatalogReferences } from '@/lib/remisionCatalog';
 import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -478,6 +479,19 @@ export default function NewRemisionModal({ open, onOpenChange, onComplete }: Pro
         items,
         productMap: finalProductMap,
       });
+
+      if (status !== 'cancelado') {
+        try {
+          const added = await addRemisionCatalogReferences(itemsToInsert, user.id);
+          if (added) void queryClient.invalidateQueries({ queryKey: ['variant-refs-maestro'] });
+          void queryClient.invalidateQueries({ queryKey: ['maestro-candidatas-remisiones'] });
+        } catch {
+          toast({
+            title: 'La remisión se guardó',
+            description: 'Podés recuperar sus referencias desde el Maestro con «Traé referencias de remisiones».',
+          });
+        }
+      }
 
       const typeLabel = remisionType === 'compra' ? 'Compra' : 'Venta';
       let description = `${items.length} referencias guardadas.`;
