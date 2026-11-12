@@ -6,6 +6,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useFinancialHealthScore, getScoreInterpretation } from '@/hooks/useFinancialHealthScore';
 import { SCORE_VARIABLES, ScoreVariableKey } from '@/hooks/financialHealthScoreUtils';
 import { DashCard, DashFooter, DashLoading, type Tone } from './cardKit';
+import PendientesApp from './PendientesApp';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -50,10 +51,13 @@ export default function FinancialHealthCard({ year, month }: Props) {
   const interp = getScoreInterpretation(scores.total);
   const tone: Tone = scores.total < 60 ? 'alarm' : scores.total < 80 ? 'warn' : 'success';
 
+  // La tarjeta ya no es UN link: los pendientes de abajo llevan cada uno a
+  // su pantalla (un <a> dentro de otro no es válido). Link = puntaje + pie.
   return (
-    <Link to="/financial-health" className="block group h-full">
+    <div className="group h-full">
       <DashCard tone={tone}>
         <CardContent className="p-4 sm:p-5 h-full flex flex-col">
+          <Link to="/financial-health" className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           {/* Encabezado: donut grande + nivel */}
           <div className="flex items-center gap-4 mb-4">
             <div className="relative w-28 h-28 shrink-0">
@@ -128,7 +132,7 @@ export default function FinancialHealthCard({ year, month }: Props) {
           )}
 
           {/* Barras de las variables */}
-          <div className="space-y-2 flex-1">
+          <div className="space-y-2">
             {donutData.map((seg) => {
               const pct = Math.max(0, Math.min(100, (seg.value / 25) * 100));
               return (
@@ -143,10 +147,17 @@ export default function FinancialHealthCard({ year, month }: Props) {
               );
             })}
           </div>
+          </Link>
 
-          <DashFooter note="4 variables · 25 puntos cada una">Ver análisis completo</DashFooter>
+          {/* Tareas que dejaste de hacer en la app — llenan el hueco que
+              quedaba al lado de "Próximas obligaciones". */}
+          <PendientesApp />
+
+          <Link to="/financial-health" className="mt-auto block">
+            <DashFooter note="4 variables · 25 puntos cada una">Ver análisis completo</DashFooter>
+          </Link>
         </CardContent>
       </DashCard>
-    </Link>
+    </div>
   );
 }
