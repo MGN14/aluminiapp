@@ -55,7 +55,10 @@ describe('construirRecordatorios', () => {
 
     const siigo = recs.find((r) => r.id === 'siigo')!;
     expect(siigo.nivel).toBe('alarm');
+    expect(siigo.titulo).toBe('Siigo desconectado');
     expect(siigo.detalle).toContain('27 oct');
+    expect(siigo.detalle).toContain('reintenta sola');
+    expect(siigo.accion).toBe('Reintentar');
     expect(siigo.ruta).toBe('/settings#siigo');
     expect(siigo.modulo).toBe('admin');
 
@@ -79,11 +82,19 @@ describe('construirRecordatorios', () => {
     expect(ids(base({ siigo: { estado: 'error' }, ultimaVenta: '2026-09-01' }))).toEqual(['siigo']);
   });
 
-  it('ventas quietas: con Siigo conectado pide traerlas, sin Siigo pide subirlas', () => {
-    const conSiigo = construirRecordatorios(base({ ultimaVenta: '2026-10-30' }))[0];
+  it('Siigo con error de clave pide revisarla (no reintentar)', () => {
+    const r = construirRecordatorios(base({ siigo: { estado: 'error', errorDeClave: true }, ultimaVenta: '2026-10-27' }))[0];
+    expect(r.titulo).toBe('Siigo rechaza la clave');
+    expect(r.accion).toBe('Revisar clave');
+    expect(r.detalle).toContain('usuario y la access key');
+  });
+
+  it('ventas quietas: con Siigo conectado no pide "traer" (ya está todo); sin Siigo pide subirlas', () => {
+    const conSiigo = construirRecordatorios(base({ ultimaVenta: '2026-10-27' }))[0];
     expect(conSiigo.id).toBe('facturas-venta');
     expect(conSiigo.nivel).toBe('warn');
-    expect(conSiigo.accion).toBe('Traer de Siigo');
+    expect(conSiigo.accion).toBe('Ver facturas');
+    expect(conSiigo.detalle).toBe('La última que hay en Siigo es del 27 oct (hace 16 días). Si facturaste después, revisá que esté emitida en Siigo.');
     const sinSiigo = construirRecordatorios(base({ siigo: null, ultimaVenta: '2026-10-01' }))[0];
     expect(sinSiigo.accion).toBe('Subir facturas');
     expect(sinSiigo.nivel).toBe('alarm'); // 42 días

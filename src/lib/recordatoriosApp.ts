@@ -38,8 +38,9 @@ export interface Recordatorio {
 export interface SenalesApp {
   /** Hoy, 'YYYY-MM-DD' (hora local). */
   hoy: string;
-  /** Conexión con Siigo del dueño; null = nunca la configuró (o es colaborador). */
-  siigo: { estado: string | null } | null;
+  /** Conexión con Siigo del dueño; null = nunca la configuró (o es colaborador).
+   *  `errorDeClave`: Siigo rechazó usuario/access key (no se arregla reintentando). */
+  siigo: { estado: string | null; errorDeClave?: boolean } | null;
   /** issue_date de la última factura de venta, o null si no hay ninguna. */
   ultimaVenta: string | null;
   /** issue_date de la última factura de compra, o null si no hay ninguna. */
@@ -120,31 +121,41 @@ function reglaSiigoYVentas(s: SenalesApp): Recordatorio[] {
   if (siigoCaido) {
     // Con Siigo caído no entra NADA de Siigo (ni ventas ni inventario): un
     // solo aviso, con la fecha de la última venta como evidencia.
+    const deClave = estado === 'revoked' || !!s.siigo?.errorDeClave;
+    const desde = s.ultimaVenta
+      ? `No entran facturas de venta desde el ${fechaCorta(s.ultimaVenta, s.hoy)}.`
+      : 'No se actualizan las facturas ni el inventario de Siigo.';
     return [{
       id: 'siigo',
       nivel: 'alarm',
-      titulo: 'Siigo desconectado',
-      detalle: s.ultimaVenta
-        ? `No entran facturas de venta desde el ${fechaCorta(s.ultimaVenta, s.hoy)}. Se reconecta en Ajustes.`
-        : 'No se actualizan las facturas ni el inventario de Siigo. Se reconecta en Ajustes.',
+      titulo: deClave ? 'Siigo rechaza la clave' : 'Siigo desconectado',
+      // Un error pasajero lo reintenta sola la app (useSiigoAutoSync); uno de
+      // clave solo se arregla escribiendo usuario y access key correctos.
+      detalle: deClave
+        ? `${desde} Revisá el usuario y la access key en Ajustes.`
+        : `${desde} La app reintenta sola; si sigue, reintentá en Ajustes.`,
       ruta: '/settings#siigo',
-      accion: 'Reconectar',
+      accion: deClave ? 'Revisar clave' : 'Reintentar',
       modulo: 'admin',
       dias: diasVentas ?? 0,
     }];
   }
 
   if (diasVentas != null && diasVentas >= DIAS_VENTAS_QUIETAS) {
+    // Con Siigo conectado la app ya trae todo lo que hay allá (auto-sync cada
+    // 4 h): si no hay nuevas es porque en Siigo tampoco las hay. No pedir
+    // "traer de Siigo" (caso real 2026-11-12: la última era la FV-2-330).
     const conSiigo = estado === 'connected';
+    const cuando = `${fechaCorta(s.ultimaVenta!, s.hoy)} (hace ${plural(diasVentas, 'día', 'días')})`;
     return [{
       id: 'facturas-venta',
       nivel: diasVentas >= DIAS_VENTAS_ALARMA ? 'alarm' : 'warn',
       titulo: 'Sin facturas de venta nuevas',
-      detalle: `La última es del ${fechaCorta(s.ultimaVenta!, s.hoy)} (hace ${plural(diasVentas, 'día', 'días')}). ${
-        conSiigo ? 'Traé las nuevas de Siigo.' : 'Subí las facturas que faltan.'
-      }`,
+      detalle: conSiigo
+        ? `La última que hay en Siigo es del ${cuando}. Si facturaste después, revisá que esté emitida en Siigo.`
+        : `La última es del ${cuando}. Subí las facturas que faltan.`,
       ruta: '/invoices/venta',
-      accion: conSiigo ? 'Traer de Siigo' : 'Subir facturas',
+      accion: conSiigo ? 'Ver facturas' : 'Subir facturas',
       modulo: 'facturas_venta',
       dias: diasVentas,
     }];

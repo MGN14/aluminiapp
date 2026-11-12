@@ -18,6 +18,7 @@ import {
   construirRecordatorios, filtrarPospuestos, posponer,
   type Pospuestos, type Recordatorio, type SenalesApp,
 } from '@/lib/recordatoriosApp';
+import { clasificarErrorSiigo } from '@/lib/siigoConexion';
 
 /** Misma llave que el aviso de extractos de Conciliación ("No avisar de esta cuenta"). */
 const EXTRACTOS_NO_AVISAR_KEY = 'aluminia_extractos_no_avisar_v1';
@@ -74,7 +75,7 @@ async function contar(q: RespuestaDb): Promise<number> {
 async function fetchSenales(ownerId: string, esDueno: boolean): Promise<SenalesDb> {
   const [siigo, venta, compra, extractosRes, sesion, variante, corte, cajaVieja, cajaN] = await Promise.all([
     esDueno
-      ? primeraFila(db.from('user_siigo_credentials').select('connection_status').eq('user_id', ownerId).limit(1))
+      ? primeraFila(db.from('user_siigo_credentials').select('connection_status, last_error').eq('user_id', ownerId).limit(1))
       : Promise.resolve(null),
     primeraFila(db.from('invoices').select('issue_date').eq('user_id', ownerId).eq('type', 'venta')
       .order('issue_date', { ascending: false }).limit(1)),
@@ -106,7 +107,12 @@ async function fetchSenales(ownerId: string, esDueno: boolean): Promise<SenalesD
   const extractos = (Array.isArray(extractosRes.data) ? extractosRes.data : []) as SenalesApp['extractos'];
 
   return {
-    siigo: siigo ? { estado: typeof siigo.connection_status === 'string' ? siigo.connection_status : null } : null,
+    siigo: siigo
+      ? {
+        estado: typeof siigo.connection_status === 'string' ? siigo.connection_status : null,
+        errorDeClave: clasificarErrorSiigo(typeof siigo.last_error === 'string' ? siigo.last_error : null) === 'clave',
+      }
+      : null,
     ultimaVenta: dia(venta?.issue_date),
     ultimaCompra: dia(compra?.issue_date),
     extractos: extractosRes.error ? [] : extractos,

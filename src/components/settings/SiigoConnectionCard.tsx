@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Plug, RefreshCw, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { logEvent } from '@/lib/analytics';
+import { clasificarErrorSiigo, mensajeErrorSiigo } from '@/lib/siigoConexion';
 
 type SiigoCreds = {
   siigo_username: string;
@@ -107,6 +108,7 @@ export default function SiigoConnectionCard() {
 
       qc.invalidateQueries({ queryKey: ['siigo-creds', user?.id] });
       qc.invalidateQueries({ queryKey: ['invoices'] });
+      qc.invalidateQueries({ queryKey: ['recordatorios-app'] });
       // Surface honesto por tipo: los errores/vacíos de COMPRA eran invisibles
       // (solo se mostraba synced) y parecía bug de la app. Si Siigo reporta 0
       // compras, el problema es de origen: las FC no están causadas en Siigo.
@@ -126,6 +128,8 @@ export default function SiigoConnectionCard() {
         ...(compraTotal === 0 || errCount > 0 ? { duration: 12000 } : {}),
       });
     } catch (e: any) {
+      // El fallo deja un error nuevo en la fila: refrescar para mostrarlo.
+      qc.invalidateQueries({ queryKey: ['siigo-creds', user?.id] });
       toast({
         title: 'Error sincronizando',
         description: e.message ?? 'Intenta de nuevo en unos minutos.',
@@ -153,6 +157,7 @@ export default function SiigoConnectionCard() {
   };
 
   const isConnected = creds?.connection_status === 'connected';
+  const errorPasajero = creds?.connection_status === 'error' && clasificarErrorSiigo(creds.last_error) === 'pasajero';
 
   return (
     <Card>
@@ -223,7 +228,7 @@ export default function SiigoConnectionCard() {
             {creds?.last_error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="text-xs">{creds.last_error}</AlertDescription>
+                <AlertDescription className="text-xs" title={creds.last_error}>{mensajeErrorSiigo(creds.last_error)}</AlertDescription>
               </Alert>
             )}
 
@@ -243,14 +248,16 @@ export default function SiigoConnectionCard() {
                 {isConnected ? 'Actualizar credenciales' : 'Conectar'}
               </Button>
 
-              {isConnected && (
+              {/* Con error pasajero también: el sync usa la clave guardada y,
+                  si Siigo responde, deja la conexión otra vez en Conectado. */}
+              {(isConnected || errorPasajero) && (
                 <Button variant="secondary" onClick={sync} disabled={syncing}>
                   {syncing ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <RefreshCw className="h-4 w-4 mr-2" />
                   )}
-                  Traer facturas de Siigo
+                  {isConnected ? 'Traer facturas de Siigo' : 'Reintentar con la clave guardada'}
                 </Button>
               )}
 

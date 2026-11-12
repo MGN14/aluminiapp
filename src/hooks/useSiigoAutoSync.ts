@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useDataOwner } from '@/hooks/useDataOwner';
+import { debeReintentarSiigo } from '@/lib/siigoConexion';
 
 /**
  * Sincronización automática con Siigo al entrar a la app.
@@ -62,12 +63,24 @@ export function useSiigoAutoSync() {
       try {
         const { data: creds } = await supabase
           .from('user_siigo_credentials')
-          .select('connection_status, last_invoice_pulled_at, last_products_pulled_at')
+          .select('connection_status, last_error, updated_at, last_invoice_pulled_at, last_products_pulled_at')
           .maybeSingle();
-        if (!creds || creds.connection_status !== 'connected') return;
+        if (!creds) return;
 
-        const needInvoices = olderThan((creds as { last_invoice_pulled_at: string | null }).last_invoice_pulled_at, STALE_MS);
-        const needProducts = olderThan((creds as { last_products_pulled_at: string | null }).last_products_pulled_at, STALE_MS);
+        // Un error PASAJERO de Siigo (403 de su firewall, 5xx) dejaba el
+        // estado en 'error' y el auto-sync no volvía a intentar nunca. Ahora
+        // se reintenta con la clave guardada media hora después del error;
+        // un error de clave (400/401) sigue esperando a que la corrijan.
+        const reintento = debeReintentarSiigo(
+          { estado: creds.connection_status, lastError: creds.last_error, updatedAt: creds.updated_at },
+          Date.now(),
+        );
+        if (creds.connection_status !== 'connected' && !reintento) return;
+
+        // El sync de facturas es el que deja el estado en 'connected' si el
+        // /auth pasa: en un reintento va solo ese; productos, en la próxima.
+        const needInvoices = reintento || olderThan((creds as { last_invoice_pulled_at: string | null }).last_invoice_pulled_at, STALE_MS);
+        const needProducts = !reintento && olderThan((creds as { last_products_pulled_at: string | null }).last_products_pulled_at, STALE_MS);
         if (!needInvoices && !needProducts) return;
 
         try { localStorage.setItem(ATTEMPT_KEY, String(Date.now())); } catch { /* ignore */ }
@@ -87,7 +100,8 @@ export function useSiigoAutoSync() {
         // las familias de queries afectadas (no invalida toda la cache).
         if (invoicesOk || productsOk) {
           const affected = ['invoice', 'inventory', 'balance-sheet', 'financial-actuals',
-            'collection', 'cartera', 'operative', 'pyg', 'informe-banco', 'import_reference_history'];
+            'collection', 'cartera', 'operative', 'pyg', 'informe-banco', 'import_reference_history',
+            'siigo-creds', 'recordatorios-app'];
           qc.invalidateQueries({
             predicate: (q) => {
               const key = Array.isArray(q.queryKey) ? String(q.queryKey[0] ?? '') : String(q.queryKey);
