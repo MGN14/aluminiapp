@@ -64,11 +64,11 @@ export default function ExtractosFaltantesBanner({ statements, traspasosSinEspej
   };
 
   return (
-    <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.07] px-4 py-3 text-xs space-y-1.5">
+    <div className="rounded-xl border border-border bg-card px-4 py-3 text-xs space-y-2">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
-          <FileWarning className="h-4 w-4 shrink-0" />
-          Faltan extractos por subir
+        <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <FileWarning className="h-4 w-4 shrink-0 text-muted-foreground" />
+          Extractos por actualizar
         </p>
         <Link to="/statement-upload" className="text-xs font-medium text-primary hover:underline">
           Subir extractos
@@ -78,7 +78,7 @@ export default function ExtractosFaltantesBanner({ statements, traspasosSinEspej
       {atrasadas.map((s) => {
         const sinEspejo = traspasosSinEspejo.filter((t) => (t.date ?? '') > s.hasta).length;
         return (
-          <div key={`a-${s.bank}`} className="flex items-start justify-between gap-3">
+          <div key={`a-${s.bank}`} className="flex flex-col sm:flex-row sm:justify-between items-start gap-2 sm:gap-3">
             <p className="text-foreground">
               <strong>{s.bank}</strong>: cargado hasta el {fmtDia(s.hasta)}, {s.diasAtras} días atrás de tu cuenta más al día.
               {sinEspejo > 0 && (
