@@ -121,7 +121,7 @@ export default function MaestroProductos() {
 
   // Persistido: la búsqueda del maestro sobrevive si cambia de tab/pestaña.
   const [search, setSearch] = usePersistedFormState<string>('maestro-productos:search:v1', '');
-  const [subTab, setSubTab] = usePersistedFormState<'siigo' | 'variantes'>('maestro-productos:subtab:v1', 'siigo');
+  const [subTab, setSubTab] = usePersistedFormState<'siigo' | 'variantes'>('maestro-productos:subtab:v2', 'variantes');
   // El modal de agregar/editar producto también se reabre solo si Nico
   // estaba en medio de tipear y se refresca / cambia de tab.
   const [modalOpen, setModalOpen] = usePersistedDialogOpen('maestro-productos:form:open');
@@ -334,18 +334,18 @@ export default function MaestroProductos() {
           referencias por variante (Nico, 2026-08-04). */}
       <div className="flex w-fit max-w-full flex-wrap gap-1 rounded-lg border bg-muted/50 p-1">
         <button
-          onClick={() => setSubTab('siigo')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subTab === 'siigo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-        >
-          <BookOpen className="h-4 w-4" />
-          Productos Siigo (-5)
-        </button>
-        <button
           onClick={() => setSubTab('variantes')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subTab === 'variantes' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
         >
           <Layers className="h-4 w-4" />
           Referencias por variante
+        </button>
+        <button
+          onClick={() => setSubTab('siigo')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subTab === 'siigo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <BookOpen className="h-4 w-4" />
+          Productos Siigo (-5)
         </button>
       </div>
 
