@@ -13,7 +13,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon, Trash2, Copy } from 'lucide-react';
+import { Pencil, Save, X, FileText, CheckCircle, Link as LinkIcon, Trash2, Copy, Truck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { resyncRemisionInventory } from '@/lib/remisionInventory';
 
 interface Props {
@@ -48,6 +49,7 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(initialEditing);
   const [saving, setSaving] = useState(false);
 
@@ -293,6 +295,17 @@ export default function RemisionDetailModal({ remisionId, open, onOpenChange, in
                 </Badge>
               )}
             </DialogTitle>
+            {remision && !editing && remision.remision_type !== 'compra' && remision.status !== 'cancelado' && (
+              <Button
+                variant={remision.status === 'pendiente' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => { onOpenChange(false); navigate(`/remisiones/${remision.id}/cargue`); }}
+                title={remision.status === 'pendiente' ? 'Planear el cargue y cargar el camión' : 'Ver el cargue: paquetes y fotos'}
+              >
+                <Truck className="h-3.5 w-3.5" /> {remision.status === 'pendiente' ? 'Cargar' : 'Ver cargue'}
+              </Button>
+            )}
             {remision && !editing && (
               <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
                 <Pencil className="h-3.5 w-3.5" />

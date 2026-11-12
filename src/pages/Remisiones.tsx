@@ -9,14 +9,15 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Package, Eye, Trash2, Pencil, ArrowRightLeft, AlertTriangle, CheckCircle, AlertCircle, XCircle, Link, ArrowUp, ArrowDown, ArrowUpDown, Search, ClipboardList, Truck } from 'lucide-react';
+import { Plus, Package, Eye, Trash2, Pencil, ArrowRightLeft, AlertTriangle, CheckCircle, AlertCircle, XCircle, Link, ArrowUp, ArrowDown, ArrowUpDown, Search, Truck } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import NewRemisionModal from '@/components/remisiones/NewRemisionModal';
 import { usePersistedDialogOpen, usePersistedFormState } from '@/hooks/usePersistedFormState';
 import RemisionDetailModal from '@/components/remisiones/RemisionDetailModal';
-import Despacho from '@/pages/Despacho';
+import BuscarCargueDialog from '@/components/cargue/BuscarCargueDialog';
+import { useNavigate } from 'react-router-dom';
 import VincularFacturaModal from '@/components/remisiones/VincularFacturaModal';
 import VincularPagoRemisionModal from '@/components/remisiones/VincularPagoRemisionModal';
 import { reverseRemisionInventory } from '@/lib/remisionInventory';
@@ -134,8 +135,10 @@ export default function Remisiones() {
     'remisiones:filtros:v1',
     { search: '', statusFilter: 'all', typeFilter: 'all', sortBy: 'date', sortDir: 'desc' },
   );
-  // Pestañas del módulo: Remisiones (lista) | Estación de despacho.
-  const [modTab, setModTab] = usePersistedFormState<'remisiones' | 'despacho'>('remisiones:modtab:v1', 'remisiones');
+  // El despacho nace de la remisión: cada remisión de venta abre su cargue
+  // (plan, paquetes, fotos). Reclamos: "Buscar cargue".
+  const navigate = useNavigate();
+  const [buscarCargueOpen, setBuscarCargueOpen] = useState(false);
   // Segmento de clientes: mayoristas vs fabricantes — cada pestaña con sus KPIs.
   const [segTab, setSegTab] = usePersistedFormState<'todos' | Segment>('remisiones:segtab:v1', 'todos');
   const search = filters.search;
@@ -176,6 +179,25 @@ export default function Remisiones() {
   });
 
   const { isAdmin } = usePermissions();
+
+  // Estado del cargue de cada remisión (plan / cargado). Si la migración del
+  // cargue no está aplicada todavía, queda vacío sin romper la lista.
+  const { data: cargues = {} } = useQuery({
+    queryKey: ['remision-cargues', user?.id],
+    enabled: !!user?.id,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).from('remision_cargues').select('remision_id, estado, paquetes');
+      if (error) return {} as Record<string, { estado: string; paquetes: number | null }>;
+      const out: Record<string, { estado: string; paquetes: number | null }> = {};
+      for (const c of (data ?? []) as { remision_id: string; estado: string; paquetes: number | null }[]) out[c.remision_id] = { estado: c.estado, paquetes: c.paquetes };
+      return out;
+    },
+  });
+  const porCargar = useMemo(
+    () => remisiones.filter((r: any) => r.remision_type !== 'compra' && r.status === 'pendiente').length,
+    [remisiones],
+  );
 
   // Clasificación mayorista/fabricante por beneficiario.
   const { data: segmentRows = [] } = useQuery({
@@ -434,22 +456,7 @@ export default function Remisiones() {
 
   return (
     <AppLayout>
-      <div className="flex items-center bg-muted/60 rounded-lg p-0.5 w-fit mb-5">
-        <button
-          onClick={() => setModTab('remisiones')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${modTab === 'remisiones' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-        >
-          <ClipboardList className="h-4 w-4" /> Remisiones
-        </button>
-        <button
-          onClick={() => setModTab('despacho')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${modTab === 'despacho' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-        >
-          <Truck className="h-4 w-4" /> Estación de despacho
-        </button>
-      </div>
-      {modTab === 'despacho' && <Despacho />}
-      <div className="space-y-6" style={{ display: modTab === 'remisiones' ? undefined : 'none' }}>
+      <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Remisiones</h1>
@@ -463,6 +470,9 @@ export default function Remisiones() {
             </span>
             {/* Las remisiones siempre se crean en DIAN. En Modo Gerencial
                 no se muestran nuevas — el flujo es Mover desde DIAN. */}
+            <Button variant="outline" onClick={() => setBuscarCargueOpen(true)} className="gap-2" title="Reclamos: buscá el cargue por cliente, remisión, referencia o serial del paquete">
+              <Search className="h-4 w-4" />Buscar cargue
+            </Button>
             {!effectiveGerencial && (
               <Button onClick={() => setNewOpen(true)} className="gap-2">
                 <Plus className="h-4 w-4" />Nueva Remisión
@@ -486,6 +496,16 @@ export default function Remisiones() {
               </button>
             ))}
           </div>
+          {porCargar > 0 && (
+            <button
+              type="button"
+              onClick={() => setFilters((f) => ({ ...f, statusFilter: f.statusFilter === 'pendiente' ? 'all' : 'pendiente', typeFilter: f.statusFilter === 'pendiente' ? 'all' : 'venta' }))}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${statusFilter === 'pendiente' ? 'bg-primary text-primary-foreground border-primary' : 'bg-card border-border hover:bg-muted'}`}
+              title="Remisiones de venta pendientes de cargar al camión"
+            >
+              <Truck className="h-3.5 w-3.5" /> Por cargar · {porCargar}
+            </button>
+          )}
           {sinClasificar > 0 && (
             <span className="text-[11px] text-amber-600">
               {sinClasificar} cliente{sinClasificar > 1 ? 's' : ''} sin clasificar — tocá la etiqueta gris junto al nombre para asignarlo
@@ -699,7 +719,17 @@ export default function Remisiones() {
                     const isCompra = r.remision_type === 'compra';
                     return (
                       <TableRow key={r.id}>
-                        <TableCell className="font-medium">{r.number}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>{r.number}</span>
+                            {/* El despacho nace de la remisión: a la vista, sin scroll lateral en el iPad. */}
+                            {!isCompra && r.status === 'pendiente' && (
+                              <Button size="sm" className="h-8 gap-1.5" onClick={() => navigate(`/remisiones/${r.id}/cargue`)} title={cargues[r.id] ? 'Seguir el cargue' : 'Planear el cargue y cargar el camión'}>
+                                <Truck className="h-3.5 w-3.5" /> {cargues[r.id] ? 'Seguir cargue' : 'Cargar'}
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <Badge variant={isCompra ? 'default' : 'secondary'} className={isCompra ? 'bg-blue-100 text-blue-700 hover:bg-blue-100' : ''}>
                             {isCompra ? 'Compra' : 'Venta'}
@@ -790,6 +820,16 @@ export default function Remisiones() {
                         })()}
                         <TableCell>
                           <div className="flex items-center gap-1">
+                            {!isCompra && r.status !== 'pendiente' && r.status !== 'cancelado' && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => navigate(`/remisiones/${r.id}/cargue`)}
+                                title={cargues[r.id]?.estado === 'cargado' ? `Ver cargue: ${cargues[r.id]?.paquetes ?? '—'} paquetes y fotos` : 'Ver cargue'}
+                              >
+                                <Truck className={`h-4 w-4 ${cargues[r.id]?.estado === 'cargado' ? 'text-success' : 'text-muted-foreground'}`} />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -899,6 +939,8 @@ export default function Remisiones() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BuscarCargueDialog open={buscarCargueOpen} onOpenChange={setBuscarCargueOpen} />
 
       <NewRemisionModal
         open={newOpen}

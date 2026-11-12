@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  loadLocal, saveLocal, clearLocal, pendientesPorRemision, mergeEvents, enqueueInsert, undoLast,
+  loadLocal, saveLocal, clearLocal, pendientesPorRemision, mergeEvents, enqueueInsert, undoLast, quitarEvento,
   syncOps, aplicarResultadoSync, EMPTY_LOCAL,
   type DispatchEvent, type SyncClient, type CargueLocalState,
 } from './dispatchQueue';
@@ -107,6 +107,19 @@ describe('undoLast', () => {
   });
   it('sin eventos propios no hace nada', () => {
     expect(undoLast({ ...EMPTY_LOCAL }).undoneId).toBeNull();
+  });
+});
+
+describe('quitarEvento', () => {
+  it('saca de la cola lo que no había subido', () => {
+    const s = enqueueInsert(enqueueInsert({ ...EMPTY_LOCAL }, ev('a')), ev('b'));
+    const out = quitarEvento(s, 'a');
+    expect(out.ops.map((o) => (o.kind === 'insert' ? o.event.id : o.id))).toEqual(['b']);
+    expect(out.mine).toEqual(['b']);
+  });
+  it('encola el borrado de lo que ya subió (una sola vez)', () => {
+    const s = quitarEvento(quitarEvento({ ...EMPTY_LOCAL }, 'x'), 'x');
+    expect(s.ops).toEqual([{ kind: 'delete', id: 'x' }]);
   });
 });
 

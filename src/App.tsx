@@ -63,7 +63,7 @@ const Founder = lazy(() => import("./pages/Founder"));
 const Collaborators = lazy(() => import("./pages/Collaborators"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Remisiones = lazy(() => import("./pages/Remisiones"));
-const Despacho = lazy(() => import("./pages/Despacho"));
+const CarguePage = lazy(() => import("./components/cargue/CarguePage"));
 const Conteo = lazy(() => import("./pages/Conteo"));
 const Cotizaciones = lazy(() => import("./pages/Cotizaciones"));
 const ProductosTerminados = lazy(() => import("./pages/ProductosTerminados"));
@@ -419,12 +419,14 @@ const App = () => (
                 path="/remisiones"
                 element={<RequireModule moduleKey="remisiones"><Remisiones /></RequireModule>}
               />
-              {/* Estación de despacho (también es pestaña dentro de Remisiones).
-                  Despacho ya no envuelve AppLayout, así que acá lo proveemos. */}
+              {/* Cargue de UNA remisión: plan, conteo por paquetes, fotos y cierre.
+                  El despacho nace de la remisión (no hay estación aparte). */}
               <Route
-                path="/despacho"
-                element={<RequireModule moduleKey="remisiones"><AppLayout><Despacho /></AppLayout></RequireModule>}
+                path="/remisiones/:id/cargue"
+                element={<RequireModule moduleKey="remisiones"><AppLayout><CarguePage /></AppLayout></RequireModule>}
               />
+              {/* La estación vieja vivía acá: los enlaces guardados van a Remisiones. */}
+              <Route path="/despacho" element={<Navigate to="/remisiones" replace />} />
               {/* Config del escaneo: etiquetas y ubicaciones — solo admin la configura */}
               <Route
                 path="/conteo"

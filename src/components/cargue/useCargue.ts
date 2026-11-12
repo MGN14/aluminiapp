@@ -6,13 +6,17 @@ import { useOnline } from '@/hooks/useOnline';
 import { parseScan } from '@/lib/qrLabel';
 import { beep } from '@/lib/scanFeedback';
 import { fetchRefAliases } from '@/lib/remisionInventory';
+import { fetchAllPaged } from '@/lib/fetchAllPaged';
 import { buildPickPath, NO_LOC, type Bin, type ProductRef } from '@/lib/pickPath';
 import {
   makeCanon, buildCargueLines, cargadoPorLinea, evaluarConteo, serialYaContado, resumenCargue,
-  ordenarPorUbicacion, type CargueLine,
+  type CargueLine,
 } from '@/lib/despachoCargue';
 import {
-  loadLocal, saveLocal, clearLocal, mergeEvents, enqueueInsert, undoLast, syncOps, aplicarResultadoSync,
+  cargadoEnPaquetes, paquetesDe, siguientePaquete, type EmpaqueRef, type ImportItemLite, type ProductoEmpaque,
+} from '@/lib/cargueEmpaque';
+import {
+  loadLocal, saveLocal, clearLocal, mergeEvents, enqueueInsert, undoLast, quitarEvento, syncOps, aplicarResultadoSync,
   type CargueLocalState, type DispatchEvent, type SyncClient,
 } from '@/lib/dispatchQueue';
 import { cerrarDespacho, planearCierre, itemsParaImprimir, type CierreResultado, type ItemCierre } from '@/lib/despachoCierre';
@@ -26,6 +30,8 @@ export interface RemisionCargue {
   status: string;
   remision_type: string;
   created_at: string | null;
+  verified_at: string | null;
+  verified_by: string | null;
   remision_items: ItemCierre[];
 }
 
@@ -43,21 +49,22 @@ function newId(): string {
 }
 
 const SCAN_COLS = 'id, remision_id, reference, location, serial, quantity, scanned_at, operator_id';
+const fmt = (n: number) => n.toLocaleString('es-CO');
 
-export function useCargue(remisionId: string, practica: boolean) {
+// ═══════════════════════════ Datos de la remisión ═══════════════════════════
+
+/** Remisión, alias, ubicaciones y lo que hace falta para empaque y peso. */
+export function useCargueDatos(remisionId: string) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const qc = useQueryClient();
-  const online = useOnline();
 
-  // ── Datos ──────────────────────────────────────────────────────────────
   const remQuery = useQuery({
-    queryKey: ['despacho-remision', remisionId],
+    queryKey: ['cargue-remision', remisionId],
     enabled: !!remisionId && !!userId,
-    refetchInterval: practica ? false : 20_000, // la oficina puede editar el pedido mientras se carga
+    refetchInterval: 20_000, // la oficina puede editar el pedido mientras se carga
     queryFn: async () => {
       const { data, error } = await (supabase.from('remisiones') as any)
-        .select('id, number, date, beneficiary, notes, status, remision_type, created_at, remision_items(id, reference, product_name, units, unit_cost)')
+        .select('id, number, date, beneficiary, notes, status, remision_type, created_at, verified_at, verified_by, remision_items(id, reference, product_name, units, unit_cost)')
         .eq('id', remisionId)
         .maybeSingle();
       if (error) throw error;
@@ -74,13 +81,13 @@ export function useCargue(remisionId: string, practica: boolean) {
   });
 
   const { data: products = [] } = useQuery({
-    queryKey: ['pick-products', userId],
+    queryKey: ['cargue-productos', userId],
     enabled: !!userId,
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      const { data, error } = await supabase.from('inventory_products').select('id, reference, name').eq('active', true);
+      const { data, error } = await (supabase.from('inventory_products') as any).select('id, reference, name, units_per_package').eq('active', true);
       if (error) throw error;
-      return (data || []) as ProductRef[];
+      return (data || []) as Array<ProductRef & ProductoEmpaque>;
     },
   });
 
@@ -95,33 +102,28 @@ export function useCargue(remisionId: string, practica: boolean) {
     },
   });
 
-  // Estado COMPARTIDO: lo que ya subió al servidor (varios iPads suman al mismo pedido).
-  const scansQuery = useQuery({
-    queryKey: ['dispatch-scans', remisionId],
-    enabled: !!remisionId && !practica,
-    refetchInterval: online ? 3000 : false,
+  // Packing lists de los contenedores: piezas por paquete y peso por pieza.
+  const { data: importItems = [] } = useQuery({
+    queryKey: ['cargue-import-items', userId],
+    enabled: !!userId,
+    staleTime: 30 * 60_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any).from('dispatch_scans').select(SCAN_COLS).eq('remision_id', remisionId);
-      if (error) throw error;
-      return (data || []) as DispatchEvent[];
+      try {
+        return await fetchAllPaged<ImportItemLite>((from, to) =>
+          (supabase.from('import_items') as any)
+            .select('reference, cantidad, bultos, unidad, peso_kg, created_at')
+            .order('created_at', { ascending: true })
+            .range(from, to), { maxRows: 20_000 });
+      } catch {
+        return [] as ImportItemLite[];
+      }
     },
   });
-  const serverEvents = useMemo(() => (practica ? [] : scansQuery.data ?? []), [practica, scansQuery.data]);
 
-  // ── Estado local (cola + deshacer + fuera del pedido), persistido en el iPad ──
-  const [local, setLocal] = useState<CargueLocalState>(() => loadLocal(remisionId, practica));
-  const localRef = useRef(local);
-  localRef.current = local;
-  useEffect(() => { saveLocal(remisionId, local, practica); }, [remisionId, local, practica]);
-
-  // ── Derivados ──────────────────────────────────────────────────────────
   const remision = remQuery.data ?? null;
   const items = useMemo(() => remision?.remision_items ?? [], [remision]);
   const canon = useMemo(() => makeCanon(aliases), [aliases]);
   const lines = useMemo(() => buildCargueLines(items, canon), [items, canon]);
-  const events = useMemo(() => mergeEvents(serverEvents, local.ops), [serverEvents, local.ops]);
-  const cargado = useMemo(() => cargadoPorLinea(events, canon), [events, canon]);
-  const resumen = useMemo(() => resumenCargue(lines, cargado), [lines, cargado]);
 
   const ubicaciones = useMemo(() => {
     // Todo por llave CANÓNICA (alias incluidos): "MN92" del pedido encuentra
@@ -150,17 +152,71 @@ export function useCargue(remisionId: string, practica: boolean) {
     return out;
   }, [products, locs, lines, canon]);
 
-  const orderedLines = useMemo(() => ordenarPorUbicacion(lines, ubicaciones), [lines, ubicaciones]);
+  return {
+    remision, items, aliases, canon, lines, ubicaciones, products, importItems,
+    loading: remQuery.isLoading, refetch: remQuery.refetch,
+  };
+}
+
+// ═══════════════════════════ Conteo por paquetes ═══════════════════════════
+
+export function useCargueConteo(params: {
+  remisionId: string;
+  practica: boolean;
+  lines: CargueLine[];
+  canon: (r: string) => string;
+  aliases: Record<string, string>;
+  items: ItemCierre[];
+  empaques: Record<string, EmpaqueRef>;
+  remision: RemisionCargue | null;
+  orden: string[];
+}) {
+  const { remisionId, practica, lines, canon, aliases, items, empaques, remision, orden } = params;
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const qc = useQueryClient();
+  const online = useOnline();
+
+  // Estado COMPARTIDO: lo que ya subió (varios iPads suman al mismo pedido).
+  const scansQuery = useQuery({
+    queryKey: ['dispatch-scans', remisionId],
+    enabled: !!remisionId,
+    refetchInterval: !practica && online ? 3000 : false,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).from('dispatch_scans').select(SCAN_COLS).eq('remision_id', remisionId);
+      if (error) throw error;
+      return (data || []) as DispatchEvent[];
+    },
+  });
+  // En práctica no se mira el servidor: se empieza de cero sin tocar nada.
+  const serverEvents = useMemo(() => (practica ? [] : scansQuery.data ?? []), [practica, scansQuery.data]);
+  const eventosRegistro = scansQuery.data ?? [];
+
+  const [local, setLocal] = useState<CargueLocalState>(() => loadLocal(remisionId, practica));
+  const localRef = useRef(local);
+  localRef.current = local;
+  useEffect(() => { saveLocal(remisionId, local, practica); }, [remisionId, local, practica]);
+
+  const events = useMemo(() => mergeEvents(serverEvents, local.ops), [serverEvents, local.ops]);
+  const cargado = useMemo(() => cargadoPorLinea(events, canon), [events, canon]);
+  const paquetes = useMemo(() => cargadoEnPaquetes(events, canon), [events, canon]);
+  const resumen = useMemo(() => resumenCargue(lines, cargado), [lines, cargado]);
   const operadores = useMemo(() => new Set(events.map((e) => e.operator_id).filter(Boolean)).size, [events]);
+
+  const ordenadas = useMemo(() => {
+    const pos: Record<string, number> = {};
+    orden.forEach((k, i) => { pos[k] = i; });
+    return [...lines].sort((a, b) => (pos[a.key] ?? 999) - (pos[b.key] ?? 999));
+  }, [lines, orden]);
 
   const activeKey = useMemo(() => {
     if (local.activeKey && lines.some((l) => l.key === local.activeKey)) return local.activeKey;
-    const sig = orderedLines.find((l) => (cargado[l.key] ?? 0) < l.pedido);
-    return sig?.key ?? orderedLines[0]?.key ?? null;
-  }, [local.activeKey, lines, orderedLines, cargado]);
+    const sig = ordenadas.find((l) => (cargado[l.key] ?? 0) < l.pedido);
+    return sig?.key ?? ordenadas[0]?.key ?? null;
+  }, [local.activeKey, lines, ordenadas, cargado]);
   const activeLine: CargueLine | null = lines.find((l) => l.key === activeKey) ?? null;
 
-  // ── Avisos ─────────────────────────────────────────────────────────────
+  // ── Avisos ──
   const [flash, setFlash] = useState<Flash | null>(null);
   const flashTimer = useRef<number | null>(null);
   const showFlash = useCallback((kind: FlashKind, title: string, detail?: string) => {
@@ -173,7 +229,20 @@ export function useCargue(remisionId: string, practica: boolean) {
   }, []);
   useEffect(() => () => { if (flashTimer.current) window.clearTimeout(flashTimer.current); }, []);
 
-  // ── Registrar conteos ──────────────────────────────────────────────────
+  const textoAvance = useCallback((key: string, unidades: number, paq: number) => {
+    const line = lines.find((l) => l.key === key);
+    if (!line) return '';
+    const plan = paquetesDe(line.pedido, empaques[key]?.porPaquete ?? null);
+    return `${fmt(paq)} de ${fmt(plan.total)} paq · ${fmt(unidades)} de ${fmt(line.pedido)} und`;
+  }, [lines, empaques]);
+
+  /** Siguiente referencia del plan que todavía no está completa. */
+  const siguienteDelPlan = useCallback((desde: string, cargadoNuevo: Record<string, number>) => {
+    const i = ordenadas.findIndex((l) => l.key === desde);
+    const resto = [...ordenadas.slice(i + 1), ...ordenadas.slice(0, Math.max(0, i))];
+    return resto.find((l) => (cargadoNuevo[l.key] ?? 0) < l.pedido)?.key ?? null;
+  }, [ordenadas]);
+
   const addEvent = useCallback((row: { reference: string; quantity: number; serial?: string | null; location?: string | null }) => {
     const event: DispatchEvent = {
       id: newId(),
@@ -188,14 +257,23 @@ export function useCargue(remisionId: string, practica: boolean) {
     setLocal((cur) => enqueueInsert(cur, event));
   }, [remisionId, userId]);
 
-  const avisarResultado = useCallback((line: CargueLine, qty: number, origen: 'scan' | 'manual') => {
-    const r = evaluarConteo(lines, cargado, line.key, qty);
+  /** Aviso + avance automático a la siguiente referencia del plan al completar. */
+  const despuesDeSumar = useCallback((line: CargueLine, unidades: number) => {
+    const r = evaluarConteo(lines, cargado, line.key, unidades);
     if (r.tipo === 'fuera') return;
-    const signo = qty > 0 ? `+${qty}` : `${qty}`;
-    if (r.tipo === 'sobrante') showFlash('error', `${line.reference}: sobran ${r.nuevo - r.pedido}`, `Cargaste ${r.nuevo} y el pedido dice ${r.pedido}. Bajá lo que sobra.`);
-    else if (r.tipo === 'completo') showFlash('done', `${line.reference} completa`, `${r.nuevo} de ${r.pedido}`);
-    else if (origen === 'scan') showFlash('ok', `${line.reference} ${signo}`, `${r.nuevo} de ${r.pedido} · faltan ${r.pedido - r.nuevo}`);
-  }, [lines, cargado, showFlash]);
+    const paq = (paquetes[line.key]?.paquetes ?? 0) + (unidades > 0 ? 1 : -1);
+    const avance = textoAvance(line.key, r.nuevo, Math.max(0, paq));
+    if (r.tipo === 'sobrante') {
+      showFlash('error', `${line.reference}: sobran ${fmt(r.nuevo - r.pedido)} und`, `${avance}. Bajá lo que sobra.`);
+    } else if (r.tipo === 'completo') {
+      const sig = siguienteDelPlan(line.key, { ...cargado, [line.key]: r.nuevo });
+      const sigLine = sig ? lines.find((l) => l.key === sig) : null;
+      showFlash('done', `${line.reference} completa`, sigLine ? `Sigue: ${sigLine.reference}` : 'Todo el pedido está cargado');
+      if (sig) setLocal((cur) => ({ ...cur, activeKey: sig }));
+    } else {
+      showFlash('ok', `${line.reference} +1 paquete (${fmt(unidades)})`, avance);
+    }
+  }, [lines, cargado, paquetes, textoAvance, siguienteDelPlan, showFlash]);
 
   const handleScan = useCallback((raw: string) => {
     const parsed = parseScan(raw);
@@ -206,11 +284,8 @@ export function useCargue(remisionId: string, practica: boolean) {
       const serial = (parsed.serial ?? '').trim().toLowerCase() || null;
       setLocal((cur) => (serial && cur.fuera.some((f) => (f.serial ?? '').toLowerCase() === serial)
         ? cur
-        : {
-          ...cur,
-          fuera: [...cur.fuera, { id: newId(), reference: parsed.reference, quantity: parsed.quantity, at: new Date().toISOString(), serial }],
-        }));
-      showFlash('error', `${parsed.reference} NO va en este pedido`, 'Sacala del camión y marcala abajo como sacada.');
+        : { ...cur, fuera: [...cur.fuera, { id: newId(), reference: parsed.reference, quantity: parsed.quantity, at: new Date().toISOString(), serial }] }));
+      showFlash('error', `${parsed.reference} NO va en este pedido`, 'Sacalo del camión y marcalo arriba como sacado.');
       return;
     }
     if (parsed.serial && serialYaContado(events, parsed.serial)) {
@@ -219,31 +294,65 @@ export function useCargue(remisionId: string, practica: boolean) {
     }
     addEvent({ reference: parsed.reference, quantity: parsed.quantity, serial: parsed.serial ?? null, location: parsed.location ?? null });
     setLocal((cur) => ({ ...cur, activeKey: key }));
-    avisarResultado(line, parsed.quantity, 'scan');
-  }, [canon, lines, events, addEvent, avisarResultado, showFlash]);
+    despuesDeSumar(line, parsed.quantity);
+  }, [canon, lines, events, addEvent, despuesDeSumar, showFlash]);
 
-  const sumar = useCallback((key: string, n: number) => {
+  /** + 1 paquete: la medida estándar, o lo que falta si es el último incompleto. */
+  const agregarPaquete = useCallback((key: string, unidades?: number) => {
     const line = lines.find((l) => l.key === key);
     if (!line) return;
-    const actual = cargado[key] ?? 0;
-    const delta = n < 0 ? Math.max(n, -actual) : n;
-    if (delta === 0) return;
-    addEvent({ reference: line.reference, quantity: delta });
+    const q = Math.round(unidades ?? siguientePaquete(line.pedido, cargado[key] ?? 0, empaques[key]?.porPaquete ?? null));
+    if (q <= 0) return;
+    addEvent({ reference: line.reference, quantity: q });
     setLocal((cur) => ({ ...cur, activeKey: key }));
-    avisarResultado(line, delta, 'manual');
-  }, [lines, cargado, addEvent, avisarResultado]);
+    despuesDeSumar(line, q);
+  }, [lines, cargado, empaques, addEvent, despuesDeSumar]);
 
-  const fijar = useCallback((key: string, valor: number) => {
-    const actual = cargado[key] ?? 0;
-    sumar(key, Math.max(0, Math.round(valor)) - actual);
-  }, [cargado, sumar]);
+  /** − 1 paquete: quita el último paquete contado de esa referencia. */
+  const quitarPaquete = useCallback((key: string) => {
+    const ultimos = events
+      .filter((e) => canon(e.reference ?? '') === key && Number(e.quantity) > 0)
+      .sort((a, b) => (a.scanned_at < b.scanned_at ? 1 : -1));
+    const ultimo = ultimos[0];
+    if (!ultimo) return;
+    setLocal((cur) => ({ ...quitarEvento(cur, ultimo.id), activeKey: key }));
+    const line = lines.find((l) => l.key === key);
+    if (line) {
+      const nuevo = Math.max(0, (cargado[key] ?? 0) - Number(ultimo.quantity));
+      showFlash('warn', `${line.reference}: −1 paquete`, textoAvance(key, nuevo, Math.max(0, (paquetes[key]?.paquetes ?? 1) - 1)));
+    }
+  }, [events, canon, lines, cargado, paquetes, textoAvance, showFlash]);
 
-  const completar = useCallback((key: string) => {
+  /** Escribir cuántos paquetes ESTÁNDAR van (agrega o quita hasta llegar). */
+  const fijarPaquetes = useCallback((key: string, n: number) => {
     const line = lines.find((l) => l.key === key);
     if (!line) return;
-    const falta = line.pedido - (cargado[key] ?? 0);
-    if (falta > 0) sumar(key, falta);
-  }, [lines, cargado, sumar]);
+    const meta = Math.max(0, Math.round(n));
+    const actuales = events
+      .filter((e) => canon(e.reference ?? '') === key && Number(e.quantity) > 0)
+      .sort((a, b) => (a.scanned_at < b.scanned_at ? 1 : -1));
+    const tengo = paquetes[key]?.paquetes ?? 0;
+    if (meta === tengo) return;
+    if (meta < tengo) {
+      setLocal((cur) => actuales.slice(0, tengo - meta).reduce((s, e) => quitarEvento(s, e.id), { ...cur, activeKey: key }));
+      showFlash('warn', `${line.reference}: quedan ${fmt(meta)} paquetes`);
+      return;
+    }
+    let unidades = cargado[key] ?? 0;
+    const pp = empaques[key]?.porPaquete ?? null;
+    const nuevos: DispatchEvent[] = [];
+    for (let i = tengo; i < meta; i++) {
+      const q = siguientePaquete(line.pedido, unidades, pp);
+      unidades += q;
+      nuevos.push({
+        id: newId(), remision_id: remisionId, reference: line.reference, location: null, serial: null,
+        quantity: q, scanned_at: new Date(Date.now() + i).toISOString(), operator_id: userId,
+      });
+    }
+    setLocal((cur) => nuevos.reduce((s, e) => enqueueInsert(s, e), { ...cur, activeKey: key }));
+    showFlash(unidades > line.pedido ? 'error' : unidades === line.pedido ? 'done' : 'ok',
+      `${line.reference}: ${fmt(meta)} paquetes`, textoAvance(key, unidades, meta));
+  }, [lines, events, canon, paquetes, cargado, empaques, remisionId, userId, textoAvance, showFlash]);
 
   const deshacer = useCallback(() => {
     const { state, undoneId } = undoLast(localRef.current);
@@ -255,7 +364,7 @@ export function useCargue(remisionId: string, practica: boolean) {
   const setActive = useCallback((key: string) => setLocal((cur) => ({ ...cur, activeKey: key })), []);
   const resolverFuera = useCallback((id: string) => setLocal((cur) => ({ ...cur, fuera: cur.fuera.filter((f) => f.id !== id) })), []);
 
-  // ── Subida en segundo plano ────────────────────────────────────────────
+  // ── Subida en segundo plano ──
   const client: SyncClient = useMemo(() => ({
     insert: async (e) => {
       const { error } = await (supabase as any).from('dispatch_scans').insert({ ...e, user_id: userId });
@@ -269,8 +378,6 @@ export function useCargue(remisionId: string, practica: boolean) {
 
   const syncingRef = useRef(false);
   const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-
   const syncNow = useCallback(async () => {
     if (practica || syncingRef.current || !userId) return;
     const snapshot = localRef.current.ops;
@@ -283,7 +390,6 @@ export function useCargue(remisionId: string, practica: boolean) {
       // contador no "baja" un instante entre una cosa y la otra.
       if (result.done.length > 0) await qc.refetchQueries({ queryKey: ['dispatch-scans', remisionId] });
       setLocal((cur) => aplicarResultadoSync(cur, result));
-      setSyncError(result.error);
       if (result.serialRechazados.length > 0) {
         const refs = result.serialRechazados.map((e) => e.reference).join(', ');
         showFlash('warn', 'Paquete contado dos veces', `Otro operario ya había escaneado ${refs}: se descontó.`);
@@ -303,34 +409,25 @@ export function useCargue(remisionId: string, practica: boolean) {
     return () => window.clearInterval(t);
   }, [practica, pendientes, online, syncNow]);
 
-  // ── Cierre ─────────────────────────────────────────────────────────────
-  const cerrar = useCallback(async (ajustar: boolean): Promise<CierreResultado & { practica: boolean }> => {
+  // ── Cierre ──
+  const cerrar = useCallback(async (ajustar: boolean, notaExtra: string): Promise<CierreResultado & { practica: boolean }> => {
     if (practica) {
       const plan = planearCierre(items, cargado, aliases, ajustar);
       return {
-        number: remision?.number ?? '',
-        date: remision?.date ?? '',
-        beneficiary: remision?.beneficiary ?? '',
-        items: itemsParaImprimir(plan.items),
-        resumen: plan.resumen,
-        ajustada: plan.ajustada,
-        inventarioOk: true,
-        practica: true,
+        number: remision?.number ?? '', date: remision?.date ?? '', beneficiary: remision?.beneficiary ?? '',
+        items: itemsParaImprimir(plan.items), resumen: plan.resumen, ajustada: plan.ajustada, inventarioOk: true, practica: true,
       };
     }
     if (!userId) throw new Error('Sin sesión');
     await syncNow();
     const quedan = localRef.current.ops.length;
     if (quedan > 0) throw new Error(`Faltan ${quedan} conteo${quedan === 1 ? '' : 's'} por subir. Revisá el wifi y volvé a intentar.`);
-    const res = await cerrarDespacho({
-      remisionId, cargado, aliases, ajustar, userId, operador: user?.email ?? '',
-    });
+    const res = await cerrarDespacho({ remisionId, cargado, aliases, ajustar, userId, operador: user?.email ?? '', notaExtra });
     clearLocal(remisionId, false);
     setLocal({ ops: [], mine: [], fuera: [], activeKey: null });
     qc.invalidateQueries({ queryKey: ['remisiones'] });
-    qc.invalidateQueries({ queryKey: ['despacho-por-cargar'] });
-    qc.invalidateQueries({ queryKey: ['despacho-hoy'] });
-    qc.invalidateQueries({ queryKey: ['despacho-remision', remisionId] });
+    qc.invalidateQueries({ queryKey: ['cargue-remision', remisionId] });
+    qc.invalidateQueries({ queryKey: ['remision-cargues'] });
     if (res.ajustada) {
       qc.invalidateQueries({ queryKey: ['inventory-variants'] });
       qc.invalidateQueries({ queryKey: ['inventory-variant-movs'] });
@@ -339,22 +436,20 @@ export function useCargue(remisionId: string, practica: boolean) {
     return { ...res, practica: false };
   }, [practica, items, cargado, aliases, remision, userId, syncNow, remisionId, user?.email, qc]);
 
-  /** Salir de la práctica sin dejar rastro en el iPad. */
   const descartarPractica = useCallback(() => {
     clearLocal(remisionId, true);
     setLocal({ ops: [], mine: [], fuera: [], activeKey: null });
   }, [remisionId]);
 
   return {
-    remision, loading: remQuery.isLoading, loadError: remQuery.error as Error | null,
-    online, lines, orderedLines, cargado, resumen, ubicaciones, operadores,
+    online, events, eventosRegistro, cargado, paquetes, resumen, operadores, ordenadas,
     activeKey, activeLine, setActive,
     fuera: local.fuera, resolverFuera,
     puedeDeshacer: local.mine.length > 0,
-    flash, handleScan, sumar, fijar, completar, deshacer,
-    pendientes, syncing, syncError, syncNow,
+    flash, handleScan, agregarPaquete, quitarPaquete, fijarPaquetes, deshacer,
+    pendientes, syncing, syncNow,
     cerrar, descartarPractica,
   };
 }
 
-export type CargueApi = ReturnType<typeof useCargue>;
+export type CargueConteoApi = ReturnType<typeof useCargueConteo>;

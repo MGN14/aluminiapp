@@ -75,8 +75,10 @@ export async function cerrarDespacho(input: {
   ajustar: boolean;
   userId: string;
   operador: string;
+  /** Texto que se suma a la nota (paquetes, fotos, vehículo…). */
+  notaExtra?: string;
 }): Promise<CierreResultado> {
-  const { remisionId, cargado, aliases, ajustar, userId, operador } = input;
+  const { remisionId, cargado, aliases, ajustar, userId, operador, notaExtra } = input;
 
   // Siempre contra la remisión FRESCA: la oficina pudo editarla durante el cargue.
   const { data, error } = await (supabase.from('remisiones') as any)
@@ -125,7 +127,8 @@ export async function cerrarDespacho(input: {
     }
   }
 
-  const nota = notaCargue(plan.resumen, { operador, cuando: new Date(), ajustada: plan.ajustada });
+  const nota = [notaCargue(plan.resumen, { operador, cuando: new Date(), ajustada: plan.ajustada }), notaExtra?.trim()]
+    .filter(Boolean).join(' ');
   const notes = [rem.notes?.trim(), nota].filter(Boolean).join('\n');
   const { data: upd, error: updErr } = await (supabase.from('remisiones') as any)
     .update({

@@ -22,7 +22,7 @@ const MODULE_ROUTE: Record<ModuleKey, string> = {
   caja_menor: '/caja-menor',
   inventarios: '/inventarios',
   remisiones: '/remisiones',
-  escaneo: '/despacho',
+  escaneo: '/remisiones',
   cotizaciones: '/productos-terminados',
   creditos: '/creditos',
   nomina: '/nomina',

@@ -114,3 +114,6 @@ verify_jwt = false
 # autenticado con header x-inbox-secret (INVOICE_INBOX_SECRET). Sin JWT posible.
 [functions.receive-purchase-invoice]
 verify_jwt = false
+
+[functions.contar-paquetes-cargue]
+verify_jwt = false

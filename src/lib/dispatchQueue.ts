@@ -141,6 +141,19 @@ export function undoLast(state: CargueLocalState): { state: CargueLocalState; un
   return { state: { ...state, ops, mine }, undoneId: id };
 }
 
+/**
+ * Quita UN evento puntual (p. ej. "−" = quitar el último paquete de una
+ * referencia, aunque lo haya contado otro operario): si no había subido se
+ * saca de la cola; si ya subió, se encola su borrado.
+ */
+export function quitarEvento(state: CargueLocalState, id: string): CargueLocalState {
+  const pendiente = state.ops.some((op) => op.kind === 'insert' && op.event.id === id);
+  const ops = pendiente
+    ? state.ops.filter((op) => !(op.kind === 'insert' && op.event.id === id))
+    : state.ops.some((op) => op.kind === 'delete' && op.id === id) ? state.ops : [...state.ops, { kind: 'delete' as const, id }];
+  return { ...state, ops, mine: state.mine.filter((m) => m !== id) };
+}
+
 export interface SyncError { code?: string | null; message?: string | null }
 export interface SyncClient {
   insert: (event: DispatchEvent) => Promise<{ error: SyncError | null }>;
