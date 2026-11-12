@@ -698,7 +698,7 @@ export default function InvoiceSelector({ invoiceId, tags, transactionType, tran
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[420px] p-0" align="start">
+        <PopoverContent className="w-[420px] max-w-[calc(100vw_-_1rem)] p-0" align="start">
           <div className="p-2 border-b border-border">
             <div className="relative">
               <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />

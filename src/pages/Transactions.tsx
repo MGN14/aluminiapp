@@ -1,3 +1,4 @@
+import '@/components/transactions/reconciliation.css';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,7 +22,6 @@ import TransactionFilters, {
 } from '@/components/transactions/TransactionFilters';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Table,
   TableBody,
   TableHead,
   TableHeader,
@@ -662,29 +662,28 @@ export default function Transactions() {
   // Anchos de columna redimensionables (Excel-like), persistidos.
   const { widths: colWidths, startResize, total: colTotal } = useColumnWidths(TX_COL_DEFAULTS, 'aluminia_tx_colwidths_v1');
 
+  const detailStatement = statements.find((statement) => statement.id === selectedTransaction?.statement_id);
+
   return (
     <AppLayout>
       <TooltipProvider>
-        <div className="max-w-full mx-auto space-y-4 px-4">
-          <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="reconciliation min-w-0 max-w-[1680px] mx-auto space-y-5">
+          <div className="reconciliation-hero flex items-center justify-between flex-wrap gap-4">
             <div>
-              <h1 className="text-[26px] font-semibold tracking-tight text-foreground">Conciliación bancaria</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Conciliación bancaria</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Edita y clasifica tus movimientos bancarios
+                Revisá tus movimientos y cruzá los cobros con cartera.
               </p>
             </div>
             
-            <div className="flex items-center gap-4 flex-wrap">
+            <div className="reconciliation-controls flex min-w-0 max-w-full items-center gap-3 flex-wrap">
               {/* Pending reconciliation counter */}
               {filterCounts.pendientes > 0 && (
-                <Badge 
-                  variant="outline" 
-                  className="flex items-center gap-1.5 text-destructive border-destructive cursor-pointer hover:bg-destructive/10"
-                  onClick={() => handleFiltersChange({ ...filters, estado: 'pendientes' })}
-                >
-                  <AlertCircle className="h-3 w-3" />
-                  <span>{filterCounts.pendientes} sin conciliar</span>
-                </Badge>
+                <Button type="button" variant="outline" className="gap-2 border-warning/40 text-warning"
+                  onClick={() => { setVista('movimientos'); handleFiltersChange({ ...filters, estado: 'pendientes' }); }}>
+                  <AlertCircle className="size-4" />
+                  {filterCounts.pendientes} por asignar
+                </Button>
               )}
               
               {filterCounts.pendientes === 0 && filterCounts.total > 0 && (
@@ -693,7 +692,7 @@ export default function Transactions() {
                   className="flex items-center gap-1.5 text-success border-success"
                 >
                   <Users className="h-3 w-3" />
-                  <span>Todo conciliado</span>
+                  <span>Beneficiarios al día</span>
                 </Badge>
               )}
               
@@ -721,7 +720,7 @@ export default function Transactions() {
                     fondo). Click en el header del módulo = ver el módulo entero. */}
                 <Popover open={stmtPickerOpen} onOpenChange={setStmtPickerOpen}>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-[240px] justify-between font-normal">
+                    <Button variant="outline" className="w-[240px] min-w-0 max-w-full justify-between font-normal">
                       <span className="truncate">{statementFilterLabel}</span>
                       <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                     </Button>
@@ -763,7 +762,7 @@ export default function Transactions() {
                                 {selectedStatement === groupValue && <Check className="h-3 w-3 shrink-0" />}
                                 {g.emoji} {g.label}
                               </span>
-                              <span className="text-[10px] text-muted-foreground">
+                              <span className="text-xs text-muted-foreground">
                                 {list.length === 0
                                   ? 'Sin extractos este año'
                                   : `${list.length} extracto${list.length > 1 ? 's' : ''} · ${groupTxCount} mov. — click para ver todo`}
@@ -782,7 +781,7 @@ export default function Transactions() {
                                   {selectedStatement === stmt.id && <Check className="h-3 w-3 shrink-0" />}
                                   <span className="truncate flex-1">{stmt.display_name || stmt.file_name}</span>
                                   {stmt.transaction_count ? (
-                                    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                                       {stmt.transaction_count}
                                     </span>
                                   ) : null}
@@ -800,96 +799,66 @@ export default function Transactions() {
           </div>
 
           {/* Management buttons */}
-          <div className="flex gap-4 items-center text-sm">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 items-center text-sm">
             <div className="flex items-center gap-1 text-muted-foreground">
               <span>Categorías:</span>
               <CategoryManagement onUpdate={invalidateCategories} />
             </div>
             <div className="flex items-center gap-1 text-muted-foreground">
-              <span>A quién le pagas:</span>
+              <span>Beneficiarios:</span>
               <ResponsibleManagement onUpdate={invalidateResponsibles} />
             </div>
           </div>
 
-          {/* KPIs de CIERRE — el trabajo real: cerrar cartera contra banco,
-              no llenar etiquetas fila por fila. */}
-          <div className="relative overflow-hidden rounded-2xl border border-black/[0.06] bg-gradient-to-br from-white via-white to-slate-50/60 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-950 shadow-[0_1px_3px_rgba(0,0,0,0.06)] px-5 py-4">
-            {/* sheen sutil */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-black/[0.06] to-transparent" />
-            <div className="flex items-center gap-5 flex-wrap">
-              <div className="flex-1 min-w-[220px]">
-                <div className="flex items-center justify-between text-[11px] mb-2">
-                  <span className="text-muted-foreground/80 font-medium">Cobros de venta conciliados contra cartera</span>
-                  <span className="font-bold text-foreground tabular-nums text-sm">
-                    <AnimatedNumber value={cierre.cobrosPct} />%
-                  </span>
+          <section aria-label="Resumen de cierre" className="space-y-3">
+            <div>
+              <h2 className="text-lg font-bold">Resumen de cierre</h2>
+              <p className="text-sm text-muted-foreground">Año: {selectedYear === 'all' ? 'Todos' : selectedYear} · {statementFilterLabel}{txQuery.isPlaceholderData && ' · Actualizando movimientos…'}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="reconciliation-metric">
+                <p>Cobros cruzados con cartera</p>
+                <strong><AnimatedNumber value={cierre.cobrosPct} />%</strong>
+                <div className="h-2 rounded-full bg-muted overflow-hidden" aria-hidden="true">
+                  <div className="h-full bg-success rounded-full" style={{ width: `${cierre.cobrosPct}%` }} />
                 </div>
-                <div className="h-2.5 rounded-full bg-muted/70 overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${cierre.cobrosPct}%`,
-                      background: 'linear-gradient(90deg, oklch(0.43 0.14 155), oklch(0.58 0.15 155))',
-                      boxShadow: '0 0 8px oklch(0.43 0.14 155 / 0.35)',
-                      transition: 'width 0.7s cubic-bezier(0.16,1,0.3,1)',
-                    }}
-                  />
-                </div>
-                <div className="text-[11px] text-muted-foreground/70 mt-1.5">
-                  {cierre.cobrosConciliados} de {cierre.cobrosVenta} cobros con factura enlazada o N/A explícito
-                </div>
+                <small>{cierre.cobrosConciliados} de {cierre.cobrosVenta} cobros con factura o N/A explícito</small>
               </div>
-
-              <div className="h-11 w-px bg-border/70" />
-
-              <div className="min-w-[110px]">
-                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Sin explicar</div>
-                <div className="text-[28px] leading-none font-bold tabular-nums" style={{ color: cierre.sinExplicar > 0 ? 'oklch(0.65 0.15 65)' : 'oklch(0.43 0.14 155)' }}>
-                  <AnimatedNumber value={cierre.sinExplicar} />
-                </div>
-                <div className="text-[11px] text-muted-foreground/70 mt-1">
-                  {cierre.sinExplicar === 0 ? 'todo justificado' : 'líneas sin categoría ni factura'}
-                </div>
+              <div className="reconciliation-metric" data-attention={cierre.sinExplicar > 0}>
+                <p>Movimientos sin explicar</p>
+                <strong><AnimatedNumber value={cierre.sinExplicar} /></strong>
+                <small>Sin categoría ni factura</small>
               </div>
-
-              <div className="h-11 w-px bg-border/70" />
-
-              <div
-                className="min-w-[120px]"
-                title={traspasosSinEspejo.length > 0
-                  ? traspasosSinEspejo.slice(0, 6).map(t => `${t.date} · ${t.description ?? ''} (${Number(t.amount ?? 0).toLocaleString('es-CO')})`).join('\n')
-                  : 'Todos los traspasos tienen su pierna espejo en otra cuenta'}
-              >
-                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Traspasos sin espejo</div>
-                <div className="text-[28px] leading-none font-bold tabular-nums" style={{ color: traspasosSinEspejo.length > 0 ? 'oklch(0.52 0.18 25)' : 'oklch(0.43 0.14 155)' }}>
-                  <AnimatedNumber value={traspasosSinEspejo.length} />
-                </div>
-                <div className="text-[11px] text-muted-foreground/70 mt-1">
-                  {traspasosSinEspejo.length === 0 ? 'todos cruzados' : 'falta la contraparte'}
-                </div>
+              <div className="reconciliation-metric" data-attention={traspasosSinEspejo.length > 0}>
+                <p>Traspasos sin contraparte</p>
+                <strong><AnimatedNumber value={traspasosSinEspejo.length} /></strong>
+                <small>{traspasosSinEspejo.length ? 'Revisá las cuentas del alcance seleccionado' : 'Sin faltantes detectados'}</small>
+                {!!traspasosSinEspejo.length && (
+                  <details className="text-xs">
+                    <summary className="cursor-pointer font-semibold">Ver ejemplos</summary>
+                    <ul className="mt-2 space-y-1 break-words">
+                      {traspasosSinEspejo.slice(0, 6).map((t, i) => (
+                        <li key={i}>{t.date} · {t.description} · {copFmt(Number(t.amount ?? 0))}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
-
-              <div className="h-11 w-px bg-border/70" />
-
-              <div className="min-w-[100px]">
-                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-1">Beneficiarios</div>
-                <div className="text-[28px] leading-none font-bold tabular-nums text-foreground">
-                  <AnimatedNumber value={reconciledPct} />%
-                </div>
-                <div className="text-[11px] text-muted-foreground/70 mt-1">
-                  {filterCounts.pendientes > 0 ? `${filterCounts.pendientes} por asignar` : 'todo al día'}
-                </div>
+              <div className="reconciliation-metric reconciliation-assignment">
+                <p>Beneficiarios asignados</p>
+                <strong><AnimatedNumber value={reconciledPct} />%</strong>
+                <small>{filterCounts.pendientes} por asignar · avance de clasificación</small>
               </div>
             </div>
-          </div>
+          </section>
 
           {/* Pestañas del módulo: conciliar vs auditar (pedido de Nico
               2026-08-06: "darme cuenta de esos detalles más rápido"). */}
-          <div className="inline-flex rounded-lg bg-muted p-1 gap-1">
+          <div className="flex w-fit max-w-full flex-wrap rounded-xl border bg-card p-1 gap-1">
             {([['movimientos', 'Movimientos'], ['auditoria', 'Auditoría'], ['terceros', 'Terceros']] as const).map(([k, label]) => (
-              <button key={k} onClick={() => setVista(k)}
+              <button type="button" key={k} aria-pressed={vista === k} onClick={() => setVista(k)}
                 className={cn('px-4 py-2 rounded-md text-sm font-medium transition-all',
-                  vista === k ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                  vista === k ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
                 {label}
               </button>
             ))}
@@ -922,7 +891,7 @@ export default function Transactions() {
             onClearStatementFilter={() => setSelectedStatement('all')}
           />
 
-          <Card className="rounded-2xl border-black/[0.06] shadow-[0_1px_3px_rgba(0,0,0,0.05)] overflow-hidden">
+          <Card className="rounded-2xl border-border overflow-hidden">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -935,25 +904,25 @@ export default function Transactions() {
                 {hasActiveFilters && filteredTransactions.length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex flex-col items-end rounded-xl border border-success/20 bg-success/[0.06] px-3 py-1.5 min-w-[96px]">
-                      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Ingresos</span>
+                      <span className="text-xs uppercase tracking-wider text-muted-foreground">Ingresos</span>
                       <AnimatedNumber value={filteredTotals.ingresos} format={copFmt} className="font-bold text-success tabular-nums text-sm" />
                     </div>
                     <div className="flex flex-col items-end rounded-xl border border-destructive/20 bg-destructive/[0.06] px-3 py-1.5 min-w-[96px]">
-                      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Egresos</span>
+                      <span className="text-xs uppercase tracking-wider text-muted-foreground">Egresos</span>
                       <AnimatedNumber value={filteredTotals.egresos} format={copFmt} className="font-bold text-destructive tabular-nums text-sm" />
                     </div>
                     <div className={cn(
                       'flex flex-col items-end rounded-xl border px-3 py-1.5 min-w-[96px]',
                       filteredTotals.neto >= 0 ? 'border-success/30 bg-success/[0.08]' : 'border-destructive/30 bg-destructive/[0.08]'
                     )}>
-                      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Neto</span>
+                      <span className="text-xs uppercase tracking-wider text-muted-foreground">Neto</span>
                       <AnimatedNumber value={filteredTotals.neto} format={copFmt} className={cn('font-bold tabular-nums text-sm', filteredTotals.neto >= 0 ? 'text-success' : 'text-destructive')} />
                     </div>
                   </div>
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-0 sm:p-6 sm:pt-0">
+            <CardContent className="p-0">
               {loading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-accent" />
@@ -964,7 +933,7 @@ export default function Transactions() {
                   <p>No hay transacciones</p>
                   <p className="text-sm mt-1">
                     <Link to="/statement-upload" className="text-primary hover:underline">
-                      Sube un extracto
+                      Subí un extracto
                     </Link> para comenzar
                   </p>
                 </div>
@@ -973,12 +942,12 @@ export default function Transactions() {
                   <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No hay transacciones con estos filtros</p>
                   <p className="text-sm mt-1">
-                    Prueba cambiando los filtros activos
+                    Probá cambiando los filtros activos
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table className="table-fixed" style={{ width: colTotal, minWidth: '100%' }}>
+                <div className="reconciliation-scroll" role="region" aria-label="Tabla de movimientos bancarios" tabIndex={0}>
+                  <table className="reconciliation-table table-fixed text-sm" style={{ width: colTotal, minWidth: '100%' }}>
                     <colgroup>
                       <col style={{ width: colWidths.fecha }} />
                       <col style={{ width: colWidths.desc }} />
@@ -1055,7 +1024,7 @@ export default function Transactions() {
                         />
                       )}
                     </TableBody>
-                  </Table>
+                  </table>
                 </div>
               )}
             </CardContent>
@@ -1063,6 +1032,7 @@ export default function Transactions() {
           </div>
 
           <TransactionDetailModal
+            statementLabel={detailStatement?.display_name || detailStatement?.file_name}
             transaction={selectedTransaction}
             open={!!selectedTransaction}
             onClose={() => setSelectedTransaction(null)}

@@ -596,31 +596,16 @@ export default function TransactionRow({
   );
 
   return (
-    <TableRow
-      className={cn(
-        'hover:bg-muted/30 transition-colors',
-        !isReconciled && 'bg-warning/5 border-l-2 border-l-warning'
-      )}
-      style={!isReconciled ? {
-        borderLeft: '3px solid oklch(0.65 0.15 65)',
-        background: 'oklch(0.65 0.15 65 / 0.03)',
-      } : {}}
-    >
-      <TableCell className="font-medium text-sm w-[72px] relative">
+    <TableRow className="reconciliation-row" data-pending={!isReconciled}>
+      <TableCell className="reconciliation-date whitespace-nowrap text-sm tabular-nums">
         {format(parseLocalDate(localTransaction.date), 'dd MMM', { locale: es })}
-        {/* Feedback del guardado optimista: si falla (red, RLS), el usuario
-            se entera acá en vez de creer que quedó conciliado. Overlay
-            absoluto para no cambiar la altura de la fila al aparecer. */}
-        <div className="absolute left-2 bottom-0.5 pointer-events-auto">
-          <SaveStatusIndicator status={status} errorMessage={errorMessage} />
-        </div>
       </TableCell>
 
       <TableCell>
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm truncate flex-1 cursor-help">
+              <span className="text-sm min-w-0 flex-1 break-words cursor-help">
                 {localTransaction.description}
               </span>
               {canEditDescription && (
@@ -633,6 +618,7 @@ export default function TransactionRow({
                 variant="ghost"
                 size="sm"
                 className="h-6 w-6 p-0 shrink-0"
+                aria-label="Ver detalle del movimiento"
                 onClick={() => onViewDetail(localTransaction)}
               >
                 <Eye className="h-3 w-3" />
@@ -643,14 +629,20 @@ export default function TransactionRow({
             <p className="text-sm whitespace-pre-wrap">{localTransaction.description}</p>
           </TooltipContent>
         </Tooltip>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <span className={cn('reconciliation-badge', isReconciled ? 'text-success bg-success/10' : 'text-warning bg-warning/10')}>
+            {isReconciled ? 'Beneficiario asignado' : 'Por asignar'}
+          </span>
+          <SaveStatusIndicator status={status} errorMessage={errorMessage} />
+        </div>
       </TableCell>
 
-      <TableCell className={`text-right font-bold text-sm w-[100px] ${amountColor}`}>
+      <TableCell className={`text-right font-bold text-sm tabular-nums w-[100px] ${amountColor}`}>
         {formatCurrency(localTransaction.amount)}
       </TableCell>
 
       {/* Simplified Type Selector */}
-      <TableCell className="w-[80px]">
+      <TableCell data-field="Tipo" className="w-[80px]">
         <Select
           value={localTransaction.type || 'egreso'}
           onValueChange={(value) => handleTypeChange(value as SimpleTransactionType)}
@@ -669,7 +661,7 @@ export default function TransactionRow({
       </TableCell>
 
       {/* Category */}
-      <TableCell className="w-[170px]">
+      <TableCell data-field="Categoría" className="w-[170px]">
         <SearchableSelect
           options={categoryOptions}
           value={localTransaction.category_id}
@@ -683,7 +675,7 @@ export default function TransactionRow({
         {/* Sugerencia de un clic: la categoría dominante de esta descripción. */}
         {!localTransaction.category_id && sugerenciaCat && (
           <button
-            className="mt-0.5 block max-w-full truncate text-[10px] text-primary hover:underline text-left"
+            className="mt-0.5 block max-w-full truncate text-xs text-primary hover:underline text-left"
             title={`Así clasificaste esta descripción ${sugerenciaCat.veces} de ${sugerenciaCat.total} veces. Clic para aplicar.`}
             onClick={() => handleCategoryChange(sugerenciaCat.categoryId)}
           >
@@ -693,7 +685,7 @@ export default function TransactionRow({
       </TableCell>
 
       {/* Responsible */}
-      <TableCell className="w-[170px]">
+      <TableCell data-field="Beneficiario" className="w-[170px]">
         <div className="flex items-center gap-1">
           <SearchableSelect
             options={responsibleOptions}
@@ -721,7 +713,7 @@ export default function TransactionRow({
             triggerClassName={cn('w-full', !localTransaction.responsible_id && 'border-warning/50 text-warning')}
           />
           {!localTransaction.responsible_id && (
-            <span className="shrink-0 text-[10px] text-warning font-medium">⚠</span>
+            <span className="shrink-0 text-xs text-warning font-medium">⚠</span>
           )}
           {/* Ficha del tercero: "quería ver quién era y no pude" (Nico
               2026-08-06). Abre en pestaña nueva para no perder la conciliación. */}
@@ -742,7 +734,7 @@ export default function TransactionRow({
             facturas + montos habituales + tiempos de pago. Con evidencia. */}
         {!localTransaction.responsible_id && sugerenciaCliente && (
           <button
-            className="mt-0.5 block max-w-full truncate text-[10px] text-primary hover:underline text-left"
+            className="mt-0.5 block max-w-full truncate text-xs text-primary hover:underline text-left"
             title={`${sugerenciaCliente.confianza}% · ${sugerenciaCliente.señales.join(' · ')}. Clic para asignar${sugerenciaCliente.combo ? ' y vincular las facturas' : sugerenciaCliente.abonoA ? ' y vincular la factura' : ''}.`}
             onClick={aceptarSugerenciaCliente}
           >
@@ -755,7 +747,7 @@ export default function TransactionRow({
         {!localTransaction.responsible_id && !sugerenciaCliente && sugerenciasResp[0] && (
           <button
             className={cn(
-              'mt-0.5 block max-w-full truncate text-[10px] hover:underline text-left',
+              'mt-0.5 block max-w-full truncate text-xs hover:underline text-left',
               sugerenciasResp[0].yaCobroEl ? 'text-muted-foreground' : 'text-primary',
             )}
             title={sugerenciasResp[0].yaCobroEl
@@ -775,7 +767,7 @@ export default function TransactionRow({
           generados por el banco (4x1000, intereses, comisiones) tienen N/A
           automático y silencioso: pintar un dropdown vacío ahí era el ruido
           que hacía sentir el módulo incompleto. */}
-      <TableCell className="w-[140px]">
+      <TableCell data-field="Factura" className="w-[140px]">
         {bucketWantsInvoice(bucket, localTransaction.type) ? (
           <>
           <InvoiceSelector
@@ -798,7 +790,7 @@ export default function TransactionRow({
           {sugerenciaFactura && !derivedInvoiceId && (
             <span className="mt-0.5 flex items-center gap-1 max-w-full">
               <button
-                className="min-w-0 truncate text-[10px] text-primary hover:underline text-left"
+                className="min-w-0 truncate text-xs text-primary hover:underline text-left"
                 disabled={confirmarMatch.isPending}
                 title={`Confianza ${sugerenciaFactura.confidence}% · saldo ${sugerenciaFactura.signals.balance_pending ?? '—'} · clic para vincular y conciliar`}
                 onClick={aceptarSugerenciaFactura}
@@ -806,7 +798,7 @@ export default function TransactionRow({
                 ¿{sugerenciaFactura.signals.counterparty_name ?? 'Cliente'} · {sugerenciaFactura.signals.invoice_number ?? 'FV'}? · {sugerenciaFactura.confidence}%
               </button>
               <button
-                className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive"
+                className="shrink-0 text-xs text-muted-foreground hover:text-destructive"
                 disabled={rechazarMatch.isPending}
                 title="No es esta factura"
                 onClick={() => rechazarMatch.mutate(sugerenciaFactura.id)}
@@ -818,7 +810,7 @@ export default function TransactionRow({
           </>
         ) : (
           <span
-            className="text-[10px] text-muted-foreground/60 select-none"
+            className="text-xs text-muted-foreground/60 select-none"
             title={bucket === 'traspaso'
               ? 'Traspaso entre cuentas propias — no lleva factura'
               : 'Generado por el banco — no lleva factura'}
@@ -829,7 +821,7 @@ export default function TransactionRow({
       </TableCell>
 
       {/* Naturaleza del movimiento — operativo vs traspaso/devolución/préstamo/aporte */}
-      <TableCell className="w-[120px]">
+      <TableCell data-field="Naturaleza" className="w-[120px]">
         <Select
           value={localTransaction.movement_nature ?? 'operativo'}
           onValueChange={handleNatureChange}

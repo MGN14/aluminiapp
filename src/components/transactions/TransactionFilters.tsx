@@ -149,11 +149,11 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
             onClick={() => update({ estado: 'pendientes' })}
             style={{
               padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:500, border:'none', cursor:'pointer', fontFamily:'inherit',
-              background: filters.estado === 'pendientes' ? 'oklch(0.65 0.15 65)' : 'transparent',
-              color: filters.estado === 'pendientes' ? '#fff' : 'var(--ink2)',
+              background: filters.estado === 'pendientes' ? 'hsl(var(--warning))' : 'transparent',
+              color: filters.estado === 'pendientes' ? 'hsl(var(--warning-foreground))' : 'var(--ink2)',
             }}
           >
-            Pendientes ({counts.pendientes})
+            Por asignar ({counts.pendientes})
           </button>
           <button
             type="button"
@@ -164,7 +164,7 @@ export default function TransactionFilters({ filters, onFiltersChange, counts, c
               color: filters.estado === 'conciliadas' ? '#fff' : 'var(--ink2)',
             }}
           >
-            Conciliadas ({counts.conciliadas})
+            Asignados ({counts.conciliadas})
           </button>
         </div>
 

@@ -104,7 +104,7 @@ export default function AuditoriaConciliacion({ categories, responsibles }: Prop
         <div className="space-y-2">
           <h3 className="text-sm font-bold flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-600" />
-            {alertas.length} inconsistencia(s) — la mayoría manda, estos se salen
+            {alertas.length} hallazgos para revisar
           </h3>
           {alertas.map((a) => (
             <AlertaCard key={`${a.grupo.desc}|${a.campo}`} alerta={a} nombre={nombre}
@@ -179,13 +179,13 @@ export default function AuditoriaConciliacion({ categories, responsibles }: Prop
                         <td colSpan={5} className="px-3 py-2">
                           <div className="flex items-end gap-2 flex-wrap">
                             <div className="w-48">
-                              <label className="text-[10px] text-muted-foreground block mb-0.5">Categoría para TODAS</label>
+                              <label className="text-xs text-muted-foreground block mb-0.5">Categoría para TODAS</label>
                               <SearchableSelect
                                 options={categories.filter((c) => c.active).map((c) => ({ value: c.id, label: c.name }))}
                                 value={bulkCat} onChange={setBulkCat} placeholder="(no cambiar)" />
                             </div>
                             <div className="w-48">
-                              <label className="text-[10px] text-muted-foreground block mb-0.5">Beneficiario para TODAS</label>
+                              <label className="text-xs text-muted-foreground block mb-0.5">Beneficiario para TODAS</label>
                               <SearchableSelect
                                 options={responsibles.filter((r) => r.active).map((r) => ({ value: r.id, label: r.name }))}
                                 value={bulkResp} onChange={setBulkResp} placeholder="(no cambiar)" />
@@ -216,7 +216,7 @@ export default function AuditoriaConciliacion({ categories, responsibles }: Prop
             </tbody>
           </table>
           {grupos.length > visibles.length && (
-            <p className="px-3 py-2 text-[11px] text-muted-foreground">
+            <p className="px-3 py-2 text-xs text-muted-foreground">
               Mostrando {visibles.length} de {grupos.length} — usá el buscador.
             </p>
           )}
@@ -235,7 +235,7 @@ function Conteos({ conteos, campo, nombre }: {
   if (!arr.length) return <span className="text-muted-foreground">—</span>;
   const mixta = arr.length > 1;
   return (
-    <span className={cn(mixta && 'text-amber-700 dark:text-amber-500')}>
+    <span className={cn(mixta && 'text-warning')}>
       {arr.slice(0, 3).map(([id, n], i) => `${i > 0 ? ' · ' : ''}${nombre(campo, id)} ${n}`).join('')}
       {arr.length > 3 ? ` · +${arr.length - 3}` : ''}
     </span>
@@ -280,16 +280,16 @@ function AlertaCard({ alerta: a, nombre, corrigiendo, onCorregir, onExcluir }: {
   const valorDe = (t: TxHistorial) =>
     nombre(a.campo, (a.campo === 'categoria' ? t.category_id : t.responsible_id) ?? '');
   return (
-    <div className="rounded-lg border border-amber-400/40 bg-amber-50/40 dark:bg-amber-950/10 px-3 py-2 text-xs">
+    <div className="rounded-xl border border-warning/30 border-l-4 bg-warning/5 p-4 text-sm">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <button className="text-left min-w-0" onClick={() => setAbierto((v) => !v)}>
-          <span className="font-medium">«{a.grupo.muestra}»</span>{' '}
-          — {a.campo === 'categoria' ? 'categoría' : 'beneficiario'} <strong>{dominante}</strong> {a.dominanteVeces} de {a.total} veces,{' '}
-          <span className="text-amber-700 dark:text-amber-500 font-semibold">{a.outliers.length} distinto(s)</span>
+        <button type="button" aria-expanded={abierto} className="text-left min-w-0 flex-1 basis-64" onClick={() => setAbierto((v) => !v)}>
+          <span className="block break-words font-bold">{a.grupo.muestra}</span>
+          Historial de {a.campo === 'categoria' ? 'categoría' : 'beneficiario'} <strong>{dominante}</strong> {a.dominanteVeces} de {a.total} veces,{' '}
+          <span className="text-warning font-semibold">{a.outliers.length} distinto(s)</span>
           {abierto ? <ChevronDown className="h-3 w-3 inline ml-1" /> : <ChevronRight className="h-3 w-3 inline ml-1" />}
         </button>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button size="sm" variant="outline" className="h-7 text-xs"
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <Button size="sm" variant="outline" className="min-h-9 h-auto whitespace-normal text-xs"
             disabled={corrigiendo || !idsOutliers.length}
             onClick={() => {
               if (window.confirm(`Pasar ${idsOutliers.length} movimiento(s) de «${a.grupo.muestra}» a ${a.campo} = ${dominante}?`)) {

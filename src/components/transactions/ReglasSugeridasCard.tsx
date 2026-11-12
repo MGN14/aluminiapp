@@ -75,14 +75,14 @@ export default function ReglasSugeridasCard({ categories, responsibles }: Props)
   if (!sugerencias.length) return null;
 
   return (
-    <div className="rounded-lg border border-primary/30 bg-primary/[0.03] px-4 py-2.5">
-      <button className="flex items-center gap-2 text-sm font-medium w-full text-left"
+    <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+      <button type="button" aria-expanded={abierto} className="flex flex-wrap items-center gap-2 text-sm font-semibold w-full text-left"
         onClick={() => setAbierto((v) => !v)}>
         {abierto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         <Lightbulb className="h-4 w-4 text-primary" />
-        {sugerencias.length} regla(s) sugerida(s) por tu historial
+        {sugerencias.length} sugerencias de reglas
         <span className="text-xs text-muted-foreground font-normal ml-1">
-          — un clic y la app concilia esto sola de ahora en adelante
+          Al crear una regla, también se aplica a los pendientes que coincidan.
         </span>
       </button>
       {abierto && (
@@ -91,7 +91,7 @@ export default function ReglasSugeridasCard({ categories, responsibles }: Props)
             <div key={s.titulo}
               className="flex items-center justify-between gap-3 flex-wrap rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs">
               <div className="min-w-0">
-                <p className="font-medium truncate">{s.titulo}</p>
+                <p className="font-semibold break-words">{s.titulo}</p>
                 <p className="text-muted-foreground">{s.evidencia}</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">

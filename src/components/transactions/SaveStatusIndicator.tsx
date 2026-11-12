@@ -20,18 +20,18 @@ const SaveStatusIndicator = forwardRef<HTMLDivElement, SaveStatusIndicatorProps>
 
     if (status === 'saving') {
       return (
-        <div ref={ref} className="flex items-center gap-1 text-muted-foreground">
+        <div ref={ref} role="status" className="flex items-center gap-1 text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          <span className="text-[10px]">Guardando...</span>
+          <span className="text-xs">Guardando...</span>
         </div>
       );
     }
 
     if (status === 'saved') {
       return (
-        <div ref={ref} className="flex items-center gap-1 text-success animate-in fade-in duration-200">
+        <div ref={ref} role="status" className="flex items-center gap-1 text-success animate-in fade-in duration-200">
           <Check className="h-3 w-3" />
-          <span className="text-[10px]">Guardado</span>
+          <span className="text-xs">Guardado</span>
         </div>
       );
     }
@@ -40,9 +40,9 @@ const SaveStatusIndicator = forwardRef<HTMLDivElement, SaveStatusIndicatorProps>
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div ref={ref} className="flex items-center gap-1 text-destructive cursor-help">
+            <div ref={ref} role="alert" tabIndex={0} className="flex items-center gap-1 text-destructive cursor-help">
               <AlertCircle className="h-3 w-3" />
-              <span className="text-[10px]">Error</span>
+              <span className="text-xs">No se guardó</span>
             </div>
           </TooltipTrigger>
           <TooltipContent side="top">

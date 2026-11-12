@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { format } from 'date-fns';
@@ -15,6 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 interface Props {
   transaction: Transaction | null;
+  statementLabel?: string;
   open: boolean;
   onClose: () => void;
 }
@@ -32,7 +34,7 @@ function formatCurrency(value: number | null) {
   }).format(value);
 }
 
-export default function TransactionDetailModal({ transaction, open, onClose }: Props) {
+export default function TransactionDetailModal({ transaction, statementLabel, open, onClose }: Props) {
   const queryClient = useQueryClient();
   // IVA/Retefuente son atributos tributarios del PAGO — se editan acá, no en
   // el selector de factura (de donde salieron). Los montos se recalculan con
@@ -68,13 +70,14 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="w-[calc(100%_-_2rem)] max-w-xl max-h-[90dvh] overflow-y-auto rounded-2xl">
         <DialogHeader>
-          <DialogTitle>Detalle de Transacción</DialogTitle>
+          <DialogTitle>Detalle del movimiento</DialogTitle>
+          <DialogDescription className="break-words">{statementLabel ? `Extracto: ${statementLabel}` : 'Datos y vínculos del movimiento bancario'}</DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 rounded-xl border bg-muted/30 p-3">
             <div>
               <label className="text-xs text-muted-foreground">Fecha</label>
               <p className="font-medium">
@@ -83,14 +86,14 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Monto</label>
-              <p className={`font-bold ${(transaction.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
+              <p className={`text-xl font-bold tabular-nums ${(transaction.amount ?? 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
                 {formatCurrency(transaction.amount)}
               </p>
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground">Descripción Completa</label>
+            <label className="text-xs text-muted-foreground">Descripción del extracto</label>
             <p className="font-medium text-sm bg-muted/50 p-3 rounded-lg">
               {transaction.description}
             </p>
@@ -98,7 +101,7 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
 
           {transaction.raw_line && (
             <div>
-              <label className="text-xs text-muted-foreground">Línea Original del PDF</label>
+              <label className="text-xs text-muted-foreground">Línea original del PDF</label>
               <p className="font-mono text-xs bg-muted/50 p-3 rounded-lg overflow-x-auto">
                 {transaction.raw_line}
               </p>
@@ -132,11 +135,11 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
           </div>
 
           {/* Atributos tributarios del pago (viven acá, no en el selector de factura) */}
-          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-border">
             <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
               <div>
                 <p className="text-sm font-medium">IVA incluido</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {hasIva && transaction.iva_amount
                     ? `${formatCurrency(transaction.iva_amount)} (19%)`
                     : 'El pago incluye IVA'}
@@ -151,7 +154,7 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
             <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
               <div>
                 <p className="text-sm font-medium">Retefuente</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {hasRetefuente && transaction.retefuente_amount
                     ? `${formatCurrency(transaction.retefuente_amount)} (2.5%)`
                     : 'Se practicó retención'}
@@ -165,9 +168,9 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-border">
             <div>
-              <label className="text-xs text-muted-foreground">Factura Asociada</label>
+              <label className="text-xs text-muted-foreground">Factura asociada</label>
               <p className="text-sm">
                 {hasInvoice ? (
                   <span className="text-success font-medium">✓ Conciliada por factura</span>
@@ -181,9 +184,9 @@ export default function TransactionDetailModal({ transaction, open, onClose }: P
               </p>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Estado de Conciliación</label>
+              <label className="text-xs text-muted-foreground">Beneficiario</label>
               <p className={`text-sm font-medium ${isReconciled ? 'text-success' : 'text-destructive'}`}>
-                {isReconciled ? '✓ Conciliada' : '⏳ Pendiente'}
+                {isReconciled ? 'Asignado' : 'Por asignar'}
               </p>
             </div>
           </div>
