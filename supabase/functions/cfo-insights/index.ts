@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
       // IVA cuatrimestre invoices
       admin
         .from("invoices")
-        .select("id, type, iva_amount, status")
+        .select("id, type, iva_amount, status, counterparty_name, issue_date, void_type")
         .eq("user_id", userId)
         .eq("status", "confirmed")
         .gte("issue_date", ivaStart)
@@ -300,8 +300,42 @@ Deno.serve(async (req) => {
     }
 
     // ─── INSIGHT B: Impuestos ───
-    const ivaVentas = invIva.filter((i: any) => i.type === "venta").reduce((s: number, i: any) => s + (i.iva_amount || 0), 0);
-    const ivaCompras = invIva.filter((i: any) => i.type === "compra").reduce((s: number, i: any) => s + (i.iva_amount || 0), 0);
+    // IVA de importación pagado en aduana: descontable como el de una compra.
+    // Sin esto el consejo decía "vas con $X de IVA por pagar" inflado por el
+    // IVA de los contenedores (auditoría 2026-11-12). Misma regla de fecha y
+    // de recibos DIAN duplicados que la app (src/lib/taxEstimates.ts).
+    const { data: impIvaRows } = await admin
+      .from("import_costs")
+      .select("monto, moneda, trm, created_at, imports!inner(fecha_arribo_real, import_estado_history(estado, fecha))")
+      .eq("user_id", userId)
+      .eq("tipo", "iva_importacion");
+    const importIva: { fecha: string; monto: number }[] = [];
+    for (const r of (impIvaRows ?? []) as any[]) {
+      const hist = (r.imports?.import_estado_history ?? []) as { estado: string; fecha: string }[];
+      const fecha = String(hist.find((h) => h.estado === "aduana")?.fecha
+        ?? hist.find((h) => h.estado === "entregado")?.fecha
+        ?? r.imports?.fecha_arribo_real
+        ?? r.created_at ?? "").slice(0, 10);
+      const monto = r.moneda === "USD"
+        ? (Number(r.trm) > 0 ? Number(r.monto ?? 0) * Number(r.trm) : 0)
+        : Number(r.monto ?? 0);
+      if (fecha && monto > 0) importIva.push({ fecha, monto });
+    }
+    const ivaImportacion = importIva
+      .filter((r) => r.fecha >= ivaStart && r.fecha <= ivaEnd)
+      .reduce((s, r) => s + r.monto, 0);
+    const esAutoridad = (n: unknown) => /\bdian\b|direccion de impuestos|secretaria de hacienda|hacienda distrital|tesoreria/
+      .test(String(n ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase());
+    const duplicaCosteo = (fecha: string) => {
+      const t0 = new Date(fecha + "T12:00:00").getTime();
+      return importIva.some((r) => Math.abs(new Date(r.fecha + "T12:00:00").getTime() - t0) <= 60 * 86_400_000);
+    };
+    const invIvaVigentes = invIva.filter((i: any) => i.void_type !== "total");
+    const ivaVentas = invIvaVigentes.filter((i: any) => i.type === "venta").reduce((s: number, i: any) => s + (i.iva_amount || 0), 0);
+    const ivaCompras = invIvaVigentes
+      .filter((i: any) => i.type === "compra" && !(esAutoridad(i.counterparty_name) && duplicaCosteo(String(i.issue_date ?? ""))))
+      .reduce((s: number, i: any) => s + (i.iva_amount || 0), 0)
+      + ivaImportacion;
     const ivaNeto = ivaVentas - ivaCompras;
 
     const reteicaPeriod = invPeriod.filter((i: any) => i.type === "venta").reduce((s: number, i: any) => s + (i.reteica_amount || 0), 0);
@@ -315,7 +349,7 @@ Deno.serve(async (req) => {
       let text = "";
       if (invIva.length > 0) {
         text += ivaNeto >= 0
-          ? `En el periodo fiscal ${ivaLabel} vas con ${fmt(ivaNeto)} de IVA por pagar (generado ${fmt(ivaVentas)} menos descontable ${fmt(ivaCompras)}).`
+          ? `En el periodo fiscal ${ivaLabel} vas con ${fmt(ivaNeto)} de IVA por pagar (generado ${fmt(ivaVentas)} menos descontable ${fmt(ivaCompras)}${ivaImportacion > 0 ? `, de los cuales ${fmt(ivaImportacion)} es IVA pagado en aduana` : ""}).`
           : `Tienes ${fmt(Math.abs(ivaNeto))} de IVA a favor en ${ivaLabel}. Tus compras generaron más crédito que tus ventas.`;
       }
       if (reteicaPeriod > 0) {

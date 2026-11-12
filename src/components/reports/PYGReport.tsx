@@ -14,9 +14,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { MONTH_NAMES, isOperativo, type ReportGroup } from '@/types/transaction';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
+import { fetchAllPaged } from '@/lib/fetchAllPaged';
+import {
+  detectarPagosAduana,
+  fechaEntradaAduana,
+  liquidacionesDesdeCosteo,
+  liquidacionesDesdeRecibos,
+  type ReciboDianRow,
+} from '@/lib/aduanaPagos';
 import PnlCompare from './PnlCompare';
 
 interface TransactionRow {
+  id?: string;
+  description?: string | null;
+  invoice_id?: string | null;
   date: string;
   amount: number | null;
   type: string | null;
@@ -65,19 +76,28 @@ function formatMarginPct(value: number, base: number): string | null {
   return `${pct.toFixed(1)}%`;
 }
 
+/** Categoría virtual de Impuestos para las liquidaciones de aduana. */
+const ADUANA_CAT = '__aduana_contenedores__';
+
 function useYearData(userId: string | undefined, year: number, includePetty: boolean) {
   return useQuery({
-    queryKey: ['pyg-report-v4', userId, year, includePetty],
+    queryKey: ['pyg-report-v5', userId, year, includePetty],
     queryFn: async () => {
       if (!userId) return null;
 
-      const [txRes, catRes, respRes, pcRes, cpRes, credRes] = await Promise.all([
-        (supabase
+      const [txRes, catRes, respRes, pcRes, cpRes, credRes, costeoRes, recibosRes] = await Promise.all([
+        // Paginado: 2026 ya va en ~940 movimientos y la base corta en 1.000
+        // EN SILENCIO — en diciembre el PyG habría perdido los más nuevos.
+        fetchAllPaged<TransactionRow>((desde, hasta) => (supabase
           .from('transactions') as any)
-          .select('date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount, movement_nature')
+          .select('id, description, invoice_id, date, amount, type, category_id, responsible_id, has_iva, iva_amount, has_retefuente, retefuente_amount, has_reteica, reteica_amount, movement_nature')
           .is('deleted_at', null)
           .gte('date', `${year}-01-01`)
-          .lte('date', `${year}-12-31`),
+          .lte('date', `${year}-12-31`)
+          .order('date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(desde, hasta))
+          .then((data) => ({ data, error: null }), (error) => ({ data: null, error })),
         supabase
           .from('categories')
           .select('id, name, report_group'),
@@ -97,6 +117,20 @@ function useYearData(userId: string | undefined, year: number, includePetty: boo
         // Créditos para mostrar nombre como "beneficiario" en el desglose
         (supabase.from('credits' as never) as any)
           .select('id, name'),
+        // Liquidaciones de aduana (arancel + IVA de importación) del costeo
+        // de cada contenedor, para reconocer esos pagos a la DIAN.
+        (supabase.from('import_costs') as any)
+          .select('import_id, tipo, monto, moneda, trm, created_at, imports!inner(ref_pedido, fecha_arribo_real, import_estado_history(estado, fecha))')
+          .in('tipo', ['arancel', 'iva_importacion']),
+        // Recibos DIAN con IVA cargados como factura de compra: liquidaciones
+        // de contenedores anteriores al módulo de Importaciones.
+        (supabase.from('invoices') as any)
+          .select('id, counterparty_name, issue_date, total_amount, iva_amount, void_type')
+          .eq('type', 'compra')
+          .gt('iva_amount', 0)
+          .ilike('counterparty_name', '%dian%')
+          .gte('issue_date', `${year - 1}-12-01`)
+          .lte('issue_date', `${year + 1}-01-31`),
       ]);
 
       if (txRes.error) throw txRes.error;
@@ -105,6 +139,57 @@ function useYearData(userId: string | undefined, year: number, includePetty: boo
       const catMap = new Map(categories.map(c => [c.id, c]));
       const responsibles: ResponsibleInfo[] = (respRes.data || []) as ResponsibleInfo[];
       const respMap = new Map(responsibles.map(r => [r.id, r]));
+
+      // Liquidaciones de aduana: los pagos a la DIAN que son arancel + IVA de
+      // importación de un contenedor se muestran en su propia categoría dentro
+      // de Impuestos, con un renglón por contenedor. Mismo grupo y mismo monto:
+      // la utilidad no cambia, solo se lee claro qué es aduana y qué es
+      // impuesto del negocio (auditoría 2026-11-12).
+      const liquidaciones = [
+        ...liquidacionesDesdeCosteo(((costeoRes.data ?? []) as Array<{
+          import_id: string; tipo: string; monto: number | null; moneda: string | null; trm: number | null; created_at: string | null;
+          imports: { ref_pedido: string | null; fecha_arribo_real: string | null; import_estado_history?: Array<{ estado: string; fecha: string }> } | null;
+        }>).map((r) => ({
+          importId: r.import_id,
+          refPedido: r.imports?.ref_pedido ?? null,
+          tipo: r.tipo,
+          montoCop: r.moneda === 'USD'
+            ? (Number(r.trm) > 0 ? (Number(r.monto) || 0) * Number(r.trm) : 0)
+            : Number(r.monto) || 0,
+          fecha: fechaEntradaAduana(r.imports?.import_estado_history, r.imports?.fecha_arribo_real, r.created_at),
+        }))),
+        ...liquidacionesDesdeRecibos((recibosRes.data ?? []) as ReciboDianRow[]),
+      ];
+      const pagosAduana = detectarPagosAduana(
+        ((txRes.data ?? []) as TransactionRow[])
+          .filter((tx) => !!tx.id)
+          .map((tx) => ({
+            id: tx.id as string,
+            date: tx.date,
+            amount: tx.amount,
+            description: tx.description ?? null,
+            beneficiario: tx.responsible_id ? respMap.get(tx.responsible_id)?.name ?? null : null,
+            invoice_id: tx.invoice_id ?? null,
+          })),
+        liquidaciones,
+      );
+      const aduanaResponsibles: Record<string, ResponsibleInfo> = {};
+      const txRows: TransactionRow[] = ((txRes.data ?? []) as TransactionRow[]).map((tx) => {
+        const pa = tx.id ? pagosAduana[tx.id] : undefined;
+        if (!pa) return tx;
+        // Solo si está en un grupo de impuestos: si Nico la categorizó como
+        // costo de importación (u otra cosa) a propósito, se respeta.
+        const cat = tx.category_id ? catMap.get(tx.category_id) : null;
+        if ((cat?.report_group ?? null) !== 'impuestos') return tx;
+        const respId = `${ADUANA_CAT}:${pa.liquidacionId}`;
+        aduanaResponsibles[respId] = { id: respId, name: pa.etiqueta };
+        return { ...tx, category_id: ADUANA_CAT, responsible_id: respId };
+      });
+      const aduanaCategories: CategoryInfo[] = Object.keys(aduanaResponsibles).length > 0 ? [{
+        id: ADUANA_CAT,
+        name: 'Aduana de contenedores: arancel e IVA',
+        report_group: 'impuestos',
+      }] : [];
 
       // Inyectamos petty_cash_movements como transacciones virtuales. Distinguimos
       // kind: 'ingreso_efectivo' (comprobante de pago al cliente) → ingreso, el
@@ -176,16 +261,16 @@ function useYearData(userId: string | undefined, year: number, includePetty: boo
         name: `Crédito · ${name}`,
       }));
 
-      const allCategories = [...categories, ...virtualCategories];
+      const allCategories = [...categories, ...virtualCategories, ...aduanaCategories];
       const allCatMap = new Map(allCategories.map(c => [c.id, c]));
-      const allResponsibles = [...responsibles, ...virtualResponsibles];
+      const allResponsibles = [...responsibles, ...virtualResponsibles, ...Object.values(aduanaResponsibles)];
       const allRespMap = new Map(allResponsibles.map(r => [r.id, r]));
 
       // Caja menor ("Yolis") solo entra al PyG en Modo Gerencial: es efectivo no
       // necesariamente legalizado, no debe inflar la vista fiscal (DIAN). En DIAN
       // se omite; en Gerencial entra (y los cash_movements promovidos se excluyen
       // aparte para no doble-contar).
-      const allTransactions = [...(txRes.data as TransactionRow[]), ...(includePetty ? pettyAsTx : []), ...creditInterestAsTx];
+      const allTransactions = [...txRows, ...(includePetty ? pettyAsTx : []), ...creditInterestAsTx];
 
       return {
         transactions: allTransactions,
@@ -896,6 +981,11 @@ export default function PYGReport() {
           <p className="text-xs text-muted-foreground italic">
             * Clic en una categoría para desglosar por beneficiario. Transacciones sin responsable aparecen como "Sin beneficiario".
           </p>
+          {currentData?.categories.some((c) => c.id === ADUANA_CAT) && (
+            <p className="text-xs text-muted-foreground italic">
+              * "Aduana de contenedores" son los pagos a la DIAN al nacionalizar cada pedido: arancel más IVA de importación. La app los reconoce contra el costeo del pedido o el recibo DIAN. Ese IVA se descuenta en la declaración, por eso las declaraciones de IVA salen bajas.
+            </p>
+          )}
           <p className="text-xs text-muted-foreground italic">
             * Incluye gastos de Caja Menor (efectivo y cuentas de cobro) ingresados en el año.
           </p>

@@ -765,11 +765,21 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       catMap.set(c.id as string, { name: (c.name as string) ?? "", rg: (c.report_group as string) ?? "otros" });
     }
 
-    const { data: txs, error } = await db.from("transactions")
-      .select("type, amount, category_id, has_retefuente, retefuente_amount, has_reteica, reteica_amount, movement_nature")
-      .eq("user_id", userId).is("deleted_at", null)
-      .gte("date", from).lte("date", to);
-    if (error) throw new Error(error.message);
+    // Paginado de a 1.000: PostgREST corta ahí EN SILENCIO y un año completo
+    // ya pasa de 1.000 movimientos (2026 iba en ~940 a octubre).
+    const txs: Record<string, unknown>[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data: pagina, error } = await db.from("transactions")
+        .select("id, type, amount, category_id, has_retefuente, retefuente_amount, has_reteica, reteica_amount, movement_nature")
+        .eq("user_id", userId).is("deleted_at", null)
+        .gte("date", from).lte("date", to)
+        .order("date", { ascending: true }).order("id", { ascending: true })
+        .range(desde, desde + 999);
+      if (error) throw new Error(error.message);
+      const filas = (pagina ?? []) as Record<string, unknown>[];
+      txs.push(...filas);
+      if (filas.length < 1000) break;
+    }
 
     const groups: Record<string, number> = { ingresos: 0, costos_operacionales: 0, gastos_operativos: 0, impuestos: 0, otros: 0 };
     const byCat = new Map<string, { categoria: string; grupo: string; monto: number }>();
@@ -794,16 +804,53 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     }
     groups.impuestos += taxFromFlags;
 
+    // IVA de importación pagado en aduana: descontable igual que el de una
+    // factura de compra. Antes esta herramienta solo sumaba facturas y daba
+    // IVA por pagar de $196M cuando el real rondaba $35M (auditoría
+    // 2026-11-12). Fecha = entrada a aduana, misma regla que la app
+    // (src/lib/taxEstimates.ts y src/lib/aduanaPagos.ts).
+    const { data: impIvaRows } = await db.from("import_costs")
+      .select("monto, moneda, trm, created_at, imports!inner(fecha_arribo_real, import_estado_history(estado, fecha))")
+      .eq("user_id", userId).eq("tipo", "iva_importacion");
+    const importIva: { fecha: string; monto: number }[] = [];
+    for (const r of (impIvaRows ?? []) as Record<string, any>[]) {
+      const hist = (r.imports?.import_estado_history ?? []) as { estado: string; fecha: string }[];
+      const fecha = String(hist.find((h) => h.estado === "aduana")?.fecha
+        ?? hist.find((h) => h.estado === "entregado")?.fecha
+        ?? r.imports?.fecha_arribo_real
+        ?? r.created_at ?? "").slice(0, 10);
+      const monto = r.moneda === "USD"
+        ? (Number(r.trm) > 0 ? Number(r.monto ?? 0) * Number(r.trm) : 0)
+        : Number(r.monto ?? 0);
+      if (fecha && monto > 0) importIva.push({ fecha, monto });
+    }
+    const ivaImportacion = importIva
+      .filter((r) => r.fecha >= from && r.fecha <= to)
+      .reduce((s, r) => s + r.monto, 0);
+    // Un recibo DIAN cargado como factura de compra a ±60 días de un IVA de
+    // importación del costeo es el MISMO pago de aduana: se cuenta una vez.
+    const esAutoridad = (n: unknown) => /\bdian\b|direccion de impuestos|secretaria de hacienda|hacienda distrital|tesoreria/
+      .test(String(n ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase());
+    const duplicaCosteo = (fecha: string) => {
+      const t0 = new Date(fecha + "T12:00:00").getTime();
+      return importIva.some((r) => Math.abs(new Date(r.fecha + "T12:00:00").getTime() - t0) <= 60 * 86_400_000);
+    };
+
     const { data: ivaInvs } = await db.from("invoices")
-      .select("type, iva_amount").eq("user_id", userId)
+      .select("type, iva_amount, counterparty_name, issue_date").eq("user_id", userId)
       .or("void_type.is.null,void_type.eq.partial")
-      .gte("issue_date", from).lte("issue_date", to);
-    let ivaGenerado = 0, ivaDescontable = 0;
+      .gte("issue_date", from).lte("issue_date", to)
+      .limit(5000);
+    let ivaGenerado = 0, ivaFacturasCompra = 0;
     for (const i of (ivaInvs ?? []) as Record<string, unknown>[]) {
       const iva = Number(i.iva_amount ?? 0);
       if (i.type === "venta") ivaGenerado += iva;
-      else if (i.type === "compra") ivaDescontable += iva;
+      else if (i.type === "compra") {
+        if (esAutoridad(i.counterparty_name) && duplicaCosteo(String(i.issue_date ?? ""))) continue;
+        ivaFacturasCompra += iva;
+      }
     }
+    const ivaDescontable = ivaFacturasCompra + ivaImportacion;
 
     const utilidadBruta = groups.ingresos - groups.costos_operacionales;
     const ebitda = utilidadBruta - groups.gastos_operativos;
@@ -823,8 +870,10 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       iva: {
         generado: round2(ivaGenerado),
         descontable: round2(ivaDescontable),
+        descontable_facturas_compra: round2(ivaFacturasCompra),
+        descontable_importacion: round2(ivaImportacion),
         por_pagar: round2(ivaGenerado - ivaDescontable),
-        note: "IVA por pagar = generado − descontable. Es cuenta de BALANCE (no gasto). Se muestra aparte; la utilidad_neta de arriba mantiene el criterio actual de la app.",
+        note: "IVA por pagar = generado − descontable (facturas de compra + IVA de importación pagado en aduana). Es cuenta de BALANCE (no gasto). Estimado del período sin arrastrar saldos a favor; la declaración la cierra el contador. La utilidad_neta de arriba mantiene el criterio actual de la app.",
       },
       por_categoria: [...byCat.values()].sort((a, b) => b.monto - a.monto).map((c) => ({ ...c, monto: round2(c.monto) })),
       note: "Base caja (transacciones bancarias del período). Impuestos incluye retefuente/reteica de flags. No incluye caja menor.",

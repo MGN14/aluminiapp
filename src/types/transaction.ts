@@ -10,12 +10,17 @@ export type OperationalType = 'ingreso' | 'costo' | 'gasto_operativo' | 'impuest
 // cálculos (dashboard, P&G, cashflow, API). NULL/operativo = ingreso/egreso real.
 export type MovementNature = 'operativo' | 'traspaso' | 'devolucion' | 'prestamo' | 'aporte';
 
-export const MOVEMENT_NATURES: { value: MovementNature; label: string }[] = [
-  { value: 'operativo', label: 'Operativo' },
-  { value: 'traspaso', label: 'Traspaso entre cuentas' },
-  { value: 'devolucion', label: 'Devolución / DIAN' },
-  { value: 'prestamo', label: 'Préstamo' },
-  { value: 'aporte', label: 'Aporte de socio' },
+// OJO con 'devolucion': antes se llamaba "Devolución / DIAN" y eso invitaba
+// a marcar CUALQUIER pago a la DIAN, que entonces salía del PyG. Pasó con dos
+// liquidaciones de aduana por $224,6M (auditoría 2026-11-12). Es solo para
+// plata que te DEVUELVEN (saldo a favor de la DIAN, reintegro de un
+// proveedor) o que devolvés a un cliente.
+export const MOVEMENT_NATURES: { value: MovementNature; label: string; hint: string }[] = [
+  { value: 'operativo', label: 'Operativo', hint: 'Ingreso o gasto real del negocio. Incluye impuestos y aduana.' },
+  { value: 'traspaso', label: 'Traspaso entre cuentas', hint: 'Plata que pasa entre tus propias cuentas.' },
+  { value: 'devolucion', label: 'Devolución o reintegro', hint: 'Plata que te devuelven, por ejemplo un saldo a favor de la DIAN. No es para pagos a la DIAN.' },
+  { value: 'prestamo', label: 'Préstamo', hint: 'Desembolso o abono a capital de un préstamo.' },
+  { value: 'aporte', label: 'Aporte de socio', hint: 'Plata que mete o saca un socio.' },
 ];
 
 /** true si el movimiento cuenta como ingreso/egreso real del negocio. */

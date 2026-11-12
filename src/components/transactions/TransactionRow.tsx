@@ -27,6 +27,7 @@ import InvoiceSelector, { InvoiceTag } from './InvoiceSelector';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { classifyBucket, bucketWantsInvoice } from '@/lib/txBucket';
+import { isTaxAuthorityName } from '@/lib/taxEstimates';
 import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { useConciliacionHistorial } from '@/hooks/useConciliacionHistorial';
@@ -186,6 +187,22 @@ export default function TransactionRow({
 
   const handleNatureChange = (nature: string) => {
     updateField({ movement_nature: nature as Transaction['movement_nature'] });
+    // Un PAGO a la DIAN marcado como devolución sale del PyG. Así se perdieron
+    // dos liquidaciones de aduana por $224,6M (auditoría 2026-11-12).
+    if (nature === 'devolucion' && Number(localTransaction.amount ?? 0) < 0) {
+      const catName = categories.find((c) => c.id === localTransaction.category_id)?.name ?? '';
+      const respName = responsibles.find((r) => r.id === localTransaction.responsible_id)?.name ?? '';
+      const esImpuesto = /impuesto/i.test(catName)
+        || isTaxAuthorityName(respName)
+        || /\bdian\b/i.test(localTransaction.description ?? '');
+      if (esImpuesto) {
+        toast({
+          title: 'Ojo: este pago a la DIAN sale del PyG',
+          description: 'Como devolución no cuenta como gasto. Si es un pago de impuestos o de aduana, dejalo en Operativo.',
+          duration: 10000,
+        });
+      }
+    }
   };
 
   const handleInvoiceChange = async (
@@ -839,7 +856,7 @@ export default function TransactionRow({
           </SelectTrigger>
           <SelectContent>
             {MOVEMENT_NATURES.map((n) => (
-              <SelectItem key={n.value} value={n.value}>
+              <SelectItem key={n.value} value={n.value} title={n.hint}>
                 <span className="text-xs">{n.label}</span>
               </SelectItem>
             ))}
